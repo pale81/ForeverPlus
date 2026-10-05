@@ -188,6 +188,14 @@ local function CreateButton(index)
 	if button.HotKey then
 		button.HotKey:SetText("")
 	end
+	-- Same yellow/white star glow as Blizzard's spell alerts (bug report button),
+	-- created per button instead of going through the shared alert manager.
+	local alert = CreateFrame("Frame", nil, button, "ActionButtonSpellAlertTemplate")
+	local width, height = button:GetSize()
+	alert:SetSize(width * 1.4, height * 1.4)
+	alert:SetPoint("CENTER")
+	alert.animationPlaying = true -- restart the loop after the bar was hidden in combat
+	button.Alert = alert
 	button:Hide()
 	buttons[index] = button
 	return button
@@ -298,6 +306,10 @@ local function Update()
 					if SetupButton(button, reminder) then
 						count = count + 1
 						button:Show()
+						if not button.Alert:IsShown() then
+							button.Alert:Show()
+							button.Alert.ProcStartAnim:Play()
+						end
 					end
 				elseif recheck then
 					nextCheck = nextCheck and min(nextCheck, recheck) or recheck
@@ -306,7 +318,10 @@ local function Update()
 		end
 	end
 	for index = count + 1, #buttons do
-		buttons[index]:Hide()
+		local button = buttons[index]
+		button:Hide()
+		button.Alert.ProcStartAnim:Stop()
+		button.Alert:Hide()
 	end
 	LayoutButtons()
 	placeholder:SetShown(ns:IsEditModeActive() and count == 0)

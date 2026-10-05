@@ -14,6 +14,7 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverMultiBars = false,
 		mouseoverStancePet = false,
 		nameplatesCombat = false,
+		hideErrors = false,
 		actionText = true,
 		hideHotkeys = true,
 		hideMacroNames = true,
@@ -92,6 +93,20 @@ function QoL:UpdateMouseover()
 	end
 	SetFaded(StanceBar, db.mouseover and db.mouseoverStancePet)
 	SetFaded(PetActionBar, db.mouseover and db.mouseoverStancePet)
+end
+
+---------------------------------------------------------------------------
+-- Red error messages in the middle of the screen (yellow info stays)
+---------------------------------------------------------------------------
+function QoL:UpdateErrorMessages()
+	if not UIErrorsFrame then
+		return
+	end
+	if self.db.hideErrors then
+		UIErrorsFrame:UnregisterEvent("UI_ERROR_MESSAGE")
+	elseif not UIErrorsFrame:IsEventRegistered("UI_ERROR_MESSAGE") then
+		UIErrorsFrame:RegisterEvent("UI_ERROR_MESSAGE")
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -285,6 +300,7 @@ function QoL:OnLogin()
 	self:UpdateActionText()
 	self:DisableBlizzardCoordsOnce()
 	self:UpdateNameplates()
+	self:UpdateErrorMessages()
 
 	local backpack = MainMenuBarBackpackButton
 	if backpack and backpack.UpdateFreeSlots then
@@ -311,6 +327,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateActionText()
 	elseif key == "bagSlots" then
 		self:UpdateBagSlotsOption()
+	elseif key == "hideErrors" then
+		self:UpdateErrorMessages()
 	elseif key == "nameplatesCombat" then
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
@@ -327,6 +345,8 @@ QoL.options = {
 	{ key = "mouseoverMainBar", type = "toggle", name = L.QOL_MOUSEOVER_MAINBAR, parent = "mouseover" },
 	{ key = "mouseoverMultiBars", type = "toggle", name = L.QOL_MOUSEOVER_MULTIBARS, parent = "mouseover" },
 	{ key = "mouseoverStancePet", type = "toggle", name = L.QOL_MOUSEOVER_STANCEPET, parent = "mouseover" },
+	{ type = "header", name = L.QOL_ERRORS_HEADER },
+	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
 	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
 	{ type = "header", name = L.QOL_ACTIONBAR_HEADER },

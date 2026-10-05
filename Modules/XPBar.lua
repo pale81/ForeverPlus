@@ -1,5 +1,5 @@
--- Experience bar: text always visible (Blizzard's own setting), text formats
--- and the experience of completed quests as a darker part of the bar.
+-- Experience and reputation bar: text always visible (Blizzard's own setting),
+-- text formats and the experience of completed quests as a darker part of the bar.
 local _, ns = ...
 local L = ns.L
 
@@ -7,8 +7,9 @@ local XPBar = ns:NewModule("XPBar", {
 	title = L.XP_TITLE,
 	order = 9.2,
 	defaults = {
-		alwaysText = true,
+		alwaysText = false,
 		format = "full",
+		repFormat = "full",
 		questXP = true,
 	},
 })
@@ -24,8 +25,7 @@ local function Number(value)
 	return BreakUpLargeNumbers and BreakUpLargeNumbers(value) or tostring(value)
 end
 
-local function BarText(current, maximum)
-	local format = XPBar.db.format
+local function BarText(current, maximum, format, extras)
 	local percent = maximum > 0 and current / maximum * 100 or 0
 	local remaining = maximum - current
 	if format == "percent" then
@@ -36,6 +36,9 @@ local function BarText(current, maximum)
 		return L.XP_REMAINING:format(Number(remaining))
 	end
 	local text = ("%s / %s (%.1f%%) – %s"):format(Number(current), Number(maximum), percent, L.XP_REMAINING:format(Number(remaining)))
+	if not extras then
+		return text
+	end
 	local rested = GetXPExhaustion()
 	if rested and rested > 0 then
 		text = text .. " – " .. L.XP_RESTED:format(Number(rested))
@@ -50,7 +53,19 @@ local function UpdateText(bar)
 	if XPBar.db.format == "blizzard" or not bar.currXP or not bar.maxBar or bar:IsCapped() then
 		return
 	end
-	bar:SetBarText(BarText(bar.currXP, bar.maxBar))
+	bar:SetBarText(BarText(bar.currXP, bar.maxBar, XPBar.db.format, true))
+end
+
+-- Reputation: Blizzard stores "Name %d / %d" while the standing is not capped.
+local repBars = {}
+
+local function UpdateRepText(bar)
+	local format = XPBar.db.repFormat
+	if format == "blizzard" or type(bar.name) ~= "string" or not bar.name:find("%%d") or not bar.value or not bar.max then
+		return
+	end
+	local name = bar.name:gsub("%s*%%d%s*/%s*%%d", "")
+	bar:SetBarText(("%s: %s"):format(name, BarText(bar.value, bar.max, format, false)))
 end
 
 local function UpdateOverlay(bar)
@@ -111,6 +126,12 @@ local function HookBars()
 			hooksecurefunc(bar, "UpdateCurrentText", UpdateText)
 			hooksecurefunc(bar, "Update", UpdateOverlay)
 		end
+		local repBar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Reputation]
+		if repBar and not repBars[repBar] then
+			repBars[repBar] = true
+			hooksecurefunc(repBar, "Update", UpdateRepText)
+			hooksecurefunc(repBar, "UpdateCurrentText", UpdateRepText)
+		end
 	end
 	UpdateBars()
 end
@@ -137,6 +158,9 @@ function XPBar:OnOptionChanged(key)
 	for bar in pairs(expBars) do
 		bar:Update()
 	end
+	for bar in pairs(repBars) do
+		bar:Update()
+	end
 end
 
 XPBar.options = {
@@ -144,6 +168,10 @@ XPBar.options = {
 	{ key = "format", type = "dropdown", name = L.XP_FORMAT, desc = L.XP_FORMAT_DESC, values = {
 		{ "blizzard", L.XP_FORMAT_BLIZZARD }, { "percent", L.XP_FORMAT_PERCENT }, { "both", L.XP_FORMAT_BOTH },
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_FORMAT_FULL },
+	} },
+	{ key = "repFormat", type = "dropdown", name = L.XP_REP_FORMAT, desc = L.XP_REP_FORMAT_DESC, values = {
+		{ "blizzard", L.XP_FORMAT_BLIZZARD }, { "percent", L.XP_FORMAT_PERCENT }, { "both", L.XP_FORMAT_BOTH },
+		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_REP_FORMAT_FULL },
 	} },
 	{ key = "questXP", type = "toggle", name = L.XP_QUEST_OVERLAY, desc = L.XP_QUEST_OVERLAY_DESC },
 }

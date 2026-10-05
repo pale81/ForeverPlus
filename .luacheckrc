@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"IsResting",
 	"QuestObjectiveItemButtonMixin",
 	"GetXPExhaustion",
 	"BreakUpLargeNumbers",

@@ -12,6 +12,7 @@ local Buffs = ns:NewModule("Buffs", {
 		direction = "RIGHT",
 		scale = 0.8,
 		threshold = 1,
+		restingZones = false,
 		expiringAlpha = 0.3,
 		wheelCast = false,
 		classes = {},
@@ -298,7 +299,9 @@ local function Update()
 
 	local count = 0
 	local nextCheck
-	if Buffs.db.enabled and not UnitIsDeadOrGhost("player") then
+	-- In rest areas (inns, cities) only when wanted.
+	local resting = IsResting() and not Buffs.db.restingZones
+	if Buffs.db.enabled and not resting and not UnitIsDeadOrGhost("player") then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
@@ -388,6 +391,7 @@ local function CreateBar()
 	events:RegisterEvent("SPELLS_CHANGED")
 	events:RegisterEvent("PLAYER_UNGHOST")
 	events:RegisterEvent("PLAYER_ALIVE")
+	events:RegisterEvent("PLAYER_UPDATE_RESTING")
 	if playerClass == "ROGUE" then
 		events:RegisterEvent("BAG_UPDATE_DELAYED")
 	end
@@ -452,6 +456,7 @@ function Buffs:options()
 		{ key = "scale", type = "slider", name = L.BUFFS_SCALE, parent = "enabled", min = 0.5, max = 1.5, step = 0.05,
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
+		{ key = "restingZones", type = "toggle", name = L.BUFFS_RESTING, desc = L.BUFFS_RESTING_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",
 			min = 0, max = 10, step = 1, format = function(v) return ("%d min"):format(v) end },
 		{ key = "expiringAlpha", type = "slider", name = L.BUFFS_EXPIRING_ALPHA, desc = L.BUFFS_EXPIRING_ALPHA_DESC, parent = "enabled",

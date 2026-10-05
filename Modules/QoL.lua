@@ -15,7 +15,6 @@ local QoL = ns:NewModule("QoL", {
 		hideMacroNames = true,
 		bagSlots = true,
 		hideMinimapButtons = true,
-		hideBlizzardCoords = true,
 	},
 })
 
@@ -217,12 +216,14 @@ function QoL:UpdateMinimapButtons()
 	end
 end
 
--- Blizzard's own coordinates below the minimap (hidden frames skip their OnUpdate).
-function QoL:UpdateBlizzardCoords()
-	local coords = MinimapCluster and MinimapCluster.PlayerCoords
-	if coords then
-		coords:SetShown(not self.db.hideBlizzardCoords)
+-- Blizzard's own coordinates below the minimap: switched off once by default,
+-- afterwards the game's own setting (Options > Minimap) decides.
+function QoL:DisableBlizzardCoordsOnce()
+	if self.db.blizzardCoordsDefaulted or GetCVar("minimapShowPlayerCoords") == nil then
+		return
 	end
+	SetCVar("minimapShowPlayerCoords", "0")
+	self.db.blizzardCoordsDefaulted = true
 end
 
 ---------------------------------------------------------------------------
@@ -239,7 +240,7 @@ function QoL:OnLogin()
 	end)
 
 	self:UpdateActionText()
-	self:UpdateBlizzardCoords()
+	self:DisableBlizzardCoordsOnce()
 
 	local backpack = MainMenuBarBackpackButton
 	if backpack and backpack.UpdateFreeSlots then
@@ -268,8 +269,6 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
-	elseif key == "hideBlizzardCoords" then
-		self:UpdateBlizzardCoords()
 	end
 end
 
@@ -287,5 +286,4 @@ QoL.options = {
 	{ key = "bagSlots", type = "toggle", name = L.QOL_BAG_SLOTS, desc = L.QOL_BAG_SLOTS_DESC },
 	{ type = "header", name = L.QOL_MINIMAP_HEADER },
 	{ key = "hideMinimapButtons", type = "toggle", name = L.QOL_HIDE_MINIMAP_BUTTONS, desc = L.QOL_HIDE_MINIMAP_BUTTONS_DESC },
-	{ key = "hideBlizzardCoords", type = "toggle", name = L.QOL_HIDE_BLIZZARD_COORDS, desc = L.QOL_HIDE_BLIZZARD_COORDS_DESC },
 }

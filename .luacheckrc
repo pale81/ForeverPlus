@@ -21,6 +21,9 @@ globals = {
 }
 
 read_globals = {
+	"C_EventUtils",
+	"C_SpecializationInfo",
+	"UnitLevel",
 	"CreateColor",
 	"GameTooltip_AddInstructionLine",
 	"LibStub",

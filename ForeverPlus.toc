@@ -25,6 +25,7 @@ Modules\Tooltip.lua
 Modules\Minimap.lua
 Modules\Items.lua
 Modules\Auction.lua
+Modules\Helpers.lua
 Modules\QoL.lua
 Modules\Info.lua
 Modules\Quests.lua

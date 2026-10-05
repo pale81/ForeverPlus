@@ -96,6 +96,8 @@ read_globals = {
 	"INVSLOT_RANGED",
 	"ITEM_SPELL_KNOWN",
 	"InCombatLockdown",
+	"issecurevariable",
+	"MinimapBackdrop",
 	"IsAltKeyDown",
 	"IsInGuild",
 	"IsModifiedClick",

@@ -14,6 +14,7 @@ local QoL = ns:NewModule("QoL", {
 		hideHotkeys = true,
 		hideMacroNames = true,
 		bagSlots = true,
+		hideMinimapButtons = true,
 	},
 })
 
@@ -166,9 +167,63 @@ function QoL:UpdateBagSlotsOption()
 end
 
 ---------------------------------------------------------------------------
+-- Hide addon minimap buttons (LibDBIcon and other non-Blizzard buttons)
+---------------------------------------------------------------------------
+local minimapButtons = {} -- button -> was shown when first hidden
+
+local function IsAddonMinimapButton(frame)
+	if frame:IsForbidden() or not frame:IsObjectType("Button") then
+		return false
+	end
+	local name = frame:GetName()
+	if not name or name:find("^ForeverPlus") then
+		return false
+	end
+	-- Frames created by Blizzard's code are secure globals, addon buttons are not.
+	if name:find("^LibDBIcon10_") then
+		return true
+	end
+	return issecurevariable ~= nil and not issecurevariable(name)
+end
+
+local function KeepHidden(button)
+	if QoL.db.hideMinimapButtons then
+		button:Hide()
+	end
+end
+
+function QoL:UpdateMinimapButtons()
+	local hide = self.db.hideMinimapButtons
+	for _, parent in ipairs({ Minimap, MinimapBackdrop }) do
+		for _, child in ipairs({ parent:GetChildren() }) do
+			if IsAddonMinimapButton(child) then
+				if minimapButtons[child] == nil then
+					minimapButtons[child] = child:IsShown()
+					hooksecurefunc(child, "Show", KeepHidden)
+				end
+				if hide then
+					child:Hide()
+				elseif minimapButtons[child] then
+					child:Show()
+				end
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function QoL:OnLogin()
+	-- Addons create their minimap buttons during their own login handling.
+	local function ScanMinimapButtons()
+		self:UpdateMinimapButtons()
+	end
+	self:RegisterEvent("ADDON_LOADED", ScanMinimapButtons)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+		C_Timer.After(2, ScanMinimapButtons)
+	end)
+
 	self:UpdateActionText()
 
 	local backpack = MainMenuBarBackpackButton
@@ -196,6 +251,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateActionText()
 	elseif key == "bagSlots" then
 		self:UpdateBagSlotsOption()
+	elseif key == "hideMinimapButtons" then
+		self:UpdateMinimapButtons()
 	end
 end
 
@@ -211,4 +268,6 @@ QoL.options = {
 	{ key = "hideMacroNames", type = "toggle", name = L.QOL_HIDE_MACRO_NAMES, parent = "actionText" },
 	{ type = "header", name = L.QOL_BAGS_HEADER },
 	{ key = "bagSlots", type = "toggle", name = L.QOL_BAG_SLOTS, desc = L.QOL_BAG_SLOTS_DESC },
+	{ type = "header", name = L.QOL_MINIMAP_HEADER },
+	{ key = "hideMinimapButtons", type = "toggle", name = L.QOL_HIDE_MINIMAP_BUTTONS, desc = L.QOL_HIDE_MINIMAP_BUTTONS_DESC },
 }

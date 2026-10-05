@@ -67,15 +67,27 @@ end
 ---------------------------------------------------------------------------
 -- Player buffs get the action button frame and rounded icon corners
 ---------------------------------------------------------------------------
+-- Like Blizzard's small action buttons: the icon mask is 1.5x the icon size.
+local MASK_FACTOR = 1.5
+local auraMasks = {}
+
+local function SizeAuraMask(aura)
+	local mask = auraMasks[aura]
+	local width, height = aura.Icon:GetSize()
+	mask:SetSize(width * MASK_FACTOR, height * MASK_FACTOR)
+end
+
 local function FrameAuraButton(aura)
 	local icon = aura.Icon
-	if not icon or aura:IsForbidden() then
+	if not icon or auraMasks[aura] or aura:IsForbidden() then
 		return
 	end
 	local mask = aura:CreateMaskTexture()
 	mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
-	mask:SetAllPoints(icon)
+	mask:SetPoint("CENTER", icon, "CENTER")
 	icon:AddMaskTexture(mask)
+	auraMasks[aura] = mask
+	SizeAuraMask(aura)
 	local border = aura:CreateTexture(nil, "OVERLAY", nil, -1)
 	border:SetAtlas("UI-HUD-ActionBar-IconFrame")
 	border:SetPoint("TOPLEFT", icon, "TOPLEFT")
@@ -83,9 +95,18 @@ local function FrameAuraButton(aura)
 end
 
 local function FrameBuffs()
-	for _, aura in ipairs(BuffFrame and BuffFrame.auraFrames or {}) do
+	if not BuffFrame or not BuffFrame.auraFrames then
+		return
+	end
+	for _, aura in ipairs(BuffFrame.auraFrames) do
 		FrameAuraButton(aura)
 	end
+	-- Edit Mode can change the icon size.
+	hooksecurefunc(BuffFrame, "UpdateSize", function()
+		for aura in pairs(auraMasks) do
+			SizeAuraMask(aura)
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"StatusTrackingBarManager",
 	"C_EventUtils",
 	"C_SpecializationInfo",
 	"UnitLevel",

@@ -1,5 +1,5 @@
 -- Visuals: quality glow on item buttons (oGlow), iSquidMod end caps,
--- action button state colouring and outlined fonts.
+-- action button state colouring, outlined fonts and unit frame bar textures.
 local addonName, ns = ...
 local L = ns.L
 
@@ -12,6 +12,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorRange = true,
 		colorMana = true,
 		colorUnusable = true,
+		unitBars = true,
 	},
 })
 
@@ -273,6 +274,68 @@ local function OutlineFonts()
 end
 
 ---------------------------------------------------------------------------
+-- Experience, reputation and tooltip health bars with the unit frame texture
+---------------------------------------------------------------------------
+local BAR_ATLAS = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health"
+
+-- Blizzard's tracking bar atlases and the colour of the same bar (classic colours).
+local TRACKING_COLORS = {
+	["UI-HUD-ExperienceBar-Fill-Experience"] = { 0.58, 0, 0.55 },
+	["UI-HUD-ExperienceBar-Fill-Rested"] = { 0, 0.39, 0.88 },
+	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Red"] = { 0.8, 0.13, 0.13 },
+	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Orange"] = { 0.85, 0.4, 0.05 },
+	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Yellow"] = { 0.9, 0.7, 0 },
+	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Green"] = { 0, 0.6, 0.1 },
+	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Blue"] = { 0, 0.39, 0.88 },
+}
+
+-- Grey version of the unit frame bar, tinted by the bar colour.
+local function UseUnitBarTexture(statusBar)
+	statusBar:SetStatusBarTexture(BAR_ATLAS)
+	local texture = statusBar:GetStatusBarTexture()
+	if texture then
+		texture:SetDesaturated(true)
+	end
+end
+
+local styling = false
+local function StyleTrackingBar(statusBar, asset)
+	local color = not styling and Visuals.db.unitBars and TRACKING_COLORS[asset]
+	if not color then
+		return
+	end
+	styling = true
+	UseUnitBarTexture(statusBar)
+	statusBar:SetStatusBarColor(color[1], color[2], color[3])
+	styling = false
+end
+
+local barsHooked = false
+local function StyleUnitBars()
+	if not Visuals.db.unitBars or barsHooked then
+		return
+	end
+	barsHooked = true
+	if GameTooltip.StatusBar then
+		UseUnitBarTexture(GameTooltip.StatusBar)
+	end
+	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", function()
+		for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
+			for _, bar in pairs(container.bars or {}) do
+				local statusBar = bar.StatusBar
+				if statusBar then
+					hooksecurefunc(statusBar, "SetStatusBarTexture", StyleTrackingBar)
+					local texture = statusBar:GetStatusBarTexture()
+					if texture then
+						StyleTrackingBar(statusBar, texture:GetAtlas())
+					end
+				end
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Visuals:OnInitialize()
@@ -290,11 +353,18 @@ function Visuals:OnLogin()
 	FrameBuffs()
 	HookActionButtons()
 	RecolorAll()
+	StyleUnitBars()
 end
 
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
+	elseif key == "unitBars" then
+		if self.db.unitBars then
+			StyleUnitBars()
+		else
+			ns.Print(L.RELOAD_REQUIRED)
+		end
 	else
 		RecolorAll()
 	end
@@ -308,4 +378,6 @@ Visuals.options = {
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
+	{ type = "header", name = L.VISUALS_BARS_HEADER },
+	{ key = "unitBars", type = "toggle", name = L.VISUALS_UNIT_BARS, desc = L.VISUALS_UNIT_BARS_DESC },
 }

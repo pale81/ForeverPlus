@@ -1,5 +1,5 @@
 -- Minimap: player coordinates below the north marker. Updates only while the
--- player (or a taxi) is moving.
+-- player (or a taxi) is moving. World map: Blizzard's coordinates movable.
 local _, ns = ...
 local L = ns.L
 
@@ -43,6 +43,64 @@ local function StopTicker()
 	Update()
 end
 
+---------------------------------------------------------------------------
+-- World map: Blizzard's coordinate panel a bit higher and movable by mouse
+---------------------------------------------------------------------------
+local WORLDMAP_KEY = "WorldMapCoords"
+local WORLDMAP_RAISE = 24 -- default lift above Blizzard's position
+
+local function FindCoordsPanel()
+	for _, frame in ipairs(WorldMapFrame.overlayFrames or {}) do
+		if frame.PlayerCoords and frame.CursorCoords then
+			return frame
+		end
+	end
+end
+
+local function SetupWorldMapCoords()
+	local panel = FindCoordsPanel()
+	if not panel then
+		return
+	end
+	local container = WorldMapFrame:GetCanvasContainer()
+	local raisedY
+
+	-- Runs after Blizzard placed the panel next to its neighbours.
+	local function Apply()
+		local saved = ns.db.frames[WORLDMAP_KEY]
+		if saved then
+			panel:ClearAllPoints()
+			panel:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", saved.x, saved.y)
+		else
+			-- Lift only Blizzard's own placement, never our previous one.
+			local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
+			if point and y ~= raisedY then
+				raisedY = y + WORLDMAP_RAISE
+				panel:ClearAllPoints()
+				panel:SetPoint(point, relativeTo, relativePoint, x, raisedY)
+			end
+		end
+	end
+	hooksecurefunc(panel, "PostRefresh", Apply)
+
+	panel:SetMovable(true)
+	panel:SetClampedToScreen(true)
+	panel:EnableMouse(true)
+	panel:RegisterForDrag("LeftButton")
+	panel:SetScript("OnDragStart", panel.StartMoving)
+	panel:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		self:SetUserPlaced(false)
+		local scale = container:GetEffectiveScale() / self:GetEffectiveScale()
+		ns.db.frames[WORLDMAP_KEY] = {
+			x = self:GetLeft() - container:GetLeft() * scale,
+			y = self:GetBottom() - container:GetBottom() * scale,
+		}
+		Apply()
+	end)
+	Apply()
+end
+
 function MinimapCoords:UpdateFont()
 	if text then
 		text:SetFont(ns.GetFontFace(), 14, "OUTLINE")
@@ -62,6 +120,8 @@ function MinimapCoords:OnLogin()
 	if color then
 		text:SetTextColor(color:GetRGB())
 	end
+
+	ns.OnAddOnLoaded("Blizzard_WorldMap", SetupWorldMapCoords)
 
 	self:RegisterEvent("PLAYER_STARTED_MOVING", StartTicker)
 	self:RegisterEvent("PLAYER_STOPPED_MOVING", StopTicker)

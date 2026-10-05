@@ -100,7 +100,7 @@ local function BuildIndex(onDone)
 	local ids = DB.Item.GetAllIds()
 	local npcItems = {}
 	local position = 1
-	C_Timer.NewTicker(0, function(ticker)
+	C_Timer.NewTicker(0.01, function(ticker)
 		local last = min(position + INDEX_BATCH - 1, #ids)
 		for i = position, last do
 			local id = ids[i]
@@ -545,6 +545,30 @@ function Radar:OnLogin()
 	C_Timer.After(5, function()
 		self:Apply()
 	end)
+end
+
+-- /fp radar: state of the radar for troubleshooting.
+function Radar:PrintStatus()
+	if not DB then
+		ns.Print(L.RADAR_STATUS_NO_DB)
+		return
+	end
+	local recipeCount, vendorCount = 0, 0
+	for _ in pairs(recipes) do
+		recipeCount = recipeCount + 1
+	end
+	for _, list in pairs(vendorsByMap) do
+		vendorCount = vendorCount + #list
+	end
+	ns.Print(L.RADAR_STATUS_INDEX, indexReady and L.RADAR_STATUS_READY or L.RADAR_STATUS_BUILDING, recipeCount, vendorCount)
+	local professions = {}
+	for skillLine, rank in pairs(skills) do
+		professions[#professions + 1] = ("%d (%d)"):format(skillLine, rank)
+	end
+	ns.Print(L.RADAR_STATUS_SKILLS, #professions > 0 and table.concat(professions, ", ") or "-")
+	local mapID = C_Map.GetBestMapForUnit("player")
+	local all = mapID and vendorsByMap[mapID]
+	ns.Print(L.RADAR_STATUS_MAP, mapID or 0, all and #all or 0, #(GetVendors(mapID) or {}))
 end
 
 function Radar:OnOptionChanged()

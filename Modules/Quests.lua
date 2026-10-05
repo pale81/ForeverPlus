@@ -7,6 +7,7 @@ local Quests = ns:NewModule("Quests", {
 	title = L.QUESTS_TITLE,
 	order = 5.2,
 	defaults = {
+		sounds = true,
 		completeSound = "peon",
 		progressSound = "peonReady",
 		nameplateIcons = true,
@@ -549,8 +550,19 @@ function Quests:OnLogin()
 	self:UpdateTrackerSort()
 end
 
-function Quests:OnOptionChanged(key)
-	if key == "nameplateIcons" then
+function Quests:OnOptionChanged(key, value)
+	if key == "sounds" then
+		-- Off silences both; on brings back the defaults if both were silent.
+		if not value then
+			Settings.SetValue("ForeverPlus_Quests_completeSound", "none")
+			Settings.SetValue("ForeverPlus_Quests_progressSound", "none")
+		elseif self.db.completeSound == "none" and self.db.progressSound == "none" then
+			Settings.SetValue("ForeverPlus_Quests_completeSound", self.defaults.completeSound)
+			Settings.SetValue("ForeverPlus_Quests_progressSound", self.defaults.progressSound)
+		end
+	elseif (key == "completeSound" or key == "progressSound") and value ~= "none" and not self.db.sounds then
+		Settings.SetValue("ForeverPlus_Quests_sounds", true)
+	elseif key == "nameplateIcons" then
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
@@ -566,11 +578,12 @@ local SOUND_CHOICES = {
 
 Quests.options = {
 	{ type = "header", name = L.QUESTS_SOUNDS },
-	{ key = "completeSound", type = "dropdown", name = L.QUESTS_COMPLETE_SOUND, desc = L.QUESTS_COMPLETE_SOUND_DESC, values = SOUND_CHOICES },
+	{ key = "sounds", type = "toggle", name = L.QUESTS_SOUNDS_ENABLE, desc = L.QUESTS_SOUNDS_ENABLE_DESC },
+	{ key = "completeSound", type = "dropdown", name = L.QUESTS_COMPLETE_SOUND, desc = L.QUESTS_COMPLETE_SOUND_DESC, values = SOUND_CHOICES, parent = "sounds" },
 	{ type = "button", name = L.QUESTS_TEST_COMPLETE, text = L.QUESTS_TEST, func = function()
 		Play(Quests.db.completeSound)
 	end },
-	{ key = "progressSound", type = "dropdown", name = L.QUESTS_PROGRESS_SOUND, desc = L.QUESTS_PROGRESS_SOUND_DESC, values = SOUND_CHOICES },
+	{ key = "progressSound", type = "dropdown", name = L.QUESTS_PROGRESS_SOUND, desc = L.QUESTS_PROGRESS_SOUND_DESC, values = SOUND_CHOICES, parent = "sounds" },
 	{ type = "button", name = L.QUESTS_TEST_PROGRESS, text = L.QUESTS_TEST, func = function()
 		Play(Quests.db.progressSound)
 	end },

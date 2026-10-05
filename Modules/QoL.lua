@@ -3,7 +3,7 @@ local _, ns = ...
 local L = ns.L
 
 local QoL = ns:NewModule("QoL", {
-	title = L.QOL_TITLE,
+	title = L.PAGE_BARS,
 	order = 5,
 	defaults = {
 		mouseover = true,

@@ -146,3 +146,59 @@ function ns.CreatePixelBorder(owner, anchor, pixels, layer, subLevel)
 	end
 	return border
 end
+
+---------------------------------------------------------------------------
+-- Action button art (rounded icon mask + frame) for any icon
+---------------------------------------------------------------------------
+-- Blizzard's art is drawn for 45 px icons: frame 46x45 (bar) or 51x51
+-- (standalone "AddRow" variant), both anchored at the icon's top left.
+local FRAME_STYLES = {
+	bar = { atlas = "UI-HUD-ActionBar-IconFrame", width = 46 / 45, height = 1 },
+	standalone = { atlas = "UI-HUD-ActionBar-IconFrame-AddRow", width = 51 / 45, height = 51 / 45, centered = true },
+}
+local MASK_ATLAS = "UI-HUD-ActionBar-IconFrame-Mask"
+local maskRatio
+
+local function MaskRatio()
+	if not maskRatio then
+		local info = C_Texture.GetAtlasInfo(MASK_ATLAS)
+		maskRatio = info and info.width and info.width > 0 and info.width / 45 or 1.5
+	end
+	return maskRatio
+end
+
+local actionFrames = setmetatable({}, { __mode = "k" })
+
+-- Resizes mask and frame to the current icon size (and style).
+function ns.SizeActionFrame(owner, style)
+	local art = actionFrames[owner]
+	if not art then
+		return
+	end
+	local data = FRAME_STYLES[style or art.style] or FRAME_STYLES.bar
+	art.style = style or art.style
+	local width, height = art.icon:GetSize()
+	art.mask:SetSize(width * MaskRatio(), height * MaskRatio())
+	art.frame:SetAtlas(data.atlas)
+	art.frame:ClearAllPoints()
+	art.frame:SetSize(width * data.width, height * data.height)
+	if data.centered then
+		art.frame:SetPoint("CENTER", art.icon, "CENTER")
+	else
+		art.frame:SetPoint("TOPLEFT", art.icon, "TOPLEFT")
+	end
+end
+
+function ns.ApplyActionFrame(owner, icon, style)
+	if actionFrames[owner] or not icon then
+		return actionFrames[owner]
+	end
+	local mask = owner:CreateMaskTexture()
+	mask:SetAtlas(MASK_ATLAS)
+	mask:SetPoint("CENTER", icon, "CENTER")
+	icon:AddMaskTexture(mask)
+	local frame = owner:CreateTexture(nil, "OVERLAY", nil, -1)
+	actionFrames[owner] = { icon = icon, mask = mask, frame = frame, style = style or "bar" }
+	ns.SizeActionFrame(owner)
+	return actionFrames[owner]
+end

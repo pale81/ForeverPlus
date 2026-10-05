@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"QuestObjectiveItemButtonMixin",
 	"GetXPExhaustion",
 	"BreakUpLargeNumbers",
 	"UnitXP",

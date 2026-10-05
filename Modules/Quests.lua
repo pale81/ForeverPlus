@@ -11,6 +11,7 @@ local Quests = ns:NewModule("Quests", {
 		progressSound = "ping",
 		nameplateIcons = true,
 		itemButton = true,
+		trackerSort = "default",
 	},
 })
 
@@ -271,6 +272,153 @@ function Quests:UpdateItemTicker()
 end
 
 ---------------------------------------------------------------------------
+-- Quest tracker order: watched quests are re-added in the chosen order
+---------------------------------------------------------------------------
+local SORT_DELAY = 1
+local DISTANCE_INTERVAL = 10
+local SORT_MODES = { "default", "level", "zone", "distance", "name", "progress" }
+local sortPending, sortTicker
+
+local function QuestFacts()
+	local facts, zone = {}, ""
+	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
+		local info = C_QuestLog.GetInfo(index)
+		if info then
+			if info.isHeader then
+				zone = info.title or ""
+			elseif info.questID then
+				local done, total = 0, 0
+				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
+					done = done + (objective.numFulfilled or 0)
+					total = total + (objective.numRequired or 0)
+				end
+				facts[info.questID] = {
+					index = index, level = info.level or 0, title = info.title or "", zone = zone,
+					complete = C_QuestLog.IsComplete(info.questID) and 1 or 0,
+					progress = total > 0 and done / total or 0,
+					distance = C_QuestLog.GetDistanceSqToQuest(info.questID) or math.huge,
+				}
+			end
+		end
+	end
+	return facts
+end
+
+local COMPARE = {
+	default = function(a, b) return a.index < b.index end,
+	level = function(a, b) return a.level ~= b.level and a.level < b.level or a.index < b.index end,
+	zone = function(a, b) return a.zone ~= b.zone and a.zone < b.zone or a.index < b.index end,
+	distance = function(a, b) return a.distance ~= b.distance and a.distance < b.distance or a.index < b.index end,
+	name = function(a, b) return a.title < b.title end,
+	progress = function(a, b)
+		if a.complete ~= b.complete then
+			return a.complete > b.complete
+		end
+		return a.progress ~= b.progress and a.progress > b.progress or a.index < b.index
+	end,
+}
+
+local function SortTracker()
+	sortPending = false
+	local compare = COMPARE[Quests.db.trackerSort]
+	if not compare or InCombatLockdown() then
+		return
+	end
+	local facts = QuestFacts()
+	local current, sorted = {}, {}
+	for watch = 1, C_QuestLog.GetNumQuestWatches() do
+		local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(watch)
+		if questID and facts[questID] then
+			current[#current + 1] = questID
+			sorted[#sorted + 1] = questID
+		end
+	end
+	table.sort(sorted, function(a, b)
+		return compare(facts[a], facts[b])
+	end)
+	local changed = false
+	for i = 1, #sorted do
+		if sorted[i] ~= current[i] then
+			changed = true
+			break
+		end
+	end
+	if not changed then
+		return
+	end
+	-- Watches are shown in the order they were added.
+	for _, questID in ipairs(current) do
+		C_QuestLog.RemoveQuestWatch(questID)
+	end
+	for _, questID in ipairs(sorted) do
+		C_QuestLog.AddQuestWatch(questID)
+	end
+end
+
+local function QueueSort()
+	if not sortPending and Quests.db.trackerSort ~= "default" then
+		sortPending = true
+		C_Timer.After(SORT_DELAY, SortTracker)
+	end
+end
+
+-- "default" leaves Blizzard's order alone; only switching back to it from
+-- another mode restores the quest log order once.
+function Quests:UpdateTrackerSort(switched)
+	local mode = self.db.trackerSort
+	if sortTicker then
+		sortTicker:Cancel()
+		sortTicker = nil
+	end
+	if mode == "distance" then
+		sortTicker = C_Timer.NewTicker(DISTANCE_INTERVAL, QueueSort)
+	end
+	if mode ~= "default" then
+		QueueSort()
+	elseif switched then
+		SortTracker()
+	end
+end
+
+local function ShowSortMenu(owner)
+	MenuUtil.CreateContextMenu(owner, function(_, root)
+		root:CreateTitle(L.QUESTS_SORT)
+		for _, mode in ipairs(SORT_MODES) do
+			root:CreateRadio(L["QUESTS_SORT_" .. mode], function()
+				return Quests.db.trackerSort == mode
+			end, function()
+				Settings.SetValue("ForeverPlus_Quests_trackerSort", mode)
+			end)
+		end
+	end)
+end
+
+local function CreateSortButton()
+	local header = QuestObjectiveTracker and QuestObjectiveTracker.Header
+	local minimize = header and header.MinimizeButton
+	if not minimize then
+		return
+	end
+	local button = CreateFrame("Button", nil, header)
+	button:SetSize(16, 16)
+	button:SetPoint("RIGHT", minimize, "LEFT", -2, 0)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	if not icon:SetAtlas("ui-questtrackerbutton-filter") then
+		icon:SetTexture([[Interface\ChatFrame\ChatFrameExpandArrow]])
+	end
+	button:SetHighlightAtlas("ui-questtrackerbutton-yellow-highlight", "ADD")
+	button:SetScript("OnClick", ShowSortMenu)
+	button:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip_SetTitle(GameTooltip, L.QUESTS_SORT)
+		GameTooltip_AddNormalLine(GameTooltip, L["QUESTS_SORT_" .. Quests.db.trackerSort])
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", GameTooltip_Hide)
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Quests:OnLogin()
@@ -286,6 +434,11 @@ function Quests:OnLogin()
 	end)
 	QueueScan()
 	self:UpdateItemTicker()
+	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", CreateSortButton)
+	self:RegisterEvent("QUEST_ACCEPTED", QueueSort)
+	self:RegisterEvent("QUEST_WATCH_LIST_CHANGED", QueueSort)
+	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", QueueSort)
+	self:UpdateTrackerSort()
 end
 
 function Quests:OnOptionChanged(key)
@@ -293,6 +446,8 @@ function Quests:OnOptionChanged(key)
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
+	elseif key == "trackerSort" then
+		self:UpdateTrackerSort(true)
 	end
 end
 
@@ -310,6 +465,14 @@ Quests.options = {
 	{ key = "progressSound", type = "dropdown", name = L.QUESTS_PROGRESS_SOUND, desc = L.QUESTS_PROGRESS_SOUND_DESC, values = SOUND_CHOICES },
 	{ type = "button", name = L.QUESTS_TEST_PROGRESS, text = L.QUESTS_TEST, func = function()
 		Play(Quests.db.progressSound)
+	end },
+	{ type = "header", name = L.QUESTS_TRACKER },
+	{ key = "trackerSort", type = "dropdown", name = L.QUESTS_SORT, desc = L.QUESTS_SORT_DESC, values = function()
+		local values = {}
+		for _, mode in ipairs(SORT_MODES) do
+			values[#values + 1] = { mode, L["QUESTS_SORT_" .. mode] }
+		end
+		return values
 	end },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },

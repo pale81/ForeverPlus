@@ -23,18 +23,18 @@ local glows = setmetatable({}, { __mode = "k" })
 -- Two stacked additive layers: a single one lets the item frame shine through.
 local GLOW_LAYERS = 2
 
+-- The glow ring of UI-ActionButton-Border covers about 36 of its 64 pixels.
+local GLOW_FACTOR = 64 / 36
+
 local function GetGlow(button)
 	local glow = glows[button]
 	if not glow then
 		glow = {}
-		local icon = button.icon or button.Icon or button
-		local size = max(icon:GetWidth(), 20) * 1.9
 		for layer = 1, GLOW_LAYERS do
 			local texture = button:CreateTexture(nil, "OVERLAY", nil, 7)
 			texture:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
 			texture:SetBlendMode("ADD")
-			texture:SetPoint("CENTER", icon, "CENTER")
-			texture:SetSize(size, size)
+			texture:SetPoint("CENTER", button, "CENTER")
 			glow[layer] = texture
 		end
 		glows[button] = glow
@@ -50,7 +50,10 @@ local function UpdateGlow(button, quality)
 	if quality and quality >= Enum.ItemQuality.Uncommon then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		glow = glow or GetGlow(button)
+		-- Size from the button itself (character slots, bags and loot differ).
+		local width, height = button:GetSize()
 		for _, texture in ipairs(glow) do
+			texture:SetSize(width * GLOW_FACTOR, height * GLOW_FACTOR)
 			texture:SetVertexColor(r, g, b)
 			texture:Show()
 		end
@@ -58,6 +61,30 @@ local function UpdateGlow(button, quality)
 		for _, texture in ipairs(glow) do
 			texture:Hide()
 		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Player buffs get the action button frame and rounded icon corners
+---------------------------------------------------------------------------
+local function FrameAuraButton(aura)
+	local icon = aura.Icon
+	if not icon or aura:IsForbidden() then
+		return
+	end
+	local mask = aura:CreateMaskTexture()
+	mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
+	mask:SetAllPoints(icon)
+	icon:AddMaskTexture(mask)
+	local border = aura:CreateTexture(nil, "OVERLAY", nil, -1)
+	border:SetAtlas("UI-HUD-ActionBar-IconFrame")
+	border:SetPoint("TOPLEFT", icon, "TOPLEFT")
+	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, 0)
+end
+
+local function FrameBuffs()
+	for _, aura in ipairs(BuffFrame and BuffFrame.auraFrames or {}) do
+		FrameAuraButton(aura)
 	end
 end
 
@@ -214,6 +241,7 @@ function Visuals:OnLogin()
 		hooksecurefunc(MainActionBar, "UpdateEndCaps", ApplySquid)
 	end
 	ApplySquid()
+	FrameBuffs()
 	HookActionButtons()
 	RecolorAll()
 end

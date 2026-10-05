@@ -21,6 +21,7 @@ read_globals = {
 	"ActionBarButtonEventsFrame",
 	"BACKPACK_CONTAINER",
 	"BagsBar",
+	"BuffFrame",
 	"CHAT_FRAMES",
 	"C_ActionBar",
 	"C_AddOns",

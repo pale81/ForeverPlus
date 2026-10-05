@@ -12,12 +12,21 @@ globals = {
 	"ForeverPlusCharDB",
 	"ForeverPlusRecipePinMixin",
 	"ForeverPlus_OnAddonCompartmentClick",
+	"ForeverPlus_ToggleJunkUnderMouse",
+	"BINDING_HEADER_FOREVERPLUS",
+	"BINDING_NAME_FOREVERPLUS_TOGGLEJUNK",
 	"SLASH_FOREVERPLUS1",
 	"SLASH_FOREVERPLUS2",
 	"SlashCmdList",
 }
 
 read_globals = {
+	"CreateColor",
+	"GameTooltip_AddInstructionLine",
+	"LibStub",
+	"MenuResponse",
+	"MinimapCluster",
+	"PixelUtil",
 	"ActionBarButtonEventsFrame",
 	"BACKPACK_CONTAINER",
 	"BagsBar",

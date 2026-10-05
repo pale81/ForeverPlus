@@ -4,7 +4,7 @@ AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`,
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`.
-`/fp fehler` öffnet die Fehlerliste.
+`/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen.
 
 ## Funktionen
 
@@ -18,19 +18,20 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Stückpreis bei Stapeln | ja |
-| | Leuchtender Rahmen in Qualitätsfarbe bei Gegenständen | – |
+| | Scharfer Rahmen (2 Pixel) in Qualitätsfarbe bei Gegenständen | – |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck | – |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
-| | Mittelklick (Taste wählbar: Maustaste 3/4/5) in der Tasche markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft | ja |
+| | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`) | ja |
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung: höhere Gegenstandsstufe als das schwächste getragene Teil des Platzes, keine geringeren Werte/DPS, verwendbar; keine Berufswerkzeuge | ja |
-| | Schnelles Plündern (wie Leatrix Plus) | ja |
+| | Schnelles Plündern | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
-| | Minimap-Buttons anderer Addons ausblenden | ja |
+| | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
+| | Blizzard-Koordinaten unter der Minimap ausblenden | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | oGlow: dickes Leuchten in Qualitätsfarbe ab „Ungewöhnlich“ | – |
@@ -38,6 +39,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Buff-Symbole oben rechts mit Aktionsleisten-Rahmen und abgerundeten Ecken | – |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen) | – |
+| Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
@@ -57,6 +59,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - Rezeptradar und Rezeptquellen benötigen das Addon **QuestieDB** (Teil des Questie-Downloads, GPL-3.0). ForeverPlus liest dessen öffentliche API zur Laufzeit (`LibQuestieDB`), kopiert keine Daten und ist ohne QuestieDB voll funktionsfähig, nur das Rezeptradar ist dann inaktiv. Der Forever-Datensatz von QuestieDB ist selbst noch in Arbeit (laut Projekt nicht vollständig live geprüft).
 - „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
 - Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
+- Schrift: Namen über Köpfen und Kampftext nutzen vom Client beim Start gelesene globale Schriftpfade; diese zu ändern würde Taint riskieren, daher nicht enthalten.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 ## Danksagungen / Lizenzen

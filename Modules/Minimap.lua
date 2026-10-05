@@ -43,13 +43,19 @@ local function StopTicker()
 	Update()
 end
 
+function MinimapCoords:UpdateFont()
+	if text then
+		text:SetFont(ns.GetFontFace(), 14, "OUTLINE")
+	end
+end
+
 function MinimapCoords:OnLogin()
 	local holder = CreateFrame("Frame", nil, Minimap)
 	holder:SetAllPoints()
 	holder:SetFrameLevel(Minimap:GetFrameLevel() + 5)
 
 	text = holder:CreateFontString(nil, "OVERLAY")
-	text:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")
+	self:UpdateFont()
 	text:SetPoint("TOP", Minimap, "TOP", 0, -14)
 	local _, classFile = UnitClass("player")
 	local color = C_ClassColor.GetClassColor(classFile)

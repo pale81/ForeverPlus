@@ -15,6 +15,7 @@ local QoL = ns:NewModule("QoL", {
 		hideMacroNames = true,
 		bagSlots = true,
 		hideMinimapButtons = true,
+		hideBlizzardCoords = true,
 	},
 })
 
@@ -179,9 +180,14 @@ local function IsAddonMinimapButton(frame)
 	if not name or name:find("^ForeverPlus") then
 		return false
 	end
-	-- Frames created by Blizzard's code are secure globals, addon buttons are not.
 	if name:find("^LibDBIcon10_") then
 		return true
+	end
+	-- Frames created by Blizzard's code are secure globals, addon buttons are not.
+	-- Map pins of other addons (gathering nodes, quests, notes) must stay visible.
+	local lower = name:lower()
+	if lower:find("pin") or not (lower:find("minimap") or lower:find("button")) then
+		return false
 	end
 	return issecurevariable ~= nil and not issecurevariable(name)
 end
@@ -211,6 +217,14 @@ function QoL:UpdateMinimapButtons()
 	end
 end
 
+-- Blizzard's own coordinates below the minimap (hidden frames skip their OnUpdate).
+function QoL:UpdateBlizzardCoords()
+	local coords = MinimapCluster and MinimapCluster.PlayerCoords
+	if coords then
+		coords:SetShown(not self.db.hideBlizzardCoords)
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
@@ -225,6 +239,7 @@ function QoL:OnLogin()
 	end)
 
 	self:UpdateActionText()
+	self:UpdateBlizzardCoords()
 
 	local backpack = MainMenuBarBackpackButton
 	if backpack and backpack.UpdateFreeSlots then
@@ -253,6 +268,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
+	elseif key == "hideBlizzardCoords" then
+		self:UpdateBlizzardCoords()
 	end
 end
 
@@ -270,4 +287,5 @@ QoL.options = {
 	{ key = "bagSlots", type = "toggle", name = L.QOL_BAG_SLOTS, desc = L.QOL_BAG_SLOTS_DESC },
 	{ type = "header", name = L.QOL_MINIMAP_HEADER },
 	{ key = "hideMinimapButtons", type = "toggle", name = L.QOL_HIDE_MINIMAP_BUTTONS, desc = L.QOL_HIDE_MINIMAP_BUTTONS_DESC },
+	{ key = "hideBlizzardCoords", type = "toggle", name = L.QOL_HIDE_BLIZZARD_COORDS, desc = L.QOL_HIDE_BLIZZARD_COORDS_DESC },
 }

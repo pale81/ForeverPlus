@@ -86,22 +86,50 @@ end
 -- Border coloured by item quality
 ---------------------------------------------------------------------------
 local defaultBorder = {}
-local borderGlows = {}
+local borderFrames = {}
 
--- Additive copy of the tooltip border: makes the quality colour glow.
-local function GetBorderGlow(tooltip)
-	local glow = borderGlows[tooltip]
-	if not glow then
-		glow = CreateFrame("Frame", nil, tooltip, "NineSliceCodeTemplate")
-		glow:SetAllPoints(tooltip.NineSlice)
-		NineSliceUtil.ApplyLayoutByName(glow, "TooltipDefaultLayout")
-		glow:SetBorderBlendMode("ADD")
-		if glow.Center then
-			glow.Center:Hide()
+local BORDER_PIXELS = 2
+
+-- Crisp solid frame in quality colour along the tooltip edge.
+local function GetBorderFrame(tooltip)
+	local frame = borderFrames[tooltip]
+	if not frame then
+		frame = CreateFrame("Frame", nil, tooltip)
+		frame:SetAllPoints(tooltip.NineSlice)
+		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
+		frame.lines = {}
+		for i = 1, 4 do
+			local line = frame:CreateTexture(nil, "OVERLAY")
+			line:SetColorTexture(1, 1, 1)
+			frame.lines[i] = line
 		end
-		borderGlows[tooltip] = glow
+		local top, bottom, left, right = unpack(frame.lines)
+		top:SetPoint("TOPLEFT")
+		top:SetPoint("TOPRIGHT")
+		bottom:SetPoint("BOTTOMLEFT")
+		bottom:SetPoint("BOTTOMRIGHT")
+		left:SetPoint("TOPLEFT")
+		left:SetPoint("BOTTOMLEFT")
+		right:SetPoint("TOPRIGHT")
+		right:SetPoint("BOTTOMRIGHT")
+		borderFrames[tooltip] = frame
 	end
-	return glow
+	return frame
+end
+
+local function ShowBorderFrame(tooltip, r, g, b)
+	local frame = GetBorderFrame(tooltip)
+	-- Exactly BORDER_PIXELS screen pixels at any UI or tooltip scale.
+	local size = PixelUtil.GetNearestPixelSize(BORDER_PIXELS, frame:GetEffectiveScale(), BORDER_PIXELS)
+	local top, bottom, left, right = unpack(frame.lines)
+	top:SetHeight(size)
+	bottom:SetHeight(size)
+	left:SetWidth(size)
+	right:SetWidth(size)
+	for _, line in ipairs(frame.lines) do
+		line:SetVertexColor(r, g, b, 1)
+	end
+	frame:Show()
 end
 
 local function ResetBorder(tooltip)
@@ -109,8 +137,8 @@ local function ResetBorder(tooltip)
 	if color and tooltip.NineSlice then
 		tooltip.NineSlice:SetBorderColor(color[1], color[2], color[3], color[4])
 	end
-	if borderGlows[tooltip] then
-		borderGlows[tooltip]:Hide()
+	if borderFrames[tooltip] then
+		borderFrames[tooltip]:Hide()
 	end
 end
 
@@ -127,9 +155,7 @@ local function ColorBorder(tooltip, data)
 	if quality then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		nineSlice:SetBorderColor(r, g, b, 1)
-		local glow = GetBorderGlow(tooltip)
-		glow:SetBorderColor(r, g, b, 0.8)
-		glow:Show()
+		ShowBorderFrame(tooltip, r, g, b)
 	end
 end
 

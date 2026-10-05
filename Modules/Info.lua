@@ -30,6 +30,7 @@ end
 -- Played time
 ---------------------------------------------------------------------------
 local mutedFrames = {}
+local playedReceived = false
 
 local function UnmuteChat()
 	for frame in pairs(mutedFrames) do
@@ -50,6 +51,7 @@ end
 function Info:TIME_PLAYED_MSG(_, total)
 	local entry = CharacterEntry()
 	entry.total, entry.time = total, time()
+	playedReceived = true
 	-- The chat frames receive the event before this handler; unmute afterwards.
 	C_Timer.After(0, UnmuteChat)
 end
@@ -64,7 +66,14 @@ local function RequestPlayedSilently()
 		end
 	end
 	RequestTimePlayed()
-	C_Timer.After(PLAYED_TIMEOUT, UnmuteChat)
+	C_Timer.After(PLAYED_TIMEOUT, function()
+		UnmuteChat()
+		-- The server sometimes ignores the first request right after login.
+		if not playedReceived and not Info.retried then
+			Info.retried = true
+			RequestPlayedSilently()
+		end
+	end)
 end
 
 local function CurrentTotal(entry, isPlayer)
@@ -224,6 +233,11 @@ function Info:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_TimeManager", function()
 		if TimeManagerClockButton_UpdateTooltip then
 			hooksecurefunc("TimeManagerClockButton_UpdateTooltip", AddPlayedLines)
+			-- Blizzard fills the tooltip only on its next once-per-second update;
+			-- build it right away so the list is there immediately.
+			TimeManagerClockButton:HookScript("OnEnter", function()
+				TimeManagerClockButton_UpdateTooltip()
+			end)
 		end
 	end)
 	self:UpdatePerformance()

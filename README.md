@@ -27,10 +27,14 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern | ja |
+| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern im Chat | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle ForeverPlus-Meldungen stumm | ja |
 | | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
+| | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
+| | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
-| Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
+| Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs-/Begleiterleiste nur bei Mouseover (einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
+| | Gegnerische Namensplaketten nur im Kampf | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
@@ -39,11 +43,14 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschiebbar, Rechtsklick sperrt | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
+| Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
+| Talente | „Zauber nach Stufe“ (erlernte grau); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | oGlow: dickes Leuchten in Qualitätsfarbe ab „Ungewöhnlich“ | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
+| | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel | ja |
 | | Buff-Symbole oben rechts mit Aktionsleisten-Rahmen und abgerundeten Ecken | – |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
@@ -71,6 +78,8 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - Auktionshaus: keine zusätzlichen Kategorien/Filter. Kaufen und Einstellen (`PlaceBid`, `PostItem`, …) sind eingeschränkte Funktionen; ob Änderungen an Blizzards Suchlogik sie blockieren, ist ohne Test im Spiel nicht verifizierbar. Die Warnung liest nur Daten und fügt eigene Symbole hinzu.
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Sprachwahl im Chat: kein eigener Ein-Klick-Umschalter. Ein von einem Addon gesetzter Sprachwert würde jede gesendete Chatnachricht „tainten“ (`SendChatMessage` ist eingeschränkt); deshalb wird Blizzards eigener Menü-Knopf versetzt.
+- Talentbuilds: Planen geht mit Blizzards Talentbaum (Talente anklicken, nicht übernehmen) bis zur Zahl der vorhandenen Punkte; ein eigener Planer für spätere Stufen ist nicht enthalten. „Übernehmen“ merkt den Build im Baum vor, bestätigt wird mit Blizzards Knopf.
+- Peon-Klang: Dateipfad aus dem Classic-Client; fehlt die Datei, ertönt Blizzards Quest-Klang.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 ## Danksagungen / Lizenzen

@@ -9,6 +9,7 @@ local Info = ns:NewModule("Info", {
 	defaults = {
 		played = true,
 		performance = true,
+		lockPerformance = false,
 		characters = {}, -- "Realm" -> { name -> { total, class, level, time } }
 	},
 })
@@ -156,6 +157,7 @@ local function ShowCpuTooltip(owner)
 	local color = CpuColor(total)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_TOTAL, ("%.2f ms"):format(total),
 		NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, color.r, color.g, color.b)
+	GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
 	GameTooltip:Show()
 end
 
@@ -174,12 +176,15 @@ end
 
 local function CreatePerfFrame()
 	local frame = CreateFrame("Frame", nil, Minimap)
-	frame:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 14)
+	frame:SetSize(120, 16)
 	frame:SetFrameLevel(Minimap:GetFrameLevel() + 5)
 	frame.Text = frame:CreateFontString(nil, "OVERLAY")
 	frame.Text:SetPoint("CENTER")
 	frame:SetScript("OnEnter", ShowCpuTooltip)
 	frame:SetScript("OnLeave", GameTooltip_Hide)
+	ns:RegisterDisplay(frame, "Performance", Info, "lockPerformance", function(self)
+		self:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 14)
+	end)
 	return frame
 end
 
@@ -232,4 +237,5 @@ end
 Info.options = {
 	{ key = "played", type = "toggle", name = L.INFO_PLAYED_OPT, desc = L.INFO_PLAYED_DESC },
 	{ key = "performance", type = "toggle", name = L.INFO_PERF, desc = L.INFO_PERF_DESC },
+	{ key = "lockPerformance", type = "toggle", name = L.INFO_LOCK_PERF, desc = L.DISPLAY_LOCK_DESC, parent = "performance" },
 }

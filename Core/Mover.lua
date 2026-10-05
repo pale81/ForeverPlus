@@ -348,10 +348,83 @@ function Mover:OnOptionChanged(key, value)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Movable displays (coordinates, FPS/MS, …): drag to move, right-click locks
+---------------------------------------------------------------------------
+local displays = {}
+
+local function DisplayLocked(entry)
+	return entry.module.db[entry.lockKey] and true or false
+end
+
+local function ApplyDisplayPosition(entry)
+	local frame = entry.frame
+	local pos = saved[entry.key]
+	frame:ClearAllPoints()
+	if pos then
+		local scale = frame:GetEffectiveScale()
+		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", pos.x / scale, pos.y / scale)
+	else
+		entry.applyDefault(frame)
+	end
+end
+
+-- Locks or unlocks a display; goes through the setting so the options page follows.
+function ns:SetDisplayLocked(entry, locked)
+	local variable = ("ForeverPlus_%s_%s"):format(entry.module.name, entry.lockKey)
+	if Settings.GetSetting and Settings.GetSetting(variable) then
+		Settings.SetValue(variable, locked)
+	else
+		entry.module.db[entry.lockKey] = locked
+	end
+end
+
+-- frame: mouse enabled frame; module.db[lockKey] holds the lock state.
+function ns:RegisterDisplay(frame, key, module, lockKey, applyDefault)
+	local entry = { frame = frame, key = "D:" .. key, module = module, lockKey = lockKey, applyDefault = applyDefault }
+	displays[#displays + 1] = entry
+	frame:SetMovable(true)
+	frame:SetClampedToScreen(true)
+	frame:EnableMouse(true)
+	frame:RegisterForDrag("LeftButton")
+	frame:SetScript("OnDragStart", function(display)
+		if not DisplayLocked(entry) then
+			display:StartMoving()
+		end
+	end)
+	frame:SetScript("OnDragStop", function(display)
+		display:StopMovingOrSizing()
+		display:SetUserPlaced(false)
+		local x, y = display:GetCenter()
+		local scale = display:GetEffectiveScale()
+		saved[entry.key] = { x = x * scale, y = y * scale }
+		ApplyDisplayPosition(entry)
+	end)
+	frame:HookScript("OnMouseUp", function(_, mouseButton)
+		if mouseButton == "RightButton" then
+			local locked = not DisplayLocked(entry)
+			ns:SetDisplayLocked(entry, locked)
+			ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+		end
+	end)
+	ApplyDisplayPosition(entry)
+	return entry
+end
+
+function ns:LockAllDisplays()
+	for _, entry in ipairs(displays) do
+		ns:SetDisplayLocked(entry, true)
+	end
+	ns.Print(L.DISPLAY_ALL_LOCKED)
+end
+
 function ns:ResetFramePositions()
 	wipe(saved)
 	for _, data in pairs(ns.editFrames or {}) do
 		data.reset()
+	end
+	for _, entry in ipairs(displays) do
+		ApplyDisplayPosition(entry)
 	end
 	ns.Print(L.MOVER_RESET_DONE)
 end

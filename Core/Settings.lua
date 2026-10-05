@@ -94,6 +94,9 @@ function ns:BuildSettings()
 	mainLayout:AddInitializer(ButtonInitializer(L.MOVER_RESET, L.RESET, function()
 		ns:ResetFramePositions()
 	end, L.MOVER_RESET_DESC))
+	mainLayout:AddInitializer(ButtonInitializer(L.DISPLAY_LOCK_ALL, L.DISPLAY_LOCK, function()
+		ns:LockAllDisplays()
+	end, L.DISPLAY_LOCK_ALL_DESC))
 	mainLayout:AddInitializer(ButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI))
 
 	local modules = {}

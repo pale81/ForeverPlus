@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\Blizzard_SharedXML\UI.xsd">
+	<!--
+		Own template name = own frame pool in the settings list. Buttons initialized by
+		ForeverPlus are never reused for Blizzard's buttons (e.g. the Discord sign-in
+		button, which calls restricted functions while initializing).
+	-->
+	<Frame name="ForeverPlusSettingsButtonTemplate" inherits="SettingButtonControlTemplate" virtual="true"/>
+</Ui>

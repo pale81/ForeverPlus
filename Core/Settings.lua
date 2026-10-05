@@ -24,12 +24,24 @@ local function DropdownOptions(values)
 	end
 end
 
+-- Like CreateSettingsButtonInitializer, but with ForeverPlus' own frame pool.
+local function ButtonInitializer(name, buttonText, onClick, tooltip)
+	local initializer = Settings.CreateElementInitializer("ForeverPlusSettingsButtonTemplate", {
+		name = name,
+		buttonText = buttonText,
+		buttonClick = onClick,
+		tooltip = tooltip,
+	})
+	initializer:AddSearchTags(name)
+	return initializer
+end
+
 local function AddOption(module, category, layout, opt, initializers)
 	if opt.type == "header" then
 		layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(opt.name, opt.desc))
 		return
 	elseif opt.type == "button" then
-		local init = CreateSettingsButtonInitializer(opt.name, opt.text or opt.name, opt.func, opt.desc, true)
+		local init = ButtonInitializer(opt.name, opt.text or opt.name, opt.func, opt.desc)
 		layout:AddInitializer(init)
 		return
 	end
@@ -79,10 +91,10 @@ function ns:BuildSettings()
 	mainCategory = Settings.RegisterVerticalLayoutCategory("ForeverPlus")
 	local mainLayout = SettingsPanel:GetLayout(mainCategory)
 	mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(("ForeverPlus %s"):format(ns.version), L.ABOUT_TEXT))
-	mainLayout:AddInitializer(CreateSettingsButtonInitializer(L.MOVER_RESET, L.RESET, function()
+	mainLayout:AddInitializer(ButtonInitializer(L.MOVER_RESET, L.RESET, function()
 		ns:ResetFramePositions()
-	end, L.MOVER_RESET_DESC, true))
-	mainLayout:AddInitializer(CreateSettingsButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI, nil, true))
+	end, L.MOVER_RESET_DESC))
+	mainLayout:AddInitializer(ButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI))
 
 	local modules = {}
 	for _, module in ipairs(self.modules) do

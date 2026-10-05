@@ -38,6 +38,8 @@ local function IsLocked(key)
 	return ns.db.lockAll or ns.db.locked[key] and true or false
 end
 
+local RefreshDisplays
+
 local function ToggleLock(key)
 	if ns.db.lockAll then
 		ns.Print(L.LOCK_ALL_ACTIVE)
@@ -48,6 +50,7 @@ local function ToggleLock(key)
 	if ns.db.lockMessage then
 		ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
 	end
+	RefreshDisplays()
 end
 
 local function IsChatFrame(name)
@@ -276,8 +279,7 @@ local function UpdateCatcherTarget()
 	end
 end
 
-catcher:SetScript("OnMouseWheel", function(self, delta)
-	local frame = self.target
+local function ScaleFrame(frame, key, delta)
 	if not frame or (InCombatLockdown() and frame:IsProtected()) then
 		return
 	end
@@ -292,10 +294,13 @@ catcher:SetScript("OnMouseWheel", function(self, delta)
 		frame:ClearAllPoints()
 		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * oldScale / newScale, top * oldScale / newScale)
 	end
-	local key = self.key
 	saved[key] = saved[key] or {}
 	saved[key].scale = newScale
 	Save(frame, key)
+end
+
+catcher:SetScript("OnMouseWheel", function(self, delta)
+	ScaleFrame(self.target, self.key, delta)
 end)
 
 local function StopCatcher()
@@ -327,6 +332,7 @@ end
 ---------------------------------------------------------------------------
 function Mover:Refresh()
 	local enabled = self.db.enabled
+	RefreshDisplays()
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", enabled)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", enabled)
 	self:ToggleEvent("MODIFIER_STATE_CHANGED", enabled and self.db.scaling)
@@ -462,6 +468,16 @@ end
 -- Movable displays (coordinates, FPS/MS, …): handled like windows
 ---------------------------------------------------------------------------
 
+-- Own displays also work without Alt: drag moves, right-click locks, the
+-- mouse wheel scales. The wheel is only taken while unlocked, so a locked
+-- display inside the minimap leaves zooming to the minimap.
+function RefreshDisplays()
+	local enabled = Mover.db.enabled
+	for _, entry in ipairs(displays) do
+		entry.frame:EnableMouseWheel(enabled and Mover.db.scaling and not IsLocked(entry.key) or false)
+	end
+end
+
 -- placeDefault(frame) sets the default point; the saved position is kept
 -- relative to relativeTo (default UIParent).
 function ns:RegisterDisplay(frame, key, placeDefault, relativeTo)
@@ -471,7 +487,26 @@ function ns:RegisterDisplay(frame, key, placeDefault, relativeTo)
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
+	frame:RegisterForDrag("LeftButton")
+	frame:SetScript("OnDragStart", function(display)
+		if Mover.db.enabled and not moving and not IsLocked(entry.key) then
+			StartMoving(display, entry.key)
+		end
+	end)
+	frame:SetScript("OnDragStop", StopMoving)
+	frame:HookScript("OnMouseUp", function(_, mouseButton)
+		-- Alt + right-click is handled by the global mouse handler.
+		if mouseButton == "RightButton" and Mover.db.enabled and not IsAltKeyDown() then
+			ToggleLock(entry.key)
+		end
+	end)
+	frame:SetScript("OnMouseWheel", function(display, delta)
+		if not IsLocked(entry.key) then
+			ScaleFrame(display, entry.key, delta)
+		end
+	end)
 	ApplyDisplay(entry)
+	RefreshDisplays()
 	return entry
 end
 
@@ -488,6 +523,7 @@ function ns:SetAllLocked(locked)
 	if not locked then
 		wipe(ns.db.locked)
 	end
+	RefreshDisplays()
 	ns.Print(locked and L.LOCK_ALL_DONE or L.UNLOCK_ALL_DONE)
 end
 

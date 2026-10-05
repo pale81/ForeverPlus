@@ -22,6 +22,7 @@ globals = {
 }
 
 read_globals = {
+	"GetNumLanguages", "GetLanguageByIndex", "FCFTab_UpdateAlpha", "QuestInfo_Display",
 	"GetNumQuestLeaderBoards", "AUCTION_DURATION_ONE", "AUCTION_DURATION_TWO", "AUCTION_DURATION_THREE",
 	"strcmputf8i", "GetZoneText", "CopyTable", "DoesAncestryInclude",
 	"IsResting",

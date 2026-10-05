@@ -8,7 +8,9 @@ local Chat = ns:NewModule("Chat", {
 	defaults = {
 		hideButtons = true,
 		transparent = true,
-		languageBubble = true,
+		languageClick = true,
+		languageMessage = true,
+		tabFade = true,
 		keywordAlert = false,
 		keywordSound = "RAID_WARNING",
 	},
@@ -30,45 +32,10 @@ local function ChatButtons()
 	return ChatFrameMenuButton, ChatFrameChannelButton, QuickJoinToastButton
 end
 
--- Blizzard's own chat menu button (yellow speech bubble) at the top right of
--- the chat. It stays Blizzard's button, so choosing a language in its menu
--- runs Blizzard's code untouched and sending chat is not affected.
-local bubbleHooked = false
-
-local function ShowLanguageTooltip(button)
-	local editBox = DEFAULT_CHAT_FRAME.editBox
-	GameTooltip:SetOwner(button, "ANCHOR_TOPLEFT")
-	GameTooltip_SetTitle(GameTooltip, LANGUAGE)
-	GameTooltip_AddNormalLine(GameTooltip, L.CHAT_LANGUAGE_CURRENT:format(editBox and editBox.language or "?"))
-	GameTooltip_AddInstructionLine(GameTooltip, L.CHAT_LANGUAGE_HINT)
-	GameTooltip:Show()
-end
-
-local function PlaceBubble(button)
-	local anchor = ChatFrame1.Background or ChatFrame1
-	button:SetParent(ChatFrame1)
-	button:SetFrameStrata("MEDIUM")
-	button:SetSize(22, 22)
-	button:ClearAllPoints()
-	button:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
-	if not bubbleHooked then
-		bubbleHooked = true
-		button:HookScript("OnEnter", ShowLanguageTooltip)
-		button:HookScript("OnLeave", GameTooltip_Hide)
-	end
-end
-
 function Chat:UpdateButtons()
 	local hide = self.db.hideButtons
 	for _, button in ipairs({ ChatButtons() }) do
-		if button == ChatFrameMenuButton and self.db.languageBubble then
-			buttonParents[button] = buttonParents[button] or button:GetParent()
-			if not buttonParents.bubblePoint then
-				buttonParents.bubblePoint = { button:GetPoint(1) }
-				buttonParents.bubbleSize = { button:GetSize() }
-			end
-			PlaceBubble(button)
-		elseif hide then
+		if hide then
 			if button:GetParent() ~= ns.hider then
 				buttonParents[button] = buttonParents[button] or button:GetParent()
 				button:SetParent(ns.hider)
@@ -76,12 +43,82 @@ function Chat:UpdateButtons()
 		elseif buttonParents[button] then
 			button:SetParent(buttonParents[button])
 			buttonParents[button] = nil
-			if button == ChatFrameMenuButton and buttonParents.bubblePoint then
-				button:ClearAllPoints()
-				button:SetPoint(unpack(buttonParents.bubblePoint))
-				button:SetSize(unpack(buttonParents.bubbleSize))
-				buttonParents.bubblePoint, buttonParents.bubbleSize = nil, nil
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- Middle-click on a chat tab switches to the next language. Uses the same
+-- call as Blizzard's language menu; the value it stores comes from addon code.
+---------------------------------------------------------------------------
+local function NextLanguage()
+	local editBox = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox
+	local count = GetNumLanguages and GetNumLanguages() or 0
+	if not editBox or count < 2 then
+		return
+	end
+	local current = editBox.languageID
+	local nextIndex = 1
+	for i = 1, count do
+		local _, languageID = GetLanguageByIndex(i)
+		if languageID == current then
+			nextIndex = i % count + 1
+			break
+		end
+	end
+	local language, languageID = GetLanguageByIndex(nextIndex)
+	editBox:SetGameLanguage(language, languageID)
+	if Chat.db.languageMessage then
+		ns.Print(L.CHAT_LANGUAGE_NOW:format(language))
+	end
+end
+
+local hookedTabs = {}
+
+local function HookTab(tab)
+	if not tab or hookedTabs[tab] then
+		return
+	end
+	hookedTabs[tab] = true
+	tab:HookScript("OnMouseUp", function(_, mouseButton)
+		if mouseButton == "MiddleButton" and Chat.db.languageClick then
+			NextLanguage()
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Tab labels fade with the chat: visible while the mouse is over the chat
+-- (or a tab alerts), like the background. Only the label alpha is changed;
+-- Blizzard's own tab alpha values stay untouched.
+---------------------------------------------------------------------------
+local function TabLabel(tab)
+	return tab and (tab.Text or _G[tab:GetName() .. "Text"])
+end
+
+local function SetTabsShown(chatFrame, shown)
+	if not Chat.db.tabFade then
+		return
+	end
+	for _, name in ipairs(CHAT_FRAMES) do
+		local frame = _G[name]
+		if frame == chatFrame or (chatFrame.isDocked and frame.isDocked) then
+			local tab = _G[name .. "Tab"]
+			local label = TabLabel(tab)
+			if label then
+				local alerting = ChatFrameUtil.IsTabAlerting and ChatFrameUtil.IsTabAlerting(tab)
+				label:SetAlpha((shown or alerting) and 1 or 0)
 			end
+		end
+	end
+end
+
+function Chat:UpdateTabFade()
+	for _, name in ipairs(CHAT_FRAMES) do
+		local frame = _G[name]
+		local label = TabLabel(_G[name .. "Tab"])
+		if label then
+			label:SetAlpha((not self.db.tabFade or frame.hasBeenFaded) and 1 or 0)
 		end
 	end
 end
@@ -135,6 +172,7 @@ local function StyleChatFrame(chatFrame)
 	styled[chatFrame] = true
 	StyleFont(chatFrame)
 	StyleTab(_G[chatFrame:GetName() .. "Tab"])
+	HookTab(_G[chatFrame:GetName() .. "Tab"])
 	StyleEditBox(chatFrame)
 end
 
@@ -244,6 +282,18 @@ end
 function Chat:OnLogin()
 	StyleAll()
 	self:UpdateButtons()
+	hooksecurefunc("FCF_FadeInChatFrame", function(chatFrame)
+		SetTabsShown(chatFrame, true)
+	end)
+	hooksecurefunc("FCF_FadeOutChatFrame", function(chatFrame)
+		SetTabsShown(chatFrame, false)
+	end)
+	if FCFTab_UpdateAlpha then
+		hooksecurefunc("FCFTab_UpdateAlpha", function(chatFrame)
+			SetTabsShown(chatFrame, chatFrame.hasBeenFaded)
+		end)
+	end
+	self:UpdateTabFade()
 
 	-- Font size changes keep the flags; reapply in case something reset them.
 	hooksecurefunc("FCF_SetChatWindowFontSize", function(_, chatFrame)
@@ -268,8 +318,10 @@ end
 function Chat:OnOptionChanged(key, value)
 	if key == "keywordAlert" then
 		self:UpdateKeywordAlert()
-	elseif key == "hideButtons" or key == "languageBubble" then
+	elseif key == "hideButtons" then
 		self:UpdateButtons()
+	elseif key == "tabFade" then
+		self:UpdateTabFade()
 	elseif key == "transparent" then
 		if value then
 			self:ApplyTransparency(true)
@@ -287,7 +339,9 @@ end
 
 Chat.options = {
 	{ key = "hideButtons", type = "toggle", name = L.CHAT_HIDE_BUTTONS, desc = L.CHAT_HIDE_BUTTONS_DESC },
-	{ key = "languageBubble", type = "toggle", name = L.CHAT_LANGUAGE_BUBBLE, desc = L.CHAT_LANGUAGE_BUBBLE_DESC },
+	{ key = "tabFade", type = "toggle", name = L.CHAT_TAB_FADE, desc = L.CHAT_TAB_FADE_DESC },
+	{ key = "languageClick", type = "toggle", name = L.CHAT_LANGUAGE_CLICK, desc = L.CHAT_LANGUAGE_CLICK_DESC },
+	{ key = "languageMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "languageClick" },
 	{ type = "header", name = L.CHAT_KEYWORD_HEADER },
 	{ key = "keywordAlert", type = "toggle", name = L.CHAT_KEYWORD_ALERT, desc = L.CHAT_KEYWORD_ALERT_DESC },
 	{ type = "button", name = L.CHAT_KEYWORDS, text = L.CHAT_KEYWORDS_EDIT, func = function()

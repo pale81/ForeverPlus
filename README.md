@@ -6,7 +6,7 @@ Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und ble
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient: **Alt + Ziehen** verschiebt, **Strg + Mausrad** skaliert, **Alt + Rechtsklick** sperrt/entsperrt einzeln. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
-`/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars.
+`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars.
 
 ## Funktionen
 
@@ -53,7 +53,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
 | Erfahrung & Ruf | Zahlen immer oder nur bei Mouseover (Standard: Mouseover); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
-| Talente | „Zauber nach Stufe“ (erlernte grau); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
+| Talente | „Zauber beim Lehrer“ (erlernte grau; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |
@@ -64,6 +64,10 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
+| Helfer | Alt: verarbeitbare Taschengegenstände leuchten (lila Entzaubern, gelb Schlossknacken, grün Mahlen falls vorhanden), Alt + Rechtsklick führt es aus | ja |
+| | Knopf für öffnbare Gegenstände (Muscheln, Beutel, geknackte Kassetten), Bearbeitungsmodus | ja |
+| | Doppel-Rechtsklick in die Welt wirft die Angel aus | ja |
+| | Bereits bekannte Rezepte in Taschen und beim Händler ausgegraut | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt; Position/Größe je Element gespeichert | ja |
@@ -91,6 +95,9 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Peon-Klänge: Datei-IDs 558132 (`peonbuildingcomplete1.ogg`) und 558137 (`peonready1.ogg`) laut Community-Listfile; ob der Forever-Client sie enthält, ist ungeprüft. Fehlt eine Datei, ertönt ein Blizzard-Klang.
 - Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
+
+- Angeln per Doppel-Rechtsklick: belegt nach dem ersten Rechtsklick für 0,4 s die rechte Maustaste mit einem sicheren Knopf (wie Fishing-Buddy-artige Addons). Ob der Forever-Client dabei den ersten Klick bereits als Tastendruck wertet, ist ungeprüft.
+- Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
 
 ## Danksagungen / Lizenzen
 

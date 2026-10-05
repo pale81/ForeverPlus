@@ -10,6 +10,9 @@ local Talents = ns:NewModule("Talents", {
 		enabled = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
 	},
+	charDefaults = {
+		seenSpells = {}, -- learnable spells already shown to the player
+	},
 })
 
 local MAX_APPLY_PASSES = 10
@@ -54,8 +57,47 @@ local function CollectSpells()
 	return byLevel
 end
 
+-- Spells the player could learn at the trainer right now.
+local function LearnableSpells(byLevel)
+	local playerLevel = UnitLevel("player")
+	local list = {}
+	for level, spells in pairs(byLevel or CollectSpells()) do
+		if level <= playerLevel then
+			for _, spellID in ipairs(spells) do
+				if not IsKnown(spellID) then
+					list[#list + 1] = spellID
+				end
+			end
+		end
+	end
+	return list
+end
+
+local spellsButton
+
+-- The button sparkles while there is something new to learn.
+local function UpdateSpellsGlow()
+	if not spellsButton then
+		return
+	end
+	local seen = Talents.cdb.seenSpells
+	local new = false
+	for _, spellID in ipairs(LearnableSpells()) do
+		if not seen[spellID] then
+			new = true
+			break
+		end
+	end
+	spellsButton.Alert:SetShown(new and Talents.db.enabled)
+end
+
 local function ShowSpellsByLevel()
 	local byLevel = CollectSpells()
+	local seen = Talents.cdb.seenSpells
+	for _, spellID in ipairs(LearnableSpells(byLevel)) do
+		seen[spellID] = true
+	end
+	UpdateSpellsGlow()
 	local levels = {}
 	for level in pairs(byLevel) do
 		levels[#levels + 1] = level
@@ -247,12 +289,36 @@ local function CreateButtons()
 	spells:SetPoint("RIGHT", builds, "LEFT", -6, 0)
 	spells:SetText(L.TALENTS_SPELLS)
 	spells:SetScript("OnClick", ShowSpellsByLevel)
+	-- Spell book icon left of the button carries the spell alert sparkle.
+	local icon = spells:CreateTexture(nil, "ARTWORK")
+	icon:SetSize(22, 22)
+	icon:SetPoint("RIGHT", spells, "LEFT", -4, 0)
+	icon:SetTexture(133741)
+	local alert = CreateFrame("Frame", nil, spells, "ActionButtonSpellAlertTemplate")
+	alert:SetSize(22 * 1.4, 22 * 1.4)
+	alert:SetPoint("CENTER", icon, "CENTER")
+	alert.animationPlaying = true
+	alert:Hide()
+	spells.Alert = alert
+	spellsButton = spells
 	buttons = { builds, spells }
 end
 
 function Talents:Update()
 	for _, button in ipairs(buttons or {}) do
 		button:SetShown(self.db.enabled)
+	end
+	UpdateSpellsGlow()
+end
+
+local glowPending = false
+local function QueueGlowUpdate()
+	if not glowPending then
+		glowPending = true
+		C_Timer.After(1, function()
+			glowPending = false
+			UpdateSpellsGlow()
+		end)
 	end
 end
 
@@ -261,8 +327,11 @@ function Talents:OnLogin()
 		if PlayerSpellsFrame then
 			CreateButtons()
 			self:Update()
+			PlayerSpellsFrame:HookScript("OnShow", UpdateSpellsGlow)
 		end
 	end)
+	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
+	self:RegisterEvent("SPELLS_CHANGED", QueueGlowUpdate)
 end
 
 function Talents:OnOptionChanged()

@@ -18,6 +18,10 @@ local Items = ns:NewModule("Items", {
 	},
 })
 
+-- Key binding labels (Bindings.xml).
+BINDING_HEADER_FOREVERPLUS = "ForeverPlus"
+BINDING_NAME_FOREVERPLUS_TOGGLEJUNK = L.ITEMS_BINDING_JUNK
+
 local SELL_BATCH = 10
 local SELL_INTERVAL = 0.2
 
@@ -195,13 +199,8 @@ end
 
 local hookedButtons = {}
 
--- Marks/unmarks junk with the configured mouse button (middle button by default).
--- OnMouseUp also fires for buttons the item button is not registered to click with.
-local function OnItemMouseUp(button, mouseButton)
-	if mouseButton ~= Items.db.junkButton or not button:IsMouseOver() then
-		return
-	end
-	local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
+local function ToggleJunk(bag, slot)
+	local info = C_Container.GetContainerItemInfo(bag, slot)
 	if not info or not info.itemID then
 		return
 	end
@@ -214,6 +213,82 @@ local function OnItemMouseUp(button, mouseButton)
 		ns.Print(L.ITEMS_MARKED, info.hyperlink)
 	end
 	UpdateAllBags()
+end
+
+-- Marks/unmarks junk with the configured mouse button (middle button by default).
+-- OnMouseUp also fires for buttons the item button is not registered to click with.
+local function OnItemMouseUp(button, mouseButton)
+	if mouseButton == Items.db.junkButton and button:IsMouseOver() then
+		ToggleJunk(button:GetBagID(), button:GetID())
+	end
+end
+
+-- Key binding (Bindings.xml): toggles the bag item under the mouse.
+function ForeverPlus_ToggleJunkUnderMouse()
+	local frame = GetMouseFoci()[1]
+	while frame and not frame:IsForbidden() do
+		if frame.GetBagID and frame.GetID then
+			local bag = frame:GetBagID()
+			if bag then
+				ToggleJunk(bag, frame:GetID())
+			end
+			return
+		end
+		frame = frame:GetParent()
+	end
+end
+
+---------------------------------------------------------------------------
+-- Junk list: every marked item, click removes the mark
+---------------------------------------------------------------------------
+local function JunkEntryText(itemID)
+	local name = C_Item.GetItemNameByID(itemID)
+	if not name then
+		C_Item.RequestLoadItemDataByID(itemID)
+		name = ("item:%d"):format(itemID)
+	end
+	local quality = C_Item.GetItemQualityByID(itemID)
+	if quality then
+		local r, g, b = C_Item.GetItemQualityColor(quality)
+		name = CreateColor(r, g, b):WrapTextInColorCode(name)
+	end
+	local icon = C_Item.GetItemIconByID(itemID)
+	return icon and ("|T%d:16:16|t %s"):format(icon, name) or name, C_Item.GetItemNameByID(itemID) or ""
+end
+
+function Items:ShowJunkMenu(owner)
+	MenuUtil.CreateContextMenu(owner or UIParent, function(_, root)
+		root:SetScrollMode(400)
+		root:CreateTitle(L.ITEMS_JUNK_LIST)
+		local entries = {}
+		for itemID in pairs(self.db.junk) do
+			local text, sortName = JunkEntryText(itemID)
+			entries[#entries + 1] = { id = itemID, text = text, sortName = sortName }
+		end
+		if #entries == 0 then
+			root:CreateTitle(L.ITEMS_JUNK_NONE)
+			return
+		end
+		table.sort(entries, function(a, b)
+			return a.sortName < b.sortName
+		end)
+		for _, entry in ipairs(entries) do
+			local button = root:CreateButton(entry.text, function()
+				self.db.junk[entry.id] = nil
+				UpdateAllBags()
+				return MenuResponse.Refresh
+			end)
+			button:SetTooltip(function(tooltip)
+				tooltip:SetItemByID(entry.id)
+				GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
+			end)
+		end
+		root:CreateDivider()
+		root:CreateButton(L.ITEMS_CLEAR_JUNK, function()
+			wipe(self.db.junk)
+			UpdateAllBags()
+		end)
+	end)
 end
 
 local function PostUpdateItems(frame)
@@ -391,7 +466,7 @@ local function MarkBestReward()
 end
 
 ---------------------------------------------------------------------------
--- Fast loot (same approach as Leatrix Plus)
+-- Fast loot: take every slot as soon as the loot window is ready
 ---------------------------------------------------------------------------
 local lastLoot = 0
 
@@ -447,10 +522,10 @@ Items.options = {
 	{ key = "repairGuild", type = "toggle", name = L.ITEMS_REPAIR_GUILD, desc = L.ITEMS_REPAIR_GUILD_DESC, parent = "autoRepair" },
 	{ key = "junkButton", type = "dropdown", name = L.ITEMS_JUNK_BUTTON, desc = L.ITEMS_JUNK_BUTTON_DESC, values = {
 		{ "MiddleButton", L.ITEMS_MOUSE_MIDDLE }, { "Button4", L.ITEMS_MOUSE_4 }, { "Button5", L.ITEMS_MOUSE_5 },
+		{ "None", L.ITEMS_MOUSE_NONE },
 	} },
-	{ type = "button", name = L.ITEMS_CLEAR_JUNK, text = L.RESET, desc = L.ITEMS_CLEAR_JUNK_DESC, func = function()
-		wipe(Items.db.junk)
-		UpdateAllBags()
+	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function()
+		Items:ShowJunkMenu()
 	end },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },

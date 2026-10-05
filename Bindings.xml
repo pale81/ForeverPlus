@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="FOREVERPLUS_TOGGLEJUNK" header="FOREVERPLUS" category="ADDONS">
+		ForeverPlus_ToggleJunkUnderMouse()
+	</Binding>
+</Bindings>

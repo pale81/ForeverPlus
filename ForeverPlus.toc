@@ -28,6 +28,7 @@ Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\Visuals.lua
+Modules\Fonts.lua
 
 Modules\RecipeRadar.xml
 Modules\RecipeRadar.lua

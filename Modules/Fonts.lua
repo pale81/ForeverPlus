@@ -132,9 +132,11 @@ function Fonts:ApplyAll()
 		Apply(entry)
 	end
 	ApplyChatWindows()
-	local minimap = ns:GetModule("Minimap")
-	if minimap and minimap.UpdateFont then
-		minimap:UpdateFont()
+	-- Own texts of other modules follow the global face.
+	for _, module in ipairs(ns.modules) do
+		if module ~= self and module.UpdateFont then
+			module:UpdateFont()
+		end
 	end
 end
 

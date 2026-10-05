@@ -200,7 +200,10 @@ local function CreateWindow()
 
 	local scroll = CreateFrame("Frame", nil, frame, "ScrollingEditBoxTemplate")
 	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -56)
-	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 12)
+	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 26)
+	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	hint:SetPoint("BOTTOM", frame, "BOTTOM", 0, 9)
+	hint:SetText(L.ERRORS_RELOAD_HINT)
 	local scrollBar = CreateFrame("EventFrame", nil, frame, "MinimalScrollBar")
 	scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, 0)
 	scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 0)
@@ -300,12 +303,17 @@ local function CreateButton()
 	b.Pulse = pulse
 
 	b:SetScript("OnClick", function(self)
+		if IsShiftKeyDown() then
+			ReloadUI()
+			return
+		end
 		Errors:ShowMenu(self)
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip_SetTitle(GameTooltip, L.ERRORS_TITLE)
 		GameTooltip_AddNormalLine(GameTooltip, L.ERRORS_COUNT:format(#entries))
+		GameTooltip_AddInstructionLine(GameTooltip, L.ERRORS_RELOAD_HINT)
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)

@@ -8,7 +8,7 @@ local Quests = ns:NewModule("Quests", {
 	order = 5.2,
 	defaults = {
 		completeSound = "peon",
-		progressSound = "ping",
+		progressSound = "peonReady",
 		nameplateIcons = true,
 		itemButton = true,
 		trackerSort = "default",
@@ -16,7 +16,9 @@ local Quests = ns:NewModule("Quests", {
 })
 
 local SCAN_DELAY = 0.3
-local PEON_DONE = [[Sound\Creature\Peon\PeonBuildingComplete1.ogg]]
+-- File IDs: sound/creature/peon/peonbuildingcomplete1.ogg ("Work complete")
+-- and peonready1.ogg ("Ready to work").
+local PEON_DONE, PEON_READY = 558132, 558137
 
 ---------------------------------------------------------------------------
 -- Sounds
@@ -26,6 +28,11 @@ local SOUNDS = {
 		-- Falls back to Blizzard's sound when the client cannot find the file.
 		if not PlaySoundFile(PEON_DONE, "Master") then
 			PlaySound(SOUNDKIT.IG_QUEST_LIST_COMPLETE, "Master")
+		end
+	end,
+	peonReady = function()
+		if not PlaySoundFile(PEON_READY, "Master") then
+			PlaySound(SOUNDKIT.MAP_PING, "Master")
 		end
 	end,
 	complete = function()
@@ -61,7 +68,7 @@ local function ScanQuests()
 			for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
 				done = done + (objective.numFulfilled or 0)
 			end
-			local complete = C_QuestLog.IsComplete(questID) and true or false
+			local complete = ns.IsQuestReady(questID, index)
 			local old = state[questID]
 			if initialized and old then
 				if complete and not old.complete then
@@ -84,6 +91,9 @@ local function ScanQuests()
 		Play(Quests.db.completeSound)
 	elseif progressed then
 		Play(Quests.db.progressSound)
+	end
+	if (completed or progressed) and Quests.db.trackerSort == "progress" then
+		Quests:QueueTrackerSort()
 	end
 	Quests:RefreshNameplates()
 end
@@ -196,11 +206,23 @@ local function PickQuestItem()
 	return best
 end
 
+-- The button is a secure action button: using quest items is reserved for
+-- secure code. Item and visibility can only change out of combat.
 local function UpdateItemButton()
 	local button = itemButton
-	local index = Quests.db.itemButton and PickQuestItem()
-	button.questLogIndex = index
+	local inCombat = InCombatLockdown()
+	local index = button.questLogIndex
+	if not inCombat then
+		index = Quests.db.itemButton and PickQuestItem()
+		button.questLogIndex = index
+		local link = index and GetQuestLogSpecialItemInfo(index)
+		local itemID = link and link:match("item:(%d+)")
+		button:SetAttribute("item", itemID and ("item:" .. itemID) or nil)
+	end
 	if not index then
+		if inCombat then
+			return
+		end
 		if Quests.db.itemButton and ns:IsEditModeActive() then
 			button.icon:SetTexture(PLACEHOLDER_ICON)
 			button.Count:SetText("")
@@ -223,24 +245,16 @@ local function UpdateItemButton()
 	else
 		button.icon:SetVertexColor(1, 1, 1)
 	end
-	button:Show()
+	if not inCombat then
+		button:Show()
+	end
 end
 
 local function CreateItemButton()
-	local button = CreateFrame("Button", "ForeverPlusQuestItemButton", UIParent, "ActionButtonTemplate")
+	local button = CreateFrame("Button", "ForeverPlusQuestItemButton", UIParent, "SecureActionButtonTemplate, ActionButtonTemplate")
 	button:SetSize(40, 40)
-	button:RegisterForClicks("AnyUp")
-	button:SetScript("OnClick", function(self)
-		local index = self.questLogIndex
-		if not index then
-			return
-		end
-		if IsModifiedClick("CHATLINK") then
-			ChatFrameUtil.InsertLink((GetQuestLogSpecialItemInfo(index)))
-		else
-			UseQuestLogSpecialItem(index)
-		end
-	end)
+	button:RegisterForClicks("AnyUp", "AnyDown")
+	button:SetAttribute("type", "item")
 	button:SetScript("OnEnter", function(self)
 		if self.questLogIndex then
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -276,11 +290,24 @@ end
 ---------------------------------------------------------------------------
 local SORT_DELAY = 1
 local DISTANCE_INTERVAL = 10
+local VERIFY_DELAY = 0.5
+local OWN_CHANGE_TIME = 1.5 -- watch list events after our own re-adding are ignored
 local SORT_MODES = { "default", "level", "zone", "distance", "name", "progress" }
 local sortPending, sortTicker
+local ownChangeUntil = 0
+-- Whether a new watch lands at the top; found out from the result.
+local addsOnTop = false
+
+local function TextLess(a, b)
+	if strcmputf8i then
+		return strcmputf8i(a, b) < 0
+	end
+	return a:lower() < b:lower()
+end
 
 local function QuestFacts()
 	local facts, zone = {}, ""
+	local currentZone = GetZoneText()
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
 		if info then
@@ -289,14 +316,16 @@ local function QuestFacts()
 			elseif info.questID then
 				local done, total = 0, 0
 				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
-					done = done + (objective.numFulfilled or 0)
+					done = done + min(objective.numFulfilled or 0, objective.numRequired or 0)
 					total = total + (objective.numRequired or 0)
 				end
+				local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(info.questID)
 				facts[info.questID] = {
 					index = index, level = info.level or 0, title = info.title or "", zone = zone,
-					complete = C_QuestLog.IsComplete(info.questID) and 1 or 0,
+					here = zone == currentZone,
+					ready = ns.IsQuestReady(info.questID, index),
 					progress = total > 0 and done / total or 0,
-					distance = C_QuestLog.GetDistanceSqToQuest(info.questID) or math.huge,
+					distance = onContinent and distance or math.huge,
 				}
 			end
 		end
@@ -304,61 +333,138 @@ local function QuestFacts()
 	return facts
 end
 
+-- Strict orders: equal keys fall back to the quest log position.
 local COMPARE = {
-	default = function(a, b) return a.index < b.index end,
-	level = function(a, b) return a.level ~= b.level and a.level < b.level or a.index < b.index end,
-	zone = function(a, b) return a.zone ~= b.zone and a.zone < b.zone or a.index < b.index end,
-	distance = function(a, b) return a.distance ~= b.distance and a.distance < b.distance or a.index < b.index end,
-	name = function(a, b) return a.title < b.title end,
-	progress = function(a, b)
-		if a.complete ~= b.complete then
-			return a.complete > b.complete
+	default = function(a, b)
+		return a.index < b.index
+	end,
+	level = function(a, b)
+		if a.level ~= b.level then
+			return a.level < b.level
 		end
-		return a.progress ~= b.progress and a.progress > b.progress or a.index < b.index
+		return a.index < b.index
+	end,
+	zone = function(a, b)
+		if a.here ~= b.here then
+			return a.here
+		end
+		if a.zone ~= b.zone then
+			return TextLess(a.zone, b.zone)
+		end
+		return a.index < b.index
+	end,
+	distance = function(a, b)
+		if a.distance ~= b.distance then
+			return a.distance < b.distance
+		end
+		return a.index < b.index
+	end,
+	name = function(a, b)
+		if a.title ~= b.title then
+			return TextLess(a.title, b.title)
+		end
+		return a.index < b.index
+	end,
+	progress = function(a, b)
+		if a.ready ~= b.ready then
+			return a.ready
+		end
+		if a.progress ~= b.progress then
+			return a.progress > b.progress
+		end
+		return a.index < b.index
 	end,
 }
 
-local function SortTracker()
+local function CurrentWatches(facts)
+	local list = {}
+	for watch = 1, C_QuestLog.GetNumQuestWatches() do
+		local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(watch)
+		if questID and facts[questID] then
+			list[#list + 1] = questID
+		end
+	end
+	return list
+end
+
+local function SameOrder(a, b, reversed)
+	if #a ~= #b then
+		return false
+	end
+	for i = 1, #a do
+		if a[i] ~= b[reversed and #b + 1 - i or i] then
+			return false
+		end
+	end
+	return true
+end
+
+local function WriteWatches(current, sorted)
+	ownChangeUntil = GetTime() + OWN_CHANGE_TIME
+	for _, questID in ipairs(current) do
+		C_QuestLog.RemoveQuestWatch(questID)
+	end
+	local first, last, step = 1, #sorted, 1
+	if addsOnTop then
+		first, last, step = #sorted, 1, -1
+	end
+	for i = first, last, step do
+		C_QuestLog.AddQuestWatch(sorted[i])
+	end
+end
+
+local SortTracker
+
+-- Checks the result once; a reversed list means new watches land on top.
+local function VerifyOrder(sorted, retried)
+	if InCombatLockdown() then
+		return
+	end
+	local current = CurrentWatches(QuestFacts())
+	if not retried and not SameOrder(current, sorted) and SameOrder(current, sorted, true) then
+		addsOnTop = not addsOnTop
+		WriteWatches(current, sorted)
+		C_Timer.After(VERIFY_DELAY, function()
+			VerifyOrder(sorted, true)
+		end)
+	end
+end
+
+function SortTracker()
 	sortPending = false
 	local compare = COMPARE[Quests.db.trackerSort]
 	if not compare or InCombatLockdown() then
 		return
 	end
 	local facts = QuestFacts()
-	local current, sorted = {}, {}
-	for watch = 1, C_QuestLog.GetNumQuestWatches() do
-		local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(watch)
-		if questID and facts[questID] then
-			current[#current + 1] = questID
-			sorted[#sorted + 1] = questID
-		end
-	end
+	local current = CurrentWatches(facts)
+	local sorted = CopyTable(current)
 	table.sort(sorted, function(a, b)
 		return compare(facts[a], facts[b])
 	end)
-	local changed = false
-	for i = 1, #sorted do
-		if sorted[i] ~= current[i] then
-			changed = true
-			break
-		end
-	end
-	if not changed then
+	if SameOrder(current, sorted) then
 		return
 	end
-	-- Watches are shown in the order they were added.
-	for _, questID in ipairs(current) do
-		C_QuestLog.RemoveQuestWatch(questID)
-	end
-	for _, questID in ipairs(sorted) do
-		C_QuestLog.AddQuestWatch(questID)
-	end
+	WriteWatches(current, sorted)
+	C_Timer.After(VERIFY_DELAY, function()
+		VerifyOrder(sorted)
+	end)
 end
 
 local function QueueSort()
 	if not sortPending and Quests.db.trackerSort ~= "default" then
 		sortPending = true
 		C_Timer.After(SORT_DELAY, SortTracker)
+	end
+end
+
+function Quests:QueueTrackerSort()
+	QueueSort()
+end
+
+local function OnWatchListChanged()
+	if GetTime() >= ownChangeUntil then
+		QueueSort()
 	end
 end
 
@@ -436,8 +542,10 @@ function Quests:OnLogin()
 	self:UpdateItemTicker()
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", CreateSortButton)
 	self:RegisterEvent("QUEST_ACCEPTED", QueueSort)
-	self:RegisterEvent("QUEST_WATCH_LIST_CHANGED", QueueSort)
+	self:RegisterEvent("QUEST_WATCH_LIST_CHANGED", OnWatchListChanged)
+	-- Blizzard sorts the watches by proximity on zone changes.
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", QueueSort)
+	self:RegisterEvent("ZONE_CHANGED", QueueSort)
 	self:UpdateTrackerSort()
 end
 
@@ -452,7 +560,7 @@ function Quests:OnOptionChanged(key)
 end
 
 local SOUND_CHOICES = {
-	{ "peon", L.QUESTS_SOUND_PEON }, { "complete", L.QUESTS_SOUND_COMPLETE },
+	{ "peon", L.QUESTS_SOUND_PEON }, { "peonReady", L.QUESTS_SOUND_PEON_READY }, { "complete", L.QUESTS_SOUND_COMPLETE },
 	{ "ping", L.QUESTS_SOUND_PING }, { "select", L.QUESTS_SOUND_SELECT }, { "none", L.QUESTS_SOUND_NONE },
 }
 

@@ -11,8 +11,15 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverTracker = true,
 		mouseoverBags = true,
 		mouseoverMainBar = false,
-		mouseoverMultiBars = false,
-		mouseoverStancePet = false,
+		mouseoverBar2 = false,
+		mouseoverBar3 = false,
+		mouseoverBar4 = false,
+		mouseoverBar5 = false,
+		mouseoverBar6 = false,
+		mouseoverBar7 = false,
+		mouseoverBar8 = false,
+		mouseoverStance = false,
+		mouseoverPet = false,
 		nameplatesCombat = false,
 		hideErrors = true,
 		actionText = true,
@@ -82,17 +89,20 @@ local function SetFaded(frame, enabled)
 	driver:SetShown(next(fadeTargets) ~= nil)
 end
 
+-- Action bars 2–8 in Blizzard's numbering.
+local MULTI_BARS = { "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft", "MultiBar5", "MultiBar6", "MultiBar7" }
+
 function QoL:UpdateMouseover()
 	local db = self.db
 	SetFaded(MicroMenuContainer, db.mouseover and db.mouseoverMicro)
 	SetFaded(BagsBar, db.mouseover and db.mouseoverBags)
 	SetFaded(ObjectiveTrackerFrame, db.mouseover and db.mouseoverTracker)
 	SetFaded(MainActionBar, db.mouseover and db.mouseoverMainBar)
-	for _, name in ipairs({ "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft", "MultiBar5", "MultiBar6", "MultiBar7" }) do
-		SetFaded(_G[name], db.mouseover and db.mouseoverMultiBars)
+	for index, name in ipairs(MULTI_BARS) do
+		SetFaded(_G[name], db.mouseover and db["mouseoverBar" .. (index + 1)])
 	end
-	SetFaded(StanceBar, db.mouseover and db.mouseoverStancePet)
-	SetFaded(PetActionBar, db.mouseover and db.mouseoverStancePet)
+	SetFaded(StanceBar, db.mouseover and db.mouseoverStance)
+	SetFaded(PetActionBar, db.mouseover and db.mouseoverPet)
 end
 
 ---------------------------------------------------------------------------
@@ -287,6 +297,21 @@ end
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
+function QoL:OnInitialize()
+	-- Former combined options for bars 2–8 and stance/pet bar.
+	local db = self.db
+	if db.mouseoverMultiBars ~= nil then
+		for bar = 2, 8 do
+			db["mouseoverBar" .. bar] = db.mouseoverMultiBars
+		end
+		db.mouseoverMultiBars = nil
+	end
+	if db.mouseoverStancePet ~= nil then
+		db.mouseoverStance, db.mouseoverPet = db.mouseoverStancePet, db.mouseoverStancePet
+		db.mouseoverStancePet = nil
+	end
+end
+
 function QoL:OnLogin()
 	-- Addons create their minimap buttons during their own login handling.
 	local function ScanMinimapButtons()
@@ -343,8 +368,15 @@ QoL.options = {
 	{ key = "mouseoverTracker", type = "toggle", name = L.QOL_MOUSEOVER_TRACKER, parent = "mouseover" },
 	{ key = "mouseoverBags", type = "toggle", name = L.QOL_MOUSEOVER_BAGS, parent = "mouseover" },
 	{ key = "mouseoverMainBar", type = "toggle", name = L.QOL_MOUSEOVER_MAINBAR, parent = "mouseover" },
-	{ key = "mouseoverMultiBars", type = "toggle", name = L.QOL_MOUSEOVER_MULTIBARS, parent = "mouseover" },
-	{ key = "mouseoverStancePet", type = "toggle", name = L.QOL_MOUSEOVER_STANCEPET, parent = "mouseover" },
+	{ key = "mouseoverBar2", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(2), parent = "mouseover" },
+	{ key = "mouseoverBar3", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(3), parent = "mouseover" },
+	{ key = "mouseoverBar4", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(4), parent = "mouseover" },
+	{ key = "mouseoverBar5", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(5), parent = "mouseover" },
+	{ key = "mouseoverBar6", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(6), parent = "mouseover" },
+	{ key = "mouseoverBar7", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(7), parent = "mouseover" },
+	{ key = "mouseoverBar8", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(8), parent = "mouseover" },
+	{ key = "mouseoverStance", type = "toggle", name = L.QOL_MOUSEOVER_STANCE, parent = "mouseover" },
+	{ key = "mouseoverPet", type = "toggle", name = L.QOL_MOUSEOVER_PET, parent = "mouseover" },
 	{ type = "header", name = L.QOL_ERRORS_HEADER },
 	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },

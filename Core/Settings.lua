@@ -25,6 +25,8 @@ local function DropdownOptions(values)
 end
 
 -- Like CreateSettingsButtonInitializer, but with ForeverPlus' own frame pool.
+-- The button starts where checkboxes, sliders and dropdowns start, so all
+-- controls line up and the label keeps the same width.
 local function ButtonInitializer(name, buttonText, onClick, tooltip)
 	local initializer = Settings.CreateElementInitializer("ForeverPlusSettingsButtonTemplate", {
 		name = name,
@@ -33,7 +35,26 @@ local function ButtonInitializer(name, buttonText, onClick, tooltip)
 		tooltip = tooltip,
 	})
 	initializer:AddSearchTags(name)
+	local initFrame = initializer.InitFrame
+	function initializer:InitFrame(frame)
+		initFrame(self, frame)
+		frame.Button:ClearAllPoints()
+		frame.Button:SetPoint("LEFT", frame, "CENTER", -80, 0)
+	end
 	return initializer
+end
+
+local function MainCheckbox(variable, key, default, name, desc, onChange)
+	if ns.db[key] == nil then
+		ns.db[key] = default
+	end
+	local setting = Settings.RegisterAddOnSetting(mainCategory, variable, key, ns.db, Settings.VarType.Boolean, name, default)
+	if onChange then
+		setting:SetValueChangedCallback(function(_, value)
+			onChange(value)
+		end)
+	end
+	Settings.CreateCheckbox(mainCategory, setting, desc)
 end
 
 local function AddOption(module, category, layout, opt, initializers)
@@ -91,17 +112,15 @@ function ns:BuildSettings()
 	mainCategory = Settings.RegisterVerticalLayoutCategory("ForeverPlus")
 	local mainLayout = SettingsPanel:GetLayout(mainCategory)
 	mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(("ForeverPlus %s"):format(ns.version), L.ABOUT_TEXT))
-	if ns.db.quiet == nil then
-		ns.db.quiet = false
-	end
-	local quiet = Settings.RegisterAddOnSetting(mainCategory, "ForeverPlus_quiet", "quiet", ns.db, Settings.VarType.Boolean, L.QUIET, false)
-	Settings.CreateCheckbox(mainCategory, quiet, L.QUIET_DESC)
+	MainCheckbox("ForeverPlus_quiet", "quiet", false, L.QUIET, L.QUIET_DESC)
+	mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(L.POSITIONS, L.POSITIONS_DESC))
+	MainCheckbox("ForeverPlus_lockAll", "lockAll", false, L.LOCK_ALL, L.LOCK_ALL_DESC, function(value)
+		ns:SetAllLocked(value)
+	end)
+	MainCheckbox("ForeverPlus_lockMessage", "lockMessage", true, L.DISPLAY_LOCK_MESSAGE, L.MESSAGE_DESC)
 	mainLayout:AddInitializer(ButtonInitializer(L.MOVER_RESET, L.RESET, function()
 		ns:ResetFramePositions()
 	end, L.MOVER_RESET_DESC))
-	mainLayout:AddInitializer(ButtonInitializer(L.DISPLAY_LOCK_ALL, L.DISPLAY_LOCK, function()
-		ns:LockAllDisplays()
-	end, L.DISPLAY_LOCK_ALL_DESC))
 	mainLayout:AddInitializer(ButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI))
 
 	local modules = {}

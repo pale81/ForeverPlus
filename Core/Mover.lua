@@ -1,5 +1,6 @@
--- Window mover (Alt + drag, Ctrl + mouse wheel to scale, like BlizzMove) and
--- Edit Mode integration for frames created by ForeverPlus.
+-- Window mover (Alt + drag, Ctrl + mouse wheel to scale, Alt + right-click to
+-- lock) for windows and ForeverPlus displays, and Edit Mode integration for
+-- frames created by ForeverPlus.
 local _, ns = ...
 local L = ns.L
 
@@ -28,6 +29,26 @@ local hooked = {}    -- frames with an OnShow re-apply hook
 local moving         -- frame currently dragged
 local startLeft, startTop
 local pending = {}   -- frames to re-apply after combat
+local displays = {}  -- ForeverPlus displays (coordinates, FPS/MS, …)
+local displayOf = {} -- display frame -> entry
+local movingKey
+
+-- One switch locks everything; Alt + right-click locks single elements.
+local function IsLocked(key)
+	return ns.db.lockAll or ns.db.locked[key] and true or false
+end
+
+local function ToggleLock(key)
+	if ns.db.lockAll then
+		ns.Print(L.LOCK_ALL_ACTIVE)
+		return
+	end
+	local locked = not ns.db.locked[key]
+	ns.db.locked[key] = locked or nil
+	if ns.db.lockMessage then
+		ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+	end
+end
 
 local function IsChatFrame(name)
 	return name:find("^ChatFrame") or name:find("^GeneralDockManager")
@@ -66,6 +87,45 @@ local function FindWindow(region)
 	return frame
 end
 
+local function FindDisplay(region)
+	local frame = region
+	while frame do
+		if displayOf[frame] then
+			return displayOf[frame]
+		end
+		if frame:IsForbidden() or not frame.GetParent then
+			return
+		end
+		frame = frame:GetParent()
+	end
+end
+
+-- Movable element under the cursor: frame and the key of its saved position.
+local function FindTarget(region)
+	if not region then
+		return
+	end
+	local entry = FindDisplay(region)
+	if entry then
+		return entry.frame, entry.key
+	end
+	local frame = FindWindow(region)
+	if frame then
+		return frame, frame:GetName()
+	end
+end
+
+local function ApplyDisplay(entry)
+	local frame, data = entry.frame, saved[entry.key]
+	frame:SetScale(data and data.scale or 1)
+	frame:ClearAllPoints()
+	if data and data.x then
+		frame:SetPoint("TOPLEFT", entry.relativeTo, "BOTTOMLEFT", data.x, data.y)
+	else
+		entry.placeDefault(frame)
+	end
+end
+
 local function Apply(frame)
 	local data = saved[frame:GetName()]
 	if not data then
@@ -96,17 +156,27 @@ local function HookWindow(frame)
 	frame:HookScript("OnShow", Apply)
 end
 
-local function Save(frame)
+local function Save(frame, key)
 	local left, top = frame:GetLeft(), frame:GetTop()
 	if not left or not top then
 		return
 	end
-	local name = frame:GetName()
-	local data = saved[name] or {}
+	local entry = displayOf[frame]
+	if entry then
+		-- Displays keep their offset to the frame they belong to (e.g. the map).
+		local relativeTo = entry.relativeTo
+		local factor = relativeTo:GetEffectiveScale() / frame:GetEffectiveScale()
+		left, top = left - (relativeTo:GetLeft() or 0) * factor, top - (relativeTo:GetBottom() or 0) * factor
+	end
+	local data = saved[key] or {}
 	data.x, data.y = left, top
 	data.scale = data.scale or (frame:GetScale() ~= 1 and frame:GetScale() or nil)
-	saved[name] = data
-	HookWindow(frame)
+	saved[key] = data
+	if entry then
+		ApplyDisplay(entry)
+	else
+		HookWindow(frame)
+	end
 end
 
 local function ApplyAllShown()
@@ -121,14 +191,14 @@ end
 ---------------------------------------------------------------------------
 -- Alt + drag
 ---------------------------------------------------------------------------
-local function StartMoving(frame)
+local function StartMoving(frame, key)
 	if not frame:IsMovable() then
 		frame:SetMovable(true)
 	end
 	frame:SetClampedToScreen(true)
 	startLeft, startTop = frame:GetLeft(), frame:GetTop()
 	frame:StartMoving()
-	moving = frame
+	moving, movingKey = frame, key
 end
 
 local function StopMoving()
@@ -139,7 +209,7 @@ local function StopMoving()
 	end
 	frame:StopMovingOrSizing()
 	-- Our own database restores the position; keep the client layout cache out of it.
-	if frame:IsUserPlaced() and not (InCombatLockdown() and frame:IsProtected()) then
+	if frame:GetName() and frame:IsUserPlaced() and not (InCombatLockdown() and frame:IsProtected()) then
 		frame:SetUserPlaced(false)
 	end
 	-- A plain Alt-click must not pin the window to its current position.
@@ -147,17 +217,22 @@ local function StopMoving()
 	if left and startLeft and math.abs(left - startLeft) < 1 and math.abs(top - startTop) < 1 then
 		return
 	end
-	Save(frame)
+	Save(frame, movingKey)
 end
 
 function Mover:GLOBAL_MOUSE_DOWN(_, button)
-	if button ~= "LeftButton" or not IsAltKeyDown() or moving then
+	if not IsAltKeyDown() or moving then
 		return
 	end
 	local foci = GetMouseFoci()
-	local frame = foci and FindWindow(foci[1])
-	if frame then
-		StartMoving(frame)
+	local frame, key = FindTarget(foci and foci[1])
+	if not frame then
+		return
+	end
+	if button == "RightButton" then
+		ToggleLock(key)
+	elseif button == "LeftButton" and not IsLocked(key) then
+		StartMoving(frame, key)
 	end
 end
 
@@ -183,9 +258,12 @@ local function UpdateCatcherTarget()
 	if region == catcher then
 		region = foci[2]
 	end
-	local frame = region and FindWindow(region)
+	local frame, key = FindTarget(region)
+	if frame and IsLocked(key) then
+		frame = nil
+	end
 	if frame ~= catcher.target then
-		catcher.target = frame
+		catcher.target, catcher.key = frame, key
 		catcher:ClearAllPoints()
 		if frame then
 			catcher:SetAllPoints(frame)
@@ -214,10 +292,10 @@ catcher:SetScript("OnMouseWheel", function(self, delta)
 		frame:ClearAllPoints()
 		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * oldScale / newScale, top * oldScale / newScale)
 	end
-	local name = frame:GetName()
-	saved[name] = saved[name] or {}
-	saved[name].scale = newScale
-	Save(frame)
+	local key = self.key
+	saved[key] = saved[key] or {}
+	saved[key].scale = newScale
+	Save(frame, key)
 end)
 
 local function StopCatcher()
@@ -257,8 +335,40 @@ function Mover:Refresh()
 	end
 end
 
+-- Former per-display lock options and display positions.
+local LEGACY_LOCKS = {
+	{ "Minimap", "lockCoords", "M:MinimapCoords" },
+	{ "Minimap", "lockWorldMap", "M:WorldMapCoords" },
+	{ "Info", "lockPerformance", "M:Performance" },
+}
+
+local function Migrate()
+	local db = ns.db
+	for _, legacy in ipairs(LEGACY_LOCKS) do
+		local moduleDB = db.modules[legacy[1]]
+		if moduleDB then
+			if moduleDB[legacy[2]] then
+				db.locked[legacy[3]] = true
+			end
+			if moduleDB.lockMessage == false then
+				db.lockMessage = false
+			end
+			moduleDB[legacy[2]], moduleDB.lockMessage = nil, nil
+		end
+	end
+	saved["D:MinimapCoords"], saved["D:Performance"], saved.WorldMapCoords = nil, nil, nil
+end
+
 function Mover:OnInitialize()
 	saved = ns.db.frames
+	ns.db.locked = ns.db.locked or {}
+	if ns.db.lockAll == nil then
+		ns.db.lockAll = false
+	end
+	if ns.db.lockMessage == nil then
+		ns.db.lockMessage = true
+	end
+	Migrate()
 	self:Refresh()
 end
 
@@ -272,7 +382,7 @@ local FREE_WINDOWS = {
 	"CharacterFrame", "FriendsFrame", "MerchantFrame", "GossipFrame", "QuestFrame",
 	"TradeFrame", "MailFrame", "DressUpFrame", "ItemTextFrame", "TabardFrame",
 	"PetitionFrame", "GuildRegistrarFrame", "HelpFrame", "ChatConfigFrame",
-	"QuestLogPopupDetailFrame", "BankFrame", "TaxiFrame", "AddonList",
+	"QuestLogPopupDetailFrame", "TaxiFrame", "AddonList",
 	"EncounterJournal", "AchievementFrame", "ClassTrainerFrame", "InspectFrame",
 	"MacroFrame", "TimeManagerFrame", "ProfessionsBookFrame",
 }
@@ -349,84 +459,52 @@ function Mover:OnOptionChanged(key, value)
 end
 
 ---------------------------------------------------------------------------
--- Movable displays (coordinates, FPS/MS, …): drag to move, right-click locks
+-- Movable displays (coordinates, FPS/MS, …): handled like windows
 ---------------------------------------------------------------------------
-local displays = {}
 
-local function DisplayLocked(entry)
-	return entry.module.db[entry.lockKey] and true or false
-end
-
-local function ApplyDisplayPosition(entry)
-	local frame = entry.frame
-	local pos = saved[entry.key]
-	frame:ClearAllPoints()
-	if pos then
-		local scale = frame:GetEffectiveScale()
-		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", pos.x / scale, pos.y / scale)
-	else
-		entry.applyDefault(frame)
-	end
-end
-
--- Locks or unlocks a display; goes through the setting so the options page follows.
-function ns:SetDisplayLocked(entry, locked)
-	local variable = ("ForeverPlus_%s_%s"):format(entry.module.name, entry.lockKey)
-	if Settings.GetSetting and Settings.GetSetting(variable) then
-		Settings.SetValue(variable, locked)
-	else
-		entry.module.db[entry.lockKey] = locked
-	end
-end
-
--- frame: mouse enabled frame; module.db[lockKey] holds the lock state.
-function ns:RegisterDisplay(frame, key, module, lockKey, applyDefault)
-	local entry = { frame = frame, key = "D:" .. key, module = module, lockKey = lockKey, applyDefault = applyDefault }
+-- placeDefault(frame) sets the default point; the saved position is kept
+-- relative to relativeTo (default UIParent).
+function ns:RegisterDisplay(frame, key, placeDefault, relativeTo)
+	local entry = { frame = frame, key = "M:" .. key, placeDefault = placeDefault, relativeTo = relativeTo or UIParent }
 	displays[#displays + 1] = entry
+	displayOf[frame] = entry
 	frame:SetMovable(true)
 	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(display)
-		if not DisplayLocked(entry) then
-			display:StartMoving()
-		end
-	end)
-	frame:SetScript("OnDragStop", function(display)
-		display:StopMovingOrSizing()
-		display:SetUserPlaced(false)
-		local x, y = display:GetCenter()
-		local scale = display:GetEffectiveScale()
-		saved[entry.key] = { x = x * scale, y = y * scale }
-		ApplyDisplayPosition(entry)
-	end)
-	frame:HookScript("OnMouseUp", function(_, mouseButton)
-		if mouseButton == "RightButton" then
-			local locked = not DisplayLocked(entry)
-			ns:SetDisplayLocked(entry, locked)
-			if entry.module.db.lockMessage then
-				ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
-			end
-		end
-	end)
-	ApplyDisplayPosition(entry)
+	ApplyDisplay(entry)
 	return entry
 end
 
-function ns:LockAllDisplays()
-	for _, entry in ipairs(displays) do
-		ns:SetDisplayLocked(entry, true)
+function ns:ApplyDisplay(entry)
+	ApplyDisplay(entry)
+end
+
+function ns:HasSavedPosition(entry)
+	local data = saved[entry.key]
+	return data and data.x ~= nil
+end
+
+function ns:SetAllLocked(locked)
+	if not locked then
+		wipe(ns.db.locked)
 	end
-	ns.Print(L.DISPLAY_ALL_LOCKED)
+	ns.Print(locked and L.LOCK_ALL_DONE or L.UNLOCK_ALL_DONE)
 end
 
 function ns:ResetFramePositions()
+	for key, data in pairs(saved) do
+		local frame = _G[key]
+		if data.scale and type(frame) == "table" and frame.SetScale and not frame:IsForbidden()
+			and not (InCombatLockdown() and frame:IsProtected()) then
+			frame:SetScale(1)
+		end
+	end
 	wipe(saved)
 	for _, data in pairs(ns.editFrames or {}) do
 		data.reset()
 	end
 	for _, entry in ipairs(displays) do
-		ApplyDisplayPosition(entry)
+		ApplyDisplay(entry)
 	end
 	ns.Print(L.MOVER_RESET_DONE)
 end

@@ -159,11 +159,23 @@ local function Secret(value)
 	return issecretvalue and issecretvalue(value)
 end
 
-local function UpdateHoverPosition(frame)
-	if not UnitExists("mouseover") or GetMouseFoci()[1] ~= WorldFrame then
+-- Only for units in the 3D world (or their nameplates), not unit frames.
+local function OverWorld()
+	local focus = GetMouseFoci()[1]
+	if not focus or focus == WorldFrame or focus:IsForbidden() then
+		return true
+	end
+	local nameplate = C_NamePlate.GetNamePlateForUnit("mouseover")
+	return nameplate and not nameplate:IsForbidden() and DoesAncestryInclude(nameplate, focus) or false
+end
+
+-- Runs while a mouseover unit exists; the text hides over other frames.
+local function UpdateHover(frame)
+	if not UnitExists("mouseover") then
 		frame:Hide()
 		return
 	end
+	frame.Text:SetShown(OverWorld())
 	local x, y = GetCursorPosition()
 	local scale = frame:GetEffectiveScale()
 	frame:ClearAllPoints()
@@ -179,10 +191,10 @@ local function ShowHoverName()
 		hover:SetFrameStrata("TOOLTIP")
 		hover:SetSize(1, 1)
 		hover.Text = hover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		hover.Text:SetFont(ns.GetFontFace and ns.GetFontFace() or STANDARD_TEXT_FONT, 13, "OUTLINE")
 		hover.Text:SetPoint("BOTTOM")
-		hover:SetScript("OnUpdate", UpdateHoverPosition)
+		hover:SetScript("OnUpdate", UpdateHover)
 	end
+	hover.Text:SetFont(ns.GetFontFace(), 13, "OUTLINE")
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
 	if Secret(name) or Secret(level) then
 		hover.Text:SetText(name)
@@ -190,10 +202,8 @@ local function ShowHoverName()
 		hover.Text:SetFormattedText("%s |cffcccccc%s|r", name or "", level and level > 0 and level or "??")
 	end
 	hover.Text:SetTextColor(GameTooltip_UnitColor("mouseover"))
-	UpdateHoverPosition(hover)
-	if UnitExists("mouseover") and GetMouseFoci()[1] == WorldFrame then
-		hover:Show()
-	end
+	hover:Show()
+	UpdateHover(hover)
 end
 
 local function OnItemTooltip(tooltip, data)

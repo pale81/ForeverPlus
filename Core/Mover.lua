@@ -9,6 +9,7 @@ local Mover = ns:NewModule("Mover", {
 	defaults = {
 		enabled = true,
 		scaling = true,
+		multiWindow = true,
 	},
 })
 
@@ -261,8 +262,52 @@ function Mover:OnInitialize()
 	self:Refresh()
 end
 
+---------------------------------------------------------------------------
+-- Several windows at once: selected panels leave Blizzard's panel manager, so
+-- opening one no longer closes or pushes the others (and bags can open next
+-- to them). Escape still closes them. Protected frames and taint sensitive
+-- windows (game menu, settings, spell book, collections, LFG, …) stay managed.
+---------------------------------------------------------------------------
+local FREE_WINDOWS = {
+	"CharacterFrame", "FriendsFrame", "MerchantFrame", "GossipFrame", "QuestFrame",
+	"TradeFrame", "MailFrame", "DressUpFrame", "ItemTextFrame", "TabardFrame",
+	"PetitionFrame", "GuildRegistrarFrame", "HelpFrame", "ChatConfigFrame",
+	"QuestLogPopupDetailFrame", "BankFrame", "TaxiFrame", "AddonList",
+	"EncounterJournal", "AchievementFrame", "ClassTrainerFrame", "InspectFrame",
+	"MacroFrame", "TimeManagerFrame", "ProfessionsBookFrame",
+}
+local freed = {}
+
+local function PlaceFreeWindow(frame)
+	if frame:GetNumPoints() == 0 and not saved[frame:GetName()] then
+		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 16, -116)
+	end
+end
+
+local function FreeWindow(name)
+	local frame = _G[name]
+	if type(frame) ~= "table" or freed[frame] or not frame.SetAttributeNoHandler
+		or frame:IsForbidden() or frame:IsProtected() or InCombatLockdown() then
+		return
+	end
+	freed[frame] = true
+	frame:SetAttributeNoHandler("UIPanelLayout-defined", true)
+	frame:SetAttributeNoHandler("UIPanelLayout-area", nil)
+	if not tContains(UISpecialFrames, name) then
+		tinsert(UISpecialFrames, name)
+	end
+	frame:HookScript("OnShow", PlaceFreeWindow)
+end
+
+local function FreeWindows()
+	if Mover.db.multiWindow then
+		for _, name in ipairs(FREE_WINDOWS) do
+			FreeWindow(name)
+		end
+	end
+end
+
 function Mover:OnLogin()
-	-- Re-apply after Blizzard's panel manager positioned its windows.
 	-- The panel manager's delegate frame is local and forbidden; its public entry
 	-- points position the panels synchronously, so re-apply right after them.
 	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
@@ -276,8 +321,10 @@ function Mover:OnLogin()
 			HookWindow(frame)
 		end
 	end
+	FreeWindows()
 	-- Load-on-demand windows appear later.
 	self:RegisterEvent("ADDON_LOADED", function()
+		ns.RunOutOfCombat(FreeWindows)
 		for name in pairs(saved) do
 			local frame = _G[name]
 			if type(frame) == "table" and frame.HookScript and not hooked[frame] then
@@ -290,8 +337,15 @@ function Mover:OnLogin()
 	end)
 end
 
-function Mover:OnOptionChanged()
+function Mover:OnOptionChanged(key, value)
 	self:Refresh()
+	if key == "multiWindow" then
+		if value then
+			ns.RunOutOfCombat(FreeWindows)
+		else
+			ns.Print(L.RELOAD_REQUIRED)
+		end
+	end
 end
 
 function ns:ResetFramePositions()
@@ -305,6 +359,7 @@ end
 Mover.options = {
 	{ key = "enabled", type = "toggle", name = L.MOVER_ENABLE, desc = L.MOVER_ENABLE_DESC },
 	{ key = "scaling", type = "toggle", name = L.MOVER_SCALE, desc = L.MOVER_SCALE_DESC, parent = "enabled" },
+	{ key = "multiWindow", type = "toggle", name = L.MOVER_MULTI, desc = L.MOVER_MULTI_DESC },
 	{ type = "button", name = L.MOVER_RESET, text = L.RESET, desc = L.MOVER_RESET_DESC, func = function()
 		ns:ResetFramePositions()
 	end },

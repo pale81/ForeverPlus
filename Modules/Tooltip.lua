@@ -86,11 +86,31 @@ end
 -- Border coloured by item quality
 ---------------------------------------------------------------------------
 local defaultBorder = {}
+local borderGlows = {}
+
+-- Additive copy of the tooltip border: makes the quality colour glow.
+local function GetBorderGlow(tooltip)
+	local glow = borderGlows[tooltip]
+	if not glow then
+		glow = CreateFrame("Frame", nil, tooltip, "NineSliceCodeTemplate")
+		glow:SetAllPoints(tooltip.NineSlice)
+		NineSliceUtil.ApplyLayoutByName(glow, "TooltipDefaultLayout")
+		glow:SetBorderBlendMode("ADD")
+		if glow.Center then
+			glow.Center:Hide()
+		end
+		borderGlows[tooltip] = glow
+	end
+	return glow
+end
 
 local function ResetBorder(tooltip)
 	local color = defaultBorder[tooltip]
 	if color and tooltip.NineSlice then
 		tooltip.NineSlice:SetBorderColor(color[1], color[2], color[3], color[4])
+	end
+	if borderGlows[tooltip] then
+		borderGlows[tooltip]:Hide()
 	end
 end
 
@@ -107,6 +127,9 @@ local function ColorBorder(tooltip, data)
 	if quality then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		nineSlice:SetBorderColor(r, g, b, 1)
+		local glow = GetBorderGlow(tooltip)
+		glow:SetBorderColor(r, g, b, 0.8)
+		glow:Show()
 	end
 end
 

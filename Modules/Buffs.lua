@@ -12,6 +12,7 @@ local Buffs = ns:NewModule("Buffs", {
 		direction = "RIGHT",
 		scale = 0.8,
 		threshold = 1,
+		wheelCast = false,
 		classes = {},
 	},
 })
@@ -81,7 +82,7 @@ local playerClass
 local reminders = {}
 local classDB
 
-local bar, placeholder
+local bar, placeholder, wheelHandler
 local buttons = {}
 local updatePending, thresholdTimer
 
@@ -176,8 +177,9 @@ end
 
 local function CreateButton(index)
 	local button = CreateFrame("CheckButton", "ForeverPlusBuffButton" .. index, bar, "ActionButtonTemplate, SecureActionButtonTemplate")
-	button:RegisterForClicks("AnyUp")
-	button:SetAttribute("useOnKeyDown", false)
+	-- Act on press so the mouse wheel binding (which has no release) works too.
+	button:RegisterForClicks("AnyUp", "AnyDown")
+	button:SetAttribute("useOnKeyDown", true)
 	button:HookScript("PostClick", function(self)
 		self:SetChecked(false)
 	end)
@@ -309,6 +311,13 @@ local function Update()
 	LayoutButtons()
 	placeholder:SetShown(ns:IsEditModeActive() and count == 0)
 
+	-- Mouse wheel casts the first missing buff while a reminder is shown.
+	ClearOverrideBindings(wheelHandler)
+	if Buffs.db.wheelCast and count > 0 then
+		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELUP", buttons[1]:GetName())
+		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttons[1]:GetName())
+	end
+
 	if nextCheck then
 		thresholdTimer = C_Timer.NewTimer(nextCheck + 0.5, function()
 			thresholdTimer = nil
@@ -333,6 +342,15 @@ local function CreateBar()
 	bar:SetScale(Buffs.db.scale)
 	bar:SetClampedToScreen(true)
 	RegisterStateDriver(bar, "visibility", "[combat] hide; show")
+
+	-- Secure handler drops the wheel bindings the moment combat starts.
+	wheelHandler = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+	wheelHandler:SetAttribute("_onstate-combat", [=[
+		if newstate == "1" then
+			self:ClearBindings()
+		end
+	]=])
+	RegisterStateDriver(wheelHandler, "combat", "[combat] 1; 0")
 
 	placeholder = bar:CreateTexture(nil, "ARTWORK")
 	placeholder:SetAllPoints()
@@ -414,6 +432,7 @@ function Buffs:options()
 		} },
 		{ key = "scale", type = "slider", name = L.BUFFS_SCALE, parent = "enabled", min = 0.5, max = 1.5, step = 0.05,
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
+		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",
 			min = 0, max = 10, step = 1, format = function(v) return ("%d min"):format(v) end },
 	}

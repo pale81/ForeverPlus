@@ -112,9 +112,48 @@ end
 ---------------------------------------------------------------------------
 -- Detail window with copyable text
 ---------------------------------------------------------------------------
+local function SortedEntries()
+	local sorted = {}
+	for _, entry in ipairs(entries) do
+		sorted[#sorted + 1] = entry
+	end
+	table.sort(sorted, function(a, b)
+		return a.last > b.last
+	end)
+	return sorted
+end
+
+local function CreateNavButton(parent, kind)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(26, 26)
+	b:SetNormalTexture(([[Interface\Buttons\UI-SpellbookIcon-%sPage-Up]]):format(kind))
+	b:SetPushedTexture(([[Interface\Buttons\UI-SpellbookIcon-%sPage-Down]]):format(kind))
+	b:SetDisabledTexture(([[Interface\Buttons\UI-SpellbookIcon-%sPage-Disabled]]):format(kind))
+	b:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	return b
+end
+
+local function SelectAll()
+	window.EditBox:SetFocus()
+	window.EditBox:HighlightText()
+end
+
+local function ShowIndex(index)
+	local list = window.list
+	index = Clamp(index, 1, max(#list, 1))
+	window.index = index
+	local entry = list[index]
+	window.Scroll:SetText(entry and EntryDetails(entry) or L.ERRORS_NONE)
+	window.IndexLabel:SetFormattedText("%d / %d", entry and index or 0, #list)
+	window.Prev:SetEnabled(index > 1)
+	window.Next:SetEnabled(index < #list)
+	SelectAll()
+end
+
 local function CreateWindow()
 	local frame = CreateFrame("Frame", "ForeverPlusErrorFrame", UIParent, "BasicFrameTemplateWithInset")
-	frame:SetSize(560, 380)
+	window = frame
+	frame:SetSize(560, 400)
 	frame:SetPoint("CENTER")
 	frame:SetFrameStrata("DIALOG")
 	frame:SetToplevel(true)
@@ -127,9 +166,41 @@ local function CreateWindow()
 	frame.TitleText:SetText(L.ERRORS_TITLE)
 	tinsert(UISpecialFrames, frame:GetName())
 
+	-- Navigation row at the top: previous / index / next, copy on the right.
+	frame.IndexLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.IndexLabel:SetPoint("TOP", frame, "TOP", 0, -34)
+	frame.Prev = CreateNavButton(frame, "Prev")
+	frame.Prev:SetPoint("RIGHT", frame.IndexLabel, "LEFT", -6, 0)
+	frame.Prev:SetScript("OnClick", function()
+		ShowIndex(frame.index - 1)
+	end)
+	frame.Next = CreateNavButton(frame, "Next")
+	frame.Next:SetPoint("LEFT", frame.IndexLabel, "RIGHT", 6, 0)
+	frame.Next:SetScript("OnClick", function()
+		ShowIndex(frame.index + 1)
+	end)
+
+	local copy = CreateFrame("Button", nil, frame)
+	copy:SetSize(22, 22)
+	copy:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -32)
+	if C_Texture.GetAtlasInfo("friends-icon-battlenet-copy") then
+		copy:SetNormalAtlas("friends-icon-battlenet-copy")
+	else
+		copy:SetNormalTexture([[Interface\Buttons\UI-GuildButton-PublicNote-Up]])
+	end
+	copy:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	copy:SetScript("OnClick", SelectAll)
+	copy:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.ERRORS_COPY)
+		GameTooltip_AddNormalLine(GameTooltip, L.ERRORS_COPY_DESC)
+		GameTooltip:Show()
+	end)
+	copy:SetScript("OnLeave", GameTooltip_Hide)
+
 	local scroll = CreateFrame("Frame", nil, frame, "ScrollingEditBoxTemplate")
-	scroll:SetPoint("TOPLEFT", frame.InsetBg or frame, "TOPLEFT", 8, -6)
-	scroll:SetPoint("BOTTOMRIGHT", frame.InsetBg or frame, "BOTTOMRIGHT", -24, 6)
+	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -56)
+	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 12)
 	local scrollBar = CreateFrame("EventFrame", nil, frame, "MinimalScrollBar")
 	scrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, 0)
 	scrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 0)
@@ -141,13 +212,20 @@ local function CreateWindow()
 	return frame
 end
 
-local function ShowDetails(entry)
-	window = window or CreateWindow()
-	local text = EntryDetails(entry)
-	window.Scroll:SetText(text)
+local function ShowDetails(entry, list)
+	if not window then
+		CreateWindow()
+	end
+	window.list = list or SortedEntries()
+	local index = 1
+	for i, candidate in ipairs(window.list) do
+		if candidate == entry then
+			index = i
+			break
+		end
+	end
 	window:Show()
-	window.EditBox:SetFocus()
-	window.EditBox:HighlightText()
+	ShowIndex(index)
 end
 
 ---------------------------------------------------------------------------
@@ -155,13 +233,7 @@ end
 ---------------------------------------------------------------------------
 function Errors:ShowMenu(owner)
 	MarkSeen()
-	local sorted = {}
-	for _, entry in ipairs(entries) do
-		sorted[#sorted + 1] = entry
-	end
-	table.sort(sorted, function(a, b)
-		return a.last > b.last
-	end)
+	local sorted = SortedEntries()
 
 	MenuUtil.CreateContextMenu(owner or button or UIParent, function(_, root)
 		root:SetScrollMode(400)
@@ -178,7 +250,7 @@ function Errors:ShowMenu(owner)
 			end
 			local label = ("|cffffd200%s|r  %s |cff999999(x%d)|r"):format(date("%H:%M:%S", entry.last), message, entry.count or 1)
 			root:CreateButton(label, function()
-				ShowDetails(entry)
+				ShowDetails(entry, sorted)
 			end)
 		end
 		root:CreateDivider()
@@ -186,6 +258,9 @@ function Errors:ShowMenu(owner)
 			wipe(entries)
 			wipe(luaIndex)
 			MarkSeen()
+			if window then
+				window:Hide()
+			end
 		end)
 	end)
 end

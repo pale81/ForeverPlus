@@ -317,9 +317,8 @@ local function UpdateButton(button)
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 
 	if button.JunkIcon then
-		-- Same rule as Blizzard (grey items while a merchant is open) plus marked items.
-		local greyJunk = info and info.quality == Enum.ItemQuality.Poor and not info.hasNoValue and MerchantFrame:IsShown()
-		local show = info and ((greyJunk and not IsKept(info.itemID)) or IsMarked(info.itemID))
+		-- Coin on everything that will be sold: grey items (unless kept) and marked items.
+		local show = info and not info.hasNoValue and IsJunkItem(info)
 		button.JunkIcon:SetShown(show and true or false)
 	end
 

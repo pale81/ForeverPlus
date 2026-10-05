@@ -6,6 +6,10 @@ local L = ns.L
 local MinimapCoords = ns:NewModule("Minimap", {
 	title = L.MINIMAP_TITLE,
 	order = 3,
+	defaults = {
+		lockCoords = false,
+		lockWorldMap = false,
+	},
 })
 
 local UPDATE_INTERVAL = 0.2
@@ -87,7 +91,18 @@ local function SetupWorldMapCoords()
 	panel:SetClampedToScreen(true)
 	panel:EnableMouse(true)
 	panel:RegisterForDrag("LeftButton")
-	panel:SetScript("OnDragStart", panel.StartMoving)
+	panel:SetScript("OnDragStart", function(self)
+		if not MinimapCoords.db.lockWorldMap then
+			self:StartMoving()
+		end
+	end)
+	panel:HookScript("OnMouseUp", function(_, mouseButton)
+		if mouseButton == "RightButton" then
+			local locked = not MinimapCoords.db.lockWorldMap
+			Settings.SetValue("ForeverPlus_Minimap_lockWorldMap", locked)
+			ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+		end
+	end)
 	panel:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		self:SetUserPlaced(false)
@@ -108,13 +123,23 @@ function MinimapCoords:UpdateFont()
 end
 
 function MinimapCoords:OnLogin()
+	-- Small frame around the text: movable like a window, right-click locks.
 	local holder = CreateFrame("Frame", nil, Minimap)
-	holder:SetAllPoints()
+	holder:SetSize(100, 18)
 	holder:SetFrameLevel(Minimap:GetFrameLevel() + 5)
-
 	text = holder:CreateFontString(nil, "OVERLAY")
 	self:UpdateFont()
-	text:SetPoint("TOP", Minimap, "TOP", 0, -14)
+	text:SetPoint("CENTER")
+	holder:SetScript("OnEnter", function(frame)
+		GameTooltip:SetOwner(frame, "ANCHOR_BOTTOM")
+		GameTooltip_SetTitle(GameTooltip, L.MINIMAP_COORDS)
+		GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
+		GameTooltip:Show()
+	end)
+	holder:SetScript("OnLeave", GameTooltip_Hide)
+	ns:RegisterDisplay(holder, "MinimapCoords", self, "lockCoords", function(frame)
+		frame:SetPoint("TOP", Minimap, "TOP", 0, -12)
+	end)
 	local _, classFile = UnitClass("player")
 	local color = C_ClassColor.GetClassColor(classFile)
 	if color then
@@ -133,3 +158,8 @@ function MinimapCoords:OnLogin()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", Update)
 	Update()
 end
+
+MinimapCoords.options = {
+	{ key = "lockCoords", type = "toggle", name = L.MINIMAP_LOCK_COORDS, desc = L.DISPLAY_LOCK_DESC },
+	{ key = "lockWorldMap", type = "toggle", name = L.MINIMAP_LOCK_WORLDMAP, desc = L.DISPLAY_LOCK_DESC },
+}

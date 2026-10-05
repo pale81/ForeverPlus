@@ -1,0 +1,61 @@
+# ForeverPlus
+
+AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
+Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
+
+Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`.
+`/fp fehler` öffnet die Fehlerliste.
+
+## Funktionen
+
+| Bereich | Funktion | Option |
+|---|---|---|
+| Chat | Drei Symbole links vom Chat (Soziales, Kanäle, Chatmenü) ausblenden | ja |
+| | Chatschrift mit Outline | – |
+| | Reiter-Hintergründe (Allgemein, Kampflog, …) entfernt | – |
+| | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund | – |
+| | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
+| | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
+| Tooltip | Gesundheitsleiste unten im Tooltip | – |
+| | Stückpreis bei Stapeln | ja |
+| | Rahmen in Qualitätsfarbe bei Gegenständen | – |
+| Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck | – |
+| Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
+| | Doppelklick in der Tasche markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft | – |
+| | Wertvollste Questbelohnung mit Münze hervorheben | ja |
+| | Grüner Pfeil bei besserer Gegenstandsstufe (nur verwendbare Gegenstände) | ja |
+| | Schnelles Plündern (wie Leatrix Plus) | ja |
+| Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
+| | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
+| | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst, Details kopierbar | ja |
+| | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
+| | Freie/gesamte Taschenplätze am Rucksack | ja |
+| Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
+| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …); Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
+| Optik | oGlow: dickes Leuchten in Qualitätsfarbe ab „Ungewöhnlich“ | – |
+| | iSquidMod-Endkappen (mit Autorenangabe) | ja |
+| | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
+| | Outline für alle Schriften (bereits umrandete werden übersprungen) | – |
+| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt | ja |
+| Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
+
+## Technik / CPU
+
+- Nur offizielle API des Forever-Clients (geprüft gegen den Blizzard-UI-Quellcode, Branch `forever`, Build 1.60.1.70205).
+- Ausschließlich `hooksecurefunc`/`HookScript`, `TooltipDataProcessor`, Settings-API, `EventRegistry` (Bearbeitungsmodus) – keine Ersetzung von Blizzard-Funktionen.
+- Ereignisse werden nur registriert, solange eine Funktion aktiv ist. Dauerhafte `OnUpdate`-Schleifen gibt es nur für das Mouseover-Ausblenden (Prüfung alle 0,1 s, Überblendung nur während des Übergangs). Koordinaten und Minimap-Pins aktualisieren nur während der Bewegung, der Skalierungs-Fänger nur bei gedrückter Strg-Taste.
+- Lua-Fehler werden aus Blizzards eigenem `ScriptErrorsFrame` gelesen (kein eigener Error-Handler); das Popup wird über die CVar `scriptErrors` unterdrückt und beim Deaktivieren wiederhergestellt.
+
+## Bekannte Grenzen / ungeprüft
+
+- Kein Test im laufenden Spiel möglich gewesen; geprüft wurden Syntax, `luacheck`, ein Lade-/Initialisierungstest mit simulierter API sowie alle verwendeten Funktionen gegen den Forever-UI-Quellcode.
+- Buff-Erinnerung nutzt Classic-Zauber-IDs; nicht existierende IDs werden still übersprungen.
+- Rezeptradar nutzt Classic-Karten-IDs (1411–1458) mit Fallback über Zonennamen (EN/DE). Händlerdaten stammen aus dem Jahr 2006 (Vanilla); Forever-Änderungen an Händlern/Rezepten sind nicht enthalten.
+- Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
+
+## Danksagungen / Lizenzen
+
+- Code: MIT (siehe `LICENSE`).
+- iSquidMod-Grafiken (`Media/iSquidMod`): Ganders & Imithat, Originalautor SAM – WML 1.0, siehe `Media/iSquidMod/LICENSE.txt`.
+- Rezeptdaten: Recipe Radar von Jay Miller (Public Domain).
+- Ideen: oGlow (haste), Leatrix Plus (schnelles Plündern), BlizzMove, RecipeRadar.

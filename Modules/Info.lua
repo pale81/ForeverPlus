@@ -10,6 +10,7 @@ local Info = ns:NewModule("Info", {
 		played = true,
 		performance = true,
 		lockPerformance = false,
+		lockMessage = true,
 		characters = {}, -- "Realm" -> { name -> { total, class, level, time } }
 	},
 })
@@ -238,4 +239,5 @@ Info.options = {
 	{ key = "played", type = "toggle", name = L.INFO_PLAYED_OPT, desc = L.INFO_PLAYED_DESC },
 	{ key = "performance", type = "toggle", name = L.INFO_PERF, desc = L.INFO_PERF_DESC },
 	{ key = "lockPerformance", type = "toggle", name = L.INFO_LOCK_PERF, desc = L.DISPLAY_LOCK_DESC, parent = "performance" },
+	{ key = "lockMessage", type = "toggle", name = L.DISPLAY_LOCK_MESSAGE, desc = L.MESSAGE_DESC, parent = "performance" },
 }

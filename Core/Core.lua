@@ -14,11 +14,20 @@ ns.hider:Hide()
 ---------------------------------------------------------------------------
 -- Utilities
 ---------------------------------------------------------------------------
-function ns.Print(msg, ...)
+-- Output of commands the player typed; never muted.
+function ns.PrintAlways(msg, ...)
 	if select("#", ...) > 0 then
 		msg = msg:format(...)
 	end
 	DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffForeverPlus|r: " .. msg)
+end
+
+-- Every other message; "mute all messages" on the main settings page silences it.
+function ns.Print(msg, ...)
+	if ns.db and ns.db.quiet then
+		return
+	end
+	ns.PrintAlways(msg, ...)
 end
 
 -- Returns font flags with an outline added (nil if an outline is already present).

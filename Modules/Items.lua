@@ -13,7 +13,9 @@ local Items = ns:NewModule("Items", {
 		questReward = true,
 		upgradeArrow = true,
 		fastLoot = true,
-		messages = true,
+		sellMessage = true,
+		repairMessage = true,
+		markMessage = true,
 		destroyPrompt = true,
 		junkButton = "MiddleButton",
 		junk = {},
@@ -25,9 +27,9 @@ local Items = ns:NewModule("Items", {
 BINDING_HEADER_FOREVERPLUS = "ForeverPlus"
 BINDING_NAME_FOREVERPLUS_TOGGLEJUNK = L.ITEMS_BINDING_JUNK
 
--- Chat messages of this module can be switched off.
-local function Report(...)
-	if Items.db.messages then
+-- Each chat message can be switched off next to its function.
+local function Report(key, ...)
+	if Items.db[key] then
 		ns.Print(...)
 	end
 end
@@ -364,7 +366,7 @@ local function ToggleJunk(bag, slot)
 	else
 		list[info.itemID] = true
 	end
-	Report(IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
+	Report("markMessage", IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
 	if isGrey then
 		Items.db.junk[info.itemID] = nil
 	end
@@ -499,7 +501,7 @@ local function StopSelling()
 		sellTicker = nil
 	end
 	if soldValue and soldValue > 0 then
-		Report(L.ITEMS_SOLD, GetMoneyString(soldValue, true))
+		Report("sellMessage", L.ITEMS_SOLD, GetMoneyString(soldValue, true))
 	end
 	soldValue = nil
 end
@@ -542,15 +544,15 @@ local function Repair()
 		local limit = GetGuildBankWithdrawMoney()
 		if limit == -1 or limit >= cost then
 			RepairAllItems(true)
-			Report(L.ITEMS_REPAIRED_GUILD, GetMoneyString(cost, true))
+			Report("repairMessage", L.ITEMS_REPAIRED_GUILD, GetMoneyString(cost, true))
 			return
 		end
 	end
 	if GetMoney() >= cost then
 		RepairAllItems(false)
-		Report(L.ITEMS_REPAIRED, GetMoneyString(cost, true))
+		Report("repairMessage", L.ITEMS_REPAIRED, GetMoneyString(cost, true))
 	else
-		Report(L.ITEMS_REPAIR_NO_MONEY)
+		Report("repairMessage", L.ITEMS_REPAIR_NO_MONEY)
 	end
 end
 
@@ -797,6 +799,14 @@ function Items:Refresh()
 	end
 end
 
+function Items:OnInitialize()
+	-- Former single switch for all messages of this module.
+	if self.db.messages == false then
+		self.db.sellMessage, self.db.repairMessage, self.db.markMessage = false, false, false
+	end
+	self.db.messages = nil
+end
+
 function Items:OnLogin()
 	HookContainerFrames()
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
@@ -814,12 +824,15 @@ end
 Items.options = {
 	{ type = "header", name = L.ITEMS_MERCHANT },
 	{ key = "autoSell", type = "toggle", name = L.ITEMS_AUTOSELL, desc = L.ITEMS_AUTOSELL_DESC },
+	{ key = "sellMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "autoSell" },
 	{ key = "autoRepair", type = "toggle", name = L.ITEMS_AUTOREPAIR, desc = L.ITEMS_AUTOREPAIR_DESC },
 	{ key = "repairGuild", type = "toggle", name = L.ITEMS_REPAIR_GUILD, desc = L.ITEMS_REPAIR_GUILD_DESC, parent = "autoRepair" },
+	{ key = "repairMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "autoRepair" },
 	{ key = "junkButton", type = "dropdown", name = L.ITEMS_JUNK_BUTTON, desc = L.ITEMS_JUNK_BUTTON_DESC, values = {
 		{ "MiddleButton", L.ITEMS_MOUSE_MIDDLE }, { "Button4", L.ITEMS_MOUSE_4 }, { "Button5", L.ITEMS_MOUSE_5 },
 		{ "None", L.ITEMS_MOUSE_NONE },
 	} },
+	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
 	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function()
 		Items:ShowJunkMenu()
 	end },
@@ -829,6 +842,5 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },
-	{ type = "header", name = L.ITEMS_CHAT },
-	{ key = "messages", type = "toggle", name = L.ITEMS_MESSAGES, desc = L.ITEMS_MESSAGES_DESC },
+
 }

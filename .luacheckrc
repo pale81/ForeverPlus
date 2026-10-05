@@ -21,6 +21,9 @@ globals = {
 }
 
 read_globals = {
+	"LANGUAGE",
+	"ChatFrameMenuButton",
+	"ChatFrame1",
 	"TOOLTIP_DEFAULT_BACKGROUND_COLOR",
 	"RequestTimePlayed",
 	"GetNetStats",

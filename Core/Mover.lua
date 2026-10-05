@@ -404,7 +404,9 @@ function ns:RegisterDisplay(frame, key, module, lockKey, applyDefault)
 		if mouseButton == "RightButton" then
 			local locked = not DisplayLocked(entry)
 			ns:SetDisplayLocked(entry, locked)
-			ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+			if entry.module.db.lockMessage then
+				ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+			end
 		end
 	end)
 	ApplyDisplayPosition(entry)

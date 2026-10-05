@@ -40,6 +40,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste nur bei Mouseover (jede Leiste einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
+| | Zeit bis zum Tod hinter dem Namen auf Namensplaketten (im Kampf, optional) | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
@@ -52,8 +53,9 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
+| Flugzeiten | Jeder Flug wird gemessen und je Strecke gespeichert; Dauer im Tooltip der Flugkarte, Restzeit-Leiste während des Flugs (verschieb- und sperrbar) | ja |
 | Erfahrung & Ruf | Zahlen immer oder nur bei Mouseover (Standard: Mouseover); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
-| Talente | „Zauber beim Lehrer“ (erlernte grau; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
+| Talente | „Zauber beim Lehrer“ (erlernte grau; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, Zähler blau), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60, „Plan übernehmen“ | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |
@@ -91,7 +93,9 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Auktionshaus: keine zusätzlichen Kategorien/Filter. Kaufen und Einstellen (`PlaceBid`, `PostItem`, …) sind eingeschränkte Funktionen; ob Änderungen an Blizzards Suchlogik sie blockieren, ist ohne Test im Spiel nicht verifizierbar. Die Warnung liest nur Daten und fügt eigene Symbole hinzu.
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Sprachwechsel per Mittelklick: setzt die Sprache mit demselben Aufruf wie Blizzards Menü, der Wert stammt aber aus Addon-Code. `SendChatMessage` ist eingeschränkt; ob das Senden in Instanzen dadurch blockiert wird, ist ohne Test nicht verifizierbar. Abschaltbar.
-- Talentbuilds: Planen geht mit Blizzards Talentbaum (Talente anklicken, nicht übernehmen) bis zur Zahl der vorhandenen Punkte; ein eigener Planer für spätere Stufen ist nicht enthalten. „Übernehmen“ merkt den Build im Baum vor, bestätigt wird mit Blizzards Knopf.
+- Talentplaner: prüft keine Voraussetzungen (Punkte je Reihe, vorausgesetzte Talente); „Plan übernehmen“ kauft nur, was der Baum gerade erlaubt, bestätigt wird mit Blizzards Knopf. Rechtsklick auf einen vorgemerkten, noch nicht bestätigten Rang bleibt Blizzards Rückerstattung.
+- Zeit bis zum Tod: liefert der Client die Gesundheit fremder Einheiten als geschützten Wert („Secret Value“), bleibt die Anzeige leer; ob Forever das tut, ist ungeprüft.
+- Flugzeiten: Daten entstehen erst durch eigene Flüge (keine mitgelieferte Datenbank).
 - Peon-Klänge: Datei-IDs 558132 (`peonbuildingcomplete1.ogg`) und 558137 (`peonready1.ogg`) laut Community-Listfile; ob der Forever-Client sie enthält, ist ungeprüft. Fehlt eine Datei, ertönt ein Blizzard-Klang.
 - Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).

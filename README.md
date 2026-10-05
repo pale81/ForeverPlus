@@ -100,7 +100,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
-- Angeln per Doppel-Rechtsklick: belegt nach dem ersten Rechtsklick für 0,4 s die rechte Maustaste mit einem sicheren Knopf (wie Fishing-Buddy-artige Addons). Ob der Forever-Client dabei den ersten Klick bereits als Tastendruck wertet, ist ungeprüft.
+- Angeln per Doppel-Rechtsklick: nur mit angelegter Angel; erst nach dem Loslassen eines kurzen, ruhigen Rechtsklicks wird die rechte Maustaste für 0,4 s mit einem sicheren Knopf belegt. Kamera drehen (Rechtsklick halten) und Rechtsklick-Interaktion bleiben unberührt.
 - Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
 
 ## Danksagungen / Lizenzen

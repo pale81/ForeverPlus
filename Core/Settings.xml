@@ -5,4 +5,9 @@
 		button, which calls restricted functions while initializing).
 	-->
 	<Frame name="ForeverPlusSettingsButtonTemplate" inherits="SettingButtonControlTemplate" virtual="true"/>
+	<Frame name="ForeverPlusScrollingFontTemplate" inherits="ScrollingFontTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="fontName" value="GameFontHighlight" type="string"/>
+		</KeyValues>
+	</Frame>
 </Ui>

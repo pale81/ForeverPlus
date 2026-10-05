@@ -17,6 +17,8 @@ local Items = ns:NewModule("Items", {
 		repairMessage = true,
 		markMessage = true,
 		destroyPrompt = true,
+		autoBind = false,
+		rollCounts = true,
 		junkButton = "MiddleButton",
 		junk = {},
 		keep = {}, -- grey items the player unmarked: never sold
@@ -426,7 +428,7 @@ local function AddJunkEntries(root, list, onRemove)
 	for _, entry in ipairs(entries) do
 		local button = root:CreateButton(entry.text, function()
 			list[entry.id] = nil
-			onRemove()
+			onRemove(entry.id)
 			return MenuResponse.CloseAll
 		end)
 		button:SetTooltip(function(tooltip)
@@ -448,7 +450,14 @@ function Items:ShowJunkMenu(owner)
 	MenuUtil.CreateContextMenu(owner or UIParent, function(_, root)
 		root:SetScrollMode(400)
 		root:CreateTitle(L.ITEMS_JUNK_LIST)
-		local marked = AddJunkEntries(root, self.db.junk, Reopen)
+		-- A grey item taken off the junk list would still be sold as grey;
+		-- it moves to the kept list instead.
+		local marked = AddJunkEntries(root, self.db.junk, function(itemID)
+			if C_Item.GetItemQualityByID(itemID) == Enum.ItemQuality.Poor then
+				self.db.keep[itemID] = true
+			end
+			Reopen()
+		end)
 		if next(self.db.keep) then
 			root:CreateDivider()
 			root:CreateTitle(L.ITEMS_JUNK_KEPT)
@@ -768,6 +777,115 @@ function Items:UI_ERROR_MESSAGE(_, _, message)
 end
 
 ---------------------------------------------------------------------------
+-- Bind on pickup: confirm automatically (loot window and group rolls)
+---------------------------------------------------------------------------
+local function HidePopup(which)
+	C_Timer.After(0, function()
+		StaticPopup_Hide(which)
+	end)
+end
+
+function Items:LOOT_BIND_CONFIRM(_, slot)
+	ConfirmLootSlot(slot)
+	HidePopup("LOOT_BIND")
+end
+
+function Items:CONFIRM_LOOT_ROLL(_, rollID, rollType)
+	ConfirmLootRoll(rollID, rollType)
+	HidePopup("CONFIRM_LOOT_ROLL")
+end
+
+---------------------------------------------------------------------------
+-- Group loot: number of need/greed/pass choices on the buttons, names on hover
+---------------------------------------------------------------------------
+local ROLL_BUTTONS = {
+	NeedButton = { [Enum.EncounterLootDropRollState.NeedMainSpec] = true, [Enum.EncounterLootDropRollState.NeedOffSpec] = true },
+	GreedButton = { [Enum.EncounterLootDropRollState.Greed] = true },
+	TransmogButton = { [Enum.EncounterLootDropRollState.Transmog] = true },
+	PassButton = { [Enum.EncounterLootDropRollState.Pass] = true },
+}
+local rollNames = {}  -- button -> { names }
+local rollLabels = {} -- button -> font string
+local rollHooked = {}
+
+local function ItemIDOfLink(link)
+	return link and not (issecretvalue and issecretvalue(link)) and C_Item.GetItemInfoInstant(link)
+end
+
+local function ShowRollNames(button)
+	local names = rollNames[button]
+	if not Items.db.rollCounts or not names or #names == 0 or GameTooltip:GetOwner() ~= button then
+		return
+	end
+	for _, name in ipairs(names) do
+		GameTooltip:AddLine(name, 1, 1, 1)
+	end
+	GameTooltip:Show()
+end
+
+local function SetRollCount(button, names)
+	if not rollHooked[button] then
+		rollHooked[button] = true
+		button:HookScript("OnEnter", ShowRollNames)
+	end
+	local label = rollLabels[button]
+	if not label then
+		label = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+		label:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 2, -2)
+		rollLabels[button] = label
+	end
+	rollNames[button] = names
+	label:SetText(#names > 0 and #names or "")
+	label:SetShown(Items.db.rollCounts)
+end
+
+local function ResetRollFrame(frame)
+	local container = frame.LootButtonContainer or frame
+	for key in pairs(ROLL_BUTTONS) do
+		local button = container[key]
+		if button then
+			SetRollCount(button, {})
+		end
+	end
+end
+
+function Items:LOOT_HISTORY_UPDATE_DROP(_, encounterID, lootListKey)
+	local info = C_LootHistory.GetSortedInfoForDrop(encounterID, lootListKey)
+	local itemID = info and ItemIDOfLink(info.itemHyperlink)
+	if not itemID then
+		return
+	end
+	for index = 1, 4 do
+		local frame = _G["GroupLootFrame" .. index]
+		if frame and frame:IsShown() and frame.rollID and ItemIDOfLink(GetLootRollItemLink(frame.rollID)) == itemID then
+			local container = frame.LootButtonContainer or frame
+			for key, states in pairs(ROLL_BUTTONS) do
+				local button = container[key]
+				if button then
+					local names = {}
+					for _, roll in ipairs(info.rollInfos or {}) do
+						if states[roll.state] and not (issecretvalue and issecretvalue(roll.playerName)) then
+							local color = C_ClassColor.GetClassColor(roll.playerClass)
+							names[#names + 1] = color and color:WrapTextInColorCode(roll.playerName) or roll.playerName
+						end
+					end
+					SetRollCount(button, names)
+				end
+			end
+		end
+	end
+end
+
+local function HookRollFrames()
+	for index = 1, 4 do
+		local frame = _G["GroupLootFrame" .. index]
+		if frame then
+			frame:HookScript("OnShow", ResetRollFrame)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Items:Refresh()
@@ -780,6 +898,9 @@ function Items:Refresh()
 	end
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
 	self:ToggleEvent("UI_ERROR_MESSAGE", db.destroyPrompt)
+	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
+	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
+	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
 		wipe(upgradeCache)
 		UpdateAllBags()
@@ -809,6 +930,7 @@ end
 
 function Items:OnLogin()
 	HookContainerFrames()
+	HookRollFrames()
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
 	self:Refresh()
 end
@@ -842,5 +964,7 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },
+	{ key = "autoBind", type = "toggle", name = L.ITEMS_AUTOBIND, desc = L.ITEMS_AUTOBIND_DESC },
+	{ key = "rollCounts", type = "toggle", name = L.ITEMS_ROLL_COUNTS, desc = L.ITEMS_ROLL_COUNTS_DESC },
 
 }

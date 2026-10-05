@@ -13,6 +13,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorMana = true,
 		colorUnusable = true,
 		unitBars = true,
+		playerDragon = "none",
 	},
 })
 
@@ -336,6 +337,52 @@ local function StyleUnitBars()
 end
 
 ---------------------------------------------------------------------------
+-- Elite/rare dragon around the player portrait (target frame art, mirrored)
+---------------------------------------------------------------------------
+local BRONZE = { 0.86, 0.55, 0.28 }
+-- key -> atlas, x, y (offsets of the target frame, mirrored), desaturate, tint
+local DRAGONS = {
+	gold = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1 },
+	goldWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", 11, -4 },
+	silver = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1, true },
+	silverWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", 8, -7 },
+	bronze = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1, true, BRONZE },
+	bronzeWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", 11, -4, true, BRONZE },
+}
+local dragon
+
+local function ApplyPlayerDragon()
+	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
+	if not container then
+		return
+	end
+	local data = DRAGONS[Visuals.db.playerDragon]
+	if not data then
+		if dragon then
+			dragon:Hide()
+		end
+		return
+	end
+	dragon = dragon or container:CreateTexture(nil, "ARTWORK", nil, 2)
+	dragon:SetAtlas(data[1], true)
+	-- The target art faces right; mirror its atlas region for the portrait on the left.
+	local info = C_Texture.GetAtlasInfo(data[1])
+	if info then
+		dragon:SetTexCoord(info.rightTexCoord, info.leftTexCoord, info.topTexCoord, info.bottomTexCoord)
+	end
+	dragon:ClearAllPoints()
+	dragon:SetPoint("TOPLEFT", container, "TOPLEFT", -data[2], data[3])
+	dragon:SetDesaturated(data[4] and true or false)
+	local tint = data[5]
+	if tint then
+		dragon:SetVertexColor(tint[1], tint[2], tint[3])
+	else
+		dragon:SetVertexColor(1, 1, 1)
+	end
+	dragon:Show()
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Visuals:OnInitialize()
@@ -354,11 +401,14 @@ function Visuals:OnLogin()
 	HookActionButtons()
 	RecolorAll()
 	StyleUnitBars()
+	ApplyPlayerDragon()
 end
 
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
+	elseif key == "playerDragon" then
+		ApplyPlayerDragon()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
 			StyleUnitBars()
@@ -378,6 +428,12 @@ Visuals.options = {
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
+	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
+	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
+		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },
+		{ "silver", L.VISUALS_DRAGON_SILVER }, { "silverWinged", L.VISUALS_DRAGON_SILVER_WINGED },
+		{ "bronze", L.VISUALS_DRAGON_BRONZE }, { "bronzeWinged", L.VISUALS_DRAGON_BRONZE_WINGED },
+	} },
 	{ type = "header", name = L.VISUALS_BARS_HEADER },
 	{ key = "unitBars", type = "toggle", name = L.VISUALS_UNIT_BARS, desc = L.VISUALS_UNIT_BARS_DESC },
 }

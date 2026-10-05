@@ -10,6 +10,10 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverMicro = true,
 		mouseoverTracker = true,
 		mouseoverBags = true,
+		mouseoverMainBar = false,
+		mouseoverMultiBars = false,
+		mouseoverStancePet = false,
+		nameplatesCombat = false,
 		actionText = true,
 		hideHotkeys = true,
 		hideMacroNames = true,
@@ -82,6 +86,45 @@ function QoL:UpdateMouseover()
 	SetFaded(MicroMenuContainer, db.mouseover and db.mouseoverMicro)
 	SetFaded(BagsBar, db.mouseover and db.mouseoverBags)
 	SetFaded(ObjectiveTrackerFrame, db.mouseover and db.mouseoverTracker)
+	SetFaded(MainActionBar, db.mouseover and db.mouseoverMainBar)
+	for _, name in ipairs({ "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft", "MultiBar5", "MultiBar6", "MultiBar7" }) do
+		SetFaded(_G[name], db.mouseover and db.mouseoverMultiBars)
+	end
+	SetFaded(StanceBar, db.mouseover and db.mouseoverStancePet)
+	SetFaded(PetActionBar, db.mouseover and db.mouseoverStancePet)
+end
+
+---------------------------------------------------------------------------
+-- Enemy nameplates only in combat. The CVar can still be changed while the
+-- combat start event is handled, before the lockdown begins.
+---------------------------------------------------------------------------
+local NAMEPLATE_CVAR = "nameplateShowEnemies"
+
+function QoL:UpdateNameplates()
+	local db = self.db
+	if db.nameplatesCombat then
+		if db.nameplatesOriginal == nil then
+			db.nameplatesOriginal = GetCVar(NAMEPLATE_CVAR)
+		end
+		self:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+			SetCVar(NAMEPLATE_CVAR, "1")
+		end)
+		self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+			SetCVar(NAMEPLATE_CVAR, "0")
+		end)
+		if not InCombatLockdown() then
+			SetCVar(NAMEPLATE_CVAR, "0")
+		end
+	else
+		self:UnregisterEvent("PLAYER_REGEN_DISABLED")
+		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		if db.nameplatesOriginal ~= nil then
+			ns.RunOutOfCombat(function()
+				SetCVar(NAMEPLATE_CVAR, db.nameplatesOriginal)
+				db.nameplatesOriginal = nil
+			end)
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -241,6 +284,7 @@ function QoL:OnLogin()
 
 	self:UpdateActionText()
 	self:DisableBlizzardCoordsOnce()
+	self:UpdateNameplates()
 
 	local backpack = MainMenuBarBackpackButton
 	if backpack and backpack.UpdateFreeSlots then
@@ -267,6 +311,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateActionText()
 	elseif key == "bagSlots" then
 		self:UpdateBagSlotsOption()
+	elseif key == "nameplatesCombat" then
+		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
 	end
@@ -278,6 +324,11 @@ QoL.options = {
 	{ key = "mouseoverMicro", type = "toggle", name = L.QOL_MOUSEOVER_MICRO, parent = "mouseover" },
 	{ key = "mouseoverTracker", type = "toggle", name = L.QOL_MOUSEOVER_TRACKER, parent = "mouseover" },
 	{ key = "mouseoverBags", type = "toggle", name = L.QOL_MOUSEOVER_BAGS, parent = "mouseover" },
+	{ key = "mouseoverMainBar", type = "toggle", name = L.QOL_MOUSEOVER_MAINBAR, parent = "mouseover" },
+	{ key = "mouseoverMultiBars", type = "toggle", name = L.QOL_MOUSEOVER_MULTIBARS, parent = "mouseover" },
+	{ key = "mouseoverStancePet", type = "toggle", name = L.QOL_MOUSEOVER_STANCEPET, parent = "mouseover" },
+	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
+	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
 	{ type = "header", name = L.QOL_ACTIONBAR_HEADER },
 	{ key = "actionText", type = "toggle", name = L.QOL_ACTION_TEXT, desc = L.QOL_ACTION_TEXT_DESC },
 	{ key = "hideHotkeys", type = "toggle", name = L.QOL_HIDE_HOTKEYS, parent = "actionText" },

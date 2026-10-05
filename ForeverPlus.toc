@@ -17,6 +17,7 @@ Locales\deDE.lua
 Core\Core.lua
 Core\Settings.xml
 Core\Settings.lua
+Core\Widgets.lua
 Core\Mover.lua
 
 Modules\Chat.lua
@@ -26,9 +27,11 @@ Modules\Items.lua
 Modules\Auction.lua
 Modules\QoL.lua
 Modules\Info.lua
+Modules\Quests.lua
 Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua
+Modules\Talents.lua
 Modules\Visuals.lua
 Modules\Fonts.lua
 

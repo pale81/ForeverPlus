@@ -293,12 +293,17 @@ local function CreateOpenButton()
 end
 
 ---------------------------------------------------------------------------
--- Fishing: a double right-click on the world casts Fishing. After the first
--- click the second one is bound to a secure button for a moment.
+-- Fishing: a double right-click on the world casts Fishing. Only a short,
+-- still click (not a camera turn) with a fishing pole equipped arms the next
+-- right-click for a moment, and only after its release: holding the right
+-- button to turn and right-click interaction stay untouched.
 ---------------------------------------------------------------------------
 local FISHING = { 131474, 33095, 18248, 7732, 7731, 7620 }
+local MODERN_FISHING = 131474 -- needs no fishing pole
 local DOUBLE_CLICK = 0.4
-local fishButton, lastRightClick, bindingSet = nil, 0, false
+local CLICK_TIME, CLICK_MOVE = 0.3, 6
+local fishButton, bindingSet = nil, false
+local pressTime, pressX, pressY
 
 local function FishingSpell()
 	for _, spellID in ipairs(FISHING) do
@@ -306,6 +311,15 @@ local function FishingSpell()
 			return spellID
 		end
 	end
+end
+
+local function HasFishingPole()
+	local itemID = GetInventoryItemID("player", INVSLOT_MAINHAND or 16)
+	if not itemID then
+		return false
+	end
+	local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
+	return classID == Enum.ItemClass.Weapon and subClassID == (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Fishingpole or 20)
 end
 
 local function ClearFishBinding()
@@ -319,34 +333,54 @@ local function CreateFishButton()
 	fishButton = CreateFrame("Button", "ForeverPlusFishButton", UIParent, "SecureActionButtonTemplate")
 	fishButton:RegisterForClicks("AnyUp", "AnyDown")
 	fishButton:SetAttribute("type", "spell")
-	-- Only the press casts, so the release of the first click does nothing.
 	fishButton:SetAttribute("useOnKeyDown", true)
 	fishButton:HookScript("PostClick", function()
 		C_Timer.After(0, ClearFishBinding)
 	end)
 end
 
-function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
-	if mouseButton ~= "RightButton" or InCombatLockdown() or IsMounted() then
+local function FishingReady()
+	if InCombatLockdown() or IsMounted() or UnitExists("mouseover") then
 		return
 	end
 	local focus = GetMouseFoci()[1]
-	if (focus and focus ~= WorldFrame) or UnitExists("mouseover") then
+	if focus and focus ~= WorldFrame then
 		return
 	end
 	local spellID = FishingSpell()
+	if spellID and (spellID == MODERN_FISHING or HasFishingPole()) then
+		return spellID
+	end
+end
+
+function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
+	if mouseButton == "RightButton" and not bindingSet then
+		pressTime = GetTime()
+		pressX, pressY = GetCursorPosition()
+	end
+end
+
+function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
+	if mouseButton ~= "RightButton" or not pressTime or bindingSet then
+		return
+	end
+	local x, y = GetCursorPosition()
+	local short = GetTime() - pressTime <= CLICK_TIME and math.abs(x - pressX) + math.abs(y - pressY) <= CLICK_MOVE
+	pressTime = nil
+	local spellID = short and FishingReady()
 	if not spellID then
 		return
 	end
-	local now = GetTime()
-	if bindingSet or now - lastRightClick < DOUBLE_CLICK then
-		return
-	end
-	lastRightClick = now
-	fishButton:SetAttribute("spell", spellID)
-	SetOverrideBindingClick(fishButton, true, "BUTTON2", "ForeverPlusFishButton", "LeftButton")
-	bindingSet = true
-	C_Timer.After(DOUBLE_CLICK, ClearFishBinding)
+	-- After the release has been handled by the game.
+	C_Timer.After(0, function()
+		if InCombatLockdown() then
+			return
+		end
+		fishButton:SetAttribute("spell", spellID)
+		SetOverrideBindingClick(fishButton, true, "BUTTON2", "ForeverPlusFishButton", "LeftButton")
+		bindingSet = true
+		C_Timer.After(DOUBLE_CLICK, ClearFishBinding)
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -431,6 +465,7 @@ function Helpers:Update()
 		ns.RunOutOfCombat(HideOverlay)
 	end
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", db.fishing)
+	self:ToggleEvent("GLOBAL_MOUSE_UP", db.fishing)
 	ns.RunOutOfCombat(ClearFishBinding)
 	UpdateOpenButton()
 end

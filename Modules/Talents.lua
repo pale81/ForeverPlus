@@ -11,6 +11,7 @@ local Talents = ns:NewModule("Talents", {
 		planner = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
+		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 	},
 	charDefaults = {
 		seenSpells = {}, -- learnable spells already shown to the player
@@ -21,40 +22,129 @@ local MAX_APPLY_PASSES = 10
 local _, playerClass = UnitClass("player")
 
 ---------------------------------------------------------------------------
--- Spells by level
+-- Trainer spells: what the game lists per level and the spell book, plus the
+-- class trainer's list (stored at each visit), which also holds the spells
+-- of later levels.
 ---------------------------------------------------------------------------
 local function IsKnown(spellID)
 	return C_SpellBook.IsSpellKnown(spellID) or (IsPlayerSpell and IsPlayerSpell(spellID))
 end
 
-local function CollectSpells()
-	local byLevel, seen = {}, {}
-	local function Add(level, spellID)
-		if spellID and level and level > 0 and not seen[spellID] then
-			seen[spellID] = true
-			byLevel[level] = byLevel[level] or {}
-			tinsert(byLevel[level], spellID)
-		end
-	end
-	-- Spells the game lists per level.
-	local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or 60
-	for level = 1, maxLevel do
-		for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
-			Add(level, spellID)
-		end
-	end
-	-- Spell book entries, including spells not learned yet.
-	local bank = Enum.SpellBookSpellBank.Player
+local function SpellKey(name, rank)
+	return (name or "") .. "|" .. (rank or "")
+end
+
+local function SpellBookLines()
+	local lines = {}
 	for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
 		local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
 		if info and not info.offSpecID and not info.isGuild then
-			for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-				local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
-				if item and item.spellID then
-					Add(C_SpellBook.GetSpellBookItemLevelLearned(index, bank), item.spellID)
-				end
+			lines[#lines + 1] = info
+		end
+	end
+	return lines
+end
+
+-- name|rank of every spell the player knows.
+local function KnownSpellKeys()
+	local known = {}
+	local bank = Enum.SpellBookSpellBank.Player
+	for _, info in ipairs(SpellBookLines()) do
+		for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
+			if item and item.spellID and IsKnown(item.spellID) then
+				known[SpellKey(item.name, item.subName)] = true
 			end
 		end
+	end
+	return known
+end
+
+local function TrainerList()
+	local lists = Talents.db.trainer
+	lists[playerClass] = lists[playerClass] or {}
+	return lists[playerClass]
+end
+
+-- Reads the whole service list of a class trainer, all filters switched on.
+local TRAINER_FILTERS = { "available", "unavailable", "used" }
+
+local function ScanTrainer()
+	local trainerType = C_Trainer and C_Trainer.GetTrainerType and C_Trainer.GetTrainerType()
+	if trainerType == Enum.TrainerType.Tradeskills or trainerType == Enum.TrainerType.Pet then
+		return
+	end
+	local classLines = {}
+	for _, info in ipairs(SpellBookLines()) do
+		classLines[info.name] = true
+	end
+	local saved = {}
+	for _, filter in ipairs(TRAINER_FILTERS) do
+		saved[filter] = GetTrainerServiceTypeFilter(filter)
+		if not saved[filter] then
+			SetTrainerServiceTypeFilter(filter, true)
+		end
+	end
+	local list = TrainerList()
+	local found = {}
+	for index = 1, GetNumTrainerServices() do
+		local name, serviceType, icon, level, rank = GetTrainerServiceInfo(index)
+		local line = GetTrainerServiceSkillLine and GetTrainerServiceSkillLine(index)
+		if name and serviceType ~= "header" and level and level > 0 and (not line or classLines[line]) then
+			found[#found + 1] = { name = name, rank = rank ~= "" and rank or nil, icon = icon, level = level }
+		end
+	end
+	for _, filter in ipairs(TRAINER_FILTERS) do
+		if not saved[filter] then
+			SetTrainerServiceTypeFilter(filter, false)
+		end
+	end
+	if #found > 0 then
+		wipe(list)
+		for i, entry in ipairs(found) do
+			list[i] = entry
+		end
+	end
+end
+
+-- All entries: { key, level, name, rank, icon, known }, by level.
+local function CollectSpells()
+	local byLevel, seen = {}, {}
+	local function Add(level, key, name, rank, icon, known)
+		if level and level > 0 and not seen[key] then
+			seen[key] = true
+			byLevel[level] = byLevel[level] or {}
+			tinsert(byLevel[level], { key = key, level = level, name = name, rank = rank, icon = icon, known = known })
+		end
+	end
+	local function AddSpell(level, spellID)
+		if not spellID then
+			return
+		end
+		local name = C_Spell.GetSpellName(spellID) or ("spell:" .. spellID)
+		local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
+		rank = rank ~= "" and rank or nil
+		Add(level, SpellKey(name, rank), name, rank, C_Spell.GetSpellTexture(spellID), IsKnown(spellID))
+	end
+	local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or 60
+	for level = 1, maxLevel do
+		for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
+			AddSpell(level, spellID)
+		end
+	end
+	local bank = Enum.SpellBookSpellBank.Player
+	for _, info in ipairs(SpellBookLines()) do
+		for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
+			if item and item.spellID then
+				AddSpell(C_SpellBook.GetSpellBookItemLevelLearned(index, bank), item.spellID)
+			end
+		end
+	end
+	local known = KnownSpellKeys()
+	for _, entry in ipairs(TrainerList()) do
+		local key = SpellKey(entry.name, entry.rank)
+		Add(entry.level, key, entry.name, entry.rank, entry.icon, known[key] or false)
 	end
 	return byLevel
 end
@@ -65,9 +155,9 @@ local function LearnableSpells(byLevel)
 	local list = {}
 	for level, spells in pairs(byLevel or CollectSpells()) do
 		if level <= playerLevel then
-			for _, spellID in ipairs(spells) do
-				if not IsKnown(spellID) then
-					list[#list + 1] = spellID
+			for _, entry in ipairs(spells) do
+				if not entry.known then
+					list[#list + 1] = entry.key
 				end
 			end
 		end
@@ -84,8 +174,8 @@ local function UpdateSpellsGlow()
 	end
 	local seen = Talents.cdb.seenSpells
 	local new = false
-	for _, spellID in ipairs(LearnableSpells()) do
-		if not seen[spellID] then
+	for _, key in ipairs(LearnableSpells()) do
+		if not seen[key] then
 			new = true
 			break
 		end
@@ -96,8 +186,8 @@ end
 local function ShowSpellsByLevel()
 	local byLevel = CollectSpells()
 	local seen = Talents.cdb.seenSpells
-	for _, spellID in ipairs(LearnableSpells(byLevel)) do
-		seen[spellID] = true
+	for _, key in ipairs(LearnableSpells(byLevel)) do
+		seen[key] = true
 	end
 	UpdateSpellsGlow()
 	local levels = {}
@@ -107,23 +197,25 @@ local function ShowSpellsByLevel()
 	table.sort(levels)
 	local playerLevel = UnitLevel("player")
 	local lines = {}
+	if #TrainerList() == 0 then
+		lines[1] = L.TALENTS_VISIT_TRAINER
+		lines[2] = " "
+	end
 	for _, level in ipairs(levels) do
 		local color = level <= playerLevel and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
 		lines[#lines + 1] = color:WrapTextInColorCode(L.TALENTS_LEVEL:format(level))
-		for _, spellID in ipairs(byLevel[level]) do
-			local name = C_Spell.GetSpellName(spellID) or ("spell:" .. spellID)
-			local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
-			if rank and rank ~= "" then
-				name = ("%s (%s)"):format(name, rank)
-			end
-			local icon = C_Spell.GetSpellTexture(spellID)
-			local text = ("   |T%s:16:16|t %s"):format(icon or 134400, name)
-			lines[#lines + 1] = IsKnown(spellID) and GRAY_FONT_COLOR:WrapTextInColorCode(text) or text
+		table.sort(byLevel[level], function(a, b)
+			return a.name < b.name
+		end)
+		for _, entry in ipairs(byLevel[level]) do
+			local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
+			local text = ("   |T%s:16:16|t %s"):format(entry.icon or 134400, name)
+			lines[#lines + 1] = entry.known and GRAY_FONT_COLOR:WrapTextInColorCode(text) or text
 		end
 		lines[#lines + 1] = " "
 	end
 	if #levels == 0 then
-		lines[1] = L.TALENTS_NO_SPELLS
+		lines[#lines + 1] = L.TALENTS_NO_SPELLS
 	end
 	ns.ShowTextWindow("Spells", L.TALENTS_SPELLS, table.concat(lines, "\n"))
 end
@@ -330,12 +422,9 @@ local function PlanOverlay(button)
 		overlay.Tint:SetAllPoints(button.Icon or button)
 		overlay.Tint:SetColorTexture(PLAN_COLOR.r, PLAN_COLOR.g, PLAN_COLOR.b, 0.4)
 		overlay.Tint:SetBlendMode("ADD")
+		-- Above the button, so Blizzard's own rank number stays visible.
 		overlay.Text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-		if button.SpendText then
-			overlay.Text:SetPoint("CENTER", button.SpendText, "CENTER")
-		else
-			overlay.Text:SetPoint("BOTTOMRIGHT", -2, 2)
-		end
+		overlay.Text:SetPoint("BOTTOM", button, "TOP", 0, -6)
 		overlay.Text:SetTextColor(PLAN_COLOR:GetRGB())
 		button.fpPlan = overlay
 	end
@@ -360,15 +449,9 @@ local function UpdatePlan()
 				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
 				overlay.Text:Show()
 				overlay.Tint:SetShown(planned > node.ranksPurchased)
-				if button.SpendText then
-					button.SpendText:SetAlpha(0)
-				end
 			else
 				overlay.Text:Hide()
 				overlay.Tint:Hide()
-				if button.SpendText then
-					button.SpendText:SetAlpha(1)
-				end
 			end
 		end
 	end
@@ -509,6 +592,12 @@ function Talents:OnLogin()
 		end
 	end)
 	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
+	self:RegisterEvent("TRAINER_SHOW", function()
+		C_Timer.After(0.3, function()
+			ScanTrainer()
+			QueueGlowUpdate()
+		end)
+	end)
 	self:RegisterEvent("SPELLS_CHANGED", QueueGlowUpdate)
 end
 

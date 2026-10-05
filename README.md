@@ -3,7 +3,7 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
-Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“.
+Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Minimap & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient: **Alt + Ziehen** verschiebt, **Strg + Mausrad** skaliert, **Alt + Rechtsklick** sperrt/entsperrt einzeln. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
 `/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars.
@@ -51,11 +51,11 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschieb- und sperrbar | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
-| Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
+| Quests | Questklänge (abschaltbar) bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
 | Flugzeiten | Jeder Flug wird gemessen und je Strecke gespeichert; Dauer im Tooltip der Flugkarte, Restzeit-Leiste während des Flugs (verschieb- und sperrbar) | ja |
 | Erfahrung & Ruf | Zahlen immer oder nur bei Mouseover (Standard: Mouseover); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
-| Talente | „Zauber beim Lehrer“ (erlernte grau; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, Zähler blau), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60, „Plan übernehmen“ | ja |
+| Talente | „Zauber beim Lehrer“ (erlernte grau; künftige Zauber aus der beim Lehrerbesuch gespeicherten Liste; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, blauer Zähler über dem Talent), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60, „Plan übernehmen“ | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |

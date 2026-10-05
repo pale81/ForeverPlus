@@ -9,7 +9,6 @@ local Mover = ns:NewModule("Mover", {
 	order = 100,
 	defaults = {
 		enabled = true,
-		scaling = true,
 		multiWindow = true,
 	},
 })
@@ -335,8 +334,8 @@ function Mover:Refresh()
 	RefreshDisplays()
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", enabled)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", enabled)
-	self:ToggleEvent("MODIFIER_STATE_CHANGED", enabled and self.db.scaling)
-	if not (enabled and self.db.scaling) then
+	self:ToggleEvent("MODIFIER_STATE_CHANGED", enabled)
+	if not enabled then
 		StopCatcher()
 	end
 end
@@ -474,7 +473,7 @@ end
 function RefreshDisplays()
 	local enabled = Mover.db.enabled
 	for _, entry in ipairs(displays) do
-		entry.frame:EnableMouseWheel(enabled and Mover.db.scaling and not IsLocked(entry.key) or false)
+		entry.frame:EnableMouseWheel(enabled and not IsLocked(entry.key) or false)
 	end
 end
 
@@ -547,11 +546,7 @@ end
 
 Mover.options = {
 	{ key = "enabled", type = "toggle", name = L.MOVER_ENABLE, desc = L.MOVER_ENABLE_DESC },
-	{ key = "scaling", type = "toggle", name = L.MOVER_SCALE, desc = L.MOVER_SCALE_DESC, parent = "enabled" },
 	{ key = "multiWindow", type = "toggle", name = L.MOVER_MULTI, desc = L.MOVER_MULTI_DESC },
-	{ type = "button", name = L.MOVER_RESET, text = L.RESET, desc = L.MOVER_RESET_DESC, func = function()
-		ns:ResetFramePositions()
-	end },
 }
 
 ---------------------------------------------------------------------------

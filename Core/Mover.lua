@@ -263,9 +263,12 @@ end
 
 function Mover:OnLogin()
 	-- Re-apply after Blizzard's panel manager positioned its windows.
-	hooksecurefunc(FramePositionDelegate, "UpdateUIPanelPositions", ApplyAllShown)
-	if UpdateContainerFrameAnchors then
-		hooksecurefunc("UpdateContainerFrameAnchors", ApplyAllShown)
+	-- The panel manager's delegate frame is local and forbidden; its public entry
+	-- points position the panels synchronously, so re-apply right after them.
+	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
+		if type(_G[func]) == "function" then
+			hooksecurefunc(func, ApplyAllShown)
+		end
 	end
 	for name in pairs(saved) do
 		local frame = _G[name]

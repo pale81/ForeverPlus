@@ -11,6 +11,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | Bereich | Funktion | Option |
 |---|---|---|
 | Chat | Drei Symbole links vom Chat (Soziales, Kanäle, Chatmenü) ausblenden | ja |
+| | Blizzards Chatmenü-Knopf (gelbe Sprechblase) rechts oben am Chat, Sprachauswahl im Menü, aktuelle Sprache im Tooltip | ja |
 | | Chatschrift mit Outline | – |
 | | Reiter-Hintergründe (Allgemein, Kampflog, …) entfernt | – |
 | | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund | – |
@@ -26,7 +27,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern | ja |
-| | Chatmeldungen zu Verkauf, Reparatur und Schrottmarkierung | ja |
+| | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle ForeverPlus-Meldungen stumm | ja |
 | | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
@@ -69,6 +70,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - Schrift: Namen über Köpfen und Kampftext nutzen vom Client beim Start gelesene globale Schriftpfade; diese zu ändern würde Taint riskieren, daher nicht enthalten.
 - Auktionshaus: keine zusätzlichen Kategorien/Filter. Kaufen und Einstellen (`PlaceBid`, `PostItem`, …) sind eingeschränkte Funktionen; ob Änderungen an Blizzards Suchlogik sie blockieren, ist ohne Test im Spiel nicht verifizierbar. Die Warnung liest nur Daten und fügt eigene Symbole hinzu.
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
+- Sprachwahl im Chat: kein eigener Ein-Klick-Umschalter. Ein von einem Addon gesetzter Sprachwert würde jede gesendete Chatnachricht „tainten“ (`SendChatMessage` ist eingeschränkt); deshalb wird Blizzards eigener Menü-Knopf versetzt.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 ## Danksagungen / Lizenzen

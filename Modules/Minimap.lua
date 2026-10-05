@@ -9,6 +9,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 	defaults = {
 		lockCoords = false,
 		lockWorldMap = false,
+		lockMessage = true,
 	},
 })
 
@@ -100,7 +101,9 @@ local function SetupWorldMapCoords()
 		if mouseButton == "RightButton" then
 			local locked = not MinimapCoords.db.lockWorldMap
 			Settings.SetValue("ForeverPlus_Minimap_lockWorldMap", locked)
-			ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+			if MinimapCoords.db.lockMessage then
+				ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
+			end
 		end
 	end)
 	panel:SetScript("OnDragStop", function(self)
@@ -162,4 +165,5 @@ end
 MinimapCoords.options = {
 	{ key = "lockCoords", type = "toggle", name = L.MINIMAP_LOCK_COORDS, desc = L.DISPLAY_LOCK_DESC },
 	{ key = "lockWorldMap", type = "toggle", name = L.MINIMAP_LOCK_WORLDMAP, desc = L.DISPLAY_LOCK_DESC },
+	{ key = "lockMessage", type = "toggle", name = L.DISPLAY_LOCK_MESSAGE, desc = L.MESSAGE_DESC },
 }

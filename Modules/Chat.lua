@@ -8,6 +8,7 @@ local Chat = ns:NewModule("Chat", {
 	defaults = {
 		hideButtons = true,
 		transparent = true,
+		languageBubble = true,
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -27,17 +28,58 @@ local function ChatButtons()
 	return ChatFrameMenuButton, ChatFrameChannelButton, QuickJoinToastButton
 end
 
+-- Blizzard's own chat menu button (yellow speech bubble) at the top right of
+-- the chat. It stays Blizzard's button, so choosing a language in its menu
+-- runs Blizzard's code untouched and sending chat is not affected.
+local bubbleHooked = false
+
+local function ShowLanguageTooltip(button)
+	local editBox = DEFAULT_CHAT_FRAME.editBox
+	GameTooltip:SetOwner(button, "ANCHOR_TOPLEFT")
+	GameTooltip_SetTitle(GameTooltip, LANGUAGE)
+	GameTooltip_AddNormalLine(GameTooltip, L.CHAT_LANGUAGE_CURRENT:format(editBox and editBox.language or "?"))
+	GameTooltip_AddInstructionLine(GameTooltip, L.CHAT_LANGUAGE_HINT)
+	GameTooltip:Show()
+end
+
+local function PlaceBubble(button)
+	local anchor = ChatFrame1.Background or ChatFrame1
+	button:SetParent(ChatFrame1)
+	button:SetFrameStrata("MEDIUM")
+	button:SetSize(22, 22)
+	button:ClearAllPoints()
+	button:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
+	if not bubbleHooked then
+		bubbleHooked = true
+		button:HookScript("OnEnter", ShowLanguageTooltip)
+		button:HookScript("OnLeave", GameTooltip_Hide)
+	end
+end
+
 function Chat:UpdateButtons()
 	local hide = self.db.hideButtons
 	for _, button in ipairs({ ChatButtons() }) do
-		if hide then
+		if button == ChatFrameMenuButton and self.db.languageBubble then
+			buttonParents[button] = buttonParents[button] or button:GetParent()
+			if not buttonParents.bubblePoint then
+				buttonParents.bubblePoint = { button:GetPoint(1) }
+				buttonParents.bubbleSize = { button:GetSize() }
+			end
+			PlaceBubble(button)
+		elseif hide then
 			if button:GetParent() ~= ns.hider then
-				buttonParents[button] = button:GetParent()
+				buttonParents[button] = buttonParents[button] or button:GetParent()
 				button:SetParent(ns.hider)
 			end
 		elseif buttonParents[button] then
 			button:SetParent(buttonParents[button])
 			buttonParents[button] = nil
+			if button == ChatFrameMenuButton and buttonParents.bubblePoint then
+				button:ClearAllPoints()
+				button:SetPoint(unpack(buttonParents.bubblePoint))
+				button:SetSize(unpack(buttonParents.bubbleSize))
+				buttonParents.bubblePoint, buttonParents.bubbleSize = nil, nil
+			end
 		end
 	end
 end
@@ -141,7 +183,7 @@ function Chat:OnLogin()
 end
 
 function Chat:OnOptionChanged(key, value)
-	if key == "hideButtons" then
+	if key == "hideButtons" or key == "languageBubble" then
 		self:UpdateButtons()
 	elseif key == "transparent" then
 		if value then
@@ -160,5 +202,6 @@ end
 
 Chat.options = {
 	{ key = "hideButtons", type = "toggle", name = L.CHAT_HIDE_BUTTONS, desc = L.CHAT_HIDE_BUTTONS_DESC },
+	{ key = "languageBubble", type = "toggle", name = L.CHAT_LANGUAGE_BUBBLE, desc = L.CHAT_LANGUAGE_BUBBLE_DESC },
 	{ key = "transparent", type = "toggle", name = L.CHAT_TRANSPARENT, desc = L.CHAT_TRANSPARENT_DESC },
 }

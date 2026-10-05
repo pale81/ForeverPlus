@@ -16,6 +16,7 @@ local Radar = ns:NewModule("RecipeRadar", {
 		minimap = true,
 		showLowSkill = true,
 		tooltipSources = true,
+		waypointMessage = true,
 	},
 })
 
@@ -245,7 +246,9 @@ local function SetWaypoint(mapID, vendor)
 	end
 	C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, vendor.x / 100, vendor.y / 100))
 	C_SuperTrack.SetSuperTrackedUserWaypoint(true)
-	ns.Print(L.RADAR_WAYPOINT_SET, DB.Npc.name(vendor.npc) or "?")
+	if Radar.db.waypointMessage then
+		ns.Print(L.RADAR_WAYPOINT_SET, DB.Npc.name(vendor.npc) or "?")
+	end
 end
 
 local function PinIcon(entry)
@@ -550,7 +553,7 @@ end
 -- /fp radar: state of the radar for troubleshooting.
 function Radar:PrintStatus()
 	if not DB then
-		ns.Print(L.RADAR_STATUS_NO_DB)
+		ns.PrintAlways(L.RADAR_STATUS_NO_DB)
 		return
 	end
 	local recipeCount, vendorCount = 0, 0
@@ -560,15 +563,15 @@ function Radar:PrintStatus()
 	for _, list in pairs(vendorsByMap) do
 		vendorCount = vendorCount + #list
 	end
-	ns.Print(L.RADAR_STATUS_INDEX, indexReady and L.RADAR_STATUS_READY or L.RADAR_STATUS_BUILDING, recipeCount, vendorCount)
+	ns.PrintAlways(L.RADAR_STATUS_INDEX, indexReady and L.RADAR_STATUS_READY or L.RADAR_STATUS_BUILDING, recipeCount, vendorCount)
 	local professions = {}
 	for skillLine, rank in pairs(skills) do
 		professions[#professions + 1] = ("%d (%d)"):format(skillLine, rank)
 	end
-	ns.Print(L.RADAR_STATUS_SKILLS, #professions > 0 and table.concat(professions, ", ") or "-")
+	ns.PrintAlways(L.RADAR_STATUS_SKILLS, #professions > 0 and table.concat(professions, ", ") or "-")
 	local mapID = C_Map.GetBestMapForUnit("player")
 	local all = mapID and vendorsByMap[mapID]
-	ns.Print(L.RADAR_STATUS_MAP, mapID or 0, all and #all or 0, #(GetVendors(mapID) or {}))
+	ns.PrintAlways(L.RADAR_STATUS_MAP, mapID or 0, all and #all or 0, #(GetVendors(mapID) or {}))
 end
 
 function Radar:OnOptionChanged()
@@ -584,4 +587,5 @@ Radar.options = {
 	{ key = "minimap", type = "toggle", name = L.RADAR_MINIMAP, parent = "enabled" },
 	{ key = "showLowSkill", type = "toggle", name = L.RADAR_LOW_SKILL, desc = L.RADAR_LOW_SKILL_DESC, parent = "enabled" },
 	{ key = "tooltipSources", type = "toggle", name = L.RADAR_TOOLTIP, desc = L.RADAR_TOOLTIP_DESC, parent = "enabled" },
+	{ key = "waypointMessage", type = "toggle", name = L.RADAR_WAYPOINT_MESSAGE, desc = L.MESSAGE_DESC, parent = "enabled" },
 }

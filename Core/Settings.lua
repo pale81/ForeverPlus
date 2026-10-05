@@ -91,6 +91,11 @@ function ns:BuildSettings()
 	mainCategory = Settings.RegisterVerticalLayoutCategory("ForeverPlus")
 	local mainLayout = SettingsPanel:GetLayout(mainCategory)
 	mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(("ForeverPlus %s"):format(ns.version), L.ABOUT_TEXT))
+	if ns.db.quiet == nil then
+		ns.db.quiet = false
+	end
+	local quiet = Settings.RegisterAddOnSetting(mainCategory, "ForeverPlus_quiet", "quiet", ns.db, Settings.VarType.Boolean, L.QUIET, false)
+	Settings.CreateCheckbox(mainCategory, quiet, L.QUIET_DESC)
 	mainLayout:AddInitializer(ButtonInitializer(L.MOVER_RESET, L.RESET, function()
 		ns:ResetFramePositions()
 	end, L.MOVER_RESET_DESC))

@@ -390,5 +390,4 @@ Radar.options = {
 	{ key = "worldMap", type = "toggle", name = L.RADAR_WORLDMAP, parent = "enabled" },
 	{ key = "minimap", type = "toggle", name = L.RADAR_MINIMAP, parent = "enabled" },
 	{ key = "showLowSkill", type = "toggle", name = L.RADAR_LOW_SKILL, desc = L.RADAR_LOW_SKILL_DESC, parent = "enabled" },
-	{ type = "header", name = L.RADAR_CREDIT_HEADER, desc = L.RADAR_CREDIT },
 }

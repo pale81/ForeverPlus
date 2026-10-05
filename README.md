@@ -18,26 +18,27 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Stückpreis bei Stapeln | ja |
-| | Rahmen in Qualitätsfarbe bei Gegenständen | – |
+| | Leuchtender Rahmen in Qualitätsfarbe bei Gegenständen | – |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck | – |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
-| | Doppelklick in der Tasche markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft | – |
+| | Mittelklick (Taste wählbar: Maustaste 3/4/5) in der Tasche markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft | ja |
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
-| | Grüner Pfeil bei besserer Gegenstandsstufe (nur verwendbare Gegenstände) | ja |
+| | Grüner Pfeil nur bei echter Verbesserung: höhere Gegenstandsstufe als das schwächste getragene Teil des Platzes, keine geringeren Werte/DPS, verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern (wie Leatrix Plus) | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
-| | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst, Details kopierbar | ja |
+| | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
-| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …); Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
+| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | oGlow: dickes Leuchten in Qualitätsfarbe ab „Ungewöhnlich“ | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen) | – |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
+| | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler) | ja |
 
 ## Technik / CPU
 
@@ -51,6 +52,8 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - Kein Test im laufenden Spiel möglich gewesen; geprüft wurden Syntax, `luacheck`, ein Lade-/Initialisierungstest mit simulierter API sowie alle verwendeten Funktionen gegen den Forever-UI-Quellcode.
 - Buff-Erinnerung nutzt Classic-Zauber-IDs; nicht existierende IDs werden still übersprungen.
 - Rezeptradar nutzt Classic-Karten-IDs (1411–1458) mit Fallback über Zonennamen (EN/DE). Händlerdaten stammen aus dem Jahr 2006 (Vanilla); Forever-Änderungen an Händlern/Rezepten sind nicht enthalten.
+- „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
+- Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 ## Danksagungen / Lizenzen

@@ -13,6 +13,7 @@ local Items = ns:NewModule("Items", {
 		questReward = true,
 		upgradeArrow = true,
 		fastLoot = true,
+		junkButton = "MiddleButton",
 		junk = {},
 	},
 })
@@ -21,7 +22,7 @@ local SELL_BATCH = 10
 local SELL_INTERVAL = 0.2
 
 ---------------------------------------------------------------------------
--- Junk marking (double click in bags)
+-- Junk marking (middle mouse button in bags, configurable)
 ---------------------------------------------------------------------------
 local function IsMarked(itemID)
 	return itemID and Items.db.junk[itemID] or false
@@ -51,16 +52,13 @@ local EQUIP_SLOTS = {
 local ONE_HAND_SLOTS = { INVSLOT_MAINHAND, INVSLOT_OFFHAND }
 local MAIN_HAND_SLOT = { INVSLOT_MAINHAND }
 
-local equippedLevel = {}   -- slot -> item level (0 when empty)
 local upgradeCache = {}    -- hyperlink -> bool
 
-local function UpdateEquippedLevels()
-	for slot = 1, 19 do
-		local location = ItemLocation:CreateFromEquipmentSlot(slot)
-		equippedLevel[slot] = C_Item.DoesItemExist(location) and C_Item.GetCurrentItemLevel(location) or 0
-	end
-	wipe(upgradeCache)
-end
+-- Profession tools (fishing poles, mining picks, …) are never shown as upgrades.
+local IGNORED_WEAPONS = {
+	[Enum.ItemWeaponSubclass.Fishingpole] = true,
+	[Enum.ItemWeaponSubclass.Generic] = true,
+}
 
 local function IsRed(color)
 	return color and color.r > 0.99 and color.g < 0.2 and color.b < 0.2
@@ -80,32 +78,80 @@ local function CanUse(bag, slot)
 	return true
 end
 
+-- Sum of all item stats (without armor) and the weapon DPS.
+local function StatScore(link)
+	local stats = C_Item.GetItemStats(link)
+	local total, dps = 0, 0
+	for key, value in pairs(stats or {}) do
+		if key == "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" then
+			dps = value
+		elseif key:find("^ITEM_MOD_") then
+			total = total + value
+		end
+	end
+	return total, dps
+end
+
+-- Returns level, link of the equipped item; false when its data is not loaded yet.
+local function EquippedInfo(invSlot)
+	local location = ItemLocation:CreateFromEquipmentSlot(invSlot)
+	if not C_Item.DoesItemExist(location) then
+		return 0, nil
+	end
+	local level = C_Item.GetCurrentItemLevel(location)
+	local link = GetInventoryItemLink("player", invSlot)
+	if not level or not link then
+		return false
+	end
+	return level, link
+end
+
+-- An upgrade has a higher item level than the weakest equipped item of the
+-- slot and does not lose stats or weapon DPS against it (like SimpleItemLevel,
+-- plus the stat check). Unknown data never shows an arrow.
 local function IsUpgrade(bag, slot, link)
 	local cached = upgradeCache[link]
 	if cached ~= nil then
 		return cached
 	end
-	local _, _, _, equipLoc = C_Item.GetItemInfoInstant(link)
+	local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(link)
+	if classID == Enum.ItemClass.Weapon and IGNORED_WEAPONS[subClassID] then
+		upgradeCache[link] = false
+		return false
+	end
 	local slots = EQUIP_SLOTS[equipLoc]
 	if equipLoc == "INVTYPE_WEAPON" then
 		slots = CanDualWield() and ONE_HAND_SLOTS or MAIN_HAND_SLOT
 	end
-	local result = false
-	if slots then
-		local level = C_Item.GetCurrentItemLevel(ItemLocation:CreateFromBagAndSlot(bag, slot))
-		if level then
-			local lowest
-			for _, invSlot in ipairs(slots) do
-				local equipped = equippedLevel[invSlot] or 0
-				lowest = lowest and min(lowest, equipped) or equipped
-			end
-			result = level > lowest and CanUse(bag, slot)
+	if not slots then
+		upgradeCache[link] = false
+		return false
+	end
+	local level = C_Item.GetCurrentItemLevel(ItemLocation:CreateFromBagAndSlot(bag, slot))
+	if not level or not C_Item.IsItemDataCachedByID(link) then
+		return false
+	end
+
+	-- Compare against the weakest equipped item of the possible slots.
+	local lowestLevel, lowestLink
+	for _, invSlot in ipairs(slots) do
+		local equippedLevel, equippedLink = EquippedInfo(invSlot)
+		if equippedLevel == false then
+			return false
+		end
+		if not lowestLevel or equippedLevel < lowestLevel then
+			lowestLevel, lowestLink = equippedLevel, equippedLink
 		end
 	end
-	-- Only cache once the item data is complete.
-	if C_Item.IsItemDataCachedByID(link) then
-		upgradeCache[link] = result
+
+	local result = level > lowestLevel
+	if result and lowestLink then
+		local total, dps = StatScore(link)
+		local equippedTotal, equippedDps = StatScore(lowestLink)
+		result = total >= equippedTotal and dps >= equippedDps
 	end
+	result = result and CanUse(bag, slot)
+	upgradeCache[link] = result
 	return result
 end
 
@@ -149,13 +195,11 @@ end
 
 local hookedButtons = {}
 
-local function OnItemDoubleClick(button, mouseButton)
-	if mouseButton ~= "LeftButton" then
+-- Marks/unmarks junk with the configured mouse button (middle button by default).
+-- OnMouseUp also fires for buttons the item button is not registered to click with.
+local function OnItemMouseUp(button, mouseButton)
+	if mouseButton ~= Items.db.junkButton or not button:IsMouseOver() then
 		return
-	end
-	-- The first click picked the item up; put it back.
-	if CursorHasItem() then
-		ClearCursor()
 	end
 	local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
 	if not info or not info.itemID then
@@ -176,7 +220,7 @@ local function PostUpdateItems(frame)
 	for _, button in frame:EnumerateValidItems() do
 		if not hookedButtons[button] then
 			hookedButtons[button] = true
-			button:HookScript("OnDoubleClick", OnItemDoubleClick)
+			button:HookScript("OnMouseUp", OnItemMouseUp)
 		end
 		UpdateButton(button)
 	end
@@ -374,7 +418,7 @@ function Items:Refresh()
 	self:ToggleEvent("MERCHANT_CLOSED", merchant)
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
-		UpdateEquippedLevels()
+		wipe(upgradeCache)
 		UpdateAllBags()
 	end)
 	self:ToggleEvent("PLAYER_LEVEL_UP", db.upgradeArrow, function()
@@ -383,7 +427,6 @@ function Items:Refresh()
 end
 
 function Items:OnLogin()
-	UpdateEquippedLevels()
 	HookContainerFrames()
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
 	self:Refresh()
@@ -402,6 +445,9 @@ Items.options = {
 	{ key = "autoSell", type = "toggle", name = L.ITEMS_AUTOSELL, desc = L.ITEMS_AUTOSELL_DESC },
 	{ key = "autoRepair", type = "toggle", name = L.ITEMS_AUTOREPAIR, desc = L.ITEMS_AUTOREPAIR_DESC },
 	{ key = "repairGuild", type = "toggle", name = L.ITEMS_REPAIR_GUILD, desc = L.ITEMS_REPAIR_GUILD_DESC, parent = "autoRepair" },
+	{ key = "junkButton", type = "dropdown", name = L.ITEMS_JUNK_BUTTON, desc = L.ITEMS_JUNK_BUTTON_DESC, values = {
+		{ "MiddleButton", L.ITEMS_MOUSE_MIDDLE }, { "Button4", L.ITEMS_MOUSE_4 }, { "Button5", L.ITEMS_MOUSE_5 },
+	} },
 	{ type = "button", name = L.ITEMS_CLEAR_JUNK, text = L.RESET, desc = L.ITEMS_CLEAR_JUNK_DESC, func = function()
 		wipe(Items.db.junk)
 		UpdateAllBags()

@@ -20,17 +20,23 @@ local Visuals = ns:NewModule("Visuals", {
 ---------------------------------------------------------------------------
 local glows = setmetatable({}, { __mode = "k" })
 
+-- Two stacked additive layers: a single one lets the item frame shine through.
+local GLOW_LAYERS = 2
+
 local function GetGlow(button)
 	local glow = glows[button]
 	if not glow then
+		glow = {}
 		local icon = button.icon or button.Icon or button
-		glow = button:CreateTexture(nil, "OVERLAY", nil, 7)
-		glow:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-		glow:SetBlendMode("ADD")
-		glow:SetAlpha(0.85)
-		glow:SetPoint("CENTER", icon, "CENTER")
 		local size = max(icon:GetWidth(), 20) * 1.9
-		glow:SetSize(size, size)
+		for layer = 1, GLOW_LAYERS do
+			local texture = button:CreateTexture(nil, "OVERLAY", nil, 7)
+			texture:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+			texture:SetBlendMode("ADD")
+			texture:SetPoint("CENTER", icon, "CENTER")
+			texture:SetSize(size, size)
+			glow[layer] = texture
+		end
 		glows[button] = glow
 	end
 	return glow
@@ -40,13 +46,18 @@ local function UpdateGlow(button, quality)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
+	local glow = glows[button]
 	if quality and quality >= Enum.ItemQuality.Uncommon then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
-		local glow = GetGlow(button)
-		glow:SetVertexColor(r, g, b)
-		glow:Show()
-	elseif glows[button] then
-		glows[button]:Hide()
+		glow = glow or GetGlow(button)
+		for _, texture in ipairs(glow) do
+			texture:SetVertexColor(r, g, b)
+			texture:Show()
+		end
+	elseif glow then
+		for _, texture in ipairs(glow) do
+			texture:Hide()
+		end
 	end
 end
 

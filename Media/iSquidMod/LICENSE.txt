@@ -1,0 +1,24 @@
+iSquidMod textures
+==================
+
+The end cap textures in this folder are taken unmodified from iSquidMod
+(https://github.com/Timourgv/iSquidMod2020, https://www.wowinterface.com/downloads/info10436).
+
+Authors: Ganders & Imithat (original author: SAM)
+Thanks to: Vjeux, Ecksen, SinfulCreature; Diablo III graphics thanks to Roth (RothUI)
+
+License: WML 1.0 Modify and Redistribute, Share Alike
+- You are free to redistribute this work in unmodified form.
+- You are free to modify and re-distribute this work, so long as you:
+  1) give the author(s) credit proportional to their contribution to the final work,
+  2) distribute the final work under the same terms, and
+  3) make artistic resources included with the final work available under the same terms.
+- Artistic resources (meshes, textures, sounds, etc.) included with this work may be
+  included in unmodified form with modified versions of this work, so long as their
+  authors are given credit proportional to their contribution to the final work.
+  Note that artistic resources may not be modified, or extracted from this work,
+  unless permission is given elsewhere.
+
+These textures (and only these files) are distributed under the WML 1.0 terms above,
+not under the MIT license of the rest of ForeverPlus. The "bleach" texture of the
+original addon is intentionally not included.

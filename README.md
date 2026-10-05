@@ -23,7 +23,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`) | ja |
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
-| | Grüner Pfeil nur bei echter Verbesserung: höhere Gegenstandsstufe als das schwächste getragene Teil des Platzes, keine geringeren Werte/DPS, verwendbar; keine Berufswerkzeuge | ja |
+| | Grüner Pfeil nur bei echter Verbesserung: höhere Gegenstandsstufe als das schwächste getragene Teil des Platzes, keine geringeren Werte, DPS oder Rüstung, verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
@@ -38,7 +38,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Buff-Symbole oben rechts mit Aktionsleisten-Rahmen und abgerundeten Ecken | – |
-| | Outline für alle Schriften (bereits umrandete werden übersprungen) | – |
+| | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |

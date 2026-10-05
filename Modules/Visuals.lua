@@ -1,4 +1,4 @@
--- Visuals: quality glow on item buttons (oGlow), iSquidMod end caps,
+-- Visuals: quality frame on item buttons, iSquidMod end caps,
 -- action button state colouring, outlined fonts and unit frame bar textures.
 local addonName, ns = ...
 local L = ns.L
@@ -18,51 +18,21 @@ local Visuals = ns:NewModule("Visuals", {
 })
 
 ---------------------------------------------------------------------------
--- oGlow: thick glow in the quality colour from "uncommon" upwards
+-- Item quality frame (like the tooltip frame) from "uncommon" upwards
 ---------------------------------------------------------------------------
-local glows = setmetatable({}, { __mode = "k" })
-
--- Two stacked additive layers: a single one lets the item frame shine through.
-local GLOW_LAYERS = 2
-
--- The glow ring of UI-ActionButton-Border covers about 36 of its 64 pixels.
-local GLOW_FACTOR = 64 / 36
-
-local function GetGlow(button)
-	local glow = glows[button]
-	if not glow then
-		glow = {}
-		for layer = 1, GLOW_LAYERS do
-			local texture = button:CreateTexture(nil, "OVERLAY", nil, 7)
-			texture:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-			texture:SetBlendMode("ADD")
-			texture:SetPoint("CENTER", button, "CENTER")
-			glow[layer] = texture
-		end
-		glows[button] = glow
-	end
-	return glow
-end
+local borders = setmetatable({}, { __mode = "k" })
 
 local function UpdateGlow(button, quality)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
-	local glow = glows[button]
+	local border = borders[button]
 	if quality and quality >= Enum.ItemQuality.Uncommon then
-		local r, g, b = C_Item.GetItemQualityColor(quality)
-		glow = glow or GetGlow(button)
-		-- Size from the button itself (character slots, bags and loot differ).
-		local width, height = button:GetSize()
-		for _, texture in ipairs(glow) do
-			texture:SetSize(width * GLOW_FACTOR, height * GLOW_FACTOR)
-			texture:SetVertexColor(r, g, b)
-			texture:Show()
-		end
-	elseif glow then
-		for _, texture in ipairs(glow) do
-			texture:Hide()
-		end
+		border = border or ns.CreatePixelBorder(button, button, 2, "OVERLAY", 7)
+		borders[button] = border
+		border:ShowColor(C_Item.GetItemQualityColor(quality))
+	elseif border then
+		border:Hide()
 	end
 end
 

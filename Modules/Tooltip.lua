@@ -7,6 +7,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	order = 2,
 	defaults = {
 		unitPrice = true,
+		hoverName = true,
 	},
 })
 
@@ -105,66 +106,17 @@ end
 local defaultBorder = {}
 local borderFrames = {}
 
-local BORDER_PIXELS = 2
-
--- Crisp solid frame in quality colour along the tooltip edge. The corners are
--- cut by one pixel step so they look slightly rounded.
-local function GetBorderFrame(tooltip)
+-- Crisp frame in quality colour along the tooltip edge (Core/Widgets.lua).
+local function ShowBorderFrame(tooltip, r, g, b)
 	local frame = borderFrames[tooltip]
 	if not frame then
 		frame = CreateFrame("Frame", nil, tooltip)
 		frame:SetAllPoints(tooltip.NineSlice)
 		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
-		frame.parts = {}
-		for i = 1, 8 do
-			local part = frame:CreateTexture(nil, "OVERLAY")
-			part:SetColorTexture(1, 1, 1)
-			frame.parts[i] = part
-		end
+		frame.border = ns.CreatePixelBorder(frame, frame, 2)
 		borderFrames[tooltip] = frame
 	end
-	return frame
-end
-
-local function LayoutBorder(frame, size)
-	local top, bottom, left, right, tl, tr, bl, br = unpack(frame.parts)
-	local half = size / 2
-	for _, part in ipairs(frame.parts) do
-		part:ClearAllPoints()
-	end
-	top:SetPoint("TOPLEFT", size, 0)
-	top:SetPoint("TOPRIGHT", -size, 0)
-	top:SetHeight(size)
-	bottom:SetPoint("BOTTOMLEFT", size, 0)
-	bottom:SetPoint("BOTTOMRIGHT", -size, 0)
-	bottom:SetHeight(size)
-	left:SetPoint("TOPLEFT", 0, -size)
-	left:SetPoint("BOTTOMLEFT", 0, size)
-	left:SetWidth(size)
-	right:SetPoint("TOPRIGHT", 0, -size)
-	right:SetPoint("BOTTOMRIGHT", 0, size)
-	right:SetWidth(size)
-	-- Corner pieces moved half a line inwards close the gap diagonally.
-	tl:SetPoint("TOPLEFT", half, -half)
-	tr:SetPoint("TOPRIGHT", -half, -half)
-	bl:SetPoint("BOTTOMLEFT", half, half)
-	br:SetPoint("BOTTOMRIGHT", -half, half)
-	for i = 5, 8 do
-		frame.parts[i]:SetSize(size, size)
-	end
-end
-
-local function ShowBorderFrame(tooltip, r, g, b)
-	local frame = GetBorderFrame(tooltip)
-	-- Exactly BORDER_PIXELS screen pixels at any UI or tooltip scale.
-	local size = PixelUtil.GetNearestPixelSize(BORDER_PIXELS, frame:GetEffectiveScale(), BORDER_PIXELS)
-	if frame.size ~= size then
-		frame.size = size
-		LayoutBorder(frame, size)
-	end
-	for _, part in ipairs(frame.parts) do
-		part:SetVertexColor(r, g, b, 1)
-	end
+	frame.border:ShowColor(r, g, b)
 	frame:Show()
 end
 
@@ -198,12 +150,62 @@ local function ColorBorder(tooltip, data)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Name and level of the unit under the mouse, next to the cursor
+---------------------------------------------------------------------------
+local hover
+
+local function Secret(value)
+	return issecretvalue and issecretvalue(value)
+end
+
+local function UpdateHoverPosition(frame)
+	if not UnitExists("mouseover") or GetMouseFoci()[1] ~= WorldFrame then
+		frame:Hide()
+		return
+	end
+	local x, y = GetCursorPosition()
+	local scale = frame:GetEffectiveScale()
+	frame:ClearAllPoints()
+	frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / scale + 16, y / scale - 4)
+end
+
+local function ShowHoverName()
+	if not Tooltip.db.hoverName or not UnitExists("mouseover") then
+		return
+	end
+	if not hover then
+		hover = CreateFrame("Frame", nil, UIParent)
+		hover:SetFrameStrata("TOOLTIP")
+		hover:SetSize(1, 1)
+		hover.Text = hover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		hover.Text:SetFont(ns.GetFontFace and ns.GetFontFace() or STANDARD_TEXT_FONT, 13, "OUTLINE")
+		hover.Text:SetPoint("BOTTOMLEFT")
+		hover:SetScript("OnUpdate", UpdateHoverPosition)
+	end
+	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
+	if Secret(name) or Secret(level) then
+		hover.Text:SetText(name)
+	else
+		hover.Text:SetFormattedText("%s |cffcccccc%s|r", name or "", level and level > 0 and level or "??")
+	end
+	hover.Text:SetTextColor(GameTooltip_UnitColor("mouseover"))
+	UpdateHoverPosition(hover)
+	if UnitExists("mouseover") and GetMouseFoci()[1] == WorldFrame then
+		hover:Show()
+	end
+end
+
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
 	end
 	ColorBorder(tooltip, data)
 	AddUnitPrice(tooltip, data)
+end
+
+function Tooltip:OnLogin()
+	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
 end
 
 function Tooltip:OnInitialize()
@@ -214,5 +216,6 @@ function Tooltip:OnInitialize()
 end
 
 Tooltip.options = {
+	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 }

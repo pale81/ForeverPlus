@@ -33,6 +33,7 @@ Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\Talents.lua
 Modules\Visuals.lua
+Modules\XPBar.lua
 Modules\Fonts.lua
 
 Modules\RecipeRadar.xml

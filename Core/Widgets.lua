@@ -81,3 +81,68 @@ function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
 	frame.EditBox:HighlightText()
 	return frame
 end
+
+---------------------------------------------------------------------------
+-- Crisp pixel border with slightly rounded (stepped) corners
+---------------------------------------------------------------------------
+local BorderMixin = {}
+
+local function LayoutBorder(border, size)
+	local top, bottom, left, right, tl, tr, bl, br = unpack(border.parts)
+	local half = size / 2
+	local anchor = border.anchor
+	for _, part in ipairs(border.parts) do
+		part:ClearAllPoints()
+	end
+	top:SetPoint("TOPLEFT", anchor, "TOPLEFT", size, 0)
+	top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -size, 0)
+	top:SetHeight(size)
+	bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", size, 0)
+	bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -size, 0)
+	bottom:SetHeight(size)
+	left:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -size)
+	left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 0, size)
+	left:SetWidth(size)
+	right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, -size)
+	right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 0, size)
+	right:SetWidth(size)
+	-- Corner pieces moved half a line inwards close the gap diagonally.
+	tl:SetPoint("TOPLEFT", anchor, "TOPLEFT", half, -half)
+	tr:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -half, -half)
+	bl:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", half, half)
+	br:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -half, half)
+	for i = 5, 8 do
+		border.parts[i]:SetSize(size, size)
+	end
+end
+
+-- Shows the border in the given colour, exactly `pixels` screen pixels wide.
+function BorderMixin:ShowColor(r, g, b)
+	local size = PixelUtil.GetNearestPixelSize(self.pixels, self.anchor:GetEffectiveScale(), self.pixels)
+	if self.size ~= size then
+		self.size = size
+		LayoutBorder(self, size)
+	end
+	for _, part in ipairs(self.parts) do
+		part:SetVertexColor(r, g, b, 1)
+		part:Show()
+	end
+end
+
+function BorderMixin:Hide()
+	for _, part in ipairs(self.parts) do
+		part:Hide()
+	end
+end
+
+-- owner: frame that gets the textures; anchor: region the border follows.
+function ns.CreatePixelBorder(owner, anchor, pixels, layer, subLevel)
+	local border = Mixin({ anchor = anchor or owner, pixels = pixels or 2, parts = {} }, BorderMixin)
+	for i = 1, 8 do
+		local part = owner:CreateTexture(nil, layer or "OVERLAY", nil, subLevel or 7)
+		part:SetColorTexture(1, 1, 1)
+		part:Hide()
+		border.parts[i] = part
+	end
+	return border
+end

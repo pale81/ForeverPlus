@@ -14,6 +14,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorUnusable = true,
 		unitBars = true,
 		playerDragon = "none",
+		iconFrameStyle = "standalone",
 	},
 })
 
@@ -39,31 +40,20 @@ end
 ---------------------------------------------------------------------------
 -- Player buffs get the action button frame and rounded icon corners
 ---------------------------------------------------------------------------
--- Like Blizzard's small action buttons: the icon mask is 1.5x the icon size.
-local MASK_FACTOR = 1.5
-local auraMasks = {}
-
-local function SizeAuraMask(aura)
-	local mask = auraMasks[aura]
-	local width, height = aura.Icon:GetSize()
-	mask:SetSize(width * MASK_FACTOR, height * MASK_FACTOR)
-end
+local framedAuras = {}
 
 local function FrameAuraButton(aura)
-	local icon = aura.Icon
-	if not icon or auraMasks[aura] or aura:IsForbidden() then
+	if not aura.Icon or framedAuras[aura] or aura:IsForbidden() then
 		return
 	end
-	local mask = aura:CreateMaskTexture()
-	mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
-	mask:SetPoint("CENTER", icon, "CENTER")
-	icon:AddMaskTexture(mask)
-	auraMasks[aura] = mask
-	SizeAuraMask(aura)
-	local border = aura:CreateTexture(nil, "OVERLAY", nil, -1)
-	border:SetAtlas("UI-HUD-ActionBar-IconFrame")
-	border:SetPoint("TOPLEFT", icon, "TOPLEFT")
-	border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, 0)
+	framedAuras[aura] = true
+	ns.ApplyActionFrame(aura, aura.Icon, Visuals.db.iconFrameStyle)
+end
+
+local function ResizeAuraFrames()
+	for aura in pairs(framedAuras) do
+		ns.SizeActionFrame(aura, Visuals.db.iconFrameStyle)
+	end
 end
 
 local function FrameBuffs()
@@ -74,9 +64,34 @@ local function FrameBuffs()
 		FrameAuraButton(aura)
 	end
 	-- Edit Mode can change the icon size.
-	hooksecurefunc(BuffFrame, "UpdateSize", function()
-		for aura in pairs(auraMasks) do
-			SizeAuraMask(aura)
+	hooksecurefunc(BuffFrame, "UpdateSize", ResizeAuraFrames)
+end
+
+---------------------------------------------------------------------------
+-- Quest item buttons of the objective tracker get the same frame
+---------------------------------------------------------------------------
+local framedQuestItems = {}
+
+local function FrameQuestItem(button)
+	if framedQuestItems[button] or not button.icon then
+		return
+	end
+	framedQuestItems[button] = true
+	-- Blizzard's round quest item frame is replaced by the action button art.
+	if button.NormalTexture then
+		button.NormalTexture:SetAlpha(0)
+	end
+	local pushed = button:GetPushedTexture()
+	if pushed then
+		pushed:SetAlpha(0)
+	end
+	ns.ApplyActionFrame(button, button.icon, Visuals.db.iconFrameStyle)
+end
+
+local function HookQuestItems()
+	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
+		if QuestObjectiveItemButtonMixin and QuestObjectiveItemButtonMixin.SetUp then
+			hooksecurefunc(QuestObjectiveItemButtonMixin, "SetUp", FrameQuestItem)
 		end
 	end)
 end
@@ -368,6 +383,7 @@ function Visuals:OnLogin()
 	end
 	ApplySquid()
 	FrameBuffs()
+	HookQuestItems()
 	HookActionButtons()
 	RecolorAll()
 	StyleUnitBars()
@@ -377,6 +393,11 @@ end
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
+	elseif key == "iconFrameStyle" then
+		ResizeAuraFrames()
+		for button in pairs(framedQuestItems) do
+			ns.SizeActionFrame(button, self.db.iconFrameStyle)
+		end
 	elseif key == "playerDragon" then
 		ApplyPlayerDragon()
 	elseif key == "unitBars" then
@@ -398,6 +419,10 @@ Visuals.options = {
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
+	{ type = "header", name = L.VISUALS_ICON_FRAME_HEADER, desc = L.VISUALS_ICON_FRAME_HEADER_DESC },
+	{ key = "iconFrameStyle", type = "dropdown", name = L.VISUALS_ICON_FRAME, desc = L.VISUALS_ICON_FRAME_DESC, values = {
+		{ "standalone", L.VISUALS_ICON_FRAME_STANDALONE }, { "bar", L.VISUALS_ICON_FRAME_BAR },
+	} },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },

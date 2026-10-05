@@ -38,6 +38,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Gegnerische Namensplaketten nur im Kampf | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
+| | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
@@ -55,7 +56,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel | ja |
-| | Buff-Symbole oben rechts mit Aktionsleisten-Rahmen und abgerundeten Ecken | – |
+| | Buff-Symbole und Questgegenstände im Questtracker mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |

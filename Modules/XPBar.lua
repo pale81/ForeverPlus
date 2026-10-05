@@ -14,7 +14,7 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
-local QUEST_COLOR = { 0.58 * 0.55, 0, 0.55 * 0.55, 0.9 }
+local QUEST_DARKEN = 0.5
 local SCAN_DELAY = 0.3
 
 local expBars = {}
@@ -73,7 +73,6 @@ local function UpdateOverlay(bar)
 	if not overlay then
 		-- Above the bar background, below the fill (the fill is in the BORDER layer).
 		overlay = bar.StatusBar:CreateTexture(nil, "BACKGROUND", nil, 2)
-		overlay:SetColorTexture(1, 1, 1)
 		overlay:SetPoint("TOPLEFT", bar.StatusBar, "TOPLEFT")
 		overlay:SetPoint("BOTTOMLEFT", bar.StatusBar, "BOTTOMLEFT")
 		overlays[bar] = overlay
@@ -84,7 +83,22 @@ local function UpdateOverlay(bar)
 		return
 	end
 	local fraction = min(current + questXP, maximum) / maximum
-	overlay:SetVertexColor(unpack(QUEST_COLOR))
+	-- Same texture as the fill (purple normally, blue while rested), darker.
+	local fill = bar.StatusBar:GetStatusBarTexture()
+	local atlas = fill and fill:GetAtlas()
+	if atlas then
+		overlay:SetAtlas(atlas)
+	elseif fill and fill:GetTexture() then
+		overlay:SetTexture(fill:GetTexture())
+	else
+		overlay:SetColorTexture(1, 1, 1)
+	end
+	local r, g, b = bar.StatusBar:GetStatusBarColor()
+	local vr, vg, vb = 1, 1, 1
+	if fill then
+		vr, vg, vb = fill:GetVertexColor()
+	end
+	overlay:SetVertexColor((r or 1) * vr * QUEST_DARKEN, (g or 1) * vg * QUEST_DARKEN, (b or 1) * vb * QUEST_DARKEN, 1)
 	overlay:SetWidth(max(1, bar.StatusBar:GetWidth() * fraction))
 	overlay:Show()
 end
@@ -125,6 +139,9 @@ local function HookBars()
 			expBars[bar] = true
 			hooksecurefunc(bar, "UpdateCurrentText", UpdateText)
 			hooksecurefunc(bar, "Update", UpdateOverlay)
+			if bar.UpdateStatusBarTextures then
+				hooksecurefunc(bar, "UpdateStatusBarTextures", UpdateOverlay)
+			end
 		end
 		local repBar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Reputation]
 		if repBar and not repBars[repBar] then

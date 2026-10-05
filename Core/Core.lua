@@ -98,6 +98,10 @@ local eventFrame = CreateFrame("Frame")
 local listeners = {}
 
 function ns:RegisterEvent(event, owner, fn)
+	-- Events that this client does not know are skipped instead of erroring.
+	if C_EventUtils and C_EventUtils.IsEventValid and not C_EventUtils.IsEventValid(event) then
+		return
+	end
 	local set = listeners[event]
 	if not set then
 		set = {}

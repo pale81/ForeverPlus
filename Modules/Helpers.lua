@@ -444,7 +444,7 @@ function Helpers:OnLogin()
 			UpdateOpenButton()
 		end
 	end)
-	for _, event in ipairs({ "NEW_RECIPE_LEARNED", "LEARNED_SPELL_IN_TAB", "SKILL_LINES_CHANGED" }) do
+	for _, event in ipairs({ "NEW_RECIPE_LEARNED", "LEARNED_SPELL_IN_SKILL_LINE", "SKILL_LINES_CHANGED" }) do
 		self:RegisterEvent(event, self.ClearKnownCache)
 	end
 	local frames = { ContainerFrameCombinedBags }

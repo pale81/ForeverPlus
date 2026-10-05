@@ -207,11 +207,12 @@ local function CreateButton()
 	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
 	local glow = b:CreateTexture(nil, "OVERLAY", nil, 7)
-	glow:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+	-- Round glow matching the circular day/night indicator.
+	glow:SetAtlas("GarrLanding-CircleGlow")
 	glow:SetBlendMode("ADD")
 	glow:SetVertexColor(1, 0.25, 0.15)
-	glow:SetPoint("CENTER")
-	glow:SetSize(b:GetWidth() * 1.9, b:GetHeight() * 1.9)
+	glow:SetPoint("TOPLEFT", b, "TOPLEFT", -8, 8)
+	glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 8, -8)
 	glow:Hide()
 	b.Glow = glow
 

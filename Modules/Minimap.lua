@@ -51,7 +51,8 @@ function MinimapCoords:OnLogin()
 	text = holder:CreateFontString(nil, "OVERLAY")
 	text:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")
 	text:SetPoint("TOP", Minimap, "TOP", 0, -14)
-	local color = C_ClassColor.GetClassColor(select(2, UnitClass("player")))
+	local _, classFile = UnitClass("player")
+	local color = C_ClassColor.GetClassColor(classFile)
 	if color then
 		text:SetTextColor(color:GetRGB())
 	end

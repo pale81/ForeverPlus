@@ -107,44 +107,63 @@ local borderFrames = {}
 
 local BORDER_PIXELS = 2
 
--- Crisp solid frame in quality colour along the tooltip edge.
+-- Crisp solid frame in quality colour along the tooltip edge. The corners are
+-- cut by one pixel step so they look slightly rounded.
 local function GetBorderFrame(tooltip)
 	local frame = borderFrames[tooltip]
 	if not frame then
 		frame = CreateFrame("Frame", nil, tooltip)
 		frame:SetAllPoints(tooltip.NineSlice)
 		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
-		frame.lines = {}
-		for i = 1, 4 do
-			local line = frame:CreateTexture(nil, "OVERLAY")
-			line:SetColorTexture(1, 1, 1)
-			frame.lines[i] = line
+		frame.parts = {}
+		for i = 1, 8 do
+			local part = frame:CreateTexture(nil, "OVERLAY")
+			part:SetColorTexture(1, 1, 1)
+			frame.parts[i] = part
 		end
-		local top, bottom, left, right = unpack(frame.lines)
-		top:SetPoint("TOPLEFT")
-		top:SetPoint("TOPRIGHT")
-		bottom:SetPoint("BOTTOMLEFT")
-		bottom:SetPoint("BOTTOMRIGHT")
-		left:SetPoint("TOPLEFT")
-		left:SetPoint("BOTTOMLEFT")
-		right:SetPoint("TOPRIGHT")
-		right:SetPoint("BOTTOMRIGHT")
 		borderFrames[tooltip] = frame
 	end
 	return frame
+end
+
+local function LayoutBorder(frame, size)
+	local top, bottom, left, right, tl, tr, bl, br = unpack(frame.parts)
+	local half = size / 2
+	for _, part in ipairs(frame.parts) do
+		part:ClearAllPoints()
+	end
+	top:SetPoint("TOPLEFT", size, 0)
+	top:SetPoint("TOPRIGHT", -size, 0)
+	top:SetHeight(size)
+	bottom:SetPoint("BOTTOMLEFT", size, 0)
+	bottom:SetPoint("BOTTOMRIGHT", -size, 0)
+	bottom:SetHeight(size)
+	left:SetPoint("TOPLEFT", 0, -size)
+	left:SetPoint("BOTTOMLEFT", 0, size)
+	left:SetWidth(size)
+	right:SetPoint("TOPRIGHT", 0, -size)
+	right:SetPoint("BOTTOMRIGHT", 0, size)
+	right:SetWidth(size)
+	-- Corner pieces moved half a line inwards close the gap diagonally.
+	tl:SetPoint("TOPLEFT", half, -half)
+	tr:SetPoint("TOPRIGHT", -half, -half)
+	bl:SetPoint("BOTTOMLEFT", half, half)
+	br:SetPoint("BOTTOMRIGHT", -half, half)
+	for i = 5, 8 do
+		frame.parts[i]:SetSize(size, size)
+	end
 end
 
 local function ShowBorderFrame(tooltip, r, g, b)
 	local frame = GetBorderFrame(tooltip)
 	-- Exactly BORDER_PIXELS screen pixels at any UI or tooltip scale.
 	local size = PixelUtil.GetNearestPixelSize(BORDER_PIXELS, frame:GetEffectiveScale(), BORDER_PIXELS)
-	local top, bottom, left, right = unpack(frame.lines)
-	top:SetHeight(size)
-	bottom:SetHeight(size)
-	left:SetWidth(size)
-	right:SetWidth(size)
-	for _, line in ipairs(frame.lines) do
-		line:SetVertexColor(r, g, b, 1)
+	if frame.size ~= size then
+		frame.size = size
+		LayoutBorder(frame, size)
+	end
+	for _, part in ipairs(frame.parts) do
+		part:SetVertexColor(r, g, b, 1)
 	end
 	frame:Show()
 end
@@ -171,7 +190,10 @@ local function ColorBorder(tooltip, data)
 	local quality = C_Item.GetItemQualityByID(data.hyperlink or data.id)
 	if quality then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
-		nineSlice:SetBorderColor(r, g, b, 1)
+		-- Blizzard's rounded border takes the background colour so its
+		-- corners do not show inside the quality frame.
+		local bgR, bgG, bgB = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
+		nineSlice:SetBorderColor(bgR, bgG, bgB, 1)
 		ShowBorderFrame(tooltip, r, g, b)
 	end
 end

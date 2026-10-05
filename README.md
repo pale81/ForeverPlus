@@ -18,11 +18,11 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Stückpreis bei Stapeln | ja |
-| | Scharfer Rahmen (2 Pixel) in Qualitätsfarbe bei Gegenständen | – |
+| | Scharfer Rahmen (2 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | – |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck | – |
 | Weltkarte | Blizzard-Koordinaten etwas höher, mit der Maus verschiebbar (Position gespeichert) | – |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
-| | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`) | ja |
+| | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`) | ja |
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern | ja |
@@ -31,7 +31,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste nur bei Mouseover (einzeln wählbar) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
-| | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Shift-Klick lädt das Interface neu | ja |
+| | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
@@ -39,14 +39,14 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
-| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
+| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | oGlow: dickes Leuchten in Qualitätsfarbe ab „Ungewöhnlich“ | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Buff-Symbole oben rechts mit Aktionsleisten-Rahmen und abgerundeten Ecken | – |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
-| Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe | ja |
+| Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
@@ -67,7 +67,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
 - Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
 - Schrift: Namen über Köpfen und Kampftext nutzen vom Client beim Start gelesene globale Schriftpfade; diese zu ändern würde Taint riskieren, daher nicht enthalten.
-- Auktionshaus: keine zusätzlichen Suchfilter. Kaufen und Einstellen (`PlaceBid`, `PostItem`, …) sind für Addons gesperrt, sobald der Blizzard-Code „getaintet“ ist; eigene Filter in Blizzards Suche würden Kaufen/Einstellen blockieren. Die Warnung liest nur Daten und fügt eigene Symbole hinzu.
+- Auktionshaus: keine zusätzlichen Kategorien/Filter. Kaufen und Einstellen (`PlaceBid`, `PostItem`, …) sind eingeschränkte Funktionen; ob Änderungen an Blizzards Suchlogik sie blockieren, ist ohne Test im Spiel nicht verifizierbar. Die Warnung liest nur Daten und fügt eigene Symbole hinzu.
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 

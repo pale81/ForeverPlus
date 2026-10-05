@@ -258,14 +258,21 @@ function Errors:ShowMenu(owner)
 		end
 		root:CreateDivider()
 		root:CreateButton(L.ERRORS_CLEAR, function()
-			wipe(entries)
-			wipe(luaIndex)
-			MarkSeen()
-			if window then
-				window:Hide()
-			end
+			Errors:ClearAll()
 		end)
 	end)
+end
+
+function Errors:ClearAll()
+	wipe(entries)
+	wipe(luaIndex)
+	MarkSeen()
+	if window then
+		window:Hide()
+	end
+	if GameTooltip:GetOwner() == button then
+		button:GetScript("OnEnter")(button)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -302,17 +309,20 @@ local function CreateButton()
 	fade:SetDuration(0.8)
 	b.Pulse = pulse
 
-	b:SetScript("OnClick", function(self)
+	b:SetScript("OnClick", function(self, mouseButton)
 		if IsShiftKeyDown() then
 			ReloadUI()
-			return
+		elseif mouseButton == "RightButton" then
+			Errors:ClearAll()
+		else
+			Errors:ShowMenu(self)
 		end
-		Errors:ShowMenu(self)
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip_SetTitle(GameTooltip, L.ERRORS_TITLE)
 		GameTooltip_AddNormalLine(GameTooltip, L.ERRORS_COUNT:format(#entries))
+		GameTooltip_AddInstructionLine(GameTooltip, L.ERRORS_CLEAR_HINT)
 		GameTooltip_AddInstructionLine(GameTooltip, L.ERRORS_RELOAD_HINT)
 		GameTooltip:Show()
 	end)

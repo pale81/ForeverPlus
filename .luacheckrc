@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"TOOLTIP_DEFAULT_BACKGROUND_COLOR",
 	"RequestTimePlayed",
 	"GetNetStats",
 	"GetFramerate",

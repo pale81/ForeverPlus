@@ -14,6 +14,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorUnusable = true,
 		unitBars = true,
 		playerDragon = "none",
+		dragonScale = 100,
 		iconFrameStyle = "standalone",
 	},
 })
@@ -29,7 +30,13 @@ local function UpdateGlow(button, quality)
 	end
 	local border = borders[button]
 	if quality and quality >= Enum.ItemQuality.Uncommon then
-		border = border or ns.CreatePixelBorder(button, button, 2, "OVERLAY", 7)
+		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
+		local icon = button.Icon or button.icon
+		local anchor = button
+		if icon and icon.GetWidth and icon:GetWidth() > 0 and button:GetWidth() > icon:GetWidth() * 1.5 then
+			anchor = icon
+		end
+		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
 		borders[button] = border
 		border:ShowColor(C_Item.GetItemQualityColor(quality))
 	elseif border then
@@ -88,7 +95,21 @@ local function FrameQuestItem(button)
 	ns.ApplyActionFrame(button, button.icon, Visuals.db.iconFrameStyle)
 end
 
+-- Item icons of quest rewards and quest log rewards.
+local function FrameQuestRewards()
+	local rewardsFrame = QuestInfoFrame and QuestInfoFrame.rewardsFrame
+	for _, button in ipairs(rewardsFrame and rewardsFrame.RewardButtons or {}) do
+		if button.Icon and not framedQuestItems[button] then
+			framedQuestItems[button] = true
+			ns.ApplyActionFrame(button, button.Icon, Visuals.db.iconFrameStyle)
+		end
+	end
+end
+
 local function HookQuestItems()
+	if QuestInfo_Display then
+		hooksecurefunc("QuestInfo_Display", FrameQuestRewards)
+	end
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		if QuestObjectiveItemButtonMixin and QuestObjectiveItemButtonMixin.SetUp then
 			hooksecurefunc(QuestObjectiveItemButtonMixin, "SetUp", FrameQuestItem)
@@ -335,6 +356,7 @@ local DRAGONS = {
 	bronzeWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", 11, -4, true, BRONZE },
 }
 local dragon
+local TARGET_PORTRAIT, TARGET_PORTRAIT_RIGHT, TARGET_PORTRAIT_TOP = 58, 26, 19
 
 local function ApplyPlayerDragon()
 	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
@@ -348,15 +370,25 @@ local function ApplyPlayerDragon()
 		end
 		return
 	end
+	local portrait = container.PlayerPortrait
 	dragon = dragon or container:CreateTexture(nil, "ARTWORK", nil, 2)
 	dragon:SetAtlas(data[1], true)
+	-- Same distance to the portrait as on the target frame (portrait 58 px,
+	-- 26 px from the right, 19 px from the top), scaled to the player portrait.
+	local scale = (portrait and portrait:GetWidth() > 0 and portrait:GetWidth() / TARGET_PORTRAIT or 1) * Visuals.db.dragonScale / 100
+	local width, height = dragon:GetSize()
+	dragon:SetSize(width * scale, height * scale)
 	-- The target art faces right; mirror its atlas region for the portrait on the left.
 	local info = C_Texture.GetAtlasInfo(data[1])
 	if info then
 		dragon:SetTexCoord(info.rightTexCoord, info.leftTexCoord, info.topTexCoord, info.bottomTexCoord)
 	end
 	dragon:ClearAllPoints()
-	dragon:SetPoint("TOPLEFT", container, "TOPLEFT", -data[2], data[3])
+	if portrait then
+		dragon:SetPoint("TOPLEFT", portrait, "TOPLEFT", -(TARGET_PORTRAIT_RIGHT + data[2]) * scale, (TARGET_PORTRAIT_TOP + data[3]) * scale)
+	else
+		dragon:SetPoint("TOPLEFT", container, "TOPLEFT", -data[2], data[3])
+	end
 	dragon:SetDesaturated(data[4] and true or false)
 	local tint = data[5]
 	if tint then
@@ -398,7 +430,7 @@ function Visuals:OnOptionChanged(key)
 		for button in pairs(framedQuestItems) do
 			ns.SizeActionFrame(button, self.db.iconFrameStyle)
 		end
-	elseif key == "playerDragon" then
+	elseif key == "playerDragon" or key == "dragonScale" then
 		ApplyPlayerDragon()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
@@ -429,6 +461,9 @@ Visuals.options = {
 		{ "silver", L.VISUALS_DRAGON_SILVER }, { "silverWinged", L.VISUALS_DRAGON_SILVER_WINGED },
 		{ "bronze", L.VISUALS_DRAGON_BRONZE }, { "bronzeWinged", L.VISUALS_DRAGON_BRONZE_WINGED },
 	} },
+	{ key = "dragonScale", type = "slider", name = L.VISUALS_DRAGON_SCALE, min = 80, max = 130, step = 1, format = function(value)
+		return ("%d %%"):format(value)
+	end },
 	{ type = "header", name = L.VISUALS_BARS_HEADER },
 	{ key = "unitBars", type = "toggle", name = L.VISUALS_UNIT_BARS, desc = L.VISUALS_UNIT_BARS_DESC },
 }

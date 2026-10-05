@@ -601,10 +601,10 @@ local function GetRewardMark(button)
 		glow:SetVertexColor(1, 0.82, 0)
 		glow:SetPoint("CENTER")
 		glow:SetSize(button:GetHeight() * 1.9, button:GetHeight() * 1.9)
+		-- Same coin as the junk mark in the bags.
 		local coin = mark:CreateTexture(nil, "OVERLAY", nil, 2)
-		coin:SetAtlas("coin-gold")
-		coin:SetSize(16, 16)
-		coin:SetPoint("TOPLEFT", -4, 4)
+		coin:SetAtlas("bags-junkcoin", true)
+		coin:SetPoint("TOPLEFT", 1, 0)
 		rewardMarks[button] = mark
 	end
 	return mark

@@ -154,7 +154,8 @@ end
 -- (standalone "AddRow" variant), both anchored at the icon's top left.
 local FRAME_STYLES = {
 	bar = { atlas = "UI-HUD-ActionBar-IconFrame", width = 46 / 45, height = 1 },
-	standalone = { atlas = "UI-HUD-ActionBar-IconFrame-AddRow", width = 51 / 45, height = 51 / 45, centered = true },
+	-- Blizzard anchors this art at the top left too; its shadow lies bottom right.
+	standalone = { atlas = "UI-HUD-ActionBar-IconFrame-AddRow", width = 51 / 45, height = 51 / 45 },
 }
 local MASK_ATLAS = "UI-HUD-ActionBar-IconFrame-Mask"
 local maskRatio

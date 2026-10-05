@@ -7,7 +7,7 @@ local XPBar = ns:NewModule("XPBar", {
 	title = L.XP_TITLE,
 	order = 9.2,
 	defaults = {
-		alwaysText = false,
+		textMode = "mouseover",
 		format = "full",
 		repFormat = "full",
 		questXP = true,
@@ -136,9 +136,16 @@ local function HookBars()
 	UpdateBars()
 end
 
+-- Blizzard's own setting: numbers always or only on mouseover. Set at every
+-- login, so an older "always" setting does not stick.
 function XPBar:ApplyTextSetting()
-	if self.db.alwaysText then
-		SetCVar("xpBarText", "1")
+	SetCVar("xpBarText", self.db.textMode == "always" and "1" or "0")
+end
+
+function XPBar:OnInitialize()
+	if self.db.alwaysText ~= nil then
+		self.db.textMode = self.db.alwaysText and "always" or "mouseover"
+		self.db.alwaysText = nil
 	end
 end
 
@@ -151,8 +158,8 @@ function XPBar:OnLogin()
 end
 
 function XPBar:OnOptionChanged(key)
-	if key == "alwaysText" then
-		SetCVar("xpBarText", self.db.alwaysText and "1" or "0")
+	if key == "textMode" then
+		self:ApplyTextSetting()
 	end
 	UpdateBars()
 	for bar in pairs(expBars) do
@@ -164,7 +171,9 @@ function XPBar:OnOptionChanged(key)
 end
 
 XPBar.options = {
-	{ key = "alwaysText", type = "toggle", name = L.XP_ALWAYS_TEXT, desc = L.XP_ALWAYS_TEXT_DESC },
+	{ key = "textMode", type = "dropdown", name = L.XP_TEXT_MODE, desc = L.XP_TEXT_MODE_DESC, values = {
+		{ "mouseover", L.XP_TEXT_MOUSEOVER }, { "always", L.XP_TEXT_ALWAYS },
+	} },
 	{ key = "format", type = "dropdown", name = L.XP_FORMAT, desc = L.XP_FORMAT_DESC, values = {
 		{ "blizzard", L.XP_FORMAT_BLIZZARD }, { "percent", L.XP_FORMAT_PERCENT }, { "both", L.XP_FORMAT_BOTH },
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_FORMAT_FULL },

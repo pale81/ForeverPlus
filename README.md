@@ -18,7 +18,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
-| | Name und Stufe der Einheit unter der Maus neben dem Zeiger (Tooltip-Farbe) | ja |
+| | Name und Stufe der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe) | ja |
 | | Stückpreis bei Stapeln | ja |
 | | Scharfer Rahmen (2 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | – |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschiebbar, Rechtsklick sperrt | ja |
@@ -36,7 +36,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs-/Begleiterleiste nur bei Mouseover (einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
-| | Rote Fehlermeldungen in der Bildschirmmitte ausblenden | ja |
+| | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
@@ -48,10 +48,10 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
-| Erfahrungsleiste | Text immer sichtbar; Format: Prozent, Zahl und Prozent, Rest bis Stufe, alles (inkl. Erholung, Quest-EP); EP abgabebereiter Quests als dunkler Balkenteil | ja |
+| Erfahrung & Ruf | Text immer sichtbar (Standard aus); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests als dunkler Balkenteil | ja |
 | Talente | „Zauber nach Stufe“ (erlernte grau); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
-| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
+| Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |

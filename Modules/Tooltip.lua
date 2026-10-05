@@ -151,7 +151,7 @@ local function ColorBorder(tooltip, data)
 end
 
 ---------------------------------------------------------------------------
--- Name and level of the unit under the mouse, next to the cursor
+-- Name and level of the unit under the mouse, centred above the cursor
 ---------------------------------------------------------------------------
 local hover
 
@@ -167,7 +167,7 @@ local function UpdateHoverPosition(frame)
 	local x, y = GetCursorPosition()
 	local scale = frame:GetEffectiveScale()
 	frame:ClearAllPoints()
-	frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / scale + 16, y / scale - 4)
+	frame:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", x / scale, y / scale + 18)
 end
 
 local function ShowHoverName()
@@ -180,7 +180,7 @@ local function ShowHoverName()
 		hover:SetSize(1, 1)
 		hover.Text = hover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 		hover.Text:SetFont(ns.GetFontFace and ns.GetFontFace() or STANDARD_TEXT_FONT, 13, "OUTLINE")
-		hover.Text:SetPoint("BOTTOMLEFT")
+		hover.Text:SetPoint("BOTTOM")
 		hover:SetScript("OnUpdate", UpdateHoverPosition)
 	end
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")

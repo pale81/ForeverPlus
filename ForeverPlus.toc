@@ -23,7 +23,9 @@ Modules\Chat.lua
 Modules\Tooltip.lua
 Modules\Minimap.lua
 Modules\Items.lua
+Modules\Auction.lua
 Modules\QoL.lua
+Modules\Info.lua
 Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua

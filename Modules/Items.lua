@@ -14,6 +14,7 @@ local Items = ns:NewModule("Items", {
 		upgradeArrow = true,
 		fastLoot = true,
 		messages = true,
+		destroyPrompt = true,
 		junkButton = "MiddleButton",
 		junk = {},
 	},
@@ -626,6 +627,110 @@ function Items:LOOT_READY()
 end
 
 ---------------------------------------------------------------------------
+-- Full bags: offer the cheapest item for destruction. The item is only picked
+-- up; Blizzard's own delete confirmation does the rest (deleting is
+-- restricted for addons).
+---------------------------------------------------------------------------
+local PROMPT_COOLDOWN = 60
+local lastPrompt = 0
+local destroyDialog
+
+local function FindCheapestItem()
+	local best
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info and not info.hasNoValue and not info.isLocked then
+				local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
+				local price = select(11, C_Item.GetItemInfo(info.itemID))
+				if price and price > 0 and not (quest and (quest.isQuestItem or quest.questID)) then
+					local value = price * info.stackCount
+					if not best or value < best.value then
+						best = { bag = bag, slot = slot, value = value, link = info.hyperlink, icon = info.iconFileID, count = info.stackCount }
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function CreateDestroyDialog()
+	local frame = CreateFrame("Frame", "ForeverPlusDestroyDialog", UIParent, "BasicFrameTemplateWithInset")
+	frame:SetSize(360, 150)
+	frame:SetPoint("TOP", UIParent, "TOP", 0, -180)
+	frame:SetFrameStrata("DIALOG")
+	frame:SetToplevel(true)
+	frame:EnableMouse(true)
+	frame.TitleText:SetText(L.ITEMS_BAGS_FULL)
+	tinsert(UISpecialFrames, frame:GetName())
+
+	frame.Icon = frame:CreateTexture(nil, "ARTWORK")
+	frame.Icon:SetSize(36, 36)
+	frame.Icon:SetPoint("TOPLEFT", 18, -36)
+	frame.Item = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	frame.Item:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 10, -2)
+	frame.Item:SetPoint("RIGHT", -16, 0)
+	frame.Item:SetJustifyH("LEFT")
+	frame.Value = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	frame.Value:SetPoint("TOPLEFT", frame.Item, "BOTTOMLEFT", 0, -4)
+	frame.Hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	frame.Hint:SetPoint("TOPLEFT", frame.Icon, "BOTTOMLEFT", 0, -8)
+	frame.Hint:SetPoint("RIGHT", -16, 0)
+	frame.Hint:SetJustifyH("LEFT")
+	frame.Hint:SetText(L.ITEMS_DESTROY_HINT)
+
+	frame.Accept = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	frame.Accept:SetSize(150, 22)
+	frame.Accept:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -4, 12)
+	frame.Accept:SetText(L.ITEMS_DESTROY_PICKUP)
+	frame.Accept:SetScript("OnClick", function()
+		local entry = frame.entry
+		frame:Hide()
+		if entry and not InCombatLockdown() then
+			ClearCursor()
+			C_Container.PickupContainerItem(entry.bag, entry.slot)
+		end
+	end)
+	frame.Cancel = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	frame.Cancel:SetSize(150, 22)
+	frame.Cancel:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
+	frame.Cancel:SetText(CANCEL)
+	frame.Cancel:SetScript("OnClick", function()
+		frame:Hide()
+	end)
+	frame:Hide()
+	return frame
+end
+
+local function OfferDestroy()
+	local now = GetTime()
+	if now - lastPrompt < PROMPT_COOLDOWN or InCombatLockdown() then
+		return
+	end
+	local entry = FindCheapestItem()
+	if not entry then
+		return
+	end
+	lastPrompt = now
+	destroyDialog = destroyDialog or CreateDestroyDialog()
+	destroyDialog.entry = entry
+	destroyDialog.Icon:SetTexture(entry.icon)
+	destroyDialog.Item:SetText(entry.count > 1 and ("%s x%d"):format(entry.link, entry.count) or entry.link)
+	destroyDialog.Value:SetText(L.ITEMS_DESTROY_VALUE:format(GetMoneyString(entry.value, true)))
+	destroyDialog:Show()
+end
+
+function Items:UI_ERROR_MESSAGE(_, _, message)
+	if issecretvalue and issecretvalue(message) then
+		return
+	end
+	if message == ERR_INV_FULL then
+		OfferDestroy()
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Items:Refresh()
@@ -637,6 +742,7 @@ function Items:Refresh()
 		merchantOpen = false
 	end
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
+	self:ToggleEvent("UI_ERROR_MESSAGE", db.destroyPrompt)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
 		wipe(upgradeCache)
 		UpdateAllBags()
@@ -687,6 +793,7 @@ Items.options = {
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
+	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },
 	{ type = "header", name = L.ITEMS_CHAT },
 	{ key = "messages", type = "toggle", name = L.ITEMS_MESSAGES, desc = L.ITEMS_MESSAGES_DESC },
 }

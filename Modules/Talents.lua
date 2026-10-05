@@ -8,7 +8,9 @@ local Talents = ns:NewModule("Talents", {
 	order = 8.5,
 	defaults = {
 		enabled = true,
+		planner = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
+		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 	},
 	charDefaults = {
 		seenSpells = {}, -- learnable spells already shown to the player
@@ -133,6 +135,8 @@ local function TalentsFrame()
 	return PlayerSpellsFrame and PlayerSpellsFrame.TalentsFrame
 end
 
+local ApplyPlan, ClearPlan -- planner, defined below
+
 local function ClassBuilds()
 	local builds = Talents.db.builds
 	builds[playerClass] = builds[playerClass] or {}
@@ -157,6 +161,44 @@ local function ParseBuild(frame, text)
 	return frame:ConvertToImportLoadoutEntryInfo(configID, treeID, content), nil, configID, treeID
 end
 
+-- Buys ranks until every node has its wanted ranks or nothing changes;
+-- prerequisites need several passes. Nodes higher up the tree go first.
+local function PurchaseTowards(configID, wanted, selection)
+	local order = {}
+	for nodeID in pairs(wanted) do
+		local node = C_Traits.GetNodeInfo(configID, nodeID)
+		order[#order + 1] = { nodeID = nodeID, y = node and node.posY or 0, x = node and node.posX or 0 }
+	end
+	table.sort(order, function(a, b)
+		if a.y ~= b.y then
+			return a.y < b.y
+		end
+		return a.x < b.x
+	end)
+	for _ = 1, MAX_APPLY_PASSES do
+		local progress = false
+		for _, entry in ipairs(order) do
+			local nodeID, ranks = entry.nodeID, wanted[entry.nodeID]
+			local node = C_Traits.GetNodeInfo(configID, nodeID)
+			if node and node.ranksPurchased < ranks then
+				if node.type == Enum.TraitNodeType.Selection and selection and selection[nodeID] then
+					if C_Traits.SetSelection(configID, nodeID, selection[nodeID]) then
+						progress = true
+					end
+				else
+					while node.ranksPurchased < ranks and C_Traits.PurchaseRank(configID, nodeID) do
+						progress = true
+						node = C_Traits.GetNodeInfo(configID, nodeID)
+					end
+				end
+			end
+		end
+		if not progress then
+			break
+		end
+	end
+end
+
 -- Stages the build in the talent tree; Blizzard's apply button commits it.
 local function ApplyBuild(build)
 	local frame = TalentsFrame()
@@ -178,28 +220,7 @@ local function ApplyBuild(build)
 		end
 	end
 	C_Traits.ResetTree(configID, treeID)
-	-- Prerequisites need several passes: buy what is possible until nothing changes.
-	for _ = 1, MAX_APPLY_PASSES do
-		local progress = false
-		for nodeID, ranks in pairs(wanted) do
-			local node = C_Traits.GetNodeInfo(configID, nodeID)
-			if node and node.ranksPurchased < ranks then
-				if node.type == Enum.TraitNodeType.Selection and selection[nodeID] then
-					if C_Traits.SetSelection(configID, nodeID, selection[nodeID]) then
-						progress = true
-					end
-				else
-					while node.ranksPurchased < ranks and C_Traits.PurchaseRank(configID, nodeID) do
-						progress = true
-						node = C_Traits.GetNodeInfo(configID, nodeID)
-					end
-				end
-			end
-		end
-		if not progress then
-			break
-		end
-	end
+	PurchaseTowards(configID, wanted, selection)
 	ns.Print(L.TALENTS_APPLIED, build.name)
 end
 
@@ -252,6 +273,12 @@ local function ShowBuildMenu(owner)
 		root:CreateTitle(L.TALENTS_BUILDS)
 		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
 		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
+		if Talents.db.planner then
+			root:CreateDivider()
+			root:CreateTitle(L.TALENTS_PLAN)
+			root:CreateButton(L.TALENTS_PLAN_APPLY, ApplyPlan)
+			root:CreateButton(L.TALENTS_PLAN_CLEAR, ClearPlan)
+		end
 		local builds = ClassBuilds()
 		if #builds > 0 then
 			root:CreateDivider()
@@ -269,6 +296,154 @@ local function ShowBuildMenu(owner)
 			end)
 		end
 	end)
+end
+
+---------------------------------------------------------------------------
+-- Planner: right-click plans a rank (blue), Shift + right-click removes it.
+-- Plans go up to the points of level 60 and are bought with "apply plan".
+---------------------------------------------------------------------------
+local PLAN_COLOR = CreateColor(0.3, 0.65, 1)
+local FIRST_TALENT_LEVEL, PLAN_MAX_LEVEL = 10, 60
+local PLAN_POINTS = PLAN_MAX_LEVEL - FIRST_TALENT_LEVEL + 1
+local planCounter
+
+local function CurrentPlan()
+	local key = ("%s:%s"):format(playerClass, PlayerUtil.GetCurrentSpecID() or 0)
+	local plans = Talents.db.plans
+	plans[key] = plans[key] or {}
+	return plans[key]
+end
+
+local function PlannedPoints(plan)
+	local total = 0
+	for _, ranks in pairs(plan) do
+		total = total + ranks
+	end
+	return total
+end
+
+local function PlanOverlay(button)
+	local overlay = button.fpPlan
+	if not overlay then
+		overlay = {}
+		overlay.Tint = button:CreateTexture(nil, "OVERLAY", nil, 6)
+		overlay.Tint:SetAllPoints(button.Icon or button)
+		overlay.Tint:SetColorTexture(PLAN_COLOR.r, PLAN_COLOR.g, PLAN_COLOR.b, 0.4)
+		overlay.Tint:SetBlendMode("ADD")
+		overlay.Text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+		if button.SpendText then
+			overlay.Text:SetPoint("CENTER", button.SpendText, "CENTER")
+		else
+			overlay.Text:SetPoint("BOTTOMRIGHT", -2, 2)
+		end
+		overlay.Text:SetTextColor(PLAN_COLOR:GetRGB())
+		button.fpPlan = overlay
+	end
+	return overlay
+end
+
+local function UpdatePlan()
+	local frame = TalentsFrame()
+	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
+		return
+	end
+	local configID = frame:GetConfigID()
+	local plan = CurrentPlan()
+	local enabled = Talents.db.enabled and Talents.db.planner
+	for button in frame:EnumerateAllTalentButtons() do
+		local nodeID = button.GetNodeID and button:GetNodeID()
+		local planned = enabled and nodeID and plan[nodeID]
+		if planned or button.fpPlan then
+			local overlay = PlanOverlay(button)
+			local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
+			if node then
+				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
+				overlay.Text:Show()
+				overlay.Tint:SetShown(planned > node.ranksPurchased)
+				if button.SpendText then
+					button.SpendText:SetAlpha(0)
+				end
+			else
+				overlay.Text:Hide()
+				overlay.Tint:Hide()
+				if button.SpendText then
+					button.SpendText:SetAlpha(1)
+				end
+			end
+		end
+	end
+	if planCounter then
+		local points = PlannedPoints(plan)
+		planCounter:SetShown(enabled and points > 0)
+		planCounter:SetText(L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + max(points, 1)))
+	end
+end
+
+local updatePending = false
+local function QueuePlanUpdate()
+	if not updatePending then
+		updatePending = true
+		C_Timer.After(0, function()
+			updatePending = false
+			UpdatePlan()
+		end)
+	end
+end
+
+local function OnTalentClick(_, button, mouseButton)
+	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
+		return
+	end
+	local frame = TalentsFrame()
+	local nodeID = button.GetNodeID and button:GetNodeID()
+	local configID = frame and frame:GetConfigID()
+	local node = nodeID and configID and C_Traits.GetNodeInfo(configID, nodeID)
+	if not node or not node.maxRanks or node.maxRanks == 0 then
+		return
+	end
+	local plan = CurrentPlan()
+	local planned = plan[nodeID] or 0
+	if IsShiftKeyDown() then
+		planned = planned - 1
+	elseif button.CanRefundRank and button:CanRefundRank() then
+		return -- Blizzard refunds a staged rank with this click
+	elseif planned < node.maxRanks and PlannedPoints(plan) < PLAN_POINTS then
+		planned = planned + 1
+	end
+	plan[nodeID] = planned > 0 and planned or nil
+	QueuePlanUpdate()
+end
+
+function ApplyPlan()
+	local frame = TalentsFrame()
+	local configID = frame and frame:GetConfigID()
+	if InCombatLockdown() or not configID then
+		ns.Print(L.TALENTS_ERROR_FRAME)
+		return
+	end
+	PurchaseTowards(configID, CurrentPlan())
+	QueuePlanUpdate()
+end
+
+function ClearPlan()
+	wipe(CurrentPlan())
+	QueuePlanUpdate()
+end
+
+local function SetupPlanner(frame)
+	planCounter = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	local anchor = frame.ClassCurrencyDisplay or frame
+	planCounter:SetPoint("TOP", anchor, "BOTTOM", 0, -2)
+	planCounter:SetTextColor(PLAN_COLOR:GetRGB())
+	planCounter:Hide()
+	EventRegistry:RegisterCallback("TalentButton.OnClick", OnTalentClick, Talents)
+	frame:HookScript("OnShow", QueuePlanUpdate)
+	if frame.SetTab then
+		hooksecurefunc(frame, "SetTab", QueuePlanUpdate)
+	end
+	for _, event in ipairs({ "TRAIT_CONFIG_UPDATED", "TRAIT_NODE_CHANGED", "TRAIT_TREE_CURRENCY_INFO_UPDATED" }) do
+		Talents:RegisterEvent(event, QueuePlanUpdate)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -328,6 +503,9 @@ function Talents:OnLogin()
 			CreateButtons()
 			self:Update()
 			PlayerSpellsFrame:HookScript("OnShow", UpdateSpellsGlow)
+			if TalentsFrame() then
+				SetupPlanner(TalentsFrame())
+			end
 		end
 	end)
 	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
@@ -336,8 +514,10 @@ end
 
 function Talents:OnOptionChanged()
 	self:Update()
+	QueuePlanUpdate()
 end
 
 Talents.options = {
 	{ key = "enabled", type = "toggle", name = L.TALENTS_ENABLE, desc = L.TALENTS_ENABLE_DESC },
+	{ key = "planner", type = "toggle", name = L.TALENTS_PLANNER, desc = L.TALENTS_PLANNER_DESC },
 }

@@ -29,6 +29,7 @@ Modules\Helpers.lua
 Modules\QoL.lua
 Modules\Info.lua
 Modules\Quests.lua
+Modules\Flight.lua
 Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua

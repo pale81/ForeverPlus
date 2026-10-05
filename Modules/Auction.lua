@@ -9,6 +9,7 @@ local Auction = ns:NewModule("Auction", {
 	order = 4.5,
 	defaults = {
 		vendorWarning = true,
+		duration24 = true,
 	},
 })
 
@@ -106,9 +107,29 @@ local function HookSellFrames()
 end
 
 ---------------------------------------------------------------------------
+-- Duration: Blizzard's sell frames start each session with the duration
+-- stored in a CVar and keep the last choice afterwards. Only the CVar is set,
+-- the frames themselves stay untouched.
+---------------------------------------------------------------------------
+local DURATION_CVAR = "auctionHouseDurationDropdown"
+
+function Auction:ApplyDuration()
+	if not self.db.duration24 then
+		return
+	end
+	for index, text in ipairs({ AUCTION_DURATION_ONE, AUCTION_DURATION_TWO, AUCTION_DURATION_THREE }) do
+		if type(text) == "string" and text:find("24", 1, true) then
+			SetCVar(DURATION_CVAR, index)
+			return
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
+	self:ApplyDuration()
 	ns.OnAddOnLoaded("Blizzard_AuctionHouseUI", function()
 		-- Cells are created from these mixins after the addon loaded.
 		local hooks = {
@@ -128,6 +149,13 @@ function Auction:OnLogin()
 	end)
 end
 
+function Auction:OnOptionChanged(key)
+	if key == "duration24" then
+		self:ApplyDuration()
+	end
+end
+
 Auction.options = {
 	{ key = "vendorWarning", type = "toggle", name = L.AUCTION_VENDOR_WARNING, desc = L.AUCTION_VENDOR_WARNING_DESC },
+	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 }

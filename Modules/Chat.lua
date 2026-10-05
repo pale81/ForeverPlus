@@ -10,7 +10,6 @@ local Chat = ns:NewModule("Chat", {
 		transparent = true,
 		languageBubble = true,
 		keywordAlert = false,
-		keywords = "",
 		keywordSound = "RAID_WARNING",
 	},
 	charDefaults = {
@@ -183,9 +182,23 @@ local function PlayKeywordSound()
 	end
 end
 
+-- Keywords are kept per character and start with its name and class.
+local function Keywords()
+	local cdb = Chat.cdb
+	if cdb.keywords == nil then
+		local list = { playerName, (UnitClass("player")) }
+		local old = Chat.db.keywords -- former account wide list
+		if old and old ~= "" then
+			list[#list + 1] = old
+		end
+		cdb.keywords = table.concat(list, ", ")
+	end
+	return cdb.keywords
+end
+
 local function ParseKeywords()
 	wipe(keywordList)
-	for word in (Chat.db.keywords or ""):gmatch("[^,;]+") do
+	for word in Keywords():gmatch("[^,;]+") do
 		word = strtrim(word):lower()
 		if word ~= "" then
 			keywordList[#keywordList + 1] = word
@@ -222,8 +235,8 @@ function Chat:UpdateKeywordAlert()
 end
 
 function Chat:EditKeywords()
-	ns.ShowEditWindow("Keywords", L.CHAT_KEYWORDS, self.db.keywords, SAVE, function(text)
-		self.db.keywords = text
+	ns.ShowEditWindow("Keywords", L.CHAT_KEYWORDS, Keywords(), SAVE, function(text)
+		self.cdb.keywords = text
 		self:UpdateKeywordAlert()
 	end, L.CHAT_KEYWORDS_HINT)
 end

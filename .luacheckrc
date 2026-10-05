@@ -17,10 +17,13 @@ globals = {
 	"BINDING_NAME_FOREVERPLUS_TOGGLEJUNK",
 	"SLASH_FOREVERPLUS1",
 	"SLASH_FOREVERPLUS2",
+	"SLASH_FOREVERPLUSRL1",
 	"SlashCmdList",
 }
 
 read_globals = {
+	"GetNumQuestLeaderBoards", "AUCTION_DURATION_ONE", "AUCTION_DURATION_TWO", "AUCTION_DURATION_THREE",
+	"strcmputf8i", "GetZoneText", "CopyTable", "DoesAncestryInclude",
 	"IsResting",
 	"QuestObjectiveItemButtonMixin",
 	"GetXPExhaustion",

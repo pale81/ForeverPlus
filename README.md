@@ -3,7 +3,9 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
-Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`. Auf der Hauptseite: „Alle Positionen sperren“.
+Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“.
+
+Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient: **Alt + Ziehen** verschiebt, **Strg + Mausrad** skaliert, **Alt + Rechtsklick** sperrt/entsperrt einzeln.
 `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars.
 
 ## Funktionen
@@ -21,20 +23,21 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Name und Stufe der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe) | ja |
 | | Stückpreis bei Stapeln | ja |
 | | Scharfer Rahmen (2 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | – |
-| Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschiebbar, Rechtsklick sperrt | ja |
-| Weltkarte | Blizzard-Koordinaten etwas höher, mit der Maus verschiebbar (Position gespeichert), Rechtsklick sperrt | ja |
+| Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
+| Weltkarte | Blizzard-Koordinaten etwas höher, verschieb- und sperrbar (Position relativ zur Karte gespeichert) | – |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`) | ja |
 | | Wertvollste Questbelohnung mit Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern | ja |
-| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern im Chat | ja |
-| | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle ForeverPlus-Meldungen stumm | ja |
+| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern im Chat; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
+| | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
-| Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs-/Begleiterleiste nur bei Mouseover (einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
+| | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
+| Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste nur bei Mouseover (jede Leiste einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
@@ -44,11 +47,11 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
-| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschiebbar, Rechtsklick sperrt | ja |
+| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschieb- und sperrbar | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
-| Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
+| Quests | Klang bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
-| Erfahrung & Ruf | Text immer sichtbar (Standard aus); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests als dunkler Balkenteil | ja |
+| Erfahrung & Ruf | Text immer sichtbar (Standard aus); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
 | Talente | „Zauber nach Stufe“ (erlernte grau); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format) | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
@@ -62,7 +65,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
-| Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
+| Fenster | Alt + Ziehen verschiebt jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt; Position/Größe je Element gespeichert | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler) | ja |
 
 ## Technik / CPU
@@ -84,7 +87,8 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Sprachwahl im Chat: kein eigener Ein-Klick-Umschalter. Ein von einem Addon gesetzter Sprachwert würde jede gesendete Chatnachricht „tainten“ (`SendChatMessage` ist eingeschränkt); deshalb wird Blizzards eigener Menü-Knopf versetzt.
 - Talentbuilds: Planen geht mit Blizzards Talentbaum (Talente anklicken, nicht übernehmen) bis zur Zahl der vorhandenen Punkte; ein eigener Planer für spätere Stufen ist nicht enthalten. „Übernehmen“ merkt den Build im Baum vor, bestätigt wird mit Blizzards Knopf.
-- Peon-Klang: Dateipfad aus dem Classic-Client; fehlt die Datei, ertönt Blizzards Quest-Klang.
+- Peon-Klänge: Datei-IDs 558132 (`peonbuildingcomplete1.ogg`) und 558137 (`peonready1.ogg`) laut Community-Listfile; ob der Forever-Client sie enthält, ist ungeprüft. Fehlt eine Datei, ertönt ein Blizzard-Klang.
+- Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 ## Danksagungen / Lizenzen

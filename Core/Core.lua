@@ -81,6 +81,16 @@ function ns.OnAddOnLoaded(name, fn)
 	EventUtil.ContinueOnAddOnLoaded(name, fn)
 end
 
+-- Quest with objectives that are all fulfilled. The API also reports quests
+-- without objectives (breadcrumbs, "talk to …") as complete; they are not.
+function ns.IsQuestReady(questID, logIndex)
+	if not (C_QuestLog.ReadyForTurnIn or C_QuestLog.IsComplete)(questID) or C_QuestLog.IsFailed(questID) then
+		return false
+	end
+	logIndex = logIndex or C_QuestLog.GetLogIndexForQuestID(questID)
+	return logIndex and GetNumQuestLeaderBoards(logIndex) > 0 or false
+end
+
 ---------------------------------------------------------------------------
 -- Event dispatcher: one frame, events only registered while someone listens.
 ---------------------------------------------------------------------------
@@ -238,6 +248,10 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:OpenSettings()
 	end
 end
+
+-- Short reload command.
+SLASH_FOREVERPLUSRL1 = "/rl"
+SlashCmdList.FOREVERPLUSRL = ReloadUI
 
 function ForeverPlus_OnAddonCompartmentClick()
 	ns:OpenSettings()

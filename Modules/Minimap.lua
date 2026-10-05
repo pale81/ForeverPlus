@@ -6,11 +6,6 @@ local L = ns.L
 local MinimapCoords = ns:NewModule("Minimap", {
 	title = L.MINIMAP_TITLE,
 	order = 3,
-	defaults = {
-		lockCoords = false,
-		lockWorldMap = false,
-		lockMessage = true,
-	},
 })
 
 local UPDATE_INTERVAL = 0.2
@@ -51,7 +46,6 @@ end
 ---------------------------------------------------------------------------
 -- World map: Blizzard's coordinate panel a bit higher and movable by mouse
 ---------------------------------------------------------------------------
-local WORLDMAP_KEY = "WorldMapCoords"
 local WORLDMAP_RAISE = 24 -- default lift above Blizzard's position
 
 local function FindCoordsPanel()
@@ -68,54 +62,30 @@ local function SetupWorldMapCoords()
 		return
 	end
 	local container = WorldMapFrame:GetCanvasContainer()
-	local raisedY
+	local raisedY, entry
+	local original = { panel:GetPoint(1) }
 
 	-- Runs after Blizzard placed the panel next to its neighbours.
 	local function Apply()
-		local saved = ns.db.frames[WORLDMAP_KEY]
-		if saved then
+		if ns:HasSavedPosition(entry) then
+			ns:ApplyDisplay(entry)
+			return
+		end
+		-- Lift only Blizzard's own placement, never our previous one.
+		local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
+		if point and y ~= raisedY then
+			raisedY = y + WORLDMAP_RAISE
 			panel:ClearAllPoints()
-			panel:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", saved.x, saved.y)
-		else
-			-- Lift only Blizzard's own placement, never our previous one.
-			local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
-			if point and y ~= raisedY then
-				raisedY = y + WORLDMAP_RAISE
-				panel:ClearAllPoints()
-				panel:SetPoint(point, relativeTo, relativePoint, x, raisedY)
-			end
+			panel:SetPoint(point, relativeTo, relativePoint, x, raisedY)
 		end
 	end
+	entry = ns:RegisterDisplay(panel, "WorldMapCoords", function(frame)
+		if original[1] then
+			frame:SetPoint(unpack(original))
+		end
+		frame:PostRefresh()
+	end, container)
 	hooksecurefunc(panel, "PostRefresh", Apply)
-
-	panel:SetMovable(true)
-	panel:SetClampedToScreen(true)
-	panel:EnableMouse(true)
-	panel:RegisterForDrag("LeftButton")
-	panel:SetScript("OnDragStart", function(self)
-		if not MinimapCoords.db.lockWorldMap then
-			self:StartMoving()
-		end
-	end)
-	panel:HookScript("OnMouseUp", function(_, mouseButton)
-		if mouseButton == "RightButton" then
-			local locked = not MinimapCoords.db.lockWorldMap
-			Settings.SetValue("ForeverPlus_Minimap_lockWorldMap", locked)
-			if MinimapCoords.db.lockMessage then
-				ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
-			end
-		end
-	end)
-	panel:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		self:SetUserPlaced(false)
-		local scale = container:GetEffectiveScale() / self:GetEffectiveScale()
-		ns.db.frames[WORLDMAP_KEY] = {
-			x = self:GetLeft() - container:GetLeft() * scale,
-			y = self:GetBottom() - container:GetBottom() * scale,
-		}
-		Apply()
-	end)
 	Apply()
 end
 
@@ -126,7 +96,7 @@ function MinimapCoords:UpdateFont()
 end
 
 function MinimapCoords:OnLogin()
-	-- Small frame around the text: movable like a window, right-click locks.
+	-- Small frame around the text: movable and lockable like a window.
 	local holder = CreateFrame("Frame", nil, Minimap)
 	holder:SetSize(100, 18)
 	holder:SetFrameLevel(Minimap:GetFrameLevel() + 5)
@@ -140,7 +110,7 @@ function MinimapCoords:OnLogin()
 		GameTooltip:Show()
 	end)
 	holder:SetScript("OnLeave", GameTooltip_Hide)
-	ns:RegisterDisplay(holder, "MinimapCoords", self, "lockCoords", function(frame)
+	ns:RegisterDisplay(holder, "MinimapCoords", function(frame)
 		frame:SetPoint("TOP", Minimap, "TOP", 0, -12)
 	end)
 	local _, classFile = UnitClass("player")
@@ -161,9 +131,3 @@ function MinimapCoords:OnLogin()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", Update)
 	Update()
 end
-
-MinimapCoords.options = {
-	{ key = "lockCoords", type = "toggle", name = L.MINIMAP_LOCK_COORDS, desc = L.DISPLAY_LOCK_DESC },
-	{ key = "lockWorldMap", type = "toggle", name = L.MINIMAP_LOCK_WORLDMAP, desc = L.DISPLAY_LOCK_DESC },
-	{ key = "lockMessage", type = "toggle", name = L.DISPLAY_LOCK_MESSAGE, desc = L.MESSAGE_DESC },
-}

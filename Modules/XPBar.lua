@@ -103,7 +103,7 @@ local function ScanQuestXP()
 	local total = 0
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
-		if info and not info.isHeader and info.questID and C_QuestLog.IsComplete(info.questID) then
+		if info and not info.isHeader and info.questID and ns.IsQuestReady(info.questID, index) then
 			total = total + (GetQuestLogRewardXP(info.questID) or 0)
 		end
 	end

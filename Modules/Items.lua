@@ -82,18 +82,20 @@ local function CanUse(bag, slot)
 	return true
 end
 
--- Sum of all item stats (without armor) and the weapon DPS.
+-- Sum of all item stats, the weapon DPS and the armor value.
 local function StatScore(link)
 	local stats = C_Item.GetItemStats(link)
-	local total, dps = 0, 0
+	local total, dps, armor = 0, 0, 0
 	for key, value in pairs(stats or {}) do
 		if key == "ITEM_MOD_DAMAGE_PER_SECOND_SHORT" then
 			dps = value
+		elseif key == "RESISTANCE0_NAME" then
+			armor = value
 		elseif key:find("^ITEM_MOD_") then
 			total = total + value
 		end
 	end
-	return total, dps
+	return total, dps, armor
 end
 
 -- Returns level, link of the equipped item; false when its data is not loaded yet.
@@ -111,8 +113,8 @@ local function EquippedInfo(invSlot)
 end
 
 -- An upgrade has a higher item level than the weakest equipped item of the
--- slot and does not lose stats or weapon DPS against it (like SimpleItemLevel,
--- plus the stat check). Unknown data never shows an arrow.
+-- slot and loses neither stats, weapon DPS nor armor against it.
+-- Unknown data never shows an arrow.
 local function IsUpgrade(bag, slot, link)
 	local cached = upgradeCache[link]
 	if cached ~= nil then
@@ -150,9 +152,9 @@ local function IsUpgrade(bag, slot, link)
 
 	local result = level > lowestLevel
 	if result and lowestLink then
-		local total, dps = StatScore(link)
-		local equippedTotal, equippedDps = StatScore(lowestLink)
-		result = total >= equippedTotal and dps >= equippedDps
+		local total, dps, armor = StatScore(link)
+		local equippedTotal, equippedDps, equippedArmor = StatScore(lowestLink)
+		result = total >= equippedTotal and dps >= equippedDps and armor >= equippedArmor
 	end
 	result = result and CanUse(bag, slot)
 	upgradeCache[link] = result

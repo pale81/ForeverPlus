@@ -27,11 +27,28 @@ local function SetupHealthBar()
 	bar:SetHeight(BAR_HEIGHT)
 end
 
--- Reserve room for the bar with an empty line once Blizzard decided to show it.
+-- Reserve room for the bar with an empty last line. Done after Show, because
+-- Blizzard adds lines (e.g. the right click hint) after the unit data.
+local spacerLine = {}
+local addingSpacer = false
+
 local function ReserveHealthBarSpace(tooltip)
-	if tooltip == GameTooltip and tooltip.StatusBar and tooltip.StatusBar:IsShown() then
-		tooltip:AddLine(" ")
+	if addingSpacer or tooltip:IsForbidden() then
+		return
 	end
+	local bar = tooltip.StatusBar
+	if not bar or not bar:IsShown() or spacerLine[tooltip] == tooltip:NumLines() then
+		return
+	end
+	addingSpacer = true
+	tooltip:AddLine(" ")
+	spacerLine[tooltip] = tooltip:NumLines()
+	tooltip:Show()
+	addingSpacer = false
+end
+
+local function ClearSpacer(tooltip)
+	spacerLine[tooltip] = nil
 end
 
 ---------------------------------------------------------------------------
@@ -169,8 +186,8 @@ end
 
 function Tooltip:OnInitialize()
 	SetupHealthBar()
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ReserveHealthBarSpace)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, ReserveHealthBarSpace)
+	hooksecurefunc(GameTooltip, "Show", ReserveHealthBarSpace)
+	GameTooltip:HookScript("OnTooltipCleared", ClearSpacer)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
 end
 

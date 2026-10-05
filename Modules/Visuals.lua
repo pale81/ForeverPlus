@@ -235,15 +235,40 @@ end
 ---------------------------------------------------------------------------
 local outlined = {}
 
+-- Dark text on parchment (quests, gossip, books, letters) turns into black
+-- blobs with an outline, so those fonts are kept (or made) outline free.
+local function IsDarkFont(font)
+	local r, g, b = font:GetTextColor()
+	return r and r + g + b < 0.9
+end
+
+local function RemoveOutline(font)
+	local face, size, flags = font:GetFont()
+	if face and flags and flags:find("OUTLINE") then
+		flags = flags:gsub("THICKOUTLINE", ""):gsub("OUTLINE", ""):gsub("^[,%s]+", ""):gsub("[,%s]+$", ""):gsub(",[,%s]*,", ",")
+		font:SetFont(face, size, flags)
+	end
+end
+
+-- Two passes: dark fonts may inherit from fonts outlined in the first pass.
 local function OutlineFonts()
+	local dark
 	for _, name in ipairs(GetFonts()) do
 		if not outlined[name] then
 			outlined[name] = true
 			local font = _G[name]
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
-				ns.ApplyOutline(font)
+				if IsDarkFont(font) then
+					dark = dark or {}
+					dark[#dark + 1] = font
+				else
+					ns.ApplyOutline(font)
+				end
 			end
 		end
+	end
+	for _, font in ipairs(dark or {}) do
+		RemoveOutline(font)
 	end
 end
 

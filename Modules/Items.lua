@@ -17,6 +17,7 @@ local Items = ns:NewModule("Items", {
 		destroyPrompt = true,
 		junkButton = "MiddleButton",
 		junk = {},
+		keep = {}, -- grey items the player unmarked: never sold
 	},
 })
 
@@ -41,11 +42,23 @@ local function IsMarked(itemID)
 	return itemID and Items.db.junk[itemID] or false
 end
 
+local function IsKept(itemID)
+	return itemID and Items.db.keep[itemID] or false
+end
+
+-- Grey items count as junk unless kept; other items only when marked.
+local function IsJunkItem(info)
+	if info.quality == Enum.ItemQuality.Poor then
+		return not IsKept(info.itemID)
+	end
+	return IsMarked(info.itemID)
+end
+
 local function IsJunk(info)
 	if not info or info.hasNoValue or info.isLocked then
 		return false
 	end
-	return info.quality == Enum.ItemQuality.Poor or IsMarked(info.itemID)
+	return IsJunkItem(info)
 end
 
 ---------------------------------------------------------------------------
@@ -306,7 +319,8 @@ local function UpdateButton(button)
 	if button.JunkIcon then
 		-- Same rule as Blizzard (grey items while a merchant is open) plus marked items.
 		local greyJunk = info and info.quality == Enum.ItemQuality.Poor and not info.hasNoValue and MerchantFrame:IsShown()
-		button.JunkIcon:SetShown((greyJunk or (info and IsMarked(info.itemID))) and true or false)
+		local show = info and ((greyJunk and not IsKept(info.itemID)) or IsMarked(info.itemID))
+		button.JunkIcon:SetShown(show and true or false)
 	end
 
 	if button.UpgradeIcon then
@@ -343,13 +357,17 @@ local function ToggleJunk(bag, slot)
 	if not info or not info.itemID then
 		return
 	end
-	local junk = Items.db.junk
-	if junk[info.itemID] then
-		junk[info.itemID] = nil
-		Report(L.ITEMS_UNMARKED, info.hyperlink)
+	-- Grey items are junk by default: toggling stores an exception instead.
+	local list = info.quality == Enum.ItemQuality.Poor and Items.db.keep or Items.db.junk
+	local isGrey = list == Items.db.keep
+	if list[info.itemID] then
+		list[info.itemID] = nil
 	else
-		junk[info.itemID] = true
-		Report(L.ITEMS_MARKED, info.hyperlink)
+		list[info.itemID] = true
+	end
+	Report(IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
+	if isGrey then
+		Items.db.junk[info.itemID] = nil
 	end
 	UpdateAllBags()
 end
@@ -395,36 +413,54 @@ local function JunkEntryText(itemID)
 	return icon and ("|T%d:16:16|t %s"):format(icon, name) or name, C_Item.GetItemNameByID(itemID) or ""
 end
 
+local function AddJunkEntries(root, list, onRemove)
+	local entries = {}
+	for itemID in pairs(list) do
+		local text, sortName = JunkEntryText(itemID)
+		entries[#entries + 1] = { id = itemID, text = text, sortName = sortName }
+	end
+	table.sort(entries, function(a, b)
+		return a.sortName < b.sortName
+	end)
+	for _, entry in ipairs(entries) do
+		local button = root:CreateButton(entry.text, function()
+			list[entry.id] = nil
+			onRemove()
+			return MenuResponse.CloseAll
+		end)
+		button:SetTooltip(function(tooltip)
+			tooltip:SetItemByID(entry.id)
+			GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
+		end)
+	end
+	return #entries
+end
+
 function Items:ShowJunkMenu(owner)
+	-- Menus do not rebuild their entries; reopen after each removal.
+	local function Reopen()
+		UpdateAllBags()
+		C_Timer.After(0, function()
+			self:ShowJunkMenu(owner)
+		end)
+	end
 	MenuUtil.CreateContextMenu(owner or UIParent, function(_, root)
 		root:SetScrollMode(400)
 		root:CreateTitle(L.ITEMS_JUNK_LIST)
-		local entries = {}
-		for itemID in pairs(self.db.junk) do
-			local text, sortName = JunkEntryText(itemID)
-			entries[#entries + 1] = { id = itemID, text = text, sortName = sortName }
+		local marked = AddJunkEntries(root, self.db.junk, Reopen)
+		if next(self.db.keep) then
+			root:CreateDivider()
+			root:CreateTitle(L.ITEMS_JUNK_KEPT)
 		end
-		if #entries == 0 then
+		local kept = AddJunkEntries(root, self.db.keep, Reopen)
+		if marked + kept == 0 then
 			root:CreateTitle(L.ITEMS_JUNK_NONE)
 			return
-		end
-		table.sort(entries, function(a, b)
-			return a.sortName < b.sortName
-		end)
-		for _, entry in ipairs(entries) do
-			local button = root:CreateButton(entry.text, function()
-				self.db.junk[entry.id] = nil
-				UpdateAllBags()
-				return MenuResponse.Refresh
-			end)
-			button:SetTooltip(function(tooltip)
-				tooltip:SetItemByID(entry.id)
-				GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
-			end)
 		end
 		root:CreateDivider()
 		root:CreateButton(L.ITEMS_CLEAR_JUNK, function()
 			wipe(self.db.junk)
+			wipe(self.db.keep)
 			UpdateAllBags()
 		end)
 	end)

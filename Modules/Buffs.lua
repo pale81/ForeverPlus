@@ -12,6 +12,7 @@ local Buffs = ns:NewModule("Buffs", {
 		direction = "RIGHT",
 		scale = 0.8,
 		threshold = 1,
+		expiringAlpha = 0.3,
 		wheelCast = false,
 		classes = {},
 	},
@@ -254,7 +255,8 @@ local function IsEnabled(reminder)
 	return value
 end
 
--- Returns missing (bool) and seconds until it should be re-checked.
+-- Returns shown (bool), seconds until it should be re-checked and whether
+-- the buff is only about to expire (not missing yet).
 local function Evaluate(reminder, threshold)
 	local remaining
 	if reminder.weapon then
@@ -279,7 +281,7 @@ local function Evaluate(reminder, threshold)
 		return false
 	end
 	if remaining <= threshold then
-		return true
+		return true, nil, true
 	end
 	return false, remaining - threshold
 end
@@ -300,11 +302,13 @@ local function Update()
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck = Evaluate(reminder, threshold)
+				local missing, recheck, expiring = Evaluate(reminder, threshold)
 				if missing then
 					local button = buttons[count + 1] or CreateButton(count + 1)
 					if SetupButton(button, reminder) then
 						count = count + 1
+						-- Buffs about to expire are shown faded, missing ones fully.
+						button:SetAlpha(expiring and Buffs.db.expiringAlpha or 1)
 						button:Show()
 						if not button.Alert:IsShown() then
 							button.Alert:Show()
@@ -450,6 +454,8 @@ function Buffs:options()
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",
 			min = 0, max = 10, step = 1, format = function(v) return ("%d min"):format(v) end },
+		{ key = "expiringAlpha", type = "slider", name = L.BUFFS_EXPIRING_ALPHA, desc = L.BUFFS_EXPIRING_ALPHA_DESC, parent = "enabled",
+			min = 0.1, max = 1, step = 0.05, format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 	}
 	if #reminders > 0 then
 		options[#options + 1] = { type = "header", name = LOCALIZED_CLASS_NAMES_MALE[playerClass] or playerClass, desc = L.BUFFS_CLASS_DESC }

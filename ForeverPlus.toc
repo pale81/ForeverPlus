@@ -9,7 +9,7 @@
 ## AddonCompartmentFunc: ForeverPlus_OnAddonCompartmentClick
 ## SavedVariables: ForeverPlusDB
 ## SavedVariablesPerCharacter: ForeverPlusCharDB
-## OptionalDeps: QuestieDB
+## OptionalDeps: QuestieDB, SharedMedia, LibSharedMedia-3.0
 
 Locales\enUS.lua
 Locales\deDE.lua

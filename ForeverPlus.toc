@@ -9,6 +9,7 @@
 ## AddonCompartmentFunc: ForeverPlus_OnAddonCompartmentClick
 ## SavedVariables: ForeverPlusDB
 ## SavedVariablesPerCharacter: ForeverPlusCharDB
+## OptionalDeps: QuestieDB
 
 Locales\enUS.lua
 Locales\deDE.lua
@@ -27,6 +28,5 @@ Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\Visuals.lua
 
-Data\RecipeData.lua
 Modules\RecipeRadar.xml
 Modules\RecipeRadar.lua

@@ -36,7 +36,8 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen) | – |
-| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt | ja |
+| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
+| | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster, Strg + Mausrad skaliert; Position/Größe je Fenster gespeichert | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler) | ja |
 
@@ -51,7 +52,7 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 
 - Kein Test im laufenden Spiel möglich gewesen; geprüft wurden Syntax, `luacheck`, ein Lade-/Initialisierungstest mit simulierter API sowie alle verwendeten Funktionen gegen den Forever-UI-Quellcode.
 - Buff-Erinnerung nutzt Classic-Zauber-IDs; nicht existierende IDs werden still übersprungen.
-- Rezeptradar nutzt Classic-Karten-IDs (1411–1458) mit Fallback über Zonennamen (EN/DE). Händlerdaten stammen aus dem Jahr 2006 (Vanilla); Forever-Änderungen an Händlern/Rezepten sind nicht enthalten.
+- Rezeptradar und Rezeptquellen benötigen das Addon **QuestieDB** (Teil des Questie-Downloads, GPL-3.0). ForeverPlus liest dessen öffentliche API zur Laufzeit (`LibQuestieDB`), kopiert keine Daten und ist ohne QuestieDB voll funktionsfähig, nur das Rezeptradar ist dann inaktiv. Der Forever-Datensatz von QuestieDB ist selbst noch in Arbeit (laut Projekt nicht vollständig live geprüft).
 - „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
 - Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
@@ -60,5 +61,5 @@ Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Unt
 
 - Code: MIT (siehe `LICENSE`).
 - iSquidMod-Grafiken (`Media/iSquidMod`): Ganders & Imithat, Originalautor SAM – WML 1.0, siehe `Media/iSquidMod/LICENSE.txt`.
-- Rezeptdaten: Recipe Radar von Jay Miller (Public Domain).
+- Rezeptdaten: zur Laufzeit aus [QuestieDB](https://github.com/Questie/QuestieDB) (Questie-Team).
 - Ideen: oGlow (haste), Leatrix Plus (schnelles Plündern), BlizzMove, RecipeRadar.

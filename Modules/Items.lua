@@ -13,6 +13,7 @@ local Items = ns:NewModule("Items", {
 		questReward = true,
 		upgradeArrow = true,
 		fastLoot = true,
+		messages = true,
 		junkButton = "MiddleButton",
 		junk = {},
 	},
@@ -21,6 +22,13 @@ local Items = ns:NewModule("Items", {
 -- Key binding labels (Bindings.xml).
 BINDING_HEADER_FOREVERPLUS = "ForeverPlus"
 BINDING_NAME_FOREVERPLUS_TOGGLEJUNK = L.ITEMS_BINDING_JUNK
+
+-- Chat messages of this module can be switched off.
+local function Report(...)
+	if Items.db.messages then
+		ns.Print(...)
+	end
+end
 
 local SELL_BATCH = 10
 local SELL_INTERVAL = 0.2
@@ -294,8 +302,10 @@ local function UpdateButton(button)
 	local bag, slot = button:GetBagID(), button:GetID()
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 
-	if button.JunkIcon and info and IsMarked(info.itemID) then
-		button.JunkIcon:Show()
+	if button.JunkIcon then
+		-- Same rule as Blizzard (grey items while a merchant is open) plus marked items.
+		local greyJunk = info and info.quality == Enum.ItemQuality.Poor and not info.hasNoValue and MerchantFrame:IsShown()
+		button.JunkIcon:SetShown((greyJunk or (info and IsMarked(info.itemID))) and true or false)
 	end
 
 	if button.UpgradeIcon then
@@ -335,10 +345,10 @@ local function ToggleJunk(bag, slot)
 	local junk = Items.db.junk
 	if junk[info.itemID] then
 		junk[info.itemID] = nil
-		ns.Print(L.ITEMS_UNMARKED, info.hyperlink)
+		Report(L.ITEMS_UNMARKED, info.hyperlink)
 	else
 		junk[info.itemID] = true
-		ns.Print(L.ITEMS_MARKED, info.hyperlink)
+		Report(L.ITEMS_MARKED, info.hyperlink)
 	end
 	UpdateAllBags()
 end
@@ -445,6 +455,7 @@ end
 -- Merchant: sell junk and repair
 ---------------------------------------------------------------------------
 local sellTicker, soldValue
+local merchantOpen = false
 
 local function StopSelling()
 	if sellTicker then
@@ -452,13 +463,14 @@ local function StopSelling()
 		sellTicker = nil
 	end
 	if soldValue and soldValue > 0 then
-		ns.Print(L.ITEMS_SOLD, GetMoneyString(soldValue, true))
+		Report(L.ITEMS_SOLD, GetMoneyString(soldValue, true))
 	end
 	soldValue = nil
 end
 
 local function SellBatch()
-	if not MerchantFrame:IsShown() then
+	-- MERCHANT_SHOW can arrive before the merchant window is shown.
+	if not merchantOpen then
 		StopSelling()
 		return
 	end
@@ -494,19 +506,20 @@ local function Repair()
 		local limit = GetGuildBankWithdrawMoney()
 		if limit == -1 or limit >= cost then
 			RepairAllItems(true)
-			ns.Print(L.ITEMS_REPAIRED_GUILD, GetMoneyString(cost, true))
+			Report(L.ITEMS_REPAIRED_GUILD, GetMoneyString(cost, true))
 			return
 		end
 	end
 	if GetMoney() >= cost then
 		RepairAllItems(false)
-		ns.Print(L.ITEMS_REPAIRED, GetMoneyString(cost, true))
+		Report(L.ITEMS_REPAIRED, GetMoneyString(cost, true))
 	else
-		ns.Print(L.ITEMS_REPAIR_NO_MONEY)
+		Report(L.ITEMS_REPAIR_NO_MONEY)
 	end
 end
 
 function Items:MERCHANT_SHOW()
+	merchantOpen = true
 	if self.db.autoRepair then
 		Repair()
 	end
@@ -520,6 +533,7 @@ function Items:MERCHANT_SHOW()
 end
 
 function Items:MERCHANT_CLOSED()
+	merchantOpen = false
 	StopSelling()
 end
 
@@ -619,6 +633,9 @@ function Items:Refresh()
 	local merchant = db.autoSell or db.autoRepair
 	self:ToggleEvent("MERCHANT_SHOW", merchant)
 	self:ToggleEvent("MERCHANT_CLOSED", merchant)
+	if not merchant then
+		merchantOpen = false
+	end
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
 		wipe(upgradeCache)
@@ -670,4 +687,6 @@ Items.options = {
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
+	{ type = "header", name = L.ITEMS_CHAT },
+	{ key = "messages", type = "toggle", name = L.ITEMS_MESSAGES, desc = L.ITEMS_MESSAGES_DESC },
 }

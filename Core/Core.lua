@@ -221,6 +221,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		if errors then
 			errors:ShowMenu()
 		end
+	elseif msg == "radar" then
+		ns:GetModule("RecipeRadar"):PrintStatus()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
 	else

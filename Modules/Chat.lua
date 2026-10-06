@@ -22,6 +22,7 @@ local Chat = ns:NewModule("Chat", {
 		inputHistory = true,
 		chatLog = true,
 		chatLogLines = 200,
+		copyButton = true,
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -309,6 +310,70 @@ local function StyleFont(chatFrame)
 	ns.ApplyOutline(chatFrame)
 end
 
+---------------------------------------------------------------------------
+-- Copy: the last lines of a chat window as plain text in a window with the
+-- text selected (Ctrl+C). Links keep their visible text; colours, icons and
+-- protected parts (Battle.net names) are removed.
+---------------------------------------------------------------------------
+local COPY_LINES = 50
+local copyButtons = {}
+
+local function PlainText(text)
+	text = text:gsub("|H.-|h(.-)|h", "%1")
+	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	text = text:gsub("|T.-|t", ""):gsub("|A.-|a", "")
+	text = text:gsub("|K.-|k", "?")
+	return (text:gsub("||", "|"))
+end
+
+function Chat:CopyChat(chatFrame)
+	chatFrame = chatFrame or SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME
+	local count = chatFrame:GetNumMessages()
+	local lines = {}
+	for index = math.max(1, count - COPY_LINES + 1), count do
+		local text = chatFrame:GetMessageInfo(index)
+		if type(text) == "string" and not (issecretvalue and issecretvalue(text)) then
+			lines[#lines + 1] = PlainText(text)
+		end
+	end
+	ns.ShowEditWindow("ChatCopy", L.CHAT_COPY, table.concat(lines, "\n"), CLOSE, nil, L.CHAT_COPY_HINT)
+end
+
+local function CreateCopyButton(chatFrame)
+	local button = CreateFrame("Button", nil, chatFrame)
+	button:SetSize(18, 18)
+	button:SetPoint("TOPRIGHT", chatFrame.Background or chatFrame, "TOPRIGHT", -24, -2)
+	button:SetFrameLevel(chatFrame:GetFrameLevel() + 5)
+	if C_Texture.GetAtlasInfo("friends-icon-battlenet-copy") then
+		button:SetNormalAtlas("friends-icon-battlenet-copy")
+	else
+		button:SetNormalTexture([[Interface\Buttons\UI-GuildButton-PublicNote-Up]])
+	end
+	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	button:SetScript("OnClick", function()
+		Chat:CopyChat(chatFrame)
+	end)
+	button:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip_SetTitle(GameTooltip, L.CHAT_COPY)
+		GameTooltip_AddInstructionLine(GameTooltip, L.CHAT_COPY_CLICK)
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", GameTooltip_Hide)
+	button:SetAlpha(0)
+	copyButtons[chatFrame] = button
+	return button
+end
+
+-- Visible like the tab labels: while the mouse is over the chat.
+local function SetCopyShown(chatFrame, shown)
+	local button = copyButtons[chatFrame]
+	if button then
+		button:SetShown(Chat.db.copyButton)
+		button:SetAlpha(shown and 1 or 0)
+	end
+end
+
 local function StyleChatFrame(chatFrame)
 	if not chatFrame or styled[chatFrame] then
 		return
@@ -321,6 +386,10 @@ local function StyleChatFrame(chatFrame)
 	EnableWheel(chatFrame)
 	HookHistory(chatFrame.editBox)
 	HookLog(chatFrame)
+	if chatFrame.GetMessageInfo then
+		CreateCopyButton(chatFrame)
+		SetCopyShown(chatFrame, chatFrame.hasBeenFaded)
+	end
 end
 
 local function StyleAll()
@@ -636,9 +705,11 @@ function Chat:OnLogin()
 	self:UpdateButtons()
 	hooksecurefunc("FCF_FadeInChatFrame", function(chatFrame)
 		SetTabsShown(chatFrame, true)
+		SetCopyShown(chatFrame, true)
 	end)
 	hooksecurefunc("FCF_FadeOutChatFrame", function(chatFrame)
 		SetTabsShown(chatFrame, false)
+		SetCopyShown(chatFrame, false)
 	end)
 	if FCFTab_UpdateAlpha then
 		hooksecurefunc("FCFTab_UpdateAlpha", function(chatFrame)
@@ -674,6 +745,10 @@ function Chat:OnOptionChanged(key, value)
 		self:UpdateKeywordAlert()
 	elseif key == "channelShort" then
 		self:UpdateChannelNames()
+	elseif key == "copyButton" then
+		for chatFrame in pairs(copyButtons) do
+			SetCopyShown(chatFrame, chatFrame.hasBeenFaded)
+		end
 	elseif key == "chatLog" and not value then
 		wipe(self.cdb.chatLog)
 	elseif key == "timestampColor" or key == "timestampColorValue" then
@@ -707,6 +782,7 @@ Chat.options = {
 	{ key = "inputHistory", type = "toggle", name = L.CHAT_INPUT_HISTORY, desc = L.CHAT_INPUT_HISTORY_DESC },
 	{ key = "chatLog", type = "toggle", name = L.CHAT_LOG, desc = L.CHAT_LOG_DESC },
 	{ key = "chatLogLines", type = "slider", name = L.CHAT_LOG_LINES, parent = "chatLog", min = 50, max = 500, step = 50 },
+	{ key = "copyButton", type = "toggle", name = L.CHAT_COPY_BUTTON, desc = L.CHAT_COPY_BUTTON_DESC },
 	{ type = "header", name = L.CHAT_MESSAGES_HEADER },
 	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },
 	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },

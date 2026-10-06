@@ -110,7 +110,7 @@ end
 local function QueueScan()
 	if not scanPending then
 		scanPending = true
-		C_Timer.After(SCAN_DELAY, ScanQuests)
+		C_Timer.After(SCAN_DELAY, ns.Measured("Quests: quest log scan", ScanQuests))
 	end
 end
 
@@ -634,7 +634,7 @@ end
 function QueueSort()
 	if not sortPending and IsManaging() then
 		sortPending = true
-		C_Timer.After(SORT_DELAY, SortTracker)
+		C_Timer.After(SORT_DELAY, ns.Measured("Quests: tracker sort", SortTracker))
 	end
 end
 

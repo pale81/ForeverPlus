@@ -174,6 +174,20 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 	end
 end)
 
+-- Wraps a hook or callback: measured while measuring is on, otherwise only
+-- a flag check. Return values are dropped (hooks ignore them).
+function ns.Measured(name, fn)
+	return function(...)
+		if not ns.measuring then
+			fn(...)
+			return
+		end
+		local start = debugprofilestop()
+		fn(...)
+		ns.RecordTiming(name, debugprofilestop() - start)
+	end
+end
+
 -- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
 -- frame (default 2), then onDone. Used for large one-time scans.
 local SLICE_BUDGET = 2
@@ -208,6 +222,9 @@ function ns.PrintTimings()
 		return a.entry.max > b.entry.max
 	end)
 	ns.PrintAlways(ns.L.TIMINGS_HEADER)
+	if #list == 0 then
+		ns.PrintAlways(ns.L.TIMINGS_EMPTY)
+	end
 	for i = 1, math.min(12, #list) do
 		local item = list[i]
 		ns.PrintAlways(ns.L.TIMINGS_LINE, item.name, item.entry.max, item.entry.slow, item.entry.count)
@@ -346,8 +363,12 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		else
 			ns.PrintTimings()
 		end
-	elseif msg == "zeiten" or msg == "timings" then
+	elseif msg == "zeiten" or msg == "zeit" or msg == "timings" then
 		ns.PrintTimings()
+	elseif msg == "kopieren" or msg == "copy" then
+		ns:GetModule("Chat"):CopyChat()
+	elseif msg == "hilfe" or msg == "help" or msg == "?" then
+		ns.PrintAlways(ns.L.SLASH_HELP)
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
 	elseif msg == "junk" or msg == "schrott" then

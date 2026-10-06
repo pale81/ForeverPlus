@@ -482,7 +482,7 @@ function Helpers:OnLogin()
 	end
 	for _, frame in ipairs(frames) do
 		if frame and frame.UpdateItems then
-			hooksecurefunc(frame, "UpdateItems", PostUpdateItems)
+			hooksecurefunc(frame, "UpdateItems", ns.Measured("Helpers: bag update", PostUpdateItems))
 		end
 	end
 	if MerchantFrame_UpdateMerchantInfo then

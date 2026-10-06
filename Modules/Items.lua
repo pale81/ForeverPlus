@@ -619,7 +619,7 @@ local function HookContainerFrames()
 	end
 	for _, frame in ipairs(frames) do
 		if frame and frame.UpdateItems then
-			hooksecurefunc(frame, "UpdateItems", PostUpdateItems)
+			hooksecurefunc(frame, "UpdateItems", ns.Measured("Items: bag update", PostUpdateItems))
 		end
 	end
 end
@@ -1061,7 +1061,7 @@ function Items:OnLogin()
 	HookContainerFrames()
 	HookRollFrames()
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, AddScoreLine)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	self:Refresh()
 end
 

@@ -873,6 +873,24 @@ local function CreateDestroyDialog()
 	return frame
 end
 
+-- Vendor value of the most valuable item still in the open loot window
+-- (math.huge for quest items); nil without loot window or item prices.
+local function IncomingValue()
+	local best
+	for slot = 1, GetNumLootItems() do
+		if GetLootSlotType(slot) == Enum.LootSlotType.Item then
+			local _, _, quantity, _, _, _, isQuestItem = GetLootSlotInfo(slot)
+			local link = GetLootSlotLink(slot)
+			local price = link and select(11, C_Item.GetItemInfo(link))
+			local value = isQuestItem and math.huge or (price and price * math.max(quantity or 1, 1))
+			if value and (not best or value > best) then
+				best = value
+			end
+		end
+	end
+	return best
+end
+
 local function OfferDestroy()
 	local now = GetTime()
 	if now - lastPrompt < PROMPT_COOLDOWN or InCombatLockdown() then
@@ -880,6 +898,13 @@ local function OfferDestroy()
 	end
 	local entry = FindCheapestItem()
 	if not entry then
+		return
+	end
+	-- Never offer something worth more than what is waiting to be looted.
+	local incoming = IncomingValue()
+	if incoming and entry.value >= incoming then
+		lastPrompt = now
+		ns.Print(L.ITEMS_DESTROY_NOT_WORTH)
 		return
 	end
 	lastPrompt = now

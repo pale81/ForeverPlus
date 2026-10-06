@@ -26,7 +26,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
 | | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
-| | Beute zusammenfassen: eigene Beute und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet die Liste mit Herkunft; Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
+| | Beute zusammenfassen: eigene Beute und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet ein Popup am Mauszeiger mit Symbol, Anzahl und Herkunft (Shift-Klick verlinkt im Chat); Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Mit QuestieDB: Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
 | | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
@@ -41,7 +41,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |
 | | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
-| | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
+| | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nur wenn er weniger wert ist als die Beute im offenen Beutefenster (Questgegenstände gehen vor), nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |

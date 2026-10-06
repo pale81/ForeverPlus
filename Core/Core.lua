@@ -416,6 +416,10 @@ wheelCheckFrame:SetScript("OnEvent", function(_, event, key, down)
 	if event == "MODIFIER_STATE_CHANGED" then
 		if (down == 1 or down == true) and (key == "LSHIFT" or key == "RSHIFT") then
 			ReportWheelTarget()
+			ns.PrintAlways(ns.L.WHEEL_CHECK_BINDINGS:format(
+				tostring(GetBindingAction("SHIFT-MOUSEWHEELUP", true)),
+				tostring(GetBindingAction("SHIFT-MOUSEWHEELDOWN", true)),
+				InCombatLockdown() and YES or NO))
 		end
 	else
 		ns.PrintAlways(ns.L.WHEEL_CHECK_PAGE:format(C_ActionBar.GetActionBarPage()))

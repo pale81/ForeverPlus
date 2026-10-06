@@ -26,6 +26,7 @@ read_globals = {
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",
 	"C_TradeSkillUI", "EQUIPPED", "GetScreenWidth",
+	"C_Secrets", "GetBindingAction", "YES", "NO",
 	"HasAction", "GetActionInfo", "PlaceAction", "GetLootSlotType", "GetLootSlotLink", "SELECTED_CHAT_FRAME", "debugprofilestop", "NameUtil", "GetUIPanel", "UnitRace", "GameTooltip_AddColoredLine", "GameTooltip_AddHighlightLine", "GameTooltip_OnTooltipAddMoney",
 	"C_ClassTalents", "C_LFGList", "CreateAtlasMarkup", "TANK", "HEALER", "DAMAGER", "DPS_TEMPLATE", "ItemRefTooltip", "LFGBrowseSearchEntry_Update",
 	"LOOT_ITEM_SELF", "LOOT_ITEM_SELF_MULTIPLE", "YOU_LOOT_MONEY", "YOU_LOOT_MONEY_GUILD", "LOOT_MONEY_SPLIT", "LOOT_MONEY_SPLIT_GUILD",

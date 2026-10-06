@@ -310,10 +310,21 @@ local function UpdateActiveAuras()
 	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then
 		return
 	end
+	-- Secret auras (combat, restricted areas) cannot be read by addons: keep
+	-- the last set and read again once they are readable.
+	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
+		auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	local names = {}
 	local index = 1
 	while true do
-		local aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL")
+		local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
+		if not ok then
+			auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+			return
+		end
 		if not aura then
 			break
 		end
@@ -356,6 +367,7 @@ local function UpdateAuraWatch()
 			UpdateActiveAuras()
 		else
 			auraWatcher:UnregisterEvent("UNIT_AURA")
+			auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
 			wipe(activeAuras)
 		end
 	end

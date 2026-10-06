@@ -15,6 +15,7 @@ local Buffs = ns:NewModule("Buffs", {
 		restingZones = false,
 		expiringAlpha = 0.3,
 		wheelCast = false,
+		wheelModifier = "ALT", -- plain wheel stays free for action bar paging
 		classes = {},
 	},
 })
@@ -333,11 +334,14 @@ local function Update()
 	LayoutButtons()
 	placeholder:SetShown(ns:IsEditModeActive() and count == 0)
 
-	-- Mouse wheel casts the first missing buff while a reminder is shown.
+	-- Mouse wheel (with the chosen modifier) casts the first missing buff
+	-- while a reminder is shown.
 	ClearOverrideBindings(wheelHandler)
 	if Buffs.db.wheelCast and count > 0 then
-		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELUP", buttons[1]:GetName())
-		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttons[1]:GetName())
+		local modifier = Buffs.db.wheelModifier
+		local prefix = (modifier and modifier ~= "NONE") and (modifier .. "-") or ""
+		SetOverrideBindingClick(wheelHandler, true, prefix .. "MOUSEWHEELUP", buttons[1]:GetName())
+		SetOverrideBindingClick(wheelHandler, true, prefix .. "MOUSEWHEELDOWN", buttons[1]:GetName())
 	end
 
 	if nextCheck then
@@ -460,6 +464,9 @@ function Buffs:options()
 		{ key = "scale", type = "slider", name = L.BUFFS_SCALE, parent = "enabled", min = 0.5, max = 1.5, step = 0.05,
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
+		{ key = "wheelModifier", type = "dropdown", name = L.BUFFS_WHEEL_MODIFIER, desc = L.BUFFS_WHEEL_MODIFIER_DESC, parent = "wheelCast", values = {
+			{ "ALT", ALT_KEY_TEXT or "Alt" }, { "CTRL", CTRL_KEY_TEXT or "Ctrl" }, { "SHIFT", SHIFT_KEY_TEXT or "Shift" }, { "NONE", NONE },
+		} },
 		{ key = "restingZones", type = "toggle", name = L.BUFFS_RESTING, desc = L.BUFFS_RESTING_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",
 			min = 0, max = 10, step = 1, format = function(v) return ("%d min"):format(v) end },

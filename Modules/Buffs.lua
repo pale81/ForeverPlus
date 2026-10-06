@@ -432,7 +432,11 @@ local function SpellChoices(reminder)
 	return function()
 		local values = { { 0, L.BUFFS_AUTO } }
 		for _, spellID in ipairs(reminder.cast) do
-			values[#values + 1] = { spellID, SpellName(spellID) or tostring(spellID) }
+			-- Spells the client does not have (no name) are left out.
+			local name = SpellName(spellID)
+			if name then
+				values[#values + 1] = { spellID, name }
+			end
 		end
 		return values
 	end

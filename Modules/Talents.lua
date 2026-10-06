@@ -579,15 +579,19 @@ end
 local buttons
 
 local function CreateButtons()
-	local parent = PlayerSpellsFrame
+	-- Inside the talent window, on the bottom bar right of Blizzard's buttons.
+	local parent = TalentsFrame() or PlayerSpellsFrame
+	local anchor = parent.Background or parent
 	local builds = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	builds:SetSize(120, 22)
-	builds:SetPoint("TOPRIGHT", parent, "BOTTOMRIGHT", -20, -2)
+	builds:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -24, 8)
+	builds:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 1010)
 	builds:SetText(L.TALENTS_BUILDS)
 	builds:SetScript("OnClick", ShowBuildMenu)
 
 	local spells = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	spells:SetSize(150, 22)
+	spells:SetFrameLevel(builds:GetFrameLevel())
 	spells:SetPoint("RIGHT", builds, "LEFT", -6, 0)
 	spells:SetText(L.TALENTS_SPELLS)
 	spells:SetScript("OnClick", ShowSpellsByLevel)

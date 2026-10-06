@@ -21,13 +21,39 @@ local function HasFunctions(tbl, ...)
 	return true
 end
 
+-- Names come in English until a locale is chosen; another QuestieDB user
+-- (Questie) may already have chosen one, which is kept.
+local localeChecked
+
+local function EnsureLocale(lib)
+	localeChecked = true
+	local l10n = lib.l10n
+	local locale = GetLocale()
+	if type(l10n) == "table" and type(l10n.SetLocale) == "function" and locale ~= "enUS"
+		and (l10n.currentLocale == nil or l10n.currentLocale == "enUS") then
+		pcall(l10n.SetLocale, locale)
+	end
+end
+
 -- The library, if QuestieDB is loaded and offers the functions used here.
 function QDB.Get()
 	local lib = _G.LibQuestieDB
 	if type(lib) == "table" and HasFunctions(lib.Quest, "Get", "GetAll", "GetAllIds", "Exists")
 		and HasFunctions(lib.Support, "Get") then
+		if not localeChecked then
+			EnsureLocale(lib)
+		end
 		return lib
 	end
+end
+
+-- Contract check of QuestieDB (true when the provider guarantees `version`).
+function QDB.HasContract(lib, version)
+	if type(lib.RequireContract) ~= "function" then
+		return false
+	end
+	local ok, result = pcall(lib.RequireContract, version)
+	return ok and result and true or false
 end
 
 ---------------------------------------------------------------------------

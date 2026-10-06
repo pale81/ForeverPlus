@@ -321,7 +321,31 @@ local function TextLess(a, b)
 	return a:lower() < b:lower()
 end
 
+-- Names of all dungeon and raid maps; the quest log files instance quests
+-- under the instance's name.
+local MAX_MAP_ID = 2500
+local instanceNames
+
+local function InstanceNames()
+	if not instanceNames then
+		instanceNames = {}
+		for mapID = 1, MAX_MAP_ID do
+			local info = C_Map.GetMapInfo(mapID)
+			if info and info.mapType == Enum.UIMapType.Dungeon and info.name then
+				instanceNames[info.name] = true
+			end
+		end
+	end
+	return instanceNames
+end
+
+local questHeaders = {} -- questID -> quest log header, filled by QuestFacts
+
 local function IsInstanceQuest(questID)
+	local header = questHeaders[questID]
+	if header and InstanceNames()[header] then
+		return true
+	end
 	local tag = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
 	return tag and INSTANCE_TAGS[tag.tagID] or false
 end
@@ -336,6 +360,7 @@ local function QuestFacts()
 				zone = info.title or ""
 			elseif info.questID then
 				local questID = info.questID
+				questHeaders[questID] = zone
 				local done, total = 0, 0
 				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
 					done = done + min(objective.numFulfilled or 0, objective.numRequired or 0)

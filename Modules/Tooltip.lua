@@ -9,6 +9,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		unitPrice = true,
 		hoverName = true,
 		hoverLevel = true,
+		hoverHealth = true,
 		classColors = true,
 		qualityBorder = true,
 	},
@@ -211,21 +212,76 @@ local function OverWorld()
 	return nameplate and not nameplate:IsForbidden() and DoesAncestryInclude(nameplate, focus) or false
 end
 
-local function ColorCode(r, g, b)
-	return ("|cff%02x%02x%02x"):format(r * 255, g * 255, b * 255)
+-- The name is drawn twice: desaturated underneath and in the unit colour on
+-- top, clipped to the health share. The share comes from a status bar fed
+-- with the protected health value: display widgets accept protected values,
+-- only Lua cannot calculate with them.
+local MIN_GREY = 0.6
+local NAME_SIZE = 13
+
+local function UpdateHealthMask(frame)
+	if Tooltip.db.hoverHealth and frame.masked then
+		frame.Bar:SetValue(UnitHealthPercent("mouseover", true))
+	end
 end
 
-local function HoverText(unit)
-	local name, level = UnitName(unit), UnitLevel(unit)
-	if Secret(name) then
-		return nil
+local function Layout(frame)
+	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
+	local r, g, b = GameTooltip_UnitColor("mouseover")
+	frame.Name:SetText(name)
+	frame.Name:SetTextColor(r, g, b)
+	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
+	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")
+	-- Clipping needs the width of the name; a protected name is shown plainly.
+	frame.masked = not Secret(name)
+	frame.Clip:ClearAllPoints()
+	frame.Clip:SetClipsChildren(frame.masked and Tooltip.db.hoverHealth)
+	if frame.masked then
+		local width, height = frame.Name:GetStringWidth() + 2, frame.Name:GetStringHeight() + 2
+		frame.Box:SetSize(width, height)
+		frame.Grey:SetText(name)
+		local grey = max(MIN_GREY, 0.3 * r + 0.59 * g + 0.11 * b)
+		frame.Grey:SetTextColor(grey, grey, grey)
+		frame.Grey:SetShown(Tooltip.db.hoverHealth)
+		frame.Clip:SetPoint("TOPLEFT", frame.Box, "TOPLEFT")
+		if Tooltip.db.hoverHealth then
+			frame.Clip:SetPoint("BOTTOMRIGHT", frame.Bar:GetStatusBarTexture(), "BOTTOMRIGHT")
+		else
+			frame.Clip:SetPoint("BOTTOMRIGHT", frame.Box, "BOTTOMRIGHT")
+		end
+		frame:SetSize(width + (showLevel and frame.Level:GetStringWidth() + 4 or 0), height)
+	else
+		frame.Grey:Hide()
+		frame.Box:SetSize(1, NAME_SIZE)
+		frame.Clip:SetAllPoints(frame.Box)
+		frame:SetSize(1, NAME_SIZE)
 	end
-	local text = ColorCode(GameTooltip_UnitColor(unit)) .. (name or "") .. "|r"
-	if Tooltip.db.hoverLevel and not Secret(level) then
-		text = ("%s |cffcccccc%s|r"):format(text, level and level > 0 and level or "??")
-	end
-	return text
+	UpdateHealthMask(frame)
 end
+
+local function CreateHover()
+	local frame = CreateFrame("Frame", nil, UIParent)
+	frame:SetFrameStrata("TOOLTIP")
+	frame.Box = CreateFrame("Frame", nil, frame)
+	frame.Box:SetPoint("BOTTOMLEFT")
+	frame.Grey = frame.Box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.Grey:SetPoint("LEFT", frame.Box, "LEFT", 1, 0)
+	frame.Bar = CreateFrame("StatusBar", nil, frame.Box)
+	frame.Bar:SetAllPoints(frame.Box)
+	frame.Bar:SetStatusBarTexture([[Interface\Buttons\WHITE8X8]])
+	frame.Bar:SetStatusBarColor(0, 0, 0, 0)
+	frame.Bar:SetMinMaxValues(0, 1)
+	frame.Clip = CreateFrame("Frame", nil, frame)
+	frame.Clip:SetFrameLevel(frame.Box:GetFrameLevel() + 2)
+	frame.Name = frame.Clip:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.Name:SetPoint("LEFT", frame.Box, "LEFT", 1, 0)
+	frame.Level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.Level:SetPoint("LEFT", frame.Box, "RIGHT", 3, 0)
+	frame.Level:SetTextColor(0.8, 0.8, 0.8)
+	return frame
+end
+
+local sinceMaskUpdate = 0
 
 -- Runs while a mouseover unit exists; the text hides over other frames.
 local function UpdateHover(frame, elapsed)
@@ -233,15 +289,11 @@ local function UpdateHover(frame, elapsed)
 		frame:Hide()
 		return
 	end
-	frame.Text:SetShown(OverWorld())
-	frame.sinceText = (frame.sinceText or 0) + (elapsed or 0)
-	if frame.sinceText >= 0.1 then
-		frame.sinceText = 0
-		local text = HoverText("mouseover")
-		if text and text ~= frame.lastText then
-			frame.lastText = text
-			frame.Text:SetText(text)
-		end
+	frame:SetAlpha(OverWorld() and 1 or 0)
+	sinceMaskUpdate = sinceMaskUpdate + (elapsed or 0)
+	if sinceMaskUpdate >= 0.1 then
+		sinceMaskUpdate = 0
+		UpdateHealthMask(frame)
 	end
 	local x, y = GetCursorPosition()
 	local scale = frame:GetEffectiveScale()
@@ -254,23 +306,14 @@ local function ShowHoverName()
 		return
 	end
 	if not hover then
-		hover = CreateFrame("Frame", nil, UIParent)
-		hover:SetFrameStrata("TOOLTIP")
-		hover:SetSize(1, 1)
-		hover.Text = hover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		hover.Text:SetPoint("BOTTOM")
+		hover = CreateHover()
 		hover:SetScript("OnUpdate", UpdateHover)
 	end
-	hover.Text:SetFont(ns.GetFontFace(), 13, "OUTLINE")
-	local text = HoverText("mouseover")
-	hover.lastText = text
-	if text then
-		hover.Text:SetText(text)
-	else
-		-- Protected name: shown as it is, in the unit colour.
-		hover.Text:SetText(UnitName("mouseover"))
-		hover.Text:SetTextColor(GameTooltip_UnitColor("mouseover"))
+	local face = ns.GetFontFace()
+	for _, text in ipairs({ hover.Name, hover.Grey, hover.Level }) do
+		text:SetFont(face, NAME_SIZE, "OUTLINE")
 	end
+	Layout(hover)
 	hover:Show()
 	UpdateHover(hover, 0)
 end
@@ -338,6 +381,7 @@ end
 Tooltip.options = {
 	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
 	{ key = "hoverLevel", type = "toggle", name = L.TOOLTIP_HOVER_LEVEL, parent = "hoverName" },
+	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },

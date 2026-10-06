@@ -7,6 +7,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	order = 2,
 	defaults = {
 		unitPrice = true,
+		stackSize = true,
 		hoverName = true,
 		hoverLevel = true,
 		hoverHealth = true,
@@ -362,12 +363,28 @@ local function OnUnitTooltip(tooltip)
 	end
 end
 
+-- Maximum stack size of stackable items.
+local function AddStackSize(tooltip, data)
+	if not Tooltip.db.stackSize or tooltip.isShopping then
+		return
+	end
+	local itemID = data and data.id
+	if type(itemID) ~= "number" or Secret(itemID) then
+		return
+	end
+	local stackSize = select(8, C_Item.GetItemInfo(itemID))
+	if type(stackSize) == "number" and stackSize > 1 then
+		tooltip:AddDoubleLine(L.TOOLTIP_STACK_SIZE, stackSize, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
+	end
+end
+
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
 	end
 	ColorBorder(tooltip, data)
 	AddUnitPrice(tooltip, data)
+	AddStackSize(tooltip, data)
 end
 
 function Tooltip:OnLogin()
@@ -396,5 +413,6 @@ Tooltip.options = {
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
+	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 }

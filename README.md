@@ -32,10 +32,12 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
+| | Stapelgröße bei stapelbaren Gegenständen | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
 | Weltkarte | Eigene Koordinatenanzeige (Mauszeiger, Spieler) fester Größe unten links, verschieb-, skalier- und sperrbar (Position relativ zur Karte); Blizzards Anzeige wird ausgeblendet | ja |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
+| | Beutel-Knopf beim Händler verkauft nach denselben Regeln (behaltene graue Gegenstände bleiben), Tooltip mit Anzahl und Wert | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen als Popup direkt am Einstellungsknopf, Klick entfernt einzeln (`/fp schrott`); Gegenstände mit Zufallssuffix („des Affen“, „des Frostschutzes“) werden einzeln markiert | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |

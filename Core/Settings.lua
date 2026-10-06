@@ -140,7 +140,7 @@ local PAGES = {
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
 	},
 	{ title = L.PAGE_COMBAT,
-		{ "QoL", header = L.QOL_NAMEPLATES_HEADER, keys = Keys("nameplatesCombat", "timeToDeath") },
+		{ "QoL", header = L.QOL_NAMEPLATES_HEADER, keys = Keys("nameplatesCombat") },
 		{ "QoL", header = L.QOL_ERRORS_HEADER, keys = Keys("hideErrors") },
 	},
 	{ title = L.BUFFS_TITLE, { "Buffs" } },

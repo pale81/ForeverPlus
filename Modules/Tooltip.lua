@@ -8,6 +8,8 @@ local Tooltip = ns:NewModule("Tooltip", {
 	defaults = {
 		unitPrice = true,
 		hoverName = true,
+		hoverLevel = true,
+		classColors = true,
 		qualityBorder = true,
 	},
 })
@@ -209,13 +211,38 @@ local function OverWorld()
 	return nameplate and not nameplate:IsForbidden() and DoesAncestryInclude(nameplate, focus) or false
 end
 
+local function ColorCode(r, g, b)
+	return ("|cff%02x%02x%02x"):format(r * 255, g * 255, b * 255)
+end
+
+local function HoverText(unit)
+	local name, level = UnitName(unit), UnitLevel(unit)
+	if Secret(name) then
+		return nil
+	end
+	local text = ColorCode(GameTooltip_UnitColor(unit)) .. (name or "") .. "|r"
+	if Tooltip.db.hoverLevel and not Secret(level) then
+		text = ("%s |cffcccccc%s|r"):format(text, level and level > 0 and level or "??")
+	end
+	return text
+end
+
 -- Runs while a mouseover unit exists; the text hides over other frames.
-local function UpdateHover(frame)
+local function UpdateHover(frame, elapsed)
 	if not UnitExists("mouseover") then
 		frame:Hide()
 		return
 	end
 	frame.Text:SetShown(OverWorld())
+	frame.sinceText = (frame.sinceText or 0) + (elapsed or 0)
+	if frame.sinceText >= 0.1 then
+		frame.sinceText = 0
+		local text = HoverText("mouseover")
+		if text and text ~= frame.lastText then
+			frame.lastText = text
+			frame.Text:SetText(text)
+		end
+	end
 	local x, y = GetCursorPosition()
 	local scale = frame:GetEffectiveScale()
 	frame:ClearAllPoints()
@@ -235,15 +262,53 @@ local function ShowHoverName()
 		hover:SetScript("OnUpdate", UpdateHover)
 	end
 	hover.Text:SetFont(ns.GetFontFace(), 13, "OUTLINE")
-	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
-	if Secret(name) or Secret(level) then
-		hover.Text:SetText(name)
+	local text = HoverText("mouseover")
+	hover.lastText = text
+	if text then
+		hover.Text:SetText(text)
 	else
-		hover.Text:SetFormattedText("%s |cffcccccc%s|r", name or "", level and level > 0 and level or "??")
+		-- Protected name: shown as it is, in the unit colour.
+		hover.Text:SetText(UnitName("mouseover"))
+		hover.Text:SetTextColor(GameTooltip_UnitColor("mouseover"))
 	end
-	hover.Text:SetTextColor(GameTooltip_UnitColor("mouseover"))
 	hover:Show()
-	UpdateHover(hover)
+	UpdateHover(hover, 0)
+end
+
+---------------------------------------------------------------------------
+-- Players in the tooltip: name and class in class colour
+---------------------------------------------------------------------------
+local function OnUnitTooltip(tooltip)
+	if not Tooltip.db.classColors or tooltip:IsForbidden() or tooltip ~= GameTooltip then
+		return
+	end
+	local _, unit = tooltip:GetUnit()
+	if not unit or Secret(unit) or not UnitIsPlayer(unit) then
+		return
+	end
+	local className, classFile = UnitClass(unit)
+	local color = classFile and not Secret(classFile) and C_ClassColor.GetClassColor(classFile)
+	if not color then
+		return
+	end
+	local first = GameTooltipTextLeft1
+	if first then
+		first:SetTextColor(color:GetRGB())
+	end
+	if not className or Secret(className) then
+		return
+	end
+	for i = 2, tooltip:NumLines() do
+		local line = _G["GameTooltipTextLeft" .. i]
+		local text = line and line:GetText()
+		if text and not Secret(text) then
+			local from, to = text:find(className, 1, true)
+			if from then
+				line:SetText(text:sub(1, from - 1) .. color:WrapTextInColorCode(className) .. text:sub(to + 1))
+				break
+			end
+		end
+	end
 end
 
 local function OnItemTooltip(tooltip, data)
@@ -267,10 +332,13 @@ function Tooltip:OnInitialize()
 	end)
 	GameTooltip:HookScript("OnTooltipAddMoney", OnTooltipAddMoney)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
 end
 
 Tooltip.options = {
 	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
+	{ key = "hoverLevel", type = "toggle", name = L.TOOLTIP_HOVER_LEVEL, parent = "hoverName" },
+	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 }

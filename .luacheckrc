@@ -22,6 +22,7 @@ globals = {
 }
 
 read_globals = {
+	"UnitHealthMax", "UnitIsPlayer", "GameTooltipTextLeft1",
 	"strsplit",
 	"SELL_PRICE",
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",

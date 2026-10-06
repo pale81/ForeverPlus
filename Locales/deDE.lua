@@ -544,3 +544,5 @@ L.WHEEL_CHECK_WORLD = "Unter der Maus nimmt kein Element das Mausrad an (Tastenb
 L.WHEEL_CHECK_COMMAND = "Blätter-Befehl ausgeführt (%s), Seite jetzt: %s"
 L.WHEEL_CHECK_PAGE = "Aktionsleisten-Seite gewechselt: %s"
 L.WHEEL_CHECK_END = "Mausrad-Test beendet."
+L.TOOLTIP_TRAINER_COMPARE = "Vergleich beim Lehrer"
+L.TOOLTIP_TRAINER_COMPARE_DESC = "Zeigt neben dem Tooltip eines erlernbaren Rezepts die ausgerüsteten Gegenstände des passenden Platzes, wie beim Vergleich in der Tasche."

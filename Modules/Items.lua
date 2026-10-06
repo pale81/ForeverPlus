@@ -105,6 +105,14 @@ local EQUIP_SLOTS = {
 local ONE_HAND_SLOTS = { INVSLOT_MAINHAND, INVSLOT_OFFHAND }
 local MAIN_HAND_SLOT = { INVSLOT_MAINHAND }
 
+-- Inventory slots an item can go to (also used by the trainer comparison).
+function ns.EquipSlots(equipLoc)
+	if equipLoc == "INVTYPE_WEAPON" then
+		return CanDualWield() and ONE_HAND_SLOTS or MAIN_HAND_SLOT
+	end
+	return EQUIP_SLOTS[equipLoc]
+end
+
 local upgradeCache = {}    -- hyperlink -> bool
 
 -- Profession tools (fishing poles, mining picks, …) are never shown as upgrades.
@@ -346,10 +354,7 @@ end
 -- could replace; false if it never counts as an upgrade, nil while loading.
 local function CompareScores(link)
 	local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(link)
-	local slots = EQUIP_SLOTS[equipLoc]
-	if equipLoc == "INVTYPE_WEAPON" then
-		slots = CanDualWield() and ONE_HAND_SLOTS or MAIN_HAND_SLOT
-	end
+	local slots = ns.EquipSlots(equipLoc)
 	if not slots or (classID == Enum.ItemClass.Weapon and IGNORED_WEAPONS[subClassID])
 		or not IsBestArmorType(classID, subClassID, equipLoc) then
 		return false

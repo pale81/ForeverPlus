@@ -8,6 +8,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	defaults = {
 		unitPrice = true,
 		stackSize = true,
+		trainerCompare = true,
 		hoverName = true,
 		hoverLevel = true,
 		hoverHealth = true,
@@ -387,6 +388,106 @@ local function OnItemTooltip(tooltip, data)
 	AddStackSize(tooltip, data)
 end
 
+---------------------------------------------------------------------------
+-- Trainer: the item a recipe makes is compared with the equipped items, in
+-- tooltips of our own (Blizzard's comparison tooltips stay untouched).
+---------------------------------------------------------------------------
+local compareTips = {}
+local MAX_NAME_LINES = 12
+
+local function CompareTip(index)
+	local tip = compareTips[index]
+	if not tip then
+		tip = CreateFrame("GameTooltip", "ForeverPlusCompareTooltip" .. index, UIParent, "ShoppingTooltipTemplate")
+		compareTips[index] = tip
+	end
+	return tip
+end
+
+local function HideCompareTips()
+	for _, tip in ipairs(compareTips) do
+		tip:Hide()
+	end
+end
+
+-- Item made by the trainer service: the item link where the client offers
+-- one, else an item named in the tooltip that is known to the client.
+local function TrainerItem(index)
+	local getLink = _G.GetTrainerServiceItemLink
+	if getLink then
+		local ok, link = pcall(getLink, index)
+		if ok and type(link) == "string" and link:find("|Hitem:", 1, true) then
+			return link
+		end
+	end
+	local data = GameTooltip:GetPrimaryTooltipData()
+	if type(data) ~= "table" or type(data.lines) ~= "table" then
+		return nil
+	end
+	if type(data.id) == "number" and C_TradeSkillUI and C_TradeSkillUI.GetRecipeOutputItemData then
+		local ok, output = pcall(C_TradeSkillUI.GetRecipeOutputItemData, data.id)
+		if ok and type(output) == "table" and (output.hyperlink or output.itemID) then
+			return output.hyperlink or output.itemID
+		end
+	end
+	for i = 2, math.min(#data.lines, MAX_NAME_LINES) do
+		local text = data.lines[i].leftText
+		if type(text) == "string" and text ~= "" and not Secret(text) then
+			local itemID, _, _, equipLoc = C_Item.GetItemInfoInstant(text)
+			if itemID and equipLoc and equipLoc ~= "" then
+				return itemID
+			end
+		end
+	end
+end
+
+local function ShowTrainerCompare(tooltip, index)
+	HideCompareTips()
+	if not Tooltip.db.trainerCompare or tooltip:IsForbidden() or type(index) ~= "number" then
+		return
+	end
+	local item = TrainerItem(index)
+	local equipLoc = item and select(4, C_Item.GetItemInfoInstant(item))
+	local slots = equipLoc and ns.EquipSlots and ns.EquipSlots(equipLoc)
+	if not slots then
+		return
+	end
+	local shown = {}
+	for _, slot in ipairs(slots) do
+		if GetInventoryItemLink("player", slot) then
+			local tip = CompareTip(#shown + 1)
+			tip:SetOwner(tooltip, "ANCHOR_NONE")
+			tip:SetScale(tooltip:GetScale())
+			tip:SetInventoryItem("player", slot)
+			tip.CompareHeader.Label:SetText(EQUIPPED)
+			tip.CompareHeader:SetWidth(tip.CompareHeader.Label:GetWidth() + 20)
+			tip.CompareHeader:Show()
+			shown[#shown + 1] = tip
+		end
+	end
+	if #shown == 0 then
+		return
+	end
+	-- Beside the tooltip, on the side with room; a second one goes further out.
+	local width = 0
+	for _, tip in ipairs(shown) do
+		width = width + ns.Number(tip:GetWidth(), 0)
+	end
+	local right = ns.Number(tooltip:GetRight(), 0) * tooltip:GetEffectiveScale()
+	local toRight = right + width * tooltip:GetEffectiveScale() <= ns.Number(GetScreenWidth(), 0) * ns.Number(UIParent:GetEffectiveScale(), 1)
+	local previous = tooltip
+	for _, tip in ipairs(shown) do
+		tip:ClearAllPoints()
+		if toRight then
+			tip:SetPoint("TOPLEFT", previous, "TOPRIGHT")
+		else
+			tip:SetPoint("TOPRIGHT", previous, "TOPLEFT")
+		end
+		tip:Show()
+		previous = tip
+	end
+end
+
 function Tooltip:OnLogin()
 	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
 end
@@ -397,7 +498,12 @@ function Tooltip:OnInitialize()
 	GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
 		ClearSpacer(tooltip)
 		tooltip.fpUnitSuffix = nil
+		HideCompareTips()
 	end)
+	GameTooltip:HookScript("OnHide", HideCompareTips)
+	if GameTooltip.SetTrainerService then
+		hooksecurefunc(GameTooltip, "SetTrainerService", ns.Measured("Tooltip: trainer compare", ShowTrainerCompare))
+	end
 	-- The sell price line comes from a tooltip line rule that calls this global.
 	if GameTooltip_OnTooltipAddMoney then
 		hooksecurefunc("GameTooltip_OnTooltipAddMoney", OnTooltipAddMoney)
@@ -414,5 +520,6 @@ Tooltip.options = {
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
+	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 }

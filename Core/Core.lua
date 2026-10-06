@@ -373,6 +373,75 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 ---------------------------------------------------------------------------
+-- Mouse wheel check (/fp mausrad): for a minute, reports which frame takes
+-- the wheel when Shift is pressed and whether the page commands run.
+---------------------------------------------------------------------------
+local WHEEL_CHECK_SECONDS = 60
+local wheelCheckUntil, wheelCheckHooked
+local wheelCheckFrame = CreateFrame("Frame")
+
+local function WheelChecking()
+	return wheelCheckUntil and GetTime() < wheelCheckUntil
+end
+
+local function FrameLabel(frame)
+	local name = frame.GetDebugName and frame:GetDebugName() or frame:GetName()
+	return name and name ~= "" and name or tostring(frame)
+end
+
+local function ReportWheelTarget()
+	local foci = GetMouseFoci and GetMouseFoci() or {}
+	for _, region in ipairs(foci) do
+		local frame = region
+		while frame do
+			if frame.IsMouseWheelEnabled and frame:IsMouseWheelEnabled() then
+				ns.PrintAlways(ns.L.WHEEL_CHECK_FRAME:format(FrameLabel(frame)))
+				return
+			end
+			frame = frame.GetParent and frame:GetParent()
+		end
+	end
+	ns.PrintAlways(ns.L.WHEEL_CHECK_WORLD)
+end
+
+local function PageCommand(direction)
+	return function()
+		if WheelChecking() then
+			ns.PrintAlways(ns.L.WHEEL_CHECK_COMMAND:format(direction, C_ActionBar.GetActionBarPage()))
+		end
+	end
+end
+
+wheelCheckFrame:SetScript("OnEvent", function(_, event, key, down)
+	if event == "MODIFIER_STATE_CHANGED" then
+		if (down == 1 or down == true) and (key == "LSHIFT" or key == "RSHIFT") then
+			ReportWheelTarget()
+		end
+	else
+		ns.PrintAlways(ns.L.WHEEL_CHECK_PAGE:format(C_ActionBar.GetActionBarPage()))
+	end
+end)
+
+function ns.StartWheelCheck()
+	if not wheelCheckHooked then
+		wheelCheckHooked = true
+		hooksecurefunc("ActionBar_PageUp", PageCommand("+"))
+		hooksecurefunc("ActionBar_PageDown", PageCommand("-"))
+	end
+	wheelCheckUntil = GetTime() + WHEEL_CHECK_SECONDS
+	wheelCheckFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+	wheelCheckFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+	ns.PrintAlways(ns.L.WHEEL_CHECK_START:format(WHEEL_CHECK_SECONDS))
+	C_Timer.After(WHEEL_CHECK_SECONDS, function()
+		if wheelCheckUntil and not WheelChecking() then
+			wheelCheckUntil = nil
+			wheelCheckFrame:UnregisterAllEvents()
+			ns.PrintAlways(ns.L.WHEEL_CHECK_END)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
 -- Slash command and addon compartment
 ---------------------------------------------------------------------------
 SLASH_FOREVERPLUS1 = "/fp"
@@ -399,6 +468,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns.PrintAlways(ns.L.SLASH_HELP)
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
+	elseif msg == "mausrad" or msg == "wheel" then
+		ns.StartWheelCheck()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
 	else

@@ -520,14 +520,14 @@ function Radar:Apply()
 	Refresh()
 end
 
--- QuestieDB is an optional dependency (part of the Questie download).
+-- QuestieDB is an optional dependency (separate data addon).
 local function FindQuestieDB()
 	local lib = _G.LibQuestieDB
 	if type(lib) ~= "table" or not lib.RequireContract or not lib.Item or not lib.Npc then
 		return nil
 	end
 	local ok = lib.RequireContract(1)
-	return ok and lib or nil
+	return ok and (ns.QuestieDB.Get() or lib) or nil
 end
 
 function Radar:OnLogin()

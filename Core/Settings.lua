@@ -125,7 +125,7 @@ local MOUSEOVER_KEYS = Keys("mouseover", "mouseoverMicro", "mouseoverTracker", "
 
 local PAGES = {
 	{ title = L.CHAT_TITLE, { "Chat" }, { "Loot", header = L.LOOT_TITLE } },
-	{ title = L.TOOLTIP_TITLE, { "Tooltip" } },
+	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "QuestieInfo", header = L.QDB_TITLE } },
 	{ title = L.ITEMS_TITLE,
 		{ "Items" },
 		{ "Auction", header = L.AUCTION_TITLE },

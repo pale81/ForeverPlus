@@ -12,6 +12,7 @@ local Items = ns:NewModule("Items", {
 		repairGuild = true,
 		questReward = true,
 		upgradeArrow = true,
+		upgradeScore = false,
 		fastLoot = true,
 		sellMessage = true,
 		repairMessage = true,
@@ -174,53 +175,108 @@ local function StatName(key)
 end
 
 local weights -- of the current class/specialization, cleared on spec change
+local weightsName -- talent tree the weights belong to (nil = default)
 local _, playerClass = UnitClass("player")
 
-local function CurrentSpecIndex()
-	local index = C_SpecializationInfo.GetSpecialization()
-	if index and index > 0 then
-		return index
+-- Forever has one specialization per class (C_SpecializationInfo); the three
+-- classic talent trees are trait groups. The tree with the most points wins,
+-- in the order the talent frame shows them (orderIndex).
+local function TalentTree()
+	local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+	local configInfo = configID and C_Traits.GetConfigInfo(configID)
+	local treeID = configInfo and configInfo.treeIDs and configInfo.treeIDs[1]
+	if not treeID then
+		return nil
 	end
-	-- Talent tree with the most points (classic talents).
+	local trees = {}
+	for _, info in ipairs(C_Traits.GetGroupDisplayInfoByTreeID(treeID) or {}) do
+		trees[#trees + 1] = info
+	end
+	table.sort(trees, function(a, b)
+		return a.orderIndex < b.orderIndex
+	end)
+	local groupIDs, indexOf = {}, {}
+	for i, info in ipairs(trees) do
+		groupIDs[i] = info.groupID
+		indexOf[info.groupID] = i
+	end
 	local best, bestPoints = nil, 0
-	for i = 1, 4 do
-		local specID, _, _, _, _, _, points = C_SpecializationInfo.GetSpecializationInfo(i)
-		if specID and specID ~= 0 and points and points > bestPoints then
-			best, bestPoints = i, points
+	for _, info in ipairs(#groupIDs > 0 and C_Traits.GetGroupCurrencyInfo(configID, groupIDs) or {}) do
+		local currency = info.currencyInfos and info.currencyInfos[1]
+		local spent = currency and currency.spent or 0
+		if spent > bestPoints and indexOf[info.traitNodeGroupID] then
+			best, bestPoints = indexOf[info.traitNodeGroupID], spent
 		end
 	end
-	return best
+	return best, best and trees[best].displayName
 end
+
+-- Hybrids hit with their weapon while levelling in every talent tree: below
+-- level 20 weapon DPS counts fully for their caster and healer trees, fading
+-- out until level 40.
+local LEVELLING_MELEE = { SHAMAN = true, PALADIN = true }
+local LEVELLING_FULL, LEVELLING_NONE = 20, 40
 
 local function GetWeights()
 	if weights then
-		return weights
+		return weights, weightsName
 	end
 	local classWeights = WEIGHTS[playerClass] or MELEE
+	weightsName = nil
 	if classWeights[1] then
-		local index = CurrentSpecIndex() or DEFAULT_SPEC[playerClass] or 1
-		local _, _, _, _, role = C_SpecializationInfo.GetSpecializationInfo(index)
-		-- Druids have four specializations in some clients; the role decides.
-		if playerClass == "DRUID" then
-			index = role == "HEALER" and 3 or (index == 1 and 1 or 2)
+		local index, name = TalentTree()
+		if not index then
+			index = DEFAULT_SPEC[playerClass] or 1
 		end
+		weightsName = name
 		classWeights = classWeights[index] or classWeights[1]
 	end
+	if LEVELLING_MELEE[playerClass] and not classWeights.DPS then
+		local level = UnitLevel("player")
+		local share = math.min(1, math.max(0, (LEVELLING_NONE - level) / (LEVELLING_NONE - LEVELLING_FULL)))
+		if share > 0 then
+			classWeights = CopyTable(classWeights)
+			classWeights.DPS = MELEE.DPS * share
+		end
+	end
 	weights = classWeights
-	return weights
+	return weights, weightsName
 end
 
 -- Weighted value of an item; weapon DPS counts per slot (melee/ranged).
+-- Weapon DPS from the tooltip line, for clients whose item stats lack it.
+local DPS_PATTERN = type(DPS_TEMPLATE) == "string" and "^" .. DPS_TEMPLATE:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0"):gsub("%%%%%%%.1f", "([%%d%%.,]+)") .. "$"
+
+local function TooltipDPS(link)
+	local data = DPS_PATTERN and C_TooltipInfo.GetHyperlink(link)
+	for _, line in ipairs(data and data.lines or {}) do
+		local value = line.leftText and line.leftText:match(DPS_PATTERN)
+		if value then
+			return tonumber((value:gsub(",", ".")))
+		end
+	end
+end
+
 local function Score(link, ranged)
 	local w = GetWeights()
-	local score = 0
+	local score, hasDPS = 0, false
 	for key, value in pairs(C_Item.GetItemStats(link) or {}) do
 		local name = StatName(key)
-		if name == "DPS" and ranged then
-			name = "RDPS"
+		if name == "DPS" then
+			hasDPS = true
+			if ranged then
+				name = "RDPS"
+			end
 		end
 		if name and w[name] then
 			score = score + w[name] * value
+		end
+	end
+	if not hasDPS and select(6, C_Item.GetItemInfoInstant(link)) == Enum.ItemClass.Weapon then
+		local dps = TooltipDPS(link)
+		local weight = w[ranged and "RDPS" or "DPS"]
+		if dps and weight then
+			score = score + weight * dps
 		end
 	end
 	return score
@@ -285,11 +341,9 @@ end
 -- An upgrade is the best armor type for the class, usable, and has a higher
 -- weighted value (stats of the current specialization) than the weakest
 -- equipped item it could replace. Unknown data never shows an arrow.
-local function IsUpgrade(bag, slot, link)
-	local cached = upgradeCache[link]
-	if cached ~= nil then
-		return cached
-	end
+-- Returns the weighted value of the item and of the weakest equipped item it
+-- could replace; false if it never counts as an upgrade, nil while loading.
+local function CompareScores(link)
 	local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(link)
 	local slots = EQUIP_SLOTS[equipLoc]
 	if equipLoc == "INVTYPE_WEAPON" then
@@ -297,11 +351,10 @@ local function IsUpgrade(bag, slot, link)
 	end
 	if not slots or (classID == Enum.ItemClass.Weapon and IGNORED_WEAPONS[subClassID])
 		or not IsBestArmorType(classID, subClassID, equipLoc) then
-		upgradeCache[link] = false
 		return false
 	end
 	if not C_Item.IsItemDataCachedByID(link) then
-		return false
+		return nil
 	end
 
 	local equippedScore
@@ -310,28 +363,59 @@ local function IsUpgrade(bag, slot, link)
 		local mainScore = EquippedScore(INVSLOT_MAINHAND)
 		local offScore = EquippedScore(INVSLOT_OFFHAND)
 		if mainScore == false or offScore == false then
-			return false
+			return nil
 		end
 		equippedScore = mainScore + offScore
 	elseif slots[1] == INVSLOT_OFFHAND and IsTwoHand(EquippedLink(INVSLOT_MAINHAND)) then
 		-- No off hand next to a two-hand weapon.
-		upgradeCache[link] = false
 		return false
 	else
 		for _, invSlot in ipairs(slots) do
 			local value = EquippedScore(invSlot)
 			if value == false then
-				return false
+				return nil
 			end
 			if not equippedScore or value < equippedScore then
 				equippedScore = value
 			end
 		end
 	end
+	return Score(link, slots[1] == INVSLOT_RANGED), equippedScore
+end
 
-	local result = Score(link, slots[1] == INVSLOT_RANGED) > equippedScore + 0.01 and CanUse(bag, slot)
+-- An upgrade is the best armor type for the class, usable, and has a higher
+-- weighted value (stats of the current talent tree) than the weakest
+-- equipped item it could replace. Unknown data never shows an arrow.
+local function IsUpgrade(bag, slot, link)
+	local cached = upgradeCache[link]
+	if cached ~= nil then
+		return cached
+	end
+	local score, equippedScore = CompareScores(link)
+	if score == nil then
+		return false
+	end
+	local result = score and score > equippedScore + 0.01 and CanUse(bag, slot) or false
 	upgradeCache[link] = result
 	return result
+end
+
+-- Optional tooltip line with both values, to check the rating.
+local function AddScoreLine(tooltip)
+	if not Items.db.upgradeScore or tooltip:IsForbidden() or (tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip) then
+		return
+	end
+	local _, link = tooltip:GetItem()
+	if not link or (issecretvalue and issecretvalue(link)) or not C_Item.IsEquippableItem(link) then
+		return
+	end
+	local score, equippedScore = CompareScores(link)
+	if not score then
+		return
+	end
+	local _, treeName = GetWeights()
+	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+	tooltip:Show()
 end
 
 ---------------------------------------------------------------------------
@@ -946,11 +1030,8 @@ function Items:Refresh()
 		wipe(upgradeCache)
 		UpdateAllBags()
 	end)
-	self:ToggleEvent("PLAYER_LEVEL_UP", db.upgradeArrow, function()
-		wipe(upgradeCache)
-	end)
-	-- Specialization or talent changes alter the stat weights.
-	for _, event in ipairs({ "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED" }) do
+	-- Level, specialization and talent changes alter the stat weights.
+	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
 		if C_EventUtils.IsEventValid(event) then
 			self:ToggleEvent(event, db.upgradeArrow, function()
 				weights = nil
@@ -973,6 +1054,7 @@ function Items:OnLogin()
 	HookContainerFrames()
 	HookRollFrames()
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, AddScoreLine)
 	self:Refresh()
 end
 
@@ -1002,6 +1084,7 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
+	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },

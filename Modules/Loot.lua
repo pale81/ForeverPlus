@@ -75,6 +75,7 @@ end
 
 -- Multiple first: "%s." would also match "[Item]x3.".
 local itemPatterns = Patterns(LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_SELF)
+local createdPatterns = Patterns(LOOT_ITEM_CREATED_SELF_MULTIPLE, LOOT_ITEM_CREATED_SELF)
 local moneyPatterns = Patterns(YOU_LOOT_MONEY_GUILD, LOOT_MONEY_SPLIT_GUILD, YOU_LOOT_MONEY, LOOT_MONEY_SPLIT)
 local splitPatterns = Patterns(LOOT_MONEY_SPLIT_GUILD, LOOT_MONEY_SPLIT)
 
@@ -87,10 +88,15 @@ for _, unit in ipairs({ { GOLD_AMOUNT, "Gold", 10000 }, { SILVER_AMOUNT, "Silver
 	}
 end
 
+-- Link, count and whether the item was crafted ("You create: ...").
 local function ParseItem(text)
+	local created = false
 	local args = MatchAny(itemPatterns, text)
+	if not args then
+		args, created = MatchAny(createdPatterns, text), true
+	end
 	if args and args[1] and args[1]:find("|Hitem:", 1, true) then
-		return args[1], tonumber(args[2]) or 1
+		return args[1], tonumber(args[2]) or 1, created
 	end
 end
 
@@ -236,7 +242,7 @@ function Loot:CHAT_MSG_LOOT(_, text)
 	if not Accessible(text) then
 		return
 	end
-	local link, count = ParseItem(text)
+	local link, count, created = ParseItem(text)
 	if not link then
 		return
 	end
@@ -249,7 +255,8 @@ function Loot:CHAT_MSG_LOOT(_, text)
 	end
 	entry.count = entry.count + count
 	batch.count = batch.count + count
-	AddSource(entry.sources, entry.order, CurrentSource() or L.LOOT_UNKNOWN, count)
+	local source = created and L.LOOT_CRAFTED or CurrentSource() or L.LOOT_UNKNOWN
+	AddSource(entry.sources, entry.order, source, count)
 end
 
 function Loot:CHAT_MSG_MONEY(_, text)

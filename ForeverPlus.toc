@@ -21,6 +21,7 @@ Core\Widgets.lua
 Core\Mover.lua
 
 Modules\Chat.lua
+Modules\Loot.lua
 Modules\Tooltip.lua
 Modules\Minimap.lua
 Modules\Items.lua

@@ -21,7 +21,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
-| | Name (und optional Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe) | ja |
+| | Name (und optional Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
@@ -95,7 +95,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Sprachwechsel per Mittelklick: setzt die Sprache mit demselben Aufruf wie Blizzards Menü, der Wert stammt aber aus Addon-Code. `SendChatMessage` ist eingeschränkt; ob das Senden in Instanzen dadurch blockiert wird, ist ohne Test nicht verifizierbar. Abschaltbar.
 - Talentplaner: prüft keine Voraussetzungen (Punkte je Reihe, vorausgesetzte Talente); „Plan übernehmen“ kauft nur, was der Baum gerade erlaubt, bestätigt wird mit Blizzards Knopf. Rechtsklick auf einen vorgemerkten, noch nicht bestätigten Rang bleibt Blizzards Rückerstattung.
-- Zeit bis zum Tod und Färbung nach Gesundheit sind nicht möglich: `UnitHealth` liefert Addons laut Forever-API-Doku immer einen geschützten Wert (`SecretReturns`), das Kampflog ist eingeschränkt.
+- Zeit bis zum Tod ist nicht möglich: `UnitHealth` liefert Addons laut Forever-API-Doku immer einen geschützten Wert (`SecretReturns`), mit dem Lua nicht rechnen kann; das Kampflog ist eingeschränkt. Anzeigen geht trotzdem: die Namensfärbung nach Gesundheit schiebt den geschützten Wert in einen unsichtbaren Statusbalken, an dessen Füllung ein Clipping-Rahmen hängt (keine Rechnung in Lua). Im Spiel ungeprüft.
 - Flugzeiten: Daten entstehen erst durch eigene Flüge (keine mitgelieferte Datenbank).
 - Peon-Klänge: Datei-IDs 558132 (`peonbuildingcomplete1.ogg`) und 558137 (`peonready1.ogg`) laut Community-Listfile; ob der Forever-Client sie enthält, ist ungeprüft. Fehlt eine Datei, ertönt ein Blizzard-Klang.
 - Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.
@@ -104,7 +104,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Angeln per Doppel-Rechtsklick: nur mit angelegter Angel; erst nach dem Loslassen eines kurzen, ruhigen Rechtsklicks wird die rechte Maustaste für 0,4 s mit einem sicheren Knopf belegt. Kamera drehen (Rechtsklick halten) und Rechtsklick-Interaktion bleiben unberührt.
 - Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
 
-- Instanzquests werden am Quest-Tag „Dungeon“/„Schlachtzug“ erkannt (`C_QuestLog.GetQuestTagInfo`). Ob Forever jede Instanzquest so markiert, ist ungeprüft.
+- Instanzquests: Quests unter dem Namen einer Instanz im Questlog (Namen aus den Dungeon-Karten von `C_Map`) oder mit Quest-Tag Dungeon/Schlachtzug. Vorquests außerhalb der Instanz zählen nicht dazu.
 - Reiter und Regionsfilter arbeiten über die Beobachtungsliste: ForeverPlus merkt sich je Charakter, welche Quests du verfolgst, und blendet nicht passende aus der Liste aus (sie bleiben vorgemerkt).
 
 ## Danksagungen / Lizenzen

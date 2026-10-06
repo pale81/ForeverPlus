@@ -35,26 +35,27 @@ end
 local itemCache = {} -- itemID -> lines ({ label, text }) or false
 
 -- Distinct names of the given IDs, at most MAX_NAMES plus "(+n)".
+-- Names are read only until MAX_NAMES distinct ones are found (items such
+-- as cloth drop from hundreds of NPCs); the rest is counted by ID.
 local function NameList(entity, ids)
 	if not entity or type(ids) ~= "table" then
 		return nil
 	end
-	local names, seen, extra = {}, {}, 0
-	for _, id in ipairs(ids) do
-		local name = entity.Get(id, "name")
+	local names, seen = {}, {}
+	local index = 0
+	while index < #ids and #names < MAX_NAMES do
+		index = index + 1
+		local name = entity.Get(ids[index], "name")
 		if type(name) == "string" and name ~= "" and not seen[name] then
 			seen[name] = true
-			if #names < MAX_NAMES then
-				names[#names + 1] = name
-			else
-				extra = extra + 1
-			end
+			names[#names + 1] = name
 		end
 	end
 	if #names == 0 then
 		return nil
 	end
 	local text = table.concat(names, ", ")
+	local extra = #ids - index
 	if extra > 0 then
 		text = text .. " " .. L.QDB_MORE:format(extra)
 	end

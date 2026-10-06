@@ -345,15 +345,23 @@ end
 local MAX_MAP_ID = 2500
 local instanceNames
 
+local QueueSort
+
+-- Built in slices after the first request; until then quest tags and
+-- QuestieDB decide alone, and the tracker sorts again once it is complete.
 local function InstanceNames()
 	if not instanceNames then
 		instanceNames = {}
-		for mapID = 1, MAX_MAP_ID do
+		ns.RunSliced("Quests: instance names", MAX_MAP_ID, function(mapID)
 			local info = C_Map.GetMapInfo(mapID)
 			if info and info.mapType == Enum.UIMapType.Dungeon and info.name then
 				instanceNames[info.name] = true
 			end
-		end
+		end, function()
+			if QueueSort then
+				QueueSort()
+			end
+		end)
 	end
 	return instanceNames
 end
@@ -623,7 +631,7 @@ function SortTracker()
 	end)
 end
 
-local function QueueSort()
+function QueueSort()
 	if not sortPending and IsManaging() then
 		sortPending = true
 		C_Timer.After(SORT_DELAY, SortTracker)

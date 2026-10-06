@@ -7,7 +7,6 @@ local QDB = {}
 ns.QuestieDB = QDB
 
 local MAX_CHAIN_STEPS = 200 -- quests visited per chain search
-local BUILD_BATCH = 400     -- quests read per frame while building the index
 
 local function HasFunctions(tbl, ...)
 	if type(tbl) ~= "table" then
@@ -139,29 +138,24 @@ function QDB.BuildChains(onDone)
 	end
 	building = true
 	local ids = lib.Quest.GetAllIds() or {}
-	local map, index = {}, 1
-	C_Timer.NewTicker(0, function(ticker)
-		local last = math.min(index + BUILD_BATCH - 1, #ids)
-		for i = index, last do
-			local id = ids[i]
-			local values = lib.Quest.GetAll(id, { "preQuestSingle", "preQuestGroup", "nextQuestInChain", "breadcrumbForQuestId" })
-			if values then
-				AddList(map, values[1], id)
-				AddList(map, values[2], id)
-				Add(map, id, values[3])
-				Add(map, id, values[4])
-			end
+	local map = {}
+	local keys = { "preQuestSingle", "preQuestGroup", "nextQuestInChain", "breadcrumbForQuestId" }
+	ns.RunSliced("QuestieDB: quest chains", #ids, function(i)
+		local id = ids[i]
+		local values = lib.Quest.GetAll(id, keys)
+		if values then
+			AddList(map, values[1], id)
+			AddList(map, values[2], id)
+			Add(map, id, values[3])
+			Add(map, id, values[4])
 		end
-		index = last + 1
-		if index > #ids then
-			ticker:Cancel()
-			followers, building = map, false
-			wipe(leadsCache)
-			local callbacks = waiting
-			waiting = {}
-			for _, callback in ipairs(callbacks) do
-				callback()
-			end
+	end, function()
+		followers, building = map, false
+		wipe(leadsCache)
+		local callbacks = waiting
+		waiting = {}
+		for _, callback in ipairs(callbacks) do
+			callback()
 		end
 	end)
 end

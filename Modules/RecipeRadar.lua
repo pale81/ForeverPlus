@@ -22,7 +22,6 @@ local Radar = ns:NewModule("RecipeRadar", {
 
 local PIN_TEMPLATE = "ForeverPlusRecipePinTemplate"
 local MINIMAP_UPDATE_INTERVAL = 0.05
-local INDEX_BATCH = 400          -- item IDs scanned per frame while indexing
 local RECIPE_CLASS = 9           -- Enum.ItemClass.Recipe
 local TOOLTIP_MAX_VENDORS = 3
 local TOOLTIP_MAX_QUESTS = 2
@@ -100,37 +99,35 @@ local function BuildIndex(onDone)
 	LoadAreaMap()
 	local ids = DB.Item.GetAllIds()
 	local npcItems = {}
-	local position = 1
-	C_Timer.NewTicker(0.01, function(ticker)
-		local last = min(position + INDEX_BATCH - 1, #ids)
-		for i = position, last do
-			local id = ids[i]
-			if DB.Item.class(id) == RECIPE_CLASS then
-				local skill = RECIPE_SKILL[DB.Item.subClass(id)]
-				if skill then
-					local vendors = DB.Item.vendors(id)
-					recipes[id] = {
-						skill = skill,
-						vendors = vendors,
-						drops = DB.Item.npcDrops(id),
-						quests = DB.Item.questRewards(id),
-					}
-					for _, npc in ipairs(vendors or {}) do
-						npcItems[npc] = npcItems[npc] or {}
-						tinsert(npcItems[npc], id)
-					end
+	ns.RunSliced("RecipeRadar: recipes", #ids, function(i)
+		local id = ids[i]
+		if DB.Item.class(id) == RECIPE_CLASS then
+			local skill = RECIPE_SKILL[DB.Item.subClass(id)]
+			if skill then
+				local vendors = DB.Item.vendors(id)
+				recipes[id] = {
+					skill = skill,
+					vendors = vendors,
+					drops = DB.Item.npcDrops(id),
+					quests = DB.Item.questRewards(id),
+				}
+				for _, npc in ipairs(vendors or {}) do
+					npcItems[npc] = npcItems[npc] or {}
+					tinsert(npcItems[npc], id)
 				end
 			end
 		end
-		position = last + 1
-		if position > #ids then
-			ticker:Cancel()
-			for npc, items in pairs(npcItems) do
-				AddVendorSpawns(npc, items)
-			end
+	end, function()
+		local npcs = {}
+		for npc in pairs(npcItems) do
+			npcs[#npcs + 1] = npc
+		end
+		ns.RunSliced("RecipeRadar: vendors", #npcs, function(i)
+			AddVendorSpawns(npcs[i], npcItems[npcs[i]])
+		end, function()
 			indexReady = true
 			onDone()
-		end
+		end)
 	end)
 end
 

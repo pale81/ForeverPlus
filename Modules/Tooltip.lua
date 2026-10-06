@@ -153,11 +153,11 @@ local function ShowBorderFrame(tooltip, r, g, b)
 	local frame = borderFrames[tooltip]
 	if not frame then
 		frame = CreateFrame("Frame", nil, tooltip)
-		-- One pixel inside the edge, 2 pixels wide with rounder corners.
+		-- One pixel inside the edge, 2 pixels wide like the item frames.
 		frame:SetPoint("TOPLEFT", tooltip.NineSlice, "TOPLEFT", 1, -1)
 		frame:SetPoint("BOTTOMRIGHT", tooltip.NineSlice, "BOTTOMRIGHT", -1, 1)
 		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
-		frame.border = ns.CreatePixelBorder(frame, frame, 2, nil, nil, 3)
+		frame.border = ns.CreatePixelBorder(frame, frame, 2)
 		borderFrames[tooltip] = frame
 	end
 	frame.border:ShowColor(r, g, b)

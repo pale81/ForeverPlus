@@ -213,7 +213,27 @@ function ns.RunSliced(name, count, fn, onDone, budget)
 	end)
 end
 
-function ns.PrintTimings()
+-- Measures for `seconds` from now on (earlier values are cleared), then
+-- prints the result and calls onDone.
+function ns.StartTimedMeasure(seconds, onDone)
+	if ns.measureTimer then
+		return
+	end
+	wipe(ns.timings)
+	ns.measuring = true
+	ns.measureUntil = GetTime() + seconds
+	ns.measureTimer = C_Timer.NewTimer(seconds, function()
+		ns.measuring = false
+		ns.measureTimer, ns.measureUntil = nil, nil
+		ns.PrintTimings()
+		if onDone then
+			onDone()
+		end
+	end)
+end
+
+-- The longest entries, longest first.
+function ns.TopTimings(count)
 	local list = {}
 	for name, entry in pairs(ns.timings) do
 		list[#list + 1] = { name = name, entry = entry }
@@ -221,11 +241,19 @@ function ns.PrintTimings()
 	table.sort(list, function(a, b)
 		return a.entry.max > b.entry.max
 	end)
+	for i = #list, count + 1, -1 do
+		list[i] = nil
+	end
+	return list
+end
+
+function ns.PrintTimings()
+	local list = ns.TopTimings(12)
 	ns.PrintAlways(ns.L.TIMINGS_HEADER)
 	if #list == 0 then
 		ns.PrintAlways(ns.L.TIMINGS_EMPTY)
 	end
-	for i = 1, math.min(12, #list) do
+	for i = 1, #list do
 		local item = list[i]
 		ns.PrintAlways(ns.L.TIMINGS_LINE, item.name, item.entry.max, item.entry.slow, item.entry.count)
 	end

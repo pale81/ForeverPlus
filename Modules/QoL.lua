@@ -21,7 +21,6 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverStance = false,
 		mouseoverPet = false,
 		nameplatesCombat = false,
-		timeToDeath = false,
 		hideErrors = true,
 		actionText = true,
 		hideHotkeys = true,
@@ -127,108 +126,24 @@ end
 local NAMEPLATE_CVAR = "nameplateShowEnemies"
 
 ---------------------------------------------------------------------------
--- Time to death behind the name on nameplates: from the health lost since
--- the unit was first damaged in this fight. Health that the client hands out
--- as a secret value cannot be read; such units show nothing.
----------------------------------------------------------------------------
-local TTD_INTERVAL = 0.5
-local TTD_MIN_SAMPLE = 1.5
-local TTD_MAX = 600
-local ttdTexts, samples = {}, {}
-local ttdTicker
-
-local function Secret(value)
-	return issecretvalue and issecretvalue(value)
-end
-
-local function TTDText(nameplate)
-	local text = ttdTexts[nameplate]
-	if not text then
-		local name = nameplate.UnitFrame and nameplate.UnitFrame.name
-		if not name then
-			return
-		end
-		text = nameplate.UnitFrame:CreateFontString(nil, "OVERLAY", "SystemFont_NamePlate")
-		text:SetPoint("LEFT", name, "RIGHT", 3, 0)
-		text:SetTextColor(1, 0.82, 0)
-		ttdTexts[nameplate] = text
-	end
-	return text
-end
-
-local function TimeToDeath(unit, now)
-	local health, guid = UnitHealth(unit), UnitGUID(unit)
-	if not guid or Secret(health) or Secret(guid) or not health or health <= 0 then
-		return
-	end
-	local sample = samples[guid]
-	if not sample or health > sample.health then
-		samples[guid] = { time = now, health = health }
-		return
-	end
-	local elapsed = now - sample.time
-	if elapsed < TTD_MIN_SAMPLE or sample.health <= health then
-		return
-	end
-	local seconds = health / ((sample.health - health) / elapsed)
-	return seconds < TTD_MAX and seconds or nil
-end
-
-local function UpdateTimeToDeath()
-	local now = GetTime()
-	for _, nameplate in ipairs(C_NamePlate.GetNamePlates() or {}) do
-		local unit = nameplate.unitToken or (nameplate.UnitFrame and nameplate.UnitFrame.unit)
-		if unit and not nameplate:IsForbidden() then
-			local text = TTDText(nameplate)
-			if text then
-				local seconds = TimeToDeath(unit, now)
-				text:SetText(seconds and ("%d:%02d"):format(floor(seconds / 60), floor(seconds % 60)) or "")
-			end
-		end
-	end
-end
-
-local function StopTimeToDeath()
-	if ttdTicker then
-		ttdTicker:Cancel()
-		ttdTicker = nil
-	end
-	wipe(samples)
-	for _, text in pairs(ttdTexts) do
-		text:SetText("")
-	end
-end
-
----------------------------------------------------------------------------
--- Combat start/end for both nameplate features
+-- Combat start/end
 ---------------------------------------------------------------------------
 local function OnCombatStart()
-	if QoL.db.nameplatesCombat then
-		SetCVar(NAMEPLATE_CVAR, "1")
-	end
-	if QoL.db.timeToDeath and not ttdTicker then
-		ttdTicker = C_Timer.NewTicker(TTD_INTERVAL, UpdateTimeToDeath)
-	end
+	SetCVar(NAMEPLATE_CVAR, "1")
 end
 
 local function OnCombatEnd()
-	if QoL.db.nameplatesCombat then
-		SetCVar(NAMEPLATE_CVAR, "0")
-	end
-	StopTimeToDeath()
+	SetCVar(NAMEPLATE_CVAR, "0")
 end
 
 function QoL:UpdateNameplates()
 	local db = self.db
-	if db.nameplatesCombat or db.timeToDeath then
+	if db.nameplatesCombat then
 		self:RegisterEvent("PLAYER_REGEN_DISABLED", OnCombatStart)
 		self:RegisterEvent("PLAYER_REGEN_ENABLED", OnCombatEnd)
 	else
 		self:UnregisterEvent("PLAYER_REGEN_DISABLED")
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-	end
-	if not db.timeToDeath then
-		StopTimeToDeath()
 	end
 	if db.nameplatesCombat then
 		if db.nameplatesOriginal == nil then
@@ -447,7 +362,7 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideErrors" then
 		self:UpdateErrorMessages()
-	elseif key == "nameplatesCombat" or key == "timeToDeath" then
+	elseif key == "nameplatesCombat" then
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
@@ -474,7 +389,6 @@ QoL.options = {
 	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
 	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
-	{ key = "timeToDeath", type = "toggle", name = L.QOL_TTD, desc = L.QOL_TTD_DESC },
 	{ type = "header", name = L.QOL_ACTIONBAR_HEADER },
 	{ key = "actionText", type = "toggle", name = L.QOL_ACTION_TEXT, desc = L.QOL_ACTION_TEXT_DESC },
 	{ key = "hideHotkeys", type = "toggle", name = L.QOL_HIDE_HOTKEYS, parent = "actionText" },

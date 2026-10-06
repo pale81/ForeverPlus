@@ -933,6 +933,10 @@ function Items:Refresh()
 		merchantOpen = false
 	end
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
+	-- Fast loot builds on the game's auto loot; switch that on with it.
+	if db.fastLoot and not GetCVarBool("autoLootDefault") then
+		SetCVar("autoLootDefault", "1")
+	end
 	self:ToggleEvent("UI_ERROR_MESSAGE", db.destroyPrompt)
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)

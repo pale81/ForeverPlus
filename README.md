@@ -21,7 +21,8 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
-| | Name und Stufe der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe) | ja |
+| | Name (und optional Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe) | ja |
+| | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
@@ -30,7 +31,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`); Gegenstände mit Zufallssuffix („des Affen“, „des Frostschutzes“) werden einzeln markiert | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
-| | Schnelles Plündern | ja |
+| | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
 | | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern im Chat; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
@@ -40,7 +41,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste nur bei Mouseover (jede Leiste einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
-| | Zeit bis zum Tod hinter dem Namen auf Namensplaketten (im Kampf, optional) | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
@@ -94,7 +94,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Vernichten (`DeleteCursorItem`) ist für Addons gesperrt; deshalb wird der Gegenstand nur aufgenommen und über Blizzards Abfrage vernichtet.
 - Sprachwechsel per Mittelklick: setzt die Sprache mit demselben Aufruf wie Blizzards Menü, der Wert stammt aber aus Addon-Code. `SendChatMessage` ist eingeschränkt; ob das Senden in Instanzen dadurch blockiert wird, ist ohne Test nicht verifizierbar. Abschaltbar.
 - Talentplaner: prüft keine Voraussetzungen (Punkte je Reihe, vorausgesetzte Talente); „Plan übernehmen“ kauft nur, was der Baum gerade erlaubt, bestätigt wird mit Blizzards Knopf. Rechtsklick auf einen vorgemerkten, noch nicht bestätigten Rang bleibt Blizzards Rückerstattung.
-- Zeit bis zum Tod: liefert der Client die Gesundheit fremder Einheiten als geschützten Wert („Secret Value“), bleibt die Anzeige leer; ob Forever das tut, ist ungeprüft.
+- Zeit bis zum Tod und Färbung nach Gesundheit sind nicht möglich: `UnitHealth` liefert Addons laut Forever-API-Doku immer einen geschützten Wert (`SecretReturns`), das Kampflog ist eingeschränkt.
 - Flugzeiten: Daten entstehen erst durch eigene Flüge (keine mitgelieferte Datenbank).
 - Peon-Klänge: Datei-IDs 558132 (`peonbuildingcomplete1.ogg`) und 558137 (`peonready1.ogg`) laut Community-Listfile; ob der Forever-Client sie enthält, ist ungeprüft. Fehlt eine Datei, ertönt ein Blizzard-Klang.
 - Questtracker-Sortierung: Blizzards Tracker zeigt beobachtete Quests in Beobachtungsreihenfolge und sortiert bei Zonenwechsel selbst nach Nähe; ForeverPlus fügt die Beobachtungen danach in der gewählten Reihenfolge neu hinzu. Ob neue Beobachtungen oben oder unten landen, wird beim ersten Sortieren erkannt.

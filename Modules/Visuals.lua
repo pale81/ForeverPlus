@@ -346,17 +346,24 @@ end
 -- Elite/rare dragon around the player portrait (target frame art, mirrored)
 ---------------------------------------------------------------------------
 local BRONZE = { 0.86, 0.55, 0.28 }
--- key -> atlas, x, y (offsets of the target frame, mirrored), desaturate, tint
+local GOLD = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"
+local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
+local SILVER = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver"
+-- Size and centre relative to the top left of the player frame container.
+local SHAPES = {
+	plain = { width = 80, height = 78, x = 50.5, y = -49 },
+	winged = { width = 99, height = 80, x = 40.5, y = -49 },
+}
+-- key -> atlas, shape, desaturate, tint
 local DRAGONS = {
-	gold = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1 },
-	goldWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", 11, -4 },
-	silver = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1, true },
-	silverWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", 8, -7 },
-	bronze = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold", 0, 1, true, BRONZE },
-	bronzeWinged = { "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", 11, -4, true, BRONZE },
+	gold = { GOLD, "plain" },
+	goldWinged = { GOLD_WINGED, "winged" },
+	silver = { SILVER, "plain" },
+	silverWinged = { GOLD_WINGED, "winged", true },
+	bronze = { GOLD, "plain", true, BRONZE },
+	bronzeWinged = { GOLD_WINGED, "winged", true, BRONZE },
 }
 local dragon
-local TARGET_PORTRAIT, TARGET_PORTRAIT_RIGHT, TARGET_PORTRAIT_TOP = 58, 26, 19
 
 local function ApplyPlayerDragon()
 	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
@@ -370,27 +377,21 @@ local function ApplyPlayerDragon()
 		end
 		return
 	end
-	local portrait = container.PlayerPortrait
-	dragon = dragon or container:CreateTexture(nil, "ARTWORK", nil, 2)
-	dragon:SetAtlas(data[1], true)
-	-- Same distance to the portrait as on the target frame (portrait 58 px,
-	-- 26 px from the right, 19 px from the top), scaled to the player portrait.
-	local scale = (portrait and portrait:GetWidth() > 0 and portrait:GetWidth() / TARGET_PORTRAIT or 1) * Visuals.db.dragonScale / 100
-	local width, height = dragon:GetSize()
-	dragon:SetSize(width * scale, height * scale)
+	-- Above the frame art, like the dragon on the target frame.
+	dragon = dragon or container:CreateTexture(nil, "OVERLAY", nil, 6)
+	dragon:SetAtlas(data[1])
 	-- The target art faces right; mirror its atlas region for the portrait on the left.
 	local info = C_Texture.GetAtlasInfo(data[1])
 	if info then
 		dragon:SetTexCoord(info.rightTexCoord, info.leftTexCoord, info.topTexCoord, info.bottomTexCoord)
 	end
+	local shape = SHAPES[data[2]]
+	local scale = Visuals.db.dragonScale / 100
+	dragon:SetSize(shape.width * scale, shape.height * scale)
 	dragon:ClearAllPoints()
-	if portrait then
-		dragon:SetPoint("TOPLEFT", portrait, "TOPLEFT", -(TARGET_PORTRAIT_RIGHT + data[2]) * scale, (TARGET_PORTRAIT_TOP + data[3]) * scale)
-	else
-		dragon:SetPoint("TOPLEFT", container, "TOPLEFT", -data[2], data[3])
-	end
-	dragon:SetDesaturated(data[4] and true or false)
-	local tint = data[5]
+	dragon:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
+	dragon:SetDesaturated(data[3] and true or false)
+	local tint = data[4]
 	if tint then
 		dragon:SetVertexColor(tint[1], tint[2], tint[3])
 	else

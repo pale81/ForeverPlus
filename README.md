@@ -70,7 +70,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
-| | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau (einzeln) | ja |
+| | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau, aktive Selbstbuffs (Siegel, Aspekte, Rüstungen, Schilde) entsättigt (einzeln) | ja |
 | | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel; am Porträt ausgerichtet, Größe einstellbar | ja |
 | | Buff-Symbole, Questgegenstände im Questtracker und Questbelohnungen mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |

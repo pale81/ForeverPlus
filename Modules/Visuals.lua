@@ -16,6 +16,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorRange = true,
 		colorMana = true,
 		colorUnusable = true,
+		colorActiveBuff = true,
 		unitBars = true,
 		playerDragon = "none",
 		dragonScale = 100,
@@ -186,6 +187,40 @@ end
 ---------------------------------------------------------------------------
 local outOfRange = setmetatable({}, { __mode = "k" })
 
+-- Self buffs that are active (seals, aspects, armors, shields): names of the
+-- player's helpful auras, refreshed on UNIT_AURA for the player.
+local activeAuras = {}
+local selfBuffCache = {}
+local desaturated = setmetatable({}, { __mode = "k" })
+
+local function IsSelfBuff(spellID)
+	local cached = selfBuffCache[spellID]
+	if cached == nil then
+		cached = C_Spell.IsSelfBuff and C_Spell.IsSelfBuff(spellID) and true or false
+		selfBuffCache[spellID] = cached
+	end
+	return cached
+end
+
+local function IsActiveSelfBuff(action)
+	local actionType, id = GetActionInfo(action)
+	if actionType ~= "spell" or type(id) ~= "number" or not IsSelfBuff(id) then
+		return false
+	end
+	local name = C_Spell.GetSpellName(id)
+	return name and activeAuras[name] or false
+end
+
+local function SetGreyed(button, icon, greyed)
+	if greyed then
+		icon:SetDesaturated(true)
+		desaturated[button] = true
+	elseif desaturated[button] then
+		icon:SetDesaturated(false)
+		desaturated[button] = nil
+	end
+end
+
 local function ColorButton(button)
 	local icon = button.icon
 	if not icon or not button.action then
@@ -195,7 +230,14 @@ local function ColorButton(button)
 	local db = Visuals.db
 	local enabled = db.actionColors
 	if enabled and db.colorRange and outOfRange[button] then
+		SetGreyed(button, icon, false)
 		icon:SetVertexColor(0.8, 0.1, 0.1)
+		return
+	end
+	local activeBuff = enabled and db.colorActiveBuff and IsActiveSelfBuff(button.action)
+	SetGreyed(button, icon, activeBuff)
+	if activeBuff then
+		icon:SetVertexColor(0.7, 0.7, 0.7)
 		return
 	end
 	local isUsable, notEnoughMana = C_ActionBar.IsUsableAction(button.action)
@@ -239,6 +281,63 @@ end
 local function RecolorAll()
 	for button in pairs(actionButtons) do
 		ColorButton(button)
+	end
+end
+
+-- Rebuilds the aura name set; recolours only when it changed.
+local auraWatcher
+local function UpdateActiveAuras()
+	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then
+		return
+	end
+	local names = {}
+	local index = 1
+	while true do
+		local aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL")
+		if not aura then
+			break
+		end
+		local name = aura.name
+		if name and not (issecretvalue and issecretvalue(name)) then
+			names[name] = true
+		end
+		index = index + 1
+	end
+	local changed = false
+	for name in pairs(names) do
+		if not activeAuras[name] then
+			changed = true
+			break
+		end
+	end
+	if not changed then
+		for name in pairs(activeAuras) do
+			if not names[name] then
+				changed = true
+				break
+			end
+		end
+	end
+	if changed then
+		activeAuras = names
+		RecolorAll()
+	end
+end
+
+local function UpdateAuraWatch()
+	local enabled = Visuals.db.actionColors and Visuals.db.colorActiveBuff
+	if enabled and not auraWatcher then
+		auraWatcher = CreateFrame("Frame")
+		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", UpdateActiveAuras))
+	end
+	if auraWatcher then
+		if enabled then
+			auraWatcher:RegisterUnitEvent("UNIT_AURA", "player")
+			UpdateActiveAuras()
+		else
+			auraWatcher:UnregisterEvent("UNIT_AURA")
+			wipe(activeAuras)
+		end
 	end
 end
 
@@ -469,6 +568,7 @@ function Visuals:OnLogin()
 	FrameBuffs()
 	HookQuestItems()
 	HookActionButtons()
+	UpdateAuraWatch()
 	RecolorAll()
 	StyleUnitBars()
 	ApplyPlayerDragon()
@@ -486,6 +586,7 @@ function Visuals:OnOptionChanged(key)
 			ns.Print(L.RELOAD_REQUIRED)
 		end
 	else
+		UpdateAuraWatch()
 		RecolorAll()
 	end
 end
@@ -498,6 +599,7 @@ Visuals.options = {
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
+	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },

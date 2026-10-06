@@ -131,14 +131,88 @@ function ns:UnregisterEvent(event, owner)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Timing: one-time work is always measured, events only while measuring is
+-- switched on (/fp messen). The longest call per entry shows spikes.
+---------------------------------------------------------------------------
+ns.timings = {} -- name -> { max =, count =, slow = (calls over 1 ms) }
+ns.measuring = false
+
+function ns.RecordTiming(name, elapsed)
+	local entry = ns.timings[name]
+	if not entry then
+		entry = { max = 0, count = 0, slow = 0 }
+		ns.timings[name] = entry
+	end
+	entry.count = entry.count + 1
+	if elapsed > entry.max then
+		entry.max = elapsed
+	end
+	if elapsed > 1 then
+		entry.slow = entry.slow + 1
+	end
+end
+
+local function OwnerName(owner)
+	return type(owner) == "table" and owner.name or tostring(owner)
+end
+
 eventFrame:SetScript("OnEvent", function(_, event, ...)
 	local set = listeners[event]
 	if set then
+		if ns.measuring then
+			for owner, fn in pairs(set) do
+				local start = debugprofilestop()
+				fn(owner, event, ...)
+				ns.RecordTiming(OwnerName(owner) .. ": " .. event, debugprofilestop() - start)
+			end
+			return
+		end
 		for owner, fn in pairs(set) do
 			fn(owner, event, ...)
 		end
 	end
 end)
+
+-- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
+-- frame (default 2), then onDone. Used for large one-time scans.
+local SLICE_BUDGET = 2
+
+function ns.RunSliced(name, count, fn, onDone, budget)
+	budget = budget or SLICE_BUDGET
+	local index = 1
+	C_Timer.NewTicker(0, function(ticker)
+		local start = debugprofilestop()
+		while index <= count do
+			fn(index)
+			index = index + 1
+			if debugprofilestop() - start >= budget then
+				ns.RecordTiming(name, debugprofilestop() - start)
+				return
+			end
+		end
+		ticker:Cancel()
+		ns.RecordTiming(name, debugprofilestop() - start)
+		if onDone then
+			onDone()
+		end
+	end)
+end
+
+function ns.PrintTimings()
+	local list = {}
+	for name, entry in pairs(ns.timings) do
+		list[#list + 1] = { name = name, entry = entry }
+	end
+	table.sort(list, function(a, b)
+		return a.entry.max > b.entry.max
+	end)
+	ns.PrintAlways(ns.L.TIMINGS_HEADER)
+	for i = 1, math.min(12, #list) do
+		local item = list[i]
+		ns.PrintAlways(ns.L.TIMINGS_LINE, item.name, item.entry.max, item.entry.slow, item.entry.count)
+	end
+end
 
 ---------------------------------------------------------------------------
 -- Modules
@@ -220,14 +294,27 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 		InitDatabase()
 		for _, module in ipairs(ns.modules) do
 			if module.OnInitialize then
+				local start = debugprofilestop()
 				securecallfunction(module.OnInitialize, module)
+				ns.RecordTiming(module.name .. ": OnInitialize", debugprofilestop() - start)
 			end
 		end
+		local start = debugprofilestop()
 		ns:BuildSettings()
+		ns.RecordTiming("Settings", debugprofilestop() - start)
 	elseif event == "PLAYER_LOGIN" then
+		-- QuestieDB picks its locale once (decoding its name tables) while
+		-- the loading screen is still up instead of on the first tooltip.
+		if ns.QuestieDB then
+			local start = debugprofilestop()
+			ns.QuestieDB.Get()
+			ns.RecordTiming("QuestieDB: locale", debugprofilestop() - start)
+		end
 		for _, module in ipairs(ns.modules) do
 			if module.OnLogin then
+				local start = debugprofilestop()
 				securecallfunction(module.OnLogin, module)
+				ns.RecordTiming(module.name .. ": OnLogin", debugprofilestop() - start)
 			end
 		end
 		self:UnregisterEvent("PLAYER_LOGIN")
@@ -252,6 +339,15 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		if errors then
 			errors:ShowMenu()
 		end
+	elseif msg == "messen" or msg == "profile" then
+		ns.measuring = not ns.measuring
+		if ns.measuring then
+			ns.PrintAlways(ns.L.TIMINGS_ON)
+		else
+			ns.PrintTimings()
+		end
+	elseif msg == "zeiten" or msg == "timings" then
+		ns.PrintTimings()
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
 	elseif msg == "junk" or msg == "schrott" then

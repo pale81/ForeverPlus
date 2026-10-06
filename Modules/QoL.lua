@@ -27,6 +27,7 @@ local QoL = ns:NewModule("QoL", {
 		hideMacroNames = true,
 		bagSlots = true,
 		hideMinimapButtons = true,
+		rankUp = true,
 	},
 })
 
@@ -303,6 +304,50 @@ function QoL:DisableBlizzardCoordsOnce()
 end
 
 ---------------------------------------------------------------------------
+-- Rank up: a newly learned rank replaces the rank directly below it on the
+-- action bars. Lower ranks placed on purpose (e.g. to save mana) stay.
+---------------------------------------------------------------------------
+local MAX_ACTION_SLOT = 180
+
+local function SpellRank(spellID)
+	local subtext = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
+	return subtext and tonumber(subtext:match("(%d+)"))
+end
+
+local function RankUp(newID)
+	local name, rank = C_Spell.GetSpellName(newID), SpellRank(newID)
+	if not name or not rank or rank < 2 then
+		return
+	end
+	local slots = {}
+	for slot = 1, MAX_ACTION_SLOT do
+		if HasAction(slot) then
+			local actionType, id = GetActionInfo(slot)
+			if actionType == "spell" and id ~= newID and C_Spell.GetSpellName(id) == name and SpellRank(id) == rank - 1 then
+				slots[#slots + 1] = slot
+			end
+		end
+	end
+	for _, slot in ipairs(slots) do
+		ClearCursor()
+		C_Spell.PickupSpell(newID)
+		PlaceAction(slot)
+		ClearCursor()
+	end
+end
+
+function QoL:UpdateRankUp()
+	self:ToggleEvent("LEARNED_SPELL_IN_SKILL_LINE", self.db.rankUp, function(_, _, spellID)
+		-- A short delay lets the spell book know the new rank first.
+		C_Timer.After(0.5, function()
+			ns.RunOutOfCombat(function()
+				RankUp(spellID)
+			end)
+		end)
+	end)
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function QoL:OnInitialize()
@@ -321,6 +366,7 @@ function QoL:OnInitialize()
 end
 
 function QoL:OnLogin()
+	self:UpdateRankUp()
 	-- Addons create their minimap buttons during their own login handling.
 	local function ScanMinimapButtons()
 		self:UpdateMinimapButtons()
@@ -366,6 +412,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
+	elseif key == "rankUp" then
+		self:UpdateRankUp()
 	end
 end
 
@@ -393,6 +441,7 @@ QoL.options = {
 	{ key = "actionText", type = "toggle", name = L.QOL_ACTION_TEXT, desc = L.QOL_ACTION_TEXT_DESC },
 	{ key = "hideHotkeys", type = "toggle", name = L.QOL_HIDE_HOTKEYS, parent = "actionText" },
 	{ key = "hideMacroNames", type = "toggle", name = L.QOL_HIDE_MACRO_NAMES, parent = "actionText" },
+	{ key = "rankUp", type = "toggle", name = L.QOL_RANK_UP, desc = L.QOL_RANK_UP_DESC },
 	{ type = "header", name = L.QOL_BAGS_HEADER },
 	{ key = "bagSlots", type = "toggle", name = L.QOL_BAG_SLOTS, desc = L.QOL_BAG_SLOTS_DESC },
 	{ type = "header", name = L.QOL_MINIMAP_HEADER },

@@ -99,7 +99,12 @@ local function UpdateOverlay(bar)
 		vr, vg, vb = fill:GetVertexColor()
 	end
 	overlay:SetVertexColor((r or 1) * vr * QUEST_DARKEN, (g or 1) * vg * QUEST_DARKEN, (b or 1) * vb * QUEST_DARKEN, 1)
-	overlay:SetWidth(max(1, bar.StatusBar:GetWidth() * fraction))
+	local width = ns.Number(bar.StatusBar:GetWidth())
+	if not width then
+		overlay:Hide()
+		return
+	end
+	overlay:SetWidth(max(1, width * fraction))
 	overlay:Show()
 end
 

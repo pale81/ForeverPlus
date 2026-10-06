@@ -179,7 +179,16 @@ function ns.SizeActionFrame(owner, style)
 	local data = FRAME_STYLES[style or art.style] or FRAME_STYLES.bar
 	art.style = style or art.style
 	local width, height = art.icon:GetSize()
+	-- During some layout passes the client reports protected sizes; keep the
+	-- previous sizing then (the mask is only attached once it has a size).
+	if issecretvalue and (issecretvalue(width) or issecretvalue(height)) or not width or width <= 0 then
+		return
+	end
 	art.mask:SetSize(width * MaskRatio(), height * MaskRatio())
+	if not art.masked then
+		art.masked = true
+		art.icon:AddMaskTexture(art.mask)
+	end
 	art.frame:SetAtlas(data.atlas)
 	art.frame:ClearAllPoints()
 	art.frame:SetSize(width * data.width, height * data.height)
@@ -197,7 +206,6 @@ function ns.ApplyActionFrame(owner, icon, style)
 	local mask = owner:CreateMaskTexture()
 	mask:SetAtlas(MASK_ATLAS)
 	mask:SetPoint("CENTER", icon, "CENTER")
-	icon:AddMaskTexture(mask)
 	local frame = owner:CreateTexture(nil, "OVERLAY", nil, -1)
 	actionFrames[owner] = { icon = icon, mask = mask, frame = frame, style = style or "bar" }
 	ns.SizeActionFrame(owner)

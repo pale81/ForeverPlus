@@ -47,6 +47,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Questtracker: Klassenquests immer oben; Reiter „Welt“/„Instanz“ für Dungeon- und Schlachtzugsquests (wechselt beim Betreten einer Instanz); optional nur Quests der aktuellen Region | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
+| | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
@@ -65,7 +66,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel; am Porträt ausgerichtet, Größe einstellbar | ja |
 | | Buff-Symbole, Questgegenstände im Questtracker und Questbelohnungen mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
-| | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher – bleibt ohne) | – |
+| | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher, Zauberbuch – bleibt ohne) | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
 | Helfer | Alt: verarbeitbare Taschengegenstände leuchten (lila Entzaubern, gelb Schlossknacken), Alt + Rechtsklick führt es aus | ja |
 | | Knopf für öffnbare Gegenstände (Muscheln, Beutel, geknackte Kassetten), Bearbeitungsmodus | ja |
@@ -87,7 +88,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 - Kein Test im laufenden Spiel möglich gewesen; geprüft wurden Syntax, `luacheck`, ein Lade-/Initialisierungstest mit simulierter API sowie alle verwendeten Funktionen gegen den Forever-UI-Quellcode.
 - Buff-Erinnerung nutzt Classic-Zauber-IDs; nicht existierende IDs werden still übersprungen.
-- Rezeptradar und Rezeptquellen benötigen das Addon **QuestieDB** (Teil des Questie-Downloads, GPL-3.0). ForeverPlus liest dessen öffentliche API zur Laufzeit (`LibQuestieDB`), kopiert keine Daten und ist ohne QuestieDB voll funktionsfähig, nur das Rezeptradar ist dann inaktiv. Der Forever-Datensatz von QuestieDB ist selbst noch in Arbeit (laut Projekt nicht vollständig live geprüft).
+- Rezeptradar und Rezeptquellen benötigen das eigenständige Daten-Addon **QuestieDB** (nur Daten und Schnittstelle, nicht das Questie-Addon). In den Repositories von Questie und QuestieDB liegt keine Lizenzdatei; deshalb liest ForeverPlus die öffentliche API nur zur Laufzeit (`LibQuestieDB`), kopiert keine Daten und ist ohne QuestieDB voll funktionsfähig, nur das Rezeptradar ist dann inaktiv. Der Forever-Datensatz von QuestieDB ist selbst noch in Arbeit (laut Projekt nicht vollständig live geprüft).
 - „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
 - Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
 - Schrift: Namen über Köpfen und Kampftext nutzen vom Client beim Start gelesene globale Schriftpfade; diese zu ändern würde Taint riskieren, daher nicht enthalten.

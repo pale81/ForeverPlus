@@ -1,5 +1,5 @@
--- Helpers: process bag items with Alt + right-click (disenchant, pick lock,
--- mill), a button that opens lootable items, fishing by double right-click
+-- Helpers: process bag items with Alt + right-click (disenchant, pick lock),
+-- a button that opens lootable items, fishing by double right-click
 -- and greyed out recipes that are already known.
 local _, ns = ...
 local L = ns.L
@@ -41,10 +41,8 @@ end
 ---------------------------------------------------------------------------
 -- Processing: Alt makes processable items glow, Alt + right-click processes
 ---------------------------------------------------------------------------
-local DISENCHANT, PICK_LOCK, MILLING = 13262, 1804, 51005
-local HERB_SUBCLASS = 9
+local DISENCHANT, PICK_LOCK = 13262, 1804
 local COLORS = {
-	[MILLING] = { 0.2, 1, 0.2 },
 	[DISENCHANT] = { 0.75, 0.35, 1 },
 	[PICK_LOCK] = { 1, 0.85, 0.1 },
 }
@@ -60,16 +58,13 @@ local function ProcessSpell(bag, slot)
 	if not info or not info.hyperlink then
 		return
 	end
-	local _, _, quality, _, _, _, _, _, equipLoc, _, _, classID, subClassID = C_Item.GetItemInfo(info.hyperlink)
+	local _, _, quality, _, _, _, _, _, equipLoc, _, _, classID = C_Item.GetItemInfo(info.hyperlink)
 	if not quality then
 		return
 	end
 	if Known(DISENCHANT) and (classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor)
 		and quality >= Enum.ItemQuality.Uncommon and quality <= Enum.ItemQuality.Epic and not NO_DISENCHANT[equipLoc] then
 		return DISENCHANT
-	end
-	if Known(MILLING) and classID == Enum.ItemClass.Tradegoods and subClassID == HERB_SUBCLASS and (info.stackCount or 0) >= 5 then
-		return MILLING
 	end
 	if Known(PICK_LOCK) and IsOpenableLock(bag, slot) then
 		return PICK_LOCK
@@ -298,8 +293,7 @@ end
 -- right-click for a moment, and only after its release: holding the right
 -- button to turn and right-click interaction stay untouched.
 ---------------------------------------------------------------------------
-local FISHING = { 131474, 33095, 18248, 7732, 7731, 7620 }
-local MODERN_FISHING = 131474 -- needs no fishing pole
+local FISHING = { 18248, 7732, 7731, 7620 }
 local DOUBLE_CLICK = 0.4
 local CLICK_TIME, CLICK_MOVE = 0.3, 6
 local fishButton, bindingSet = nil, false
@@ -348,7 +342,7 @@ local function FishingReady()
 		return
 	end
 	local spellID = FishingSpell()
-	if spellID and (spellID == MODERN_FISHING or HasFishingPole()) then
+	if spellID and HasFishingPole() then
 		return spellID
 	end
 end

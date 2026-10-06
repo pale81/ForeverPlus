@@ -147,6 +147,7 @@ local PAGES = {
 	{ title = L.TALENTS_TITLE, { "Talents" } },
 	{ title = L.PAGE_INFO,
 		{ "QoL", header = L.QOL_MINIMAP_HEADER, keys = Keys("hideMinimapButtons") },
+		{ "Minimap" },
 		{ "Info", header = L.INFO_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },

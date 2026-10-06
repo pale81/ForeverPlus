@@ -22,6 +22,8 @@ globals = {
 }
 
 read_globals = {
+	"strsplit",
+	"SELL_PRICE",
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",
 	"IsControlKeyDown",
 	"NumTaxiNodes", "TaxiNodeGetType", "TaxiNodeName", "TaxiNodeOnButtonEnter", "FlightMap_FlightPointPinMixin", "UnitHealth", "UnitGUID",

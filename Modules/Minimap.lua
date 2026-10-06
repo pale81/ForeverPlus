@@ -6,6 +6,9 @@ local L = ns.L
 local MinimapCoords = ns:NewModule("Minimap", {
 	title = L.MINIMAP_TITLE,
 	order = 3,
+	defaults = {
+		worldMapCoords = true,
+	},
 })
 
 local UPDATE_INTERVAL = 0.2
@@ -44,9 +47,12 @@ local function StopTicker()
 end
 
 ---------------------------------------------------------------------------
--- World map: Blizzard's coordinate panel a bit higher and movable by mouse
+-- World map: own coordinate display of fixed size (Blizzard's panel changes
+-- size whenever the cursor leaves the map, so it cannot be grabbed). Blizzard's
+-- panel is only made invisible.
 ---------------------------------------------------------------------------
-local WORLDMAP_RAISE = 24 -- default lift above Blizzard's position
+local MAP_INTERVAL = 0.05
+local mapCoords, blizzardPanel
 
 local function FindCoordsPanel()
 	for _, frame in ipairs(WorldMapFrame.overlayFrames or {}) do
@@ -56,37 +62,76 @@ local function FindCoordsPanel()
 	end
 end
 
-local function SetupWorldMapCoords()
-	local panel = FindCoordsPanel()
-	if not panel then
+local function FormatCoords(x, y)
+	if not x or not y then
+		return "–"
+	end
+	return ("%.1f, %.1f"):format(x * 100, y * 100)
+end
+
+local function UpdateMapCoords()
+	local map = WorldMapFrame
+	local cursorX, cursorY
+	if map:IsCanvasMouseFocusOrPinFocus() then
+		cursorX, cursorY = map:GetNormalizedCursorPosition()
+	end
+	local mapID = map:GetMapID()
+	local position = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
+	local playerX, playerY
+	if position then
+		playerX, playerY = position:GetXY()
+	end
+	mapCoords.Cursor:SetText(L.MAP_CURSOR:format(FormatCoords(cursorX, cursorY)))
+	mapCoords.Player:SetText(L.MAP_PLAYER:format(FormatCoords(playerX, playerY)))
+end
+
+local function CreateMapCoords()
+	local container = WorldMapFrame:GetCanvasContainer()
+	local frame = CreateFrame("Frame", nil, WorldMapFrame)
+	frame:SetSize(170, 32)
+	frame:SetFrameStrata("HIGH")
+	frame.Cursor = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	frame.Cursor:SetPoint("TOPLEFT", 4, -3)
+	frame.Cursor:SetJustifyH("LEFT")
+	frame.Player = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	frame.Player:SetPoint("TOPLEFT", frame.Cursor, "BOTTOMLEFT", 0, -2)
+	frame.Player:SetJustifyH("LEFT")
+	frame:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L.MINIMAP_WORLDMAP_COORDS)
+		GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", GameTooltip_Hide)
+	local elapsed = 0
+	frame:SetScript("OnUpdate", function(_, delta)
+		elapsed = elapsed + delta
+		if elapsed >= MAP_INTERVAL then
+			elapsed = 0
+			UpdateMapCoords()
+		end
+	end)
+	ns:RegisterDisplay(frame, "MapCoords", function(self)
+		self:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 8, 6)
+	end, container)
+	mapCoords = frame
+end
+
+function MinimapCoords:UpdateWorldMapCoords()
+	if not WorldMapFrame then
 		return
 	end
-	local container = WorldMapFrame:GetCanvasContainer()
-	local raisedY, entry
-	local original = { panel:GetPoint(1) }
-
-	-- Runs after Blizzard placed the panel next to its neighbours.
-	local function Apply()
-		if ns:HasSavedPosition(entry) then
-			ns:ApplyDisplay(entry)
-			return
-		end
-		-- Lift only Blizzard's own placement, never our previous one.
-		local point, relativeTo, relativePoint, x, y = panel:GetPoint(1)
-		if point and y ~= raisedY then
-			raisedY = y + WORLDMAP_RAISE
-			panel:ClearAllPoints()
-			panel:SetPoint(point, relativeTo, relativePoint, x, raisedY)
-		end
+	blizzardPanel = blizzardPanel or FindCoordsPanel()
+	local enabled = self.db.worldMapCoords
+	if enabled and not mapCoords then
+		CreateMapCoords()
 	end
-	entry = ns:RegisterDisplay(panel, "WorldMapCoords", function(frame)
-		if original[1] then
-			frame:SetPoint(unpack(original))
-		end
-		frame:PostRefresh()
-	end, container)
-	hooksecurefunc(panel, "PostRefresh", Apply)
-	Apply()
+	if mapCoords then
+		mapCoords:SetShown(enabled)
+	end
+	if blizzardPanel then
+		blizzardPanel:SetAlpha(enabled and 0 or 1)
+	end
 end
 
 function MinimapCoords:UpdateFont()
@@ -119,7 +164,9 @@ function MinimapCoords:OnLogin()
 		text:SetTextColor(color:GetRGB())
 	end
 
-	ns.OnAddOnLoaded("Blizzard_WorldMap", SetupWorldMapCoords)
+	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
+		self:UpdateWorldMapCoords()
+	end)
 
 	self:RegisterEvent("PLAYER_STARTED_MOVING", StartTicker)
 	self:RegisterEvent("PLAYER_STOPPED_MOVING", StopTicker)
@@ -131,3 +178,11 @@ function MinimapCoords:OnLogin()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", Update)
 	Update()
 end
+
+function MinimapCoords:OnOptionChanged()
+	self:UpdateWorldMapCoords()
+end
+
+MinimapCoords.options = {
+	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
+}

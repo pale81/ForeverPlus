@@ -8,6 +8,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	defaults = {
 		unitPrice = true,
 		hoverName = true,
+		qualityBorder = true,
 	},
 })
 
@@ -73,6 +74,32 @@ local stackCountGetters = {
 	end,
 }
 
+local SELL_PREFIX = SELL_PRICE .. ":"
+
+local function AppendToSellLine(tooltip, suffix)
+	local name = tooltip:GetName()
+	if not name then
+		return false
+	end
+	for i = tooltip:NumLines(), 1, -1 do
+		local line = _G[name .. "TextLeft" .. i]
+		local text = line and line:GetText()
+		if text and not (issecretvalue and issecretvalue(text)) and text:find(SELL_PREFIX, 1, true) == 1 then
+			if not text:find(suffix, 1, true) then
+				line:SetText(text .. " " .. suffix)
+			end
+			return true
+		end
+	end
+	return false
+end
+
+local function OnTooltipAddMoney(tooltip)
+	if tooltip.fpUnitSuffix and AppendToSellLine(tooltip, tooltip.fpUnitSuffix) then
+		tooltip.fpUnitSuffix = nil
+	end
+end
+
 local function AddUnitPrice(tooltip, data)
 	if not Tooltip.db.unitPrice or tooltip.isShopping then
 		return
@@ -95,8 +122,19 @@ local function AddUnitPrice(tooltip, data)
 		local sellPrice = itemID and select(11, C_Item.GetItemInfo(itemID))
 		unitPrice = sellPrice
 	end
-	if unitPrice and unitPrice > 0 then
+	if not unitPrice or unitPrice <= 0 then
+		return
+	end
+	if stackPrice then
+		-- Merchant: the shown price is the buying price, so a line of its own.
 		tooltip:AddDoubleLine(L.TOOLTIP_UNIT_PRICE, GetMoneyString(unitPrice, true), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
+		return
+	end
+	-- Behind the sell price: "Sell price: 40c (20c / each)". The sell price line
+	-- may come after this call; the money hook appends it then.
+	tooltip.fpUnitSuffix = L.TOOLTIP_UNIT_PRICE_SUFFIX:format(GetMoneyString(unitPrice, true))
+	if AppendToSellLine(tooltip, tooltip.fpUnitSuffix) then
+		tooltip.fpUnitSuffix = nil
 	end
 end
 
@@ -111,9 +149,11 @@ local function ShowBorderFrame(tooltip, r, g, b)
 	local frame = borderFrames[tooltip]
 	if not frame then
 		frame = CreateFrame("Frame", nil, tooltip)
-		frame:SetAllPoints(tooltip.NineSlice)
+		-- One pixel inside the edge, thinner than the item frames.
+		frame:SetPoint("TOPLEFT", tooltip.NineSlice, "TOPLEFT", 1, -1)
+		frame:SetPoint("BOTTOMRIGHT", tooltip.NineSlice, "BOTTOMRIGHT", -1, 1)
 		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
-		frame.border = ns.CreatePixelBorder(frame, frame, 2)
+		frame.border = ns.CreatePixelBorder(frame, frame, 1)
 		borderFrames[tooltip] = frame
 	end
 	frame.border:ShowColor(r, g, b)
@@ -132,7 +172,7 @@ end
 
 local function ColorBorder(tooltip, data)
 	local nineSlice = tooltip.NineSlice
-	if not nineSlice or not data or not data.id then
+	if not Tooltip.db.qualityBorder or not nineSlice or not data or not data.id then
 		return
 	end
 	if not defaultBorder[tooltip] then
@@ -221,11 +261,16 @@ end
 function Tooltip:OnInitialize()
 	SetupHealthBar()
 	hooksecurefunc(GameTooltip, "Show", ReserveHealthBarSpace)
-	GameTooltip:HookScript("OnTooltipCleared", ClearSpacer)
+	GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
+		ClearSpacer(tooltip)
+		tooltip.fpUnitSuffix = nil
+	end)
+	GameTooltip:HookScript("OnTooltipAddMoney", OnTooltipAddMoney)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
 end
 
 Tooltip.options = {
 	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
+	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 }

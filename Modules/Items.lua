@@ -42,20 +42,41 @@ local SELL_INTERVAL = 0.2
 ---------------------------------------------------------------------------
 -- Junk marking (middle mouse button in bags, configurable)
 ---------------------------------------------------------------------------
-local function IsMarked(itemID)
-	return itemID and Items.db.junk[itemID] or false
+-- Items with a random suffix ("of the Monkey", "of Frost Resistance") share
+-- one item ID; they are told apart by the suffix in the link. Key: the item ID
+-- (number) or "itemID:suffixID" (string, stored with the link for the list).
+local function SuffixID(link)
+	local itemString = link and link:match("item:([%-%d:]+)")
+	if not itemString then
+		return
+	end
+	local fields = { strsplit(":", itemString) }
+	local suffix = tonumber(fields[7])
+	return suffix and suffix ~= 0 and suffix or nil
 end
 
-local function IsKept(itemID)
-	return itemID and Items.db.keep[itemID] or false
+local function JunkKey(info)
+	local suffix = SuffixID(info.hyperlink)
+	if suffix then
+		return ("%d:%d"):format(info.itemID, suffix), info.hyperlink
+	end
+	return info.itemID, true
+end
+
+local function IsMarked(info)
+	return info.itemID and Items.db.junk[(JunkKey(info))] and true or false
+end
+
+local function IsKept(info)
+	return info.itemID and Items.db.keep[(JunkKey(info))] and true or false
 end
 
 -- Grey items count as junk unless kept; other items only when marked.
 local function IsJunkItem(info)
 	if info.quality == Enum.ItemQuality.Poor then
-		return not IsKept(info.itemID)
+		return not IsKept(info)
 	end
-	return IsMarked(info.itemID)
+	return IsMarked(info)
 end
 
 local function IsJunk(info)
@@ -363,14 +384,15 @@ local function ToggleJunk(bag, slot)
 	-- Grey items are junk by default: toggling stores an exception instead.
 	local list = info.quality == Enum.ItemQuality.Poor and Items.db.keep or Items.db.junk
 	local isGrey = list == Items.db.keep
-	if list[info.itemID] then
-		list[info.itemID] = nil
+	local key, value = JunkKey(info)
+	if list[key] then
+		list[key] = nil
 	else
-		list[info.itemID] = true
+		list[key] = value
 	end
 	Report("markMessage", IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
 	if isGrey then
-		Items.db.junk[info.itemID] = nil
+		Items.db.junk[key] = nil
 	end
 	UpdateAllBags()
 end
@@ -401,7 +423,18 @@ end
 ---------------------------------------------------------------------------
 -- Junk list: every marked item, click removes the mark
 ---------------------------------------------------------------------------
-local function JunkEntryText(itemID)
+local function KeyItemID(key)
+	return tonumber(key) or tonumber(tostring(key):match("^(%d+)"))
+end
+
+local function JunkEntryText(key, value)
+	local itemID = KeyItemID(key)
+	local icon = itemID and C_Item.GetItemIconByID(itemID)
+	if type(value) == "string" then
+		-- Suffix items: the stored link carries the full coloured name.
+		local name = value:match("%[(.-)%]") or value
+		return icon and ("|T%d:16:16|t %s"):format(icon, value) or value, name
+	end
 	local name = C_Item.GetItemNameByID(itemID)
 	if not name then
 		C_Item.RequestLoadItemDataByID(itemID)
@@ -412,15 +445,14 @@ local function JunkEntryText(itemID)
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		name = CreateColor(r, g, b):WrapTextInColorCode(name)
 	end
-	local icon = C_Item.GetItemIconByID(itemID)
 	return icon and ("|T%d:16:16|t %s"):format(icon, name) or name, C_Item.GetItemNameByID(itemID) or ""
 end
 
 local function AddJunkEntries(root, list, onRemove)
 	local entries = {}
-	for itemID in pairs(list) do
-		local text, sortName = JunkEntryText(itemID)
-		entries[#entries + 1] = { id = itemID, text = text, sortName = sortName }
+	for key, value in pairs(list) do
+		local text, sortName = JunkEntryText(key, value)
+		entries[#entries + 1] = { id = key, value = value, text = text, sortName = sortName }
 	end
 	table.sort(entries, function(a, b)
 		return a.sortName < b.sortName
@@ -428,11 +460,15 @@ local function AddJunkEntries(root, list, onRemove)
 	for _, entry in ipairs(entries) do
 		local button = root:CreateButton(entry.text, function()
 			list[entry.id] = nil
-			onRemove(entry.id)
+			onRemove(entry.id, entry.value)
 			return MenuResponse.CloseAll
 		end)
 		button:SetTooltip(function(tooltip)
-			tooltip:SetItemByID(entry.id)
+			if type(entry.value) == "string" then
+				tooltip:SetHyperlink(entry.value)
+			else
+				tooltip:SetItemByID(KeyItemID(entry.id))
+			end
 			GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
 		end)
 	end
@@ -452,9 +488,9 @@ function Items:ShowJunkMenu(owner)
 		root:CreateTitle(L.ITEMS_JUNK_LIST)
 		-- A grey item taken off the junk list would still be sold as grey;
 		-- it moves to the kept list instead.
-		local marked = AddJunkEntries(root, self.db.junk, function(itemID)
-			if C_Item.GetItemQualityByID(itemID) == Enum.ItemQuality.Poor then
-				self.db.keep[itemID] = true
+		local marked = AddJunkEntries(root, self.db.junk, function(key, value)
+			if C_Item.GetItemQualityByID(KeyItemID(key)) == Enum.ItemQuality.Poor then
+				self.db.keep[key] = value
 			end
 			Reopen()
 		end)

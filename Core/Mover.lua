@@ -222,14 +222,48 @@ local function StopMoving()
 	Save(frame, movingKey)
 end
 
+-- Windows also without Alt, but only on their own background or title area:
+-- clicks on buttons, items, lists and other child frames stay untouched.
+local wheelWindows = {}
+local ScaleFrame -- below
+
+-- Windows that already use the wheel themselves (e.g. merchant pages) keep it.
+local function EnableWindowWheel(frame)
+	if wheelWindows[frame] or (InCombatLockdown() and frame:IsProtected()) then
+		return
+	end
+	wheelWindows[frame] = true
+	if frame:IsMouseWheelEnabled() then
+		return
+	end
+	frame:EnableMouseWheel(true)
+	frame:HookScript("OnMouseWheel", function(self, delta)
+		local name = self:GetName()
+		if Mover.db.enabled and name and not IsLocked(name) and GetMouseFoci()[1] == self then
+			ScaleFrame(self, name, delta)
+		end
+	end)
+end
+
 function Mover:GLOBAL_MOUSE_DOWN(_, button)
-	if not IsAltKeyDown() or moving then
+	if moving then
 		return
 	end
 	local foci = GetMouseFoci()
-	local frame, key = FindTarget(foci and foci[1])
+	local region = foci and foci[1]
+	local frame, key = FindTarget(region)
 	if not frame then
 		return
+	end
+	local isWindow = not displayOf[frame]
+	if isWindow then
+		EnableWindowWheel(frame)
+	end
+	if not IsAltKeyDown() then
+		-- Displays handle plain clicks themselves; windows only on their background.
+		if not isWindow or region ~= frame then
+			return
+		end
 	end
 	if button == "RightButton" then
 		ToggleLock(key)
@@ -278,7 +312,7 @@ local function UpdateCatcherTarget()
 	end
 end
 
-local function ScaleFrame(frame, key, delta)
+function ScaleFrame(frame, key, delta)
 	if not frame or (InCombatLockdown() and frame:IsProtected()) then
 		return
 	end
@@ -343,7 +377,7 @@ end
 -- Former per-display lock options and display positions.
 local LEGACY_LOCKS = {
 	{ "Minimap", "lockCoords", "M:MinimapCoords" },
-	{ "Minimap", "lockWorldMap", "M:WorldMapCoords" },
+	{ "Minimap", "lockWorldMap", "M:MapCoords" },
 	{ "Info", "lockPerformance", "M:Performance" },
 }
 
@@ -362,6 +396,11 @@ local function Migrate()
 		end
 	end
 	saved["D:MinimapCoords"], saved["D:Performance"], saved.WorldMapCoords = nil, nil, nil
+	-- Blizzard's world map panel was replaced by an own display.
+	saved["M:WorldMapCoords"] = nil
+	if ns.db.locked["M:WorldMapCoords"] then
+		ns.db.locked["M:WorldMapCoords"], ns.db.locked["M:MapCoords"] = nil, true
+	end
 end
 
 function Mover:OnInitialize()

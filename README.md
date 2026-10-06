@@ -20,6 +20,11 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund | – |
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
+| | Spielernamen in Klassenfarbe (Blizzards eigene Einstellung) | ja |
+| | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
+| | Zeitstempel in eigener Farbe | ja |
+| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
+| | Beute zusammenfassen: eigene Beute und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet die Liste mit Herkunft; Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Name (und optional Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
@@ -32,7 +37,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Spezialisierung: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Spezialisierung, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge | ja |
 | | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
-| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern im Chat; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
@@ -103,6 +107,10 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Das `ADDON_ACTION_FORBIDDEN`-Popup wird nur protokolliert, nicht unterdrückt (Unterdrücken würde StaticPopups tainten).
 
 - Angeln per Doppel-Rechtsklick: nur mit angelegter Angel; erst nach dem Loslassen eines kurzen, ruhigen Rechtsklicks wird die rechte Maustaste für 0,4 s mit einem sicheren Knopf belegt. Kamera drehen (Rechtsklick halten) und Rechtsklick-Interaktion bleiben unberührt.
+- Chatfilter laufen über Blizzards Filterliste (`ChatFrameUtil.AddMessageEventFilter`), die Addon-Filter abgeschirmt aufruft und geschützte Nachrichten gar nicht erst übergibt; solche Nachrichten bleiben unverändert.
+- Kanalkürzel: Blizzards Chatcode verlangt die Kanalnummer vor dem Namen und vergleicht die Länge des Kanaltexts mit den beigetretenen Kanälen; die Nummer bleibt deshalb, und der Kurzname wird mit unsichtbaren `|r` auf die ursprüngliche Länge aufgefüllt.
+- Zeitstempelfarbe: der Farbcode steht im Zeitstempelformat (CVar `showTimestamps`). Blizzards Auswahlfeld unter Soziales enthält nur die ungefärbten Formate; eine neue Auswahl dort wird sofort wieder eingefärbt. Ausschalten stellt das ungefärbte Format her; wird ForeverPlus ohne Ausschalten entfernt, bleibt der Farbcode im Format.
+- Beute-Herkunft: angeklickte tote Einheit, sonst Ziel eines Zaubers bis 6 s vor dem Plündern (Kräuter, Erz, Kürschnern, Angeln), sonst geöffneter Taschengegenstand (bis 2 s), sonst totes Ziel; sonst „Unbekannt“. Geldanteile aus fremden Beutefenstern stehen als „Anteil der Gruppe“. Die Listen gelten bis zum Ausloggen (die letzten 20).
 - Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
 
 - Instanzquests: Quests unter dem Namen einer Instanz im Questlog (Namen aus den Dungeon-Karten von `C_Map`) oder mit Quest-Tag Dungeon/Schlachtzug. Vorquests außerhalb der Instanz zählen nicht dazu.

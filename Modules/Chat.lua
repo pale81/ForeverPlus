@@ -13,6 +13,12 @@ local Chat = ns:NewModule("Chat", {
 		tabFade = true,
 		keywordAlert = false,
 		keywordSound = "RAID_WARNING",
+		keywordHighlight = false,
+		keywordColor = "ORANGE",
+		classColors = false,
+		channelShort = false,
+		timestampColor = false,
+		timestampColorValue = "GREY",
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -200,7 +206,38 @@ function Chat:ApplyTransparency(force)
 end
 
 ---------------------------------------------------------------------------
--- Keyword alert: a sound when a chat message contains one of the keywords
+-- Message filters run through Blizzard's filter registry, which calls them
+-- with securecallfunction and skips messages that addons cannot read.
+---------------------------------------------------------------------------
+local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
+local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+
+local function SetFilter(events, enabled, filter)
+	for _, event in ipairs(events) do
+		RemoveFilter(event, filter)
+		if enabled then
+			AddFilter(event, filter)
+		end
+	end
+end
+
+local COLORS = { "GREY", "ORANGE", "YELLOW", "BLUE", "GREEN", "RED", "WHITE" }
+local COLOR_CODES = {
+	GREY = "a0a0a0", ORANGE = "ff8000", YELLOW = "ffd100", BLUE = "40c0ff",
+	GREEN = "40ff40", RED = "ff4040", WHITE = "ffffff",
+}
+
+local function ColorValues()
+	local values = {}
+	for _, key in ipairs(COLORS) do
+		values[#values + 1] = { key, ("|cff%s%s|r"):format(COLOR_CODES[key], L["CHAT_COLOR_" .. key]) }
+	end
+	return values
+end
+
+---------------------------------------------------------------------------
+-- Keyword alert: a sound when a chat message contains one of the keywords as
+-- a whole word, optionally the word coloured in the chat.
 ---------------------------------------------------------------------------
 local KEYWORD_EVENTS = {
 	"CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER",
@@ -209,7 +246,10 @@ local KEYWORD_EVENTS = {
 }
 local KEYWORD_SOUNDS = { "RAID_WARNING", "READY_CHECK", "TELL_MESSAGE", "ALARM_CLOCK_WARNING_3", "MAP_PING" }
 local SOUND_THROTTLE = 2
-local keywordList = {}
+-- Letters, digits and the bytes of UTF-8 characters (umlauts) form words.
+local WORD_START = "%f[%w\128-\255]"
+local WORD_END = "%f[^%w\128-\255]"
+local keywordList = {} -- Lua patterns
 local lastAlert = 0
 local playerName = UnitName("player")
 
@@ -234,34 +274,123 @@ local function Keywords()
 	return cdb.keywords
 end
 
+local function KeywordPattern(word)
+	local pattern = word:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+	if word:find("^[%w\128-\255]") then
+		pattern = WORD_START .. pattern
+	end
+	if word:find("[%w\128-\255]$") then
+		pattern = pattern .. WORD_END
+	end
+	return pattern
+end
+
 local function ParseKeywords()
 	wipe(keywordList)
 	for word in Keywords():gmatch("[^,;]+") do
 		word = strtrim(word):lower()
 		if word ~= "" then
-			keywordList[#keywordList + 1] = word
+			keywordList[#keywordList + 1] = KeywordPattern(word)
 		end
 	end
+end
+
+-- Calls fn on every part of the text outside of hyperlinks; returns the
+-- reassembled text.
+local function MapPlainText(text, fn)
+	if not text:find("|H", 1, true) then
+		return fn(text)
+	end
+	local parts, pos = {}, 1
+	while true do
+		local first, last = text:find("|H.-|h.-|h", pos)
+		if not first then
+			break
+		end
+		parts[#parts + 1] = fn(text:sub(pos, first - 1))
+		parts[#parts + 1] = text:sub(first, last)
+		pos = last + 1
+	end
+	parts[#parts + 1] = fn(text:sub(pos))
+	return table.concat(parts)
+end
+
+local function ContainsKeyword(text)
+	local found = false
+	MapPlainText(text, function(part)
+		if not found then
+			local lower = part:lower()
+			for _, pattern in ipairs(keywordList) do
+				if lower:find(pattern) then
+					found = true
+					break
+				end
+			end
+		end
+		return ""
+	end)
+	return found
+end
+
+local hits = {}
+local function SortHits(a, b)
+	return a[1] < b[1]
+end
+
+local function HighlightPart(part)
+	local lower = part:lower()
+	wipe(hits)
+	for _, pattern in ipairs(keywordList) do
+		local init = 1
+		while true do
+			local first, last = lower:find(pattern, init)
+			if not first or last < first then
+				break
+			end
+			hits[#hits + 1] = { first, last }
+			init = last + 1
+		end
+	end
+	if #hits == 0 then
+		return part
+	end
+	table.sort(hits, SortHits)
+	local color = "|cff" .. (COLOR_CODES[Chat.db.keywordColor] or COLOR_CODES.ORANGE)
+	local out, pos = {}, 1
+	for _, hit in ipairs(hits) do
+		if hit[1] >= pos then
+			out[#out + 1] = part:sub(pos, hit[1] - 1)
+			out[#out + 1] = color .. part:sub(hit[1], hit[2]) .. "|r"
+			pos = hit[2] + 1
+		end
+	end
+	out[#out + 1] = part:sub(pos)
+	return table.concat(out)
+end
+
+local function IsOwnMessage(sender)
+	return sender and Ambiguate(sender, "short") == playerName
 end
 
 local function OnChatMessage(_, _, text, sender)
 	if #keywordList == 0 or type(text) ~= "string" or (issecretvalue and (issecretvalue(text) or issecretvalue(sender))) then
 		return
 	end
-	if sender and Ambiguate(sender, "short") == playerName then
+	if IsOwnMessage(sender) or not ContainsKeyword(text) then
 		return
 	end
-	local lower = text:lower()
-	for _, word in ipairs(keywordList) do
-		if lower:find(word, 1, true) then
-			local now = GetTime()
-			if now - lastAlert >= SOUND_THROTTLE then
-				lastAlert = now
-				PlayKeywordSound()
-			end
-			return
-		end
+	local now = GetTime()
+	if now - lastAlert >= SOUND_THROTTLE then
+		lastAlert = now
+		PlayKeywordSound()
 	end
+end
+
+local function HighlightFilter(_, _, text, sender, ...)
+	if #keywordList == 0 or type(text) ~= "string" or IsOwnMessage(sender) or not ContainsKeyword(text) then
+		return false
+	end
+	return false, MapPlainText(text, HighlightPart), sender, ...
 end
 
 function Chat:UpdateKeywordAlert()
@@ -270,6 +399,98 @@ function Chat:UpdateKeywordAlert()
 	for _, event in ipairs(KEYWORD_EVENTS) do
 		self:ToggleEvent(event, enabled, OnChatMessage)
 	end
+	SetFilter(KEYWORD_EVENTS, self.db.keywordHighlight and #keywordList > 0, HighlightFilter)
+end
+
+---------------------------------------------------------------------------
+-- Class coloured names: Blizzard's own switch (CVar chatClassColorOverride,
+-- "0" = always class colours). Switching off restores the former value.
+---------------------------------------------------------------------------
+function Chat:UpdateClassColors(changed)
+	local current = GetCVar("chatClassColorOverride")
+	if self.db.classColors then
+		if current ~= "0" then
+			self.db.classColorsPrevious = current
+			SetCVar("chatClassColorOverride", "0")
+		end
+	elseif changed and current == "0" then
+		SetCVar("chatClassColorOverride", self.db.classColorsPrevious or "2")
+	end
+end
+
+---------------------------------------------------------------------------
+-- Short channel names: [2. Handel - Stadt] becomes [2. H]. Blizzard's code
+-- needs the number in front and compares the length of the channel string
+-- with the joined channel names, so the short name is padded with "|r"
+-- (invisible) to the original length.
+---------------------------------------------------------------------------
+local shortNames = {}
+
+local function ShortName(baseName)
+	local short = shortNames[baseName]
+	if not short then
+		local letters = {}
+		for word in baseName:gmatch("[^%s%-%(%)%.:/]+") do
+			-- First character (UTF-8 aware) plus inner capitals (LokaleVerteidigung).
+			letters[#letters + 1] = word:match("^[%z\1-\127\194-\244][\128-\191]*"):upper()
+			for capital in word:sub(2):gmatch("%u") do
+				letters[#letters + 1] = capital
+			end
+		end
+		short = table.concat(letters)
+		if short == "" then
+			short = baseName
+		end
+		shortNames[baseName] = short
+	end
+	return short
+end
+
+local function ChannelFilter(_, _, a1, a2, a3, a4, a5, a6, a7, a8, a9, ...)
+	if type(a4) ~= "string" or type(a8) ~= "number" or type(a9) ~= "string" or a9 == "" then
+		return false
+	end
+	local short = ("%d. %s"):format(a8, ShortName(a9))
+	if #short < #a4 then
+		short = short .. ("|r"):rep(math.ceil((#a4 - #short) / 2))
+	end
+	return false, a1, a2, a3, short, a5, a6, a7, a8, a9, ...
+end
+
+function Chat:UpdateChannelNames()
+	SetFilter({ "CHAT_MSG_CHANNEL" }, self.db.channelShort, ChannelFilter)
+end
+
+---------------------------------------------------------------------------
+-- Coloured timestamps: the colour code is written into Blizzard's timestamp
+-- format (CVar showTimestamps). Switching off restores the plain format.
+---------------------------------------------------------------------------
+local settingTimestamp
+
+local function PlainTimestamp(value)
+	return (value:gsub("^|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+function Chat:UpdateTimestampColor()
+	local current = GetCVar("showTimestamps")
+	if not current or current == "" or current == "none" then
+		return
+	end
+	local wanted = PlainTimestamp(current)
+	if self.db.timestampColor then
+		local body, space = wanted:match("^(.-)(%s*)$")
+		wanted = ("|cff%s%s|r%s"):format(COLOR_CODES[self.db.timestampColorValue] or COLOR_CODES.GREY, body, space)
+	end
+	if wanted ~= current then
+		settingTimestamp = true
+		SetCVar("showTimestamps", wanted)
+		settingTimestamp = nil
+	end
+	self:ToggleEvent("CVAR_UPDATE", self.db.timestampColor, function(_, _, name)
+		if name == "showTimestamps" and not settingTimestamp then
+			self:UpdateTimestampColor()
+		end
+	end)
 end
 
 function Chat:EditKeywords()
@@ -306,6 +527,9 @@ function Chat:OnLogin()
 	-- Chat window settings arrive from the server after login and may overwrite
 	-- the first application, so apply once more when they do.
 	self:UpdateKeywordAlert()
+	self:UpdateClassColors()
+	self:UpdateChannelNames()
+	self:UpdateTimestampColor()
 	self:ApplyTransparency()
 	self:RegisterEvent("UPDATE_CHAT_WINDOWS", function()
 		self:UnregisterEvent("UPDATE_CHAT_WINDOWS")
@@ -316,8 +540,14 @@ function Chat:OnLogin()
 end
 
 function Chat:OnOptionChanged(key, value)
-	if key == "keywordAlert" then
+	if key == "keywordAlert" or key == "keywordHighlight" then
 		self:UpdateKeywordAlert()
+	elseif key == "classColors" then
+		self:UpdateClassColors(true)
+	elseif key == "channelShort" then
+		self:UpdateChannelNames()
+	elseif key == "timestampColor" or key == "timestampColorValue" then
+		self:UpdateTimestampColor()
 	elseif key == "hideButtons" then
 		self:UpdateButtons()
 	elseif key == "tabFade" then
@@ -342,6 +572,12 @@ Chat.options = {
 	{ key = "tabFade", type = "toggle", name = L.CHAT_TAB_FADE, desc = L.CHAT_TAB_FADE_DESC },
 	{ key = "languageClick", type = "toggle", name = L.CHAT_LANGUAGE_CLICK, desc = L.CHAT_LANGUAGE_CLICK_DESC },
 	{ key = "languageMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "languageClick" },
+	{ key = "transparent", type = "toggle", name = L.CHAT_TRANSPARENT, desc = L.CHAT_TRANSPARENT_DESC },
+	{ type = "header", name = L.CHAT_MESSAGES_HEADER },
+	{ key = "classColors", type = "toggle", name = L.CHAT_CLASS_COLORS, desc = L.CHAT_CLASS_COLORS_DESC },
+	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },
+	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },
+	{ key = "timestampColorValue", type = "dropdown", name = L.CHAT_COLOR, parent = "timestampColor", values = ColorValues },
 	{ type = "header", name = L.CHAT_KEYWORD_HEADER },
 	{ key = "keywordAlert", type = "toggle", name = L.CHAT_KEYWORD_ALERT, desc = L.CHAT_KEYWORD_ALERT_DESC },
 	{ type = "button", name = L.CHAT_KEYWORDS, text = L.CHAT_KEYWORDS_EDIT, func = function()
@@ -355,5 +591,6 @@ Chat.options = {
 		return values
 	end },
 	{ type = "button", name = L.CHAT_KEYWORD_TEST, text = L.QUESTS_TEST, func = PlayKeywordSound },
-	{ key = "transparent", type = "toggle", name = L.CHAT_TRANSPARENT, desc = L.CHAT_TRANSPARENT_DESC },
+	{ key = "keywordHighlight", type = "toggle", name = L.CHAT_KEYWORD_HIGHLIGHT, desc = L.CHAT_KEYWORD_HIGHLIGHT_DESC },
+	{ key = "keywordColor", type = "dropdown", name = L.CHAT_COLOR, parent = "keywordHighlight", values = ColorValues },
 }

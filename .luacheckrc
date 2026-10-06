@@ -23,6 +23,9 @@ globals = {
 
 read_globals = {
 	"HasAction", "GetActionInfo", "PlaceAction",
+	"LOOT_ITEM_SELF", "LOOT_ITEM_SELF_MULTIPLE", "YOU_LOOT_MONEY", "YOU_LOOT_MONEY_GUILD", "LOOT_MONEY_SPLIT", "LOOT_MONEY_SPLIT_GUILD",
+	"GOLD_AMOUNT", "SILVER_AMOUNT", "COPPER_AMOUNT", "ChatTypeInfo", "ChatFrame_AddMessageEventFilter", "ChatFrame_RemoveMessageEventFilter",
+	"GameFontHighlight", "ITEM_QUALITY_COLORS", "NONE", "SetItemRef", "UnitIsDead",
 	"ProfessionsBookFrame",
 	"UnitHealthPercent",
 	"IsInInstance",

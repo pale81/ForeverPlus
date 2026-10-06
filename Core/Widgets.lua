@@ -44,6 +44,52 @@ function ns.ShowTextWindow(key, title, text)
 	return frame
 end
 
+-- Read-only list of lines; item links show their tooltip on mouse over and
+-- work like chat links when clicked (Shift-click inserts them).
+function ns.ShowLinkWindow(key, title, lines)
+	local frame = windows[key]
+	if not frame then
+		frame = CreateWindow(key, 460, 420)
+		local list = CreateFrame("ScrollingMessageFrame", nil, frame)
+		list:SetPoint("TOPLEFT", 16, -34)
+		list:SetPoint("BOTTOMRIGHT", -16, 12)
+		list:SetFontObject(GameFontHighlight)
+		list:SetJustifyH("LEFT")
+		list:SetIndentedWordWrap(true)
+		list:SetFading(false)
+		list:SetMaxLines(1000)
+		list:SetHyperlinksEnabled(true)
+		list:EnableMouseWheel(true)
+		list:SetScript("OnMouseWheel", function(self, delta)
+			if delta > 0 then
+				self:ScrollUp()
+			else
+				self:ScrollDown()
+			end
+		end)
+		list:SetScript("OnHyperlinkEnter", function(self, link)
+			if link:find("^item:") then
+				GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+				GameTooltip:SetHyperlink(link)
+				GameTooltip:Show()
+			end
+		end)
+		list:SetScript("OnHyperlinkLeave", GameTooltip_Hide)
+		list:SetScript("OnHyperlinkClick", function(_, link, text, button)
+			SetItemRef(link, text, button)
+		end)
+		frame.List = list
+	end
+	frame.TitleText:SetText(title)
+	frame.List:Clear()
+	for _, line in ipairs(lines) do
+		frame.List:AddMessage(line)
+	end
+	frame:Show()
+	frame.List:ScrollToTop()
+	return frame
+end
+
 -- Text input; onAccept(text) is called by the button. The text starts
 -- selected, so Ctrl+C copies it right away.
 function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)

@@ -34,7 +34,8 @@ local function UpdateGlow(button, quality)
 		return
 	end
 	local border = borders[button]
-	if quality and quality >= Enum.ItemQuality.Uncommon then
+	-- Round buttons (profession output) already get Blizzard's round quality ring.
+	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
 		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
 		local icon = button.Icon or button.icon
 		local anchor = button

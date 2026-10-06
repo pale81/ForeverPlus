@@ -128,6 +128,193 @@ function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
 end
 
 ---------------------------------------------------------------------------
+-- Soft popup list at its owner (e.g. a settings button): rows with icon and
+-- text, optional check mark and tooltip. A click runs the row's action and
+-- rebuilds the list in place. Closes with Escape, a click elsewhere or when
+-- the owner disappears. build() returns { title, items, empty, footer }.
+---------------------------------------------------------------------------
+local POPUP_WIDTH, ROW_HEIGHT, MAX_ROWS, POPUP_PAD = 300, 22, 14, 8
+local popup
+
+local function PopupRow(index)
+	local row = popup.rows[index]
+	if row then
+		return row
+	end
+	row = CreateFrame("Button", nil, popup)
+	row:SetHeight(ROW_HEIGHT)
+	row:SetPoint("TOPLEFT", popup.Title, "BOTTOMLEFT", 0, -6 - (index - 1) * ROW_HEIGHT)
+	row:SetPoint("RIGHT", popup, "RIGHT", -POPUP_PAD, 0)
+	local highlight = row:CreateTexture()
+	highlight:SetAllPoints()
+	highlight:SetColorTexture(1, 1, 1, 0.08)
+	row:SetHighlightTexture(highlight)
+	row.Icon = row:CreateTexture(nil, "ARTWORK")
+	row.Icon:SetSize(18, 18)
+	row.Icon:SetPoint("LEFT", 2, 0)
+	row.Check = row:CreateTexture(nil, "OVERLAY")
+	row.Check:SetSize(16, 16)
+	row.Check:SetPoint("RIGHT", -2, 0)
+	row.Text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	row.Text:SetPoint("LEFT", row.Icon, "RIGHT", 6, 0)
+	row.Text:SetPoint("RIGHT", row.Check, "LEFT", -4, 0)
+	row.Text:SetJustifyH("LEFT")
+	row.Text:SetWordWrap(false)
+	row:SetScript("OnEnter", function(self)
+		local item = self.item
+		if item and item.tooltip then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			item.tooltip(GameTooltip)
+			GameTooltip:Show()
+		end
+	end)
+	row:SetScript("OnLeave", GameTooltip_Hide)
+	row:SetScript("OnClick", function(self)
+		local item = self.item
+		if item and item.onClick then
+			GameTooltip_Hide()
+			item.onClick()
+			popup:Refresh()
+		end
+	end)
+	popup.rows[index] = row
+	return row
+end
+
+local function PopupFooter(index)
+	local button = popup.footer[index]
+	if not button then
+		button = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
+		button:SetSize(120, 20)
+		button:SetScript("OnClick", function(self)
+			if self.action then
+				self.action()
+				popup:Refresh()
+			end
+		end)
+		popup.footer[index] = button
+	end
+	return button
+end
+
+local function CreatePopup()
+	popup = CreateFrame("Frame", "ForeverPlusPopupList", UIParent, "TooltipBackdropTemplate")
+	popup:SetFrameStrata("FULLSCREEN_DIALOG")
+	popup:SetToplevel(true)
+	popup:SetClampedToScreen(true)
+	popup:EnableMouse(true)
+	popup:EnableMouseWheel(true)
+	popup:SetWidth(POPUP_WIDTH)
+	popup.rows, popup.footer, popup.offset = {}, {}, 0
+	popup.Title = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	popup.Title:SetPoint("TOPLEFT", POPUP_PAD + 2, -POPUP_PAD - 2)
+	popup.Title:SetPoint("RIGHT", -POPUP_PAD, 0)
+	popup.Title:SetJustifyH("LEFT")
+	popup.Info = popup:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	popup.Info:SetPoint("TOPRIGHT", -POPUP_PAD - 2, -POPUP_PAD - 3)
+	popup.Empty = popup:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+	popup.Empty:SetPoint("TOPLEFT", popup.Title, "BOTTOMLEFT", 2, -8)
+	local fade = popup:CreateAnimationGroup()
+	local alpha = fade:CreateAnimation("Alpha")
+	alpha:SetFromAlpha(0)
+	alpha:SetToAlpha(1)
+	alpha:SetDuration(0.12)
+	popup.Fade = fade
+	tinsert(UISpecialFrames, popup:GetName())
+	popup:SetScript("OnMouseWheel", function(self, delta)
+		self.offset = self.offset - delta * 3
+		self:Refresh()
+	end)
+	popup:SetScript("OnEvent", function(self)
+		if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then
+			self:Hide()
+		end
+	end)
+	popup:SetScript("OnShow", function(self)
+		self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+	end)
+	popup:SetScript("OnHide", function(self)
+		self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+		self.owner, self.build = nil, nil
+	end)
+	popup:SetScript("OnUpdate", function(self)
+		if self.owner and not self.owner:IsVisible() then
+			self:Hide()
+		end
+	end)
+
+	function popup:Refresh()
+		local data = self.build and self.build() or {}
+		local items = data.items or {}
+		self.Title:SetText(data.title or "")
+		local visible = math.min(#items, MAX_ROWS)
+		self.offset = math.max(0, math.min(self.offset, #items - visible))
+		for i = 1, math.max(visible, #self.rows) do
+			local item = i <= visible and items[i + self.offset]
+			local row = (item or self.rows[i]) and PopupRow(i)
+			if row then
+				row.item = item or nil
+				row:SetShown(item and true or false)
+				if item then
+					-- Rows without an action are section titles.
+					row:SetEnabled(item.onClick ~= nil)
+					row.Text:SetText(item.onClick and (item.text or "") or NORMAL_FONT_COLOR:WrapTextInColorCode(item.text or ""))
+					row.Icon:SetShown(item.icon ~= nil)
+					if item.icon then
+						row.Icon:SetTexture(item.icon)
+					end
+					row.Check:SetShown(item.checked ~= nil)
+					if item.checked ~= nil then
+						row.Check:SetAtlas(item.checked and "common-icon-checkmark" or "common-icon-redx")
+					end
+				end
+			end
+		end
+		self.Info:SetText(#items > visible and ("%d-%d / %d"):format(self.offset + 1, self.offset + visible, #items) or "")
+		self.Empty:SetText(#items == 0 and (data.empty or "") or "")
+		local height = POPUP_PAD * 2 + 20 + math.max(visible, #items == 0 and 1 or 0) * ROW_HEIGHT
+		local footer = data.footer or {}
+		for _, button in ipairs(self.footer) do
+			button:Hide()
+		end
+		for i, entry in ipairs(footer) do
+			local button = PopupFooter(i)
+			button:SetText(entry.text)
+			button.action = entry.onClick
+			button:ClearAllPoints()
+			button:SetPoint("BOTTOMLEFT", POPUP_PAD + (i - 1) * 126, POPUP_PAD)
+			button:Show()
+		end
+		if #footer > 0 then
+			height = height + 28
+		end
+		self:SetHeight(height)
+	end
+end
+
+function ns.ShowPopupList(owner, build)
+	if not popup then
+		CreatePopup()
+	end
+	if popup:IsShown() and popup.owner == owner then
+		popup:Hide()
+		return
+	end
+	popup.owner, popup.build, popup.offset = owner, build, 0
+	popup:ClearAllPoints()
+	if owner then
+		popup:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -4)
+	else
+		local x, y = GetCursorPosition()
+		local scale = UIParent:GetEffectiveScale()
+		popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+	end
+	popup:Refresh()
+	popup:Show()
+	popup.Fade:Play()
+end
+
+---------------------------------------------------------------------------
 -- Crisp pixel border with slightly rounded (stepped) corners
 ---------------------------------------------------------------------------
 local BorderMixin = {}

@@ -13,6 +13,13 @@ local Quests = ns:NewModule("Quests", {
 		nameplateIcons = true,
 		itemButton = true,
 		trackerSort = "default",
+		classFirst = true,
+		instanceTab = true,
+		regionOnly = false,
+	},
+	charDefaults = {
+		trackerTab = "world",
+		-- watched = { [questID] = true }: quests the player wants tracked
 	},
 })
 
@@ -287,23 +294,36 @@ function Quests:UpdateItemTicker()
 end
 
 ---------------------------------------------------------------------------
--- Quest tracker order: watched quests are re-added in the chosen order
+-- Quest tracker: order, class quests first, a tab for instance quests and an
+-- optional filter for the current region. ForeverPlus remembers which quests
+-- the player tracks and shows the matching ones in the chosen order by
+-- re-adding the watches (Blizzard's tracker lists them in watch order).
 ---------------------------------------------------------------------------
 local SORT_DELAY = 1
 local DISTANCE_INTERVAL = 10
 local VERIFY_DELAY = 0.5
 local OWN_CHANGE_TIME = 1.5 -- watch list events after our own re-adding are ignored
 local SORT_MODES = { "default", "level", "zone", "distance", "name", "progress" }
+local INSTANCE_TAGS = { [81] = true, [62] = true, [85] = true, [88] = true, [89] = true }
+local MAX_WATCHES = Constants and Constants.QuestWatchConsts and Constants.QuestWatchConsts.MAX_QUEST_WATCHES or 25
 local sortPending, sortTicker
 local ownChangeUntil = 0
+local managing = false
+local forced = {} -- tracked by the player in this zone despite the region filter
 -- Whether a new watch lands at the top; found out from the result.
 local addsOnTop = false
+local playerClassName = UnitClass("player")
 
 local function TextLess(a, b)
 	if strcmputf8i then
 		return strcmputf8i(a, b) < 0
 	end
 	return a:lower() < b:lower()
+end
+
+local function IsInstanceQuest(questID)
+	local tag = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
+	return tag and INSTANCE_TAGS[tag.tagID] or false
 end
 
 local function QuestFacts()
@@ -315,16 +335,19 @@ local function QuestFacts()
 			if info.isHeader then
 				zone = info.title or ""
 			elseif info.questID then
+				local questID = info.questID
 				local done, total = 0, 0
-				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
+				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
 					done = done + min(objective.numFulfilled or 0, objective.numRequired or 0)
 					total = total + (objective.numRequired or 0)
 				end
-				local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(info.questID)
-				facts[info.questID] = {
+				local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+				facts[questID] = {
 					index = index, level = info.level or 0, title = info.title or "", zone = zone,
 					here = zone == currentZone,
-					ready = ns.IsQuestReady(info.questID, index),
+					class = zone == playerClassName,
+					instance = IsInstanceQuest(questID),
+					ready = ns.IsQuestReady(questID, index),
 					progress = total > 0 and done / total or 0,
 					distance = onContinent and distance or math.huge,
 				}
@@ -414,6 +437,68 @@ local function WriteWatches(current, sorted)
 	end
 end
 
+-- Something to manage at all; otherwise Blizzard's tracker stays untouched.
+local function IsManaging()
+	local db = Quests.db
+	return db.trackerSort ~= "default" or db.classFirst or db.instanceTab or db.regionOnly
+end
+
+local function WantedList(facts)
+	local cdb = Quests.cdb
+	if not cdb.watched then
+		cdb.watched = {}
+		for _, questID in ipairs(CurrentWatches(facts)) do
+			cdb.watched[questID] = true
+		end
+	end
+	-- Quests no longer in the log are forgotten (only once the log is loaded).
+	if next(facts) then
+		for questID in pairs(cdb.watched) do
+			if not facts[questID] then
+				cdb.watched[questID] = nil
+			end
+		end
+	end
+	return cdb.watched
+end
+
+local function Passes(questID, fact)
+	local db, tab = Quests.db, Quests.cdb.trackerTab
+	if db.instanceTab then
+		if (tab == "instance") ~= fact.instance then
+			return false
+		end
+	end
+	if db.regionOnly and not fact.instance and not fact.class and not forced[questID] then
+		return fact.here or (C_QuestLog.IsOnMap and C_QuestLog.IsOnMap(questID)) or false
+	end
+	return true
+end
+
+-- Watches that should be shown, in order.
+local function DesiredWatches(facts)
+	local compare = COMPARE[Quests.db.trackerSort] or COMPARE.default
+	local classFirst = Quests.db.classFirst
+	local list = {}
+	for questID in pairs(WantedList(facts)) do
+		local fact = facts[questID]
+		if fact and Passes(questID, fact) then
+			list[#list + 1] = questID
+		end
+	end
+	table.sort(list, function(a, b)
+		local fa, fb = facts[a], facts[b]
+		if classFirst and fa.class ~= fb.class then
+			return fa.class
+		end
+		return compare(fa, fb)
+	end)
+	for i = #list, MAX_WATCHES + 1, -1 do
+		list[i] = nil
+	end
+	return list
+end
+
 local SortTracker
 
 -- Checks the result once; a reversed list means new watches land on top.
@@ -431,29 +516,33 @@ local function VerifyOrder(sorted, retried)
 	end
 end
 
+local UpdateTabs
+
 function SortTracker()
 	sortPending = false
-	local compare = COMPARE[Quests.db.trackerSort]
-	if not compare or InCombatLockdown() then
+	if InCombatLockdown() then
+		return
+	end
+	if UpdateTabs then
+		UpdateTabs()
+	end
+	if not IsManaging() then
 		return
 	end
 	local facts = QuestFacts()
 	local current = CurrentWatches(facts)
-	local sorted = CopyTable(current)
-	table.sort(sorted, function(a, b)
-		return compare(facts[a], facts[b])
-	end)
-	if SameOrder(current, sorted) then
+	local desired = DesiredWatches(facts)
+	if SameOrder(current, desired) then
 		return
 	end
-	WriteWatches(current, sorted)
+	WriteWatches(current, desired)
 	C_Timer.After(VERIFY_DELAY, function()
-		VerifyOrder(sorted)
+		VerifyOrder(desired)
 	end)
 end
 
 local function QueueSort()
-	if not sortPending and Quests.db.trackerSort ~= "default" then
+	if not sortPending and IsManaging() then
 		sortPending = true
 		C_Timer.After(SORT_DELAY, SortTracker)
 	end
@@ -463,14 +552,58 @@ function Quests:QueueTrackerSort()
 	QueueSort()
 end
 
-local function OnWatchListChanged()
-	if GetTime() >= ownChangeUntil then
-		QueueSort()
+-- Player's own tracking changes are remembered; ours are ignored.
+local function OnWatchListChanged(_, _, questID, added)
+	if GetTime() < ownChangeUntil then
+		return
 	end
+	if questID and IsManaging() then
+		local watched = WantedList(QuestFacts())
+		if added == nil then
+			added = C_QuestLog.GetQuestWatchType and C_QuestLog.GetQuestWatchType(questID) ~= nil
+		end
+		watched[questID] = added and true or nil
+		if added then
+			forced[questID] = true
+			-- A quest tracked from the other tab switches to that tab.
+			if Quests.db.instanceTab then
+				Quests.cdb.trackerTab = IsInstanceQuest(questID) and "instance" or "world"
+			end
+		end
+	end
+	QueueSort()
 end
 
--- "default" leaves Blizzard's order alone; only switching back to it from
--- another mode restores the quest log order once.
+local function OnZoneChanged()
+	wipe(forced)
+	-- Entering or leaving a dungeon or raid picks the matching tab.
+	if Quests.db.instanceTab then
+		local inInstance, instanceType = IsInInstance()
+		local tab = inInstance and (instanceType == "party" or instanceType == "raid") and "instance" or "world"
+		if Quests.lastInstanceState ~= tab then
+			Quests.lastInstanceState = tab
+			Quests.cdb.trackerTab = tab
+		end
+	end
+	QueueSort()
+end
+
+-- Switching everything off shows all tracked quests again in log order.
+local function RestoreWatches()
+	if InCombatLockdown() or not Quests.cdb.watched then
+		return
+	end
+	local facts = QuestFacts()
+	local list = {}
+	for questID in pairs(WantedList(facts)) do
+		list[#list + 1] = questID
+	end
+	table.sort(list, function(a, b)
+		return facts[a].index < facts[b].index
+	end)
+	WriteWatches(CurrentWatches(facts), list)
+end
+
 function Quests:UpdateTrackerSort(switched)
 	local mode = self.db.trackerSort
 	if sortTicker then
@@ -480,11 +613,82 @@ function Quests:UpdateTrackerSort(switched)
 	if mode == "distance" then
 		sortTicker = C_Timer.NewTicker(DISTANCE_INTERVAL, QueueSort)
 	end
-	if mode ~= "default" then
+	local now = IsManaging()
+	if now then
+		-- Switched on in the settings: start from what is tracked right now.
+		if switched and not managing then
+			self.cdb.watched = nil
+		end
 		QueueSort()
-	elseif switched then
-		SortTracker()
+	elseif managing and switched then
+		RestoreWatches()
+		self.cdb.watched = nil
 	end
+	managing = now
+	if UpdateTabs then
+		UpdateTabs()
+	end
+end
+
+---------------------------------------------------------------------------
+-- Tabs on the tracker header: world quests | instance quests
+---------------------------------------------------------------------------
+local tabs
+
+local function TabCounts()
+	local facts = QuestFacts()
+	local world, instance = 0, 0
+	for questID in pairs(WantedList(facts)) do
+		if facts[questID] then
+			if facts[questID].instance then
+				instance = instance + 1
+			else
+				world = world + 1
+			end
+		end
+	end
+	return world, instance
+end
+
+function UpdateTabs()
+	if not tabs then
+		return
+	end
+	local shown = Quests.db.instanceTab
+	tabs.world:SetShown(shown)
+	tabs.instance:SetShown(shown)
+	if not shown then
+		return
+	end
+	local world, instance = TabCounts()
+	local selected = Quests.cdb.trackerTab
+	for key, tab in pairs({ world = tabs.world, instance = tabs.instance }) do
+		local count = key == "world" and world or instance
+		tab:SetText(("%s (%d)"):format(key == "world" and L.QUESTS_TAB_WORLD or L.QUESTS_TAB_INSTANCE, count))
+		tab:SetWidth(tab:GetTextWidth() + 10)
+		local color = key == selected and NORMAL_FONT_COLOR or GRAY_FONT_COLOR
+		tab:GetFontString():SetTextColor(color:GetRGB())
+		tab.Underline:SetShown(key == selected)
+	end
+end
+
+local function CreateTab(header, key)
+	local tab = CreateFrame("Button", nil, header)
+	tab:SetHeight(16)
+	tab:SetNormalFontObject("GameFontNormalSmall")
+	tab:SetText(key)
+	tab:SetHighlightAtlas("ui-questtrackerbutton-yellow-highlight", "ADD")
+	tab.Underline = tab:CreateTexture(nil, "ARTWORK")
+	tab.Underline:SetColorTexture(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 0.8)
+	tab.Underline:SetHeight(1)
+	tab.Underline:SetPoint("BOTTOMLEFT", 3, 0)
+	tab.Underline:SetPoint("BOTTOMRIGHT", -3, 0)
+	tab:SetScript("OnClick", function()
+		Quests.cdb.trackerTab = key
+		UpdateTabs()
+		SortTracker()
+	end)
+	return tab
 end
 
 local function ShowSortMenu(owner)
@@ -523,6 +727,11 @@ local function CreateSortButton()
 		GameTooltip:Show()
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
+
+	tabs = { world = CreateTab(header, "world"), instance = CreateTab(header, "instance") }
+	tabs.instance:SetPoint("RIGHT", button, "LEFT", -4, 0)
+	tabs.world:SetPoint("RIGHT", tabs.instance, "LEFT", -2, 0)
+	UpdateTabs()
 end
 
 ---------------------------------------------------------------------------
@@ -543,10 +752,17 @@ function Quests:OnLogin()
 	self:UpdateItemTicker()
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", CreateSortButton)
 	self:RegisterEvent("QUEST_ACCEPTED", QueueSort)
+	self:RegisterEvent("QUEST_REMOVED", function(_, _, questID)
+		if questID and self.cdb.watched then
+			self.cdb.watched[questID] = nil
+		end
+		QueueSort()
+	end)
 	self:RegisterEvent("QUEST_WATCH_LIST_CHANGED", OnWatchListChanged)
 	-- Blizzard sorts the watches by proximity on zone changes.
-	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", QueueSort)
+	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", OnZoneChanged)
 	self:RegisterEvent("ZONE_CHANGED", QueueSort)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", OnZoneChanged)
 	self:UpdateTrackerSort()
 end
 
@@ -566,7 +782,7 @@ function Quests:OnOptionChanged(key, value)
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
-	elseif key == "trackerSort" then
+	elseif key == "trackerSort" or key == "classFirst" or key == "instanceTab" or key == "regionOnly" then
 		self:UpdateTrackerSort(true)
 	end
 end
@@ -595,6 +811,9 @@ Quests.options = {
 		end
 		return values
 	end },
+	{ key = "classFirst", type = "toggle", name = L.QUESTS_CLASS_FIRST, desc = L.QUESTS_CLASS_FIRST_DESC },
+	{ key = "instanceTab", type = "toggle", name = L.QUESTS_INSTANCE_TAB, desc = L.QUESTS_INSTANCE_TAB_DESC },
+	{ key = "regionOnly", type = "toggle", name = L.QUESTS_REGION_ONLY, desc = L.QUESTS_REGION_ONLY_DESC },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },
 	{ type = "header", name = L.QUESTS_NAMEPLATES },

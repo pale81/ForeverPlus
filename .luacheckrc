@@ -22,6 +22,7 @@ globals = {
 }
 
 read_globals = {
+	"IsInInstance",
 	"UnitHealthMax", "UnitIsPlayer", "GameTooltipTextLeft1",
 	"strsplit",
 	"SELL_PRICE",

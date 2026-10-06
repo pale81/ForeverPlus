@@ -3,6 +3,10 @@
 local addonName, ns = ...
 local L = ns.L
 
+-- Blizzard's frame for action buttons without bar art, around buffs and
+-- quest item buttons.
+local ICON_FRAME_STYLE = "standalone"
+
 local Visuals = ns:NewModule("Visuals", {
 	title = L.VISUALS_TITLE,
 	order = 9,
@@ -15,7 +19,6 @@ local Visuals = ns:NewModule("Visuals", {
 		unitBars = true,
 		playerDragon = "none",
 		dragonScale = 100,
-		iconFrameStyle = "standalone",
 	},
 })
 
@@ -55,12 +58,12 @@ local function FrameAuraButton(aura)
 		return
 	end
 	framedAuras[aura] = true
-	ns.ApplyActionFrame(aura, aura.Icon, Visuals.db.iconFrameStyle)
+	ns.ApplyActionFrame(aura, aura.Icon, ICON_FRAME_STYLE)
 end
 
 local function ResizeAuraFrames()
 	for aura in pairs(framedAuras) do
-		ns.SizeActionFrame(aura, Visuals.db.iconFrameStyle)
+		ns.SizeActionFrame(aura, ICON_FRAME_STYLE)
 	end
 end
 
@@ -93,7 +96,7 @@ local function FrameQuestItem(button)
 	if pushed then
 		pushed:SetAlpha(0)
 	end
-	ns.ApplyActionFrame(button, button.icon, Visuals.db.iconFrameStyle)
+	ns.ApplyActionFrame(button, button.icon, ICON_FRAME_STYLE)
 end
 
 -- Item icons of quest rewards and quest log rewards.
@@ -102,7 +105,7 @@ local function FrameQuestRewards()
 	for _, button in ipairs(rewardsFrame and rewardsFrame.RewardButtons or {}) do
 		if button.Icon and not framedQuestItems[button] then
 			framedQuestItems[button] = true
-			ns.ApplyActionFrame(button, button.Icon, Visuals.db.iconFrameStyle)
+			ns.ApplyActionFrame(button, button.Icon, ICON_FRAME_STYLE)
 		end
 	end
 end
@@ -400,8 +403,8 @@ local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
 local SILVER = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver"
 -- Size and centre relative to the top left of the player frame container.
 local SHAPES = {
-	plain = { width = 80, height = 78, x = 50.5, y = -49 },
-	winged = { width = 99, height = 80, x = 40.5, y = -49 },
+	plain = { width = 100, height = 100, x = 50, y = -50 },
+	winged = { width = 110, height = 91, x = 42, y = -50.5 },
 }
 -- key -> atlas, shape, desaturate, tint
 local DRAGONS = {
@@ -428,12 +431,10 @@ local function ApplyPlayerDragon()
 	end
 	-- Above the frame art, like the dragon on the target frame.
 	dragon = dragon or container:CreateTexture(nil, "OVERLAY", nil, 6)
+	-- The target art faces right; mirror it for the portrait on the left
+	-- (absolute atlas coordinates showed only part of the dragon).
 	dragon:SetAtlas(data[1])
-	-- The target art faces right; mirror its atlas region for the portrait on the left.
-	local info = C_Texture.GetAtlasInfo(data[1])
-	if info then
-		dragon:SetTexCoord(info.rightTexCoord, info.leftTexCoord, info.topTexCoord, info.bottomTexCoord)
-	end
+	dragon:SetTexCoord(1, 0, 0, 1)
 	local shape = SHAPES[data[2]]
 	local scale = Visuals.db.dragonScale / 100
 	dragon:SetSize(shape.width * scale, shape.height * scale)
@@ -476,11 +477,6 @@ end
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
-	elseif key == "iconFrameStyle" then
-		ResizeAuraFrames()
-		for button in pairs(framedQuestItems) do
-			ns.SizeActionFrame(button, self.db.iconFrameStyle)
-		end
 	elseif key == "playerDragon" or key == "dragonScale" then
 		ApplyPlayerDragon()
 	elseif key == "unitBars" then
@@ -502,10 +498,6 @@ Visuals.options = {
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
-	{ type = "header", name = L.VISUALS_ICON_FRAME_HEADER, desc = L.VISUALS_ICON_FRAME_HEADER_DESC },
-	{ key = "iconFrameStyle", type = "dropdown", name = L.VISUALS_ICON_FRAME, desc = L.VISUALS_ICON_FRAME_DESC, values = {
-		{ "standalone", L.VISUALS_ICON_FRAME_STANDALONE }, { "bar", L.VISUALS_ICON_FRAME_BAR },
-	} },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },

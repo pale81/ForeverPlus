@@ -59,13 +59,12 @@ function ns.ShowLinkWindow(key, title, lines)
 		list:SetFading(false)
 		list:SetMaxLines(1000)
 		list:SetHyperlinksEnabled(true)
+		-- Newest line on top: lines are added in reverse, so the first line
+		-- sits at the top and scroll offset 0 shows the start of the list.
+		list:SetInsertMode(SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP)
 		list:EnableMouseWheel(true)
 		list:SetScript("OnMouseWheel", function(self, delta)
-			if delta > 0 then
-				self:ScrollUp()
-			else
-				self:ScrollDown()
-			end
+			self:ScrollByAmount(-delta * 3)
 		end)
 		list:SetScript("OnHyperlinkEnter", function(self, link)
 			if link:find("^item:") then
@@ -82,11 +81,11 @@ function ns.ShowLinkWindow(key, title, lines)
 	end
 	frame.TitleText:SetText(title)
 	frame.List:Clear()
-	for _, line in ipairs(lines) do
-		frame.List:AddMessage(line)
+	for i = #lines, 1, -1 do
+		frame.List:AddMessage(lines[i])
 	end
+	frame.List:ScrollToBottom()
 	frame:Show()
-	frame.List:ScrollToTop()
 	return frame
 end
 
@@ -140,18 +139,35 @@ local function LayoutBorder(border, size)
 	for _, part in ipairs(border.parts) do
 		part:ClearAllPoints()
 	end
-	top:SetPoint("TOPLEFT", anchor, "TOPLEFT", size, 0)
-	top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -size, 0)
+	-- With a radius the edges stop that many line widths before the corner
+	-- and a diagonal of squares closes the gap (rounder corners).
+	local radius = border.radius
+	local inset = radius and radius * size or size
+	top:SetPoint("TOPLEFT", anchor, "TOPLEFT", inset, 0)
+	top:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -inset, 0)
 	top:SetHeight(size)
-	bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", size, 0)
-	bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -size, 0)
+	bottom:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", inset, 0)
+	bottom:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -inset, 0)
 	bottom:SetHeight(size)
-	left:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -size)
-	left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 0, size)
+	left:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -inset)
+	left:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 0, inset)
 	left:SetWidth(size)
-	right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, -size)
-	right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 0, size)
+	right:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, -inset)
+	right:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", 0, inset)
 	right:SetWidth(size)
+	if radius then
+		local index = 4
+		for step = 1, radius - 1 do
+			local x, y = step * size, (radius - step) * size
+			for _, corner in ipairs({ { "TOPLEFT", 1, -1 }, { "TOPRIGHT", -1, -1 }, { "BOTTOMLEFT", 1, 1 }, { "BOTTOMRIGHT", -1, 1 } }) do
+				index = index + 1
+				local part = border.parts[index]
+				part:SetPoint(corner[1], anchor, corner[1], corner[2] * x, corner[3] * y)
+				part:SetSize(size, size)
+			end
+		end
+		return
+	end
 	-- Corner pieces moved half a line inwards close the gap diagonally.
 	tl:SetPoint("TOPLEFT", anchor, "TOPLEFT", half, -half)
 	tr:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", -half, -half)
@@ -182,9 +198,11 @@ function BorderMixin:Hide()
 end
 
 -- owner: frame that gets the textures; anchor: region the border follows.
-function ns.CreatePixelBorder(owner, anchor, pixels, layer, subLevel)
-	local border = Mixin({ anchor = anchor or owner, pixels = pixels or 2, parts = {} }, BorderMixin)
-	for i = 1, 8 do
+-- radius (optional, >= 2): corner rounding in line widths.
+function ns.CreatePixelBorder(owner, anchor, pixels, layer, subLevel, radius)
+	local border = Mixin({ anchor = anchor or owner, pixels = pixels or 2, parts = {}, radius = radius }, BorderMixin)
+	local count = radius and 4 + 4 * (radius - 1) or 8
+	for i = 1, count do
 		local part = owner:CreateTexture(nil, layer or "OVERLAY", nil, subLevel or 7)
 		part:SetColorTexture(1, 1, 1)
 		part:Hide()

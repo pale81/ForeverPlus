@@ -10,6 +10,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		hoverName = true,
 		hoverLevel = true,
 		hoverHealth = true,
+		hoverFullName = false,
 		classColors = true,
 		qualityBorder = true,
 	},
@@ -152,11 +153,11 @@ local function ShowBorderFrame(tooltip, r, g, b)
 	local frame = borderFrames[tooltip]
 	if not frame then
 		frame = CreateFrame("Frame", nil, tooltip)
-		-- One pixel inside the edge, thinner than the item frames.
+		-- One pixel inside the edge, 2 pixels wide with rounder corners.
 		frame:SetPoint("TOPLEFT", tooltip.NineSlice, "TOPLEFT", 1, -1)
 		frame:SetPoint("BOTTOMRIGHT", tooltip.NineSlice, "BOTTOMRIGHT", -1, 1)
 		frame:SetFrameLevel(tooltip:GetFrameLevel() + 1)
-		frame.border = ns.CreatePixelBorder(frame, frame, 1)
+		frame.border = ns.CreatePixelBorder(frame, frame, 2, nil, nil, 3)
 		borderFrames[tooltip] = frame
 	end
 	frame.border:ShowColor(r, g, b)
@@ -227,6 +228,13 @@ end
 
 local function Layout(frame)
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
+	-- First name and surname, as Blizzard's own unit display does.
+	if Tooltip.db.hoverFullName and not Secret(name) and NameUtil and NameUtil.FormatUnitNameForDisplay then
+		local ok, full = pcall(NameUtil.FormatUnitNameForDisplay, "mouseover")
+		if ok and full and not Secret(full) then
+			name = full
+		end
+	end
 	local r, g, b = GameTooltip_UnitColor("mouseover")
 	frame.Name:SetText(name)
 	frame.Name:SetTextColor(r, g, b)
@@ -384,6 +392,7 @@ end
 Tooltip.options = {
 	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
 	{ key = "hoverLevel", type = "toggle", name = L.TOOLTIP_HOVER_LEVEL, parent = "hoverName" },
+	{ key = "hoverFullName", type = "toggle", name = L.TOOLTIP_HOVER_FULL_NAME, desc = L.TOOLTIP_HOVER_FULL_NAME_DESC, parent = "hoverName" },
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },

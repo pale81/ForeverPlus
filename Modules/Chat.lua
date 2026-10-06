@@ -18,9 +18,15 @@ local Chat = ns:NewModule("Chat", {
 		channelShort = false,
 		timestampColor = false,
 		timestampColorValue = "GREY",
+		mouseScroll = true,
+		inputHistory = true,
+		chatLog = true,
+		chatLogLines = 200,
 	},
 	charDefaults = {
 		transparencyApplied = false,
+		sentHistory = {}, -- lines typed into the chat, newest last
+		chatLog = {},     -- chat window ID -> { { text, r, g, b }, ... }
 	},
 })
 
@@ -166,6 +172,139 @@ local function StyleEditBox(chatFrame)
 	editBox:SetAltArrowKeyMode(false)
 end
 
+---------------------------------------------------------------------------
+-- Mouse wheel: Blizzard wires it only if the CVar chatMouseScroll was on
+-- when the chat frame loaded. Shift + wheel jumps to the top or bottom.
+---------------------------------------------------------------------------
+local wheelHooked = {}
+
+local function OnChatWheel(chatFrame, delta)
+	if not Chat.db.mouseScroll then
+		return
+	end
+	if IsShiftKeyDown() then
+		if delta > 0 then
+			chatFrame:ScrollToTop()
+		else
+			chatFrame:ScrollToBottom()
+		end
+	elseif chatFrame.ScrollByAmount then
+		chatFrame:ScrollByAmount(delta * 3)
+	elseif delta > 0 then
+		chatFrame:ScrollUp()
+	else
+		chatFrame:ScrollDown()
+	end
+end
+
+local function EnableWheel(chatFrame)
+	if wheelHooked[chatFrame] or chatFrame:IsMouseWheelEnabled() then
+		return
+	end
+	wheelHooked[chatFrame] = true
+	chatFrame:EnableMouseWheel(true)
+	chatFrame:HookScript("OnMouseWheel", OnChatWheel)
+end
+
+---------------------------------------------------------------------------
+-- Input history: Up/Down step through the lines sent before, also those of
+-- the last sessions (kept per character).
+---------------------------------------------------------------------------
+local MAX_SENT = 50
+local historyHooked = {}
+local historyPos = {}
+
+local function RecordSent(_, text)
+	if type(text) ~= "string" or text == "" or (issecretvalue and issecretvalue(text)) then
+		return
+	end
+	local list = Chat.cdb.sentHistory
+	if list[#list] ~= text then
+		list[#list + 1] = text
+		if #list > MAX_SENT then
+			table.remove(list, 1)
+		end
+	end
+end
+
+local function OnHistoryArrow(editBox, key)
+	if not Chat.db.inputHistory or (key ~= "UP" and key ~= "DOWN") then
+		return
+	end
+	local list = Chat.cdb.sentHistory
+	if #list == 0 then
+		return
+	end
+	local pos = historyPos[editBox] or (#list + 1)
+	pos = key == "UP" and math.max(1, pos - 1) or math.min(#list + 1, pos + 1)
+	historyPos[editBox] = pos
+	editBox:SetText(list[pos] or "")
+	editBox:SetCursorPosition(#editBox:GetText())
+end
+
+local function HookHistory(editBox)
+	if not editBox or historyHooked[editBox] then
+		return
+	end
+	historyHooked[editBox] = true
+	-- Our list replaces the built-in one, so both do not step at once.
+	editBox:SetHistoryLines(1)
+	hooksecurefunc(editBox, "AddHistoryLine", RecordSent)
+	editBox:HookScript("OnArrowPressed", OnHistoryArrow)
+	editBox:HookScript("OnShow", function(self)
+		historyPos[self] = nil
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Chat of the last session: the lines of the chat windows are kept per
+-- character and shown again after logging in.
+---------------------------------------------------------------------------
+local logHooked = {}
+local restoring = false
+
+local function LogLine(chatFrame, text, r, g, b)
+	if restoring or not Chat.db.chatLog or type(text) ~= "string" or text == ""
+		or (issecretvalue and (issecretvalue(text) or issecretvalue(r))) then
+		return
+	end
+	local id = chatFrame:GetID()
+	local logs = Chat.cdb.chatLog
+	local log = logs[id]
+	if not log then
+		log = {}
+		logs[id] = log
+	end
+	log[#log + 1] = { text, r, g, b }
+	local limit = Chat.db.chatLogLines
+	while #log > limit do
+		table.remove(log, 1)
+	end
+end
+
+local function RestoreLog()
+	local logs = Chat.cdb.chatLog
+	restoring = true
+	for id, log in pairs(logs) do
+		local chatFrame = _G["ChatFrame" .. id]
+		if chatFrame and #log > 0 then
+			for _, line in ipairs(log) do
+				chatFrame:AddMessage(line[1], line[2], line[3], line[4])
+			end
+			chatFrame:AddMessage(L.CHAT_LOG_SEPARATOR, 0.5, 0.5, 0.5)
+		end
+	end
+	restoring = false
+end
+
+local function HookLog(chatFrame)
+	if logHooked[chatFrame] or chatFrame:GetID() > Constants.ChatFrameConstants.MaxChatWindows then
+		return
+	end
+	logHooked[chatFrame] = true
+	hooksecurefunc(chatFrame, "AddMessage", LogLine)
+end
+
 local function StyleFont(chatFrame)
 	ns.ApplyOutline(chatFrame)
 end
@@ -179,6 +318,9 @@ local function StyleChatFrame(chatFrame)
 	StyleTab(_G[chatFrame:GetName() .. "Tab"])
 	HookTab(_G[chatFrame:GetName() .. "Tab"])
 	StyleEditBox(chatFrame)
+	EnableWheel(chatFrame)
+	HookHistory(chatFrame.editBox)
+	HookLog(chatFrame)
 end
 
 local function StyleAll()
@@ -484,6 +626,12 @@ function Chat:EditKeywords()
 end
 
 function Chat:OnLogin()
+	-- The saved lines come first, then this session's lines are recorded.
+	if self.db.chatLog then
+		RestoreLog()
+	else
+		wipe(self.cdb.chatLog)
+	end
 	StyleAll()
 	self:UpdateButtons()
 	hooksecurefunc("FCF_FadeInChatFrame", function(chatFrame)
@@ -526,6 +674,8 @@ function Chat:OnOptionChanged(key, value)
 		self:UpdateKeywordAlert()
 	elseif key == "channelShort" then
 		self:UpdateChannelNames()
+	elseif key == "chatLog" and not value then
+		wipe(self.cdb.chatLog)
 	elseif key == "timestampColor" or key == "timestampColorValue" then
 		self:UpdateTimestampColor()
 	elseif key == "hideButtons" then
@@ -553,6 +703,10 @@ Chat.options = {
 	{ key = "languageClick", type = "toggle", name = L.CHAT_LANGUAGE_CLICK, desc = L.CHAT_LANGUAGE_CLICK_DESC },
 	{ key = "languageMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "languageClick" },
 	{ key = "transparent", type = "toggle", name = L.CHAT_TRANSPARENT, desc = L.CHAT_TRANSPARENT_DESC },
+	{ key = "mouseScroll", type = "toggle", name = L.CHAT_MOUSE_SCROLL, desc = L.CHAT_MOUSE_SCROLL_DESC },
+	{ key = "inputHistory", type = "toggle", name = L.CHAT_INPUT_HISTORY, desc = L.CHAT_INPUT_HISTORY_DESC },
+	{ key = "chatLog", type = "toggle", name = L.CHAT_LOG, desc = L.CHAT_LOG_DESC },
+	{ key = "chatLogLines", type = "slider", name = L.CHAT_LOG_LINES, parent = "chatLog", min = 50, max = 500, step = 50 },
 	{ type = "header", name = L.CHAT_MESSAGES_HEADER },
 	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },
 	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },

@@ -156,7 +156,6 @@ local PAGES = {
 	},
 	{ title = L.XP_TITLE, { "XPBar" } },
 	{ title = L.VISUALS_TITLE,
-		{ "Visuals", header = L.VISUALS_ICON_FRAME_HEADER, headerDesc = L.VISUALS_ICON_FRAME_HEADER_DESC, keys = Keys("iconFrameStyle") },
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 	},

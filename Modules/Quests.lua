@@ -159,6 +159,23 @@ local function GetMarker(nameplate)
 	return marker
 end
 
+-- Vertically centred on the health bar, right of the level box if shown.
+local function PlaceMarker(marker, nameplate)
+	local unitFrame = nameplate.UnitFrame
+	local health = unitFrame and unitFrame.HealthBarsContainer
+	marker:ClearAllPoints()
+	if not health then
+		marker:SetPoint("LEFT", nameplate, "RIGHT", -2, 0)
+		return
+	end
+	local level = unitFrame.PlayerLevelDiffFrame
+	local offset = 3
+	if level and level:IsShown() then
+		offset = offset + ns.Number(level:GetWidth(), 0)
+	end
+	marker:SetPoint("LEFT", health, "RIGHT", offset, 0)
+end
+
 local function UpdateNameplate(unit)
 	local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
 	if not nameplate or nameplate:IsForbidden() then
@@ -167,6 +184,7 @@ local function UpdateNameplate(unit)
 	local related = Quests.db.nameplateIcons and C_QuestLog.UnitIsRelatedToActiveQuest(unit)
 	if related and not Secret(related) then
 		local marker = GetMarker(nameplate)
+		PlaceMarker(marker, nameplate)
 		marker.Text:SetText(QuestProgress(unit) or "")
 		marker:Show()
 	elseif markers[nameplate] then

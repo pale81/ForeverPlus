@@ -512,6 +512,80 @@ local function QueuePlanUpdate()
 	end
 end
 
+-- Rules of the classic talent trees: each row needs 5 points in rows above
+-- it in the same tree, and a talent behind an arrow needs its source talent
+-- at full rank. Rows come from the node positions of the whole tree.
+local POINTS_PER_ROW = 5
+local REQUIRED_EDGES = { [Enum.TraitEdgeType.SufficientForAvailability] = true, [Enum.TraitEdgeType.RequiredForAvailability] = true }
+
+local function TreeState(frame, configID)
+	local nodes, rowsY, names = {}, {}, {}
+	for button in frame:EnumerateAllTalentButtons() do
+		local nodeID = button.GetNodeID and button:GetNodeID()
+		local node = nodeID and C_Traits.GetNodeInfo(configID, nodeID)
+		if node and node.maxRanks and node.maxRanks > 0 then
+			node.ID = node.ID or nodeID
+			node.posY = node.posY or 0
+			nodes[nodeID] = node
+			rowsY[node.posY] = true
+			names[nodeID] = button.GetName and button:GetName()
+		end
+	end
+	local sorted = {}
+	for y in pairs(rowsY) do
+		sorted[#sorted + 1] = y
+	end
+	table.sort(sorted)
+	local rowOf = {}
+	for index, y in ipairs(sorted) do
+		rowOf[y] = index - 1
+	end
+	return nodes, rowOf, names
+end
+
+local function Effective(node, plan)
+	return math.max(node.ranksPurchased or 0, plan[node.ID] or 0)
+end
+
+-- nil if the node may carry `rank` with the given plan, else a message.
+local function CheckNode(nodes, rowOf, names, plan, node, rank)
+	if rank <= 0 then
+		return nil
+	end
+	local group = node.groupIDs and node.groupIDs[1]
+	local row = rowOf[node.posY] or 0
+	local spent = 0
+	for _, other in pairs(nodes) do
+		if other.ID ~= node.ID and (other.groupIDs and other.groupIDs[1]) == group and (rowOf[other.posY] or 0) < row then
+			spent = spent + Effective(other, plan)
+		end
+	end
+	if spent < row * POINTS_PER_ROW then
+		return L.TALENTS_PLAN_NEED_POINTS:format(row * POINTS_PER_ROW - spent)
+	end
+	for _, source in pairs(nodes) do
+		for _, edge in ipairs(source.visibleEdges or {}) do
+			if edge.targetNode == node.ID and REQUIRED_EDGES[edge.type] and Effective(source, plan) < source.maxRanks then
+				return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
+			end
+		end
+	end
+	return nil
+end
+
+local function CheckPlan(nodes, rowOf, names, plan)
+	for nodeID, node in pairs(nodes) do
+		local planned = plan[nodeID]
+		if planned and planned > (node.ranksPurchased or 0) then
+			local problem = CheckNode(nodes, rowOf, names, plan, node, planned)
+			if problem then
+				return problem
+			end
+		end
+	end
+	return nil
+end
+
 local function OnTalentClick(_, button, mouseButton)
 	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
 		return
@@ -525,12 +599,32 @@ local function OnTalentClick(_, button, mouseButton)
 	end
 	local plan = CurrentPlan()
 	local planned = plan[nodeID] or 0
+	local nodes, rowOf, names = TreeState(frame, configID)
+	local problem
 	if IsShiftKeyDown() then
 		planned = planned - 1
+		local old = plan[nodeID]
+		plan[nodeID] = planned > 0 and planned or nil
+		-- Removing must not leave a talent above without its requirement.
+		problem = CheckPlan(nodes, rowOf, names, plan)
+		plan[nodeID] = old
+		if problem then
+			ns.Print(L.TALENTS_PLAN_REMOVE_BLOCKED)
+			return
+		end
 	elseif button.CanRefundRank and button:CanRefundRank() then
 		return -- Blizzard refunds a staged rank with this click
-	elseif planned < node.maxRanks and PlannedPoints(plan) < PLAN_POINTS then
-		planned = planned + 1
+	else
+		local target = math.max(planned, node.ranksPurchased or 0) + 1
+		if target > node.maxRanks or PlannedPoints(plan) - planned + target > PLAN_POINTS then
+			return
+		end
+		problem = CheckNode(nodes, rowOf, names, plan, node, target)
+		if problem then
+			ns.Print(problem)
+			return
+		end
+		planned = target
 	end
 	plan[nodeID] = planned > 0 and planned or nil
 	QueuePlanUpdate()

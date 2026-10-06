@@ -19,14 +19,16 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Reiter-Hintergründe (Allgemein, Kampflog, …) entfernt | – |
 | | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund | – |
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
-| | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
+| | Pfeil hoch/runter holt gesendete Zeilen zurück (letzte 50, auch aus früheren Sitzungen) | ja |
+| | Mausrad scrollt den Chat (auch wenn Blizzards Einstellung beim Laden aus war); Shift + Mausrad springt an Anfang/Ende | ja |
+| | Chat der letzten Sitzung behalten (je Fenster einstellbare Zeilenzahl, geschützte Nachrichten ausgenommen) | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
 | | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
 | | Beute zusammenfassen: eigene Beute und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet die Liste mit Herkunft; Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Mit QuestieDB: Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
-| | Name (und optional Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
+| | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
@@ -35,10 +37,10 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen, Klick entfernt einzeln (`/fp schrott`); Gegenstände mit Zufallssuffix („des Affen“, „des Frostschutzes“) werden einzeln markiert | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
-| | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; optional Wertung im Tooltip | ja |
+| | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |
 | | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
-| | Taschen voll: billigster Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
+| | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
@@ -62,7 +64,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
 | Flugzeiten | Jeder Flug wird gemessen und je Strecke gespeichert; Dauer im Tooltip der Flugkarte, Restzeit-Leiste während des Flugs (verschieb- und sperrbar) | ja |
 | Erfahrung & Ruf | Zahlen immer oder nur bei Mouseover (Standard: Mouseover); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
-| Talente | „Zauber beim Lehrer“ (erlernte grau; künftige Zauber aus der beim Lehrerbesuch gespeicherten Liste; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, blauer Zähler über dem Talent), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60, „Plan übernehmen“; der Tooltip eines geplanten Talents zeigt die Werte des geplanten Rangs | ja |
+| Talente | „Zauber beim Lehrer“ (erlernte grau; künftige Zauber aus der beim Lehrerbesuch gespeicherten Liste; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, blauer Zähler über dem Talent), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60; Regeln wie im Spiel: je Reihe 5 Punkte in den Reihen darüber im selben Baum, Talente hinter einem Pfeil erst mit voll ausgebautem Ausgangstalent, „Plan übernehmen“; der Tooltip eines geplanten Talents zeigt die Werte des geplanten Rangs | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad, in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“ | – |
@@ -80,7 +82,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Alt + Ziehen verschiebt jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt; Position/Größe je Element gespeichert | ja |
-| | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler) | ja |
+| | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler); nicht verschobene Fenster reihen sich rechts neben Blizzards Fenster (z. B. Zauberbuch) | ja |
 
 ## Technik / CPU
 
@@ -112,6 +114,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Eigene Minimap-Symbole (wie Blipstick): nicht möglich. Solche Addons tauschen die Symboltextur mit `Minimap:SetBlipTexture`; die Minimap-API des Forever-Clients (1.60.1) enthält diese Funktion nicht mehr, nur `SetIconScale`. Die Positionen verfolgter Erze, Kräuter und NPCs sind für Addons nicht abfragbar, eigene Symbole lassen sich also auch nicht darüberlegen.
 - Gruppensuche: Rollen sind die in der Gruppe zugewiesenen Rollen; Mitglieder ohne Rolle werden gezählt, aber keiner Rolle zugerechnet. Eigene Ausschreibungen behalten Blizzards Anzeige (dort liegt der Knopf zum Austragen).
 - Interface-Fehler: optionaler Hinweisklang bei neuem Fehler (höchstens alle 5 s; Fehler von vor dem Laden lösen keinen Klang aus).
+- Porträt-Drache: gespiegelt mit `SetTexCoord(1, 0, 0, 1)` wie in BetterBlizzFrames (Forever-Version); die vorher verwendeten absoluten Atlas-Koordinaten zeigten nur Ausschnitte. Größen und Positionen nach BetterBlizzFrames, kein Code übernommen.
 - Chatfilter laufen über Blizzards Filterliste (`ChatFrameUtil.AddMessageEventFilter`), die Addon-Filter abgeschirmt aufruft und geschützte Nachrichten gar nicht erst übergibt; solche Nachrichten bleiben unverändert.
 - Kanalkürzel: Blizzards Chatcode verlangt die Kanalnummer vor dem Namen und vergleicht die Länge des Kanaltexts mit den beigetretenen Kanälen; die Nummer bleibt deshalb, und der Kurzname wird mit unsichtbaren `|r` auf die ursprüngliche Länge aufgefüllt.
 - Zeitstempelfarbe: der Farbcode steht im Zeitstempelformat (CVar `showTimestamps`). Blizzards Auswahlfeld unter Soziales enthält nur die ungefärbten Formate; eine neue Auswahl dort wird sofort wieder eingefärbt. Ausschalten stellt das ungefärbte Format her; wird ForeverPlus ohne Ausschalten entfernt, bleibt der Farbcode im Format.

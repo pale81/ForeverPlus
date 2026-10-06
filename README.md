@@ -44,6 +44,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
+| | Questtracker: Klassenquests immer oben; Reiter „Welt“/„Instanz“ für Dungeon- und Schlachtzugsquests (wechselt beim Betreten einer Instanz); optional nur Quests der aktuellen Region | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
@@ -102,6 +103,9 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 - Angeln per Doppel-Rechtsklick: nur mit angelegter Angel; erst nach dem Loslassen eines kurzen, ruhigen Rechtsklicks wird die rechte Maustaste für 0,4 s mit einem sicheren Knopf belegt. Kamera drehen (Rechtsklick halten) und Rechtsklick-Interaktion bleiben unberührt.
 - Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
+
+- Instanzquests werden am Quest-Tag „Dungeon“/„Schlachtzug“ erkannt (`C_QuestLog.GetQuestTagInfo`). Ob Forever jede Instanzquest so markiert, ist ungeprüft.
+- Reiter und Regionsfilter arbeiten über die Beobachtungsliste: ForeverPlus merkt sich je Charakter, welche Quests du verfolgst, und blendet nicht passende aus der Liste aus (sie bleiben vorgemerkt).
 
 ## Danksagungen / Lizenzen
 

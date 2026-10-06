@@ -432,6 +432,12 @@ local function UpdateButton(button)
 	end
 
 	if button.UpgradeIcon then
+		-- Top right, so it does not cover the junk coin at the top left.
+		if not button.fpUpgradeMoved then
+			button.fpUpgradeMoved = true
+			button.UpgradeIcon:ClearAllPoints()
+			button.UpgradeIcon:SetPoint("TOPRIGHT", button, "TOPRIGHT", 0, 0)
+		end
 		local show = false
 		if Items.db.upgradeArrow and info and info.hyperlink and C_Item.IsEquippableItem(info.hyperlink) then
 			show = IsUpgrade(bag, slot, info.hyperlink)
@@ -807,7 +813,8 @@ local function FindCheapestItem()
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and not info.hasNoValue and not info.isLocked then
+			-- Only grey (poor) items are offered for destruction.
+			if info and not info.hasNoValue and not info.isLocked and info.quality == Enum.ItemQuality.Poor then
 				local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
 				local price = select(11, C_Item.GetItemInfo(info.itemID))
 				if price and price > 0 and not (quest and (quest.isQuestItem or quest.questID)) then

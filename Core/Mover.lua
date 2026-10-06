@@ -432,10 +432,51 @@ local FREE_WINDOWS = {
 }
 local freed = {}
 
-local function PlaceFreeWindow(frame)
-	if frame:GetNumPoints() == 0 and not saved[frame:GetName()] then
-		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 16, -116)
+-- Freed windows that the player has not moved line up to the right of the
+-- panels Blizzard still manages, in the order they were opened, so no
+-- window covers another whichever opens first.
+local MANAGED_AREAS = { "left", "center", "right", "doublewide", "fullscreen" }
+local WINDOW_TOP, WINDOW_GAP = -116, 8
+local freeOrder = {}
+
+local function RightEdge(frame)
+	local right = frame:GetRight()
+	if not right then
+		return nil
 	end
+	return right * frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+end
+
+local function LayoutFreeWindows()
+	if not Mover.db.multiWindow or not GetUIPanel then
+		return
+	end
+	local x = 16
+	for _, area in ipairs(MANAGED_AREAS) do
+		local panel = GetUIPanel(area)
+		local right = panel and panel:IsShown() and RightEdge(panel)
+		if right then
+			x = math.max(x, right + WINDOW_GAP)
+		end
+	end
+	for _, frame in ipairs(freeOrder) do
+		if frame:IsShown() and not saved[frame:GetName()] and not (InCombatLockdown() and frame:IsProtected()) then
+			local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+			frame:ClearAllPoints()
+			frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x * ratio, WINDOW_TOP * ratio)
+			x = x + frame:GetWidth() * frame:GetEffectiveScale() / UIParent:GetEffectiveScale() + WINDOW_GAP
+		end
+	end
+end
+
+local function PlaceFreeWindow(frame)
+	for i = #freeOrder, 1, -1 do
+		if freeOrder[i] == frame then
+			table.remove(freeOrder, i)
+		end
+	end
+	freeOrder[#freeOrder + 1] = frame
+	LayoutFreeWindows()
 end
 
 local function FreeWindow(name)
@@ -467,6 +508,12 @@ function Mover:OnLogin()
 	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
 		if type(_G[func]) == "function" then
 			hooksecurefunc(func, ApplyAllShown)
+		end
+	end
+	-- A managed panel opening or closing moves the freed windows beside it.
+	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions" }) do
+		if type(_G[func]) == "function" then
+			hooksecurefunc(func, LayoutFreeWindows)
 		end
 	end
 	for name in pairs(saved) do

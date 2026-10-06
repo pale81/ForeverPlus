@@ -22,7 +22,6 @@ globals = {
 }
 
 read_globals = {
-	"ALT_KEY_TEXT", "CTRL_KEY_TEXT", "SHIFT_KEY_TEXT",
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",
 	"C_TradeSkillUI", "EQUIPPED", "GetScreenWidth",

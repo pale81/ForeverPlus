@@ -6,16 +6,16 @@ local L = setmetatable({}, { __index = function(_, key)
 end })
 ns.L = L
 
-L.ABOUT_TEXT = "Improves the original WoW Forever interface while keeping its look. Each topic has its own sub menu. Alt + drag moves windows and ForeverPlus displays, Ctrl + mouse wheel scales them, Alt + right-click locks them; other ForeverPlus frames can be moved in Edit Mode."
+L.ABOUT_TEXT = "Improves the original WoW Forever interface while keeping its look. Each topic has its own sub menu. Windows and ForeverPlus displays start locked: Alt + right-click unlocks them, then Alt + drag moves and Ctrl + mouse wheel scales; other ForeverPlus frames can be moved in Edit Mode."
 L.RESET = "Reset"
 L.RELOAD = "Reload"
 L.RELOAD_UI = "Reload interface"
 
 L.MOVER_TITLE = "Windows"
 L.MOVER_ENABLE = "Move, scale, lock"
-L.MOVER_ENABLE_DESC = "Windows: Alt + drag moves, Ctrl + mouse wheel scales, Alt + right-click locks. ForeverPlus displays also work without a key: drag, mouse wheel, right-click. Position and scale are saved per element."
+L.MOVER_ENABLE_DESC = "Windows and ForeverPlus displays start locked; Alt + right-click unlocks and locks them one by one. Unlocked windows: Alt + drag moves, Ctrl + mouse wheel scales. Unlocked ForeverPlus displays also work without a key: drag, mouse wheel, right-click. Position and scale are saved per element."
 L.MOVER_RESET = "Reset all positions"
-L.MOVER_RESET_DESC = "Resets position and scale of all moved or scaled windows and ForeverPlus displays, including elements moved in Edit Mode. Open Blizzard windows return to their default place after /reload."
+L.MOVER_RESET_DESC = "Resets position and scale of all moved or scaled windows and ForeverPlus displays, including elements moved in Edit Mode, and locks everything again. Open Blizzard windows return to their default place after /reload."
 L.MOVER_RESET_DONE = "Positions and scales reset. Open Blizzard windows return to their default place after /reload."
 
 L.CHAT_TITLE = "Chat"
@@ -347,9 +347,9 @@ L.XP_REP_FORMAT_FULL = "All (values, %, remaining)"
 L.BUFFS_RESTING = "Also in rest areas"
 L.BUFFS_RESTING_DESC = "Shows reminders in inns and cities too. Off: no reminders while resting."
 L.POSITIONS = "Moving and locking"
-L.POSITIONS_DESC = "Windows: Alt + drag moves, Ctrl + mouse wheel scales, Alt + right-click locks. ForeverPlus displays (coordinates, FPS/latency, world map coordinates) also work without a key: drag, mouse wheel, right-click."
+L.POSITIONS_DESC = "Windows and ForeverPlus displays (coordinates, FPS/latency, world map coordinates) start locked; Alt + right-click unlocks. Unlocked windows: Alt + drag moves, Ctrl + mouse wheel scales. Unlocked displays also work without a key: drag, mouse wheel, right-click."
 L.LOCK_ALL = "Lock all positions"
-L.LOCK_ALL_DESC = "Locks everything that can be moved with Alt + drag or scaled with Ctrl + mouse wheel. Alt + right-click locks single elements. Switching it off unlocks everything, including single locks."
+L.LOCK_ALL_DESC = "Locks everything that can be moved with Alt + drag or scaled with Ctrl + mouse wheel, including single unlocked elements. Switching it off restores the single locks (default: locked, Alt + right-click unlocks)."
 L.LOCK_ALL_ACTIVE = "All positions are locked (ForeverPlus main page)."
 L.LOCK_ALL_DONE = "All positions locked."
 L.UNLOCK_ALL_DONE = "All positions unlocked."

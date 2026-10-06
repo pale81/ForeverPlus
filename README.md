@@ -5,8 +5,8 @@ Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und ble
 
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Minimap & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
-Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient: **Alt + Ziehen** verschiebt, **Strg + Mausrad** skaliert, **Alt + Rechtsklick** sperrt/entsperrt einzeln. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
-`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars, `/fp mausrad` prüft eine Minute lang, wer das Mausrad bekommt und ob Blizzards Blätter-Befehl läuft, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
+Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient und ist anfangs gesperrt: **Alt + Rechtsklick** entsperrt/sperrt einzeln, dann verschiebt **Alt + Ziehen** und **Strg + Mausrad** skaliert. Gesperrte Fenster lassen das Mausrad in Ruhe (Kamera-Zoom, Aktionsleisten-Blättern); „Zurücksetzen“ sperrt alles wieder. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
+`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars, `/fp mausrad` prüft eine Minute lang, wer das Mausrad bekommt (auch Elemente ohne Mausfokus), wie Shift + Mausrad belegt ist und ob Blizzards Blätter-Befehl läuft, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
 
 ## Funktionen
 
@@ -85,7 +85,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Bereits bekannte Rezepte in Taschen und beim Händler ausgegraut | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
-| Fenster | Alt + Ziehen verschiebt jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt; Position/Größe je Element gespeichert | ja |
+| Fenster | Anfangs gesperrt; Alt + Rechtsklick entsperrt, dann verschiebt Alt + Ziehen jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert; Position/Größe je Element gespeichert | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler); nicht verschobene Fenster reihen sich rechts neben Blizzards Fenster (z. B. Zauberbuch) | ja |
 
 ## Technik / CPU

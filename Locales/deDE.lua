@@ -5,16 +5,16 @@ end
 local _, ns = ...
 local L = ns.L
 
-L.ABOUT_TEXT = "Verbessert das originale WoW-Forever-Interface und behält seine Optik. Jedes Thema hat ein eigenes Untermenü. Alt + Ziehen verschiebt Fenster und ForeverPlus-Anzeigen, Strg + Mausrad skaliert sie, Alt + Rechtsklick sperrt sie; weitere ForeverPlus-Elemente lassen sich im Bearbeitungsmodus verschieben."
+L.ABOUT_TEXT = "Verbessert das originale WoW-Forever-Interface und behält seine Optik. Jedes Thema hat ein eigenes Untermenü. Fenster und ForeverPlus-Anzeigen sind anfangs gesperrt: Alt + Rechtsklick entsperrt sie, dann verschiebt Alt + Ziehen und Strg + Mausrad skaliert; weitere ForeverPlus-Elemente lassen sich im Bearbeitungsmodus verschieben."
 L.RESET = "Zurücksetzen"
 L.RELOAD = "Neu laden"
 L.RELOAD_UI = "Interface neu laden"
 
 L.MOVER_TITLE = "Fenster"
 L.MOVER_ENABLE = "Verschieben, Skalieren, Sperren"
-L.MOVER_ENABLE_DESC = "Fenster: Alt + Ziehen verschiebt, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt. ForeverPlus-Anzeigen zusätzlich ohne Taste: Ziehen, Mausrad, Rechtsklick. Position und Größe werden je Element gespeichert."
+L.MOVER_ENABLE_DESC = "Fenster und ForeverPlus-Anzeigen sind anfangs gesperrt; Alt + Rechtsklick entsperrt und sperrt einzeln. Entsperrte Fenster: Alt + Ziehen verschiebt, Strg + Mausrad skaliert. Entsperrte ForeverPlus-Anzeigen zusätzlich ohne Taste: Ziehen, Mausrad, Rechtsklick. Position und Größe werden je Element gespeichert."
 L.MOVER_RESET = "Alle Positionen zurücksetzen"
-L.MOVER_RESET_DESC = "Setzt Position und Größe aller verschobenen oder skalierten Fenster und ForeverPlus-Anzeigen zurück, auch der im Bearbeitungsmodus verschobenen Elemente. Geöffnete Blizzard-Fenster springen erst nach /reload an ihren Standardplatz."
+L.MOVER_RESET_DESC = "Setzt Position und Größe aller verschobenen oder skalierten Fenster und ForeverPlus-Anzeigen zurück, auch der im Bearbeitungsmodus verschobenen Elemente, und sperrt alles wieder. Geöffnete Blizzard-Fenster springen erst nach /reload an ihren Standardplatz."
 L.MOVER_RESET_DONE = "Positionen und Größen zurückgesetzt. Geöffnete Blizzard-Fenster springen nach /reload an ihren Standardplatz."
 
 L.CHAT_TITLE = "Chat"
@@ -346,9 +346,9 @@ L.XP_REP_FORMAT_FULL = "Alles (Werte, %, Rest)"
 L.BUFFS_RESTING = "Auch in Ruhezonen"
 L.BUFFS_RESTING_DESC = "Zeigt Erinnerungen auch in Gasthäusern und Städten. Aus: keine Erinnerungen in Ruhezonen."
 L.POSITIONS = "Verschieben und Sperren"
-L.POSITIONS_DESC = "Fenster: Alt + Ziehen verschiebt, Strg + Mausrad skaliert, Alt + Rechtsklick sperrt. ForeverPlus-Anzeigen (Koordinaten, FPS/Latenz, Weltkarten-Koordinaten) zusätzlich ohne Taste: Ziehen, Mausrad, Rechtsklick."
+L.POSITIONS_DESC = "Fenster und ForeverPlus-Anzeigen (Koordinaten, FPS/Latenz, Weltkarten-Koordinaten) sind anfangs gesperrt; Alt + Rechtsklick entsperrt. Entsperrte Fenster: Alt + Ziehen verschiebt, Strg + Mausrad skaliert. Entsperrte Anzeigen zusätzlich ohne Taste: Ziehen, Mausrad, Rechtsklick."
 L.LOCK_ALL = "Alle Positionen sperren"
-L.LOCK_ALL_DESC = "Sperrt alles, was sich mit Alt + Ziehen verschieben oder mit Strg + Mausrad skalieren lässt. Einzelne Elemente sperrt Alt + Rechtsklick. Ausschalten entsperrt alles, auch einzeln gesperrte Elemente."
+L.LOCK_ALL_DESC = "Sperrt alles, was sich mit Alt + Ziehen verschieben oder mit Strg + Mausrad skalieren lässt, auch einzeln entsperrte Elemente. Ausschalten stellt die einzelnen Sperren wieder her (Standard: gesperrt, Alt + Rechtsklick entsperrt)."
 L.LOCK_ALL_ACTIVE = "Alle Positionen sind gesperrt (ForeverPlus-Hauptseite)."
 L.LOCK_ALL_DONE = "Alle Positionen gesperrt."
 L.UNLOCK_ALL_DONE = "Alle Positionen entsperrt."

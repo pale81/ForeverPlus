@@ -401,7 +401,21 @@ local function ReportWheelTarget()
 			frame = frame.GetParent and frame:GetParent()
 		end
 	end
-	ns.PrintAlways(ns.L.WHEEL_CHECK_WORLD)
+	-- Frames that take the wheel without taking the mouse are not in the
+	-- focus list; look through all shown frames under the cursor.
+	local found = {}
+	local frame = EnumerateFrames()
+	while frame and #found < 5 do
+		if not frame:IsForbidden() and frame:IsVisible() and frame:IsMouseWheelEnabled() and frame:IsMouseOver() then
+			found[#found + 1] = FrameLabel(frame)
+		end
+		frame = EnumerateFrames(frame)
+	end
+	if #found > 0 then
+		ns.PrintAlways(ns.L.WHEEL_CHECK_FRAME:format(table.concat(found, ", ")))
+	else
+		ns.PrintAlways(ns.L.WHEEL_CHECK_WORLD)
+	end
 end
 
 local function PageCommand(direction)

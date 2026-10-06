@@ -20,7 +20,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund | – |
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter blättert im Eingabeverlauf (ohne Alt) | – |
-| | Spielernamen in Klassenfarbe (Blizzards eigene Einstellung) | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
 | | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |

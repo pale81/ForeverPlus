@@ -487,8 +487,36 @@ local function WantedList(facts)
 	return cdb.watched
 end
 
-local function Passes(questID, fact)
-	local db, tab = Quests.db, Quests.cdb.trackerTab
+local function TabCounts()
+	local facts = QuestFacts()
+	local world, instance = 0, 0
+	for questID in pairs(WantedList(facts)) do
+		if facts[questID] then
+			if facts[questID].instance then
+				instance = instance + 1
+			else
+				world = world + 1
+			end
+		end
+	end
+	return world, instance
+end
+
+-- The selected tab, or the other one while the selected tab has no quest:
+-- an empty tracker would hide its header and with it the tabs.
+local function EffectiveTab()
+	local tab = Quests.cdb.trackerTab
+	local world, instance = TabCounts()
+	if tab == "instance" and instance == 0 then
+		return "world"
+	elseif tab ~= "instance" and world == 0 and instance > 0 then
+		return "instance"
+	end
+	return tab == "instance" and "instance" or "world"
+end
+
+local function Passes(questID, fact, tab)
+	local db = Quests.db
 	if db.instanceTab then
 		if (tab == "instance") ~= fact.instance then
 			return false
@@ -505,9 +533,10 @@ local function DesiredWatches(facts)
 	local compare = COMPARE[Quests.db.trackerSort] or COMPARE.default
 	local classFirst = Quests.db.classFirst
 	local list = {}
+	local tab = Quests.db.instanceTab and EffectiveTab()
 	for questID in pairs(WantedList(facts)) do
 		local fact = facts[questID]
-		if fact and Passes(questID, fact) then
+		if fact and Passes(questID, fact, tab) then
 			list[#list + 1] = questID
 		end
 	end
@@ -660,21 +689,6 @@ end
 ---------------------------------------------------------------------------
 local tabs
 
-local function TabCounts()
-	local facts = QuestFacts()
-	local world, instance = 0, 0
-	for questID in pairs(WantedList(facts)) do
-		if facts[questID] then
-			if facts[questID].instance then
-				instance = instance + 1
-			else
-				world = world + 1
-			end
-		end
-	end
-	return world, instance
-end
-
 function UpdateTabs()
 	if not tabs then
 		return
@@ -686,7 +700,7 @@ function UpdateTabs()
 		return
 	end
 	local world, instance = TabCounts()
-	local selected = Quests.cdb.trackerTab
+	local selected = EffectiveTab()
 	for key, tab in pairs({ world = tabs.world, instance = tabs.instance }) do
 		local count = key == "world" and world or instance
 		tab:SetText(("%s (%d)"):format(key == "world" and L.QUESTS_TAB_WORLD or L.QUESTS_TAB_INSTANCE, count))
@@ -709,6 +723,11 @@ local function CreateTab(header, key)
 	tab.Underline:SetPoint("BOTTOMLEFT", 3, 0)
 	tab.Underline:SetPoint("BOTTOMRIGHT", -3, 0)
 	tab:SetScript("OnClick", function()
+		local world, instance = TabCounts()
+		if (key == "instance" and instance or world) == 0 then
+			ns.Print(key == "instance" and L.QUESTS_TAB_EMPTY_INSTANCE or L.QUESTS_TAB_EMPTY_WORLD)
+			return
+		end
 		Quests.cdb.trackerTab = key
 		UpdateTabs()
 		SortTracker()

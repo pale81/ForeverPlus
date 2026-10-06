@@ -33,7 +33,8 @@ local function UpdateGlow(button, quality)
 		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
 		local icon = button.Icon or button.icon
 		local anchor = button
-		if icon and icon.GetWidth and icon:GetWidth() > 0 and button:GetWidth() > icon:GetWidth() * 1.5 then
+		local iconWidth = icon and icon.GetWidth and ns.Number(icon:GetWidth(), 0) or 0
+		if iconWidth > 0 and ns.Number(button:GetWidth(), 0) > iconWidth * 1.5 then
 			anchor = icon
 		end
 		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
@@ -280,6 +281,54 @@ local function OutlineFonts()
 	end
 end
 
+-- Some windows colour single texts dark instead of using a dark font (spell
+-- book names on parchment). Those texts get their outline removed directly.
+local MAX_DEPTH = 8
+
+local function StripDarkOutlines(frame, depth)
+	depth = depth or 0
+	if depth > MAX_DEPTH or not frame or frame:IsForbidden() then
+		return
+	end
+	for _, region in ipairs({ frame:GetRegions() }) do
+		if region:IsObjectType("FontString") then
+			local r, g, b = region:GetTextColor()
+			if ns.Number(r) and r + g + b < 0.9 then
+				local face, size, flags = region:GetFont()
+				if face and flags and flags:find("OUTLINE") then
+					region:SetFont(face, size, "")
+				end
+			end
+		end
+	end
+	for _, child in ipairs({ frame:GetChildren() }) do
+		StripDarkOutlines(child, depth + 1)
+	end
+end
+
+local function HookParchmentWindows()
+	ns.OnAddOnLoaded("Blizzard_PlayerSpells", function()
+		local book = PlayerSpellsFrame and PlayerSpellsFrame.SpellBookFrame
+		if not book then
+			return
+		end
+		local function Strip()
+			StripDarkOutlines(book)
+		end
+		if book.OnPagedSpellsUpdate then
+			hooksecurefunc(book, "OnPagedSpellsUpdate", Strip)
+		end
+		book:HookScript("OnShow", Strip)
+	end)
+	ns.OnAddOnLoaded("Blizzard_ProfessionsBook", function()
+		if ProfessionsBookFrame then
+			ProfessionsBookFrame:HookScript("OnShow", function(frame)
+				StripDarkOutlines(frame)
+			end)
+		end
+	end)
+end
+
 ---------------------------------------------------------------------------
 -- Experience, reputation and tooltip health bars with the unit frame texture
 ---------------------------------------------------------------------------
@@ -411,6 +460,7 @@ end
 
 function Visuals:OnLogin()
 	OutlineFonts()
+	HookParchmentWindows()
 	if MainActionBar and MainActionBar.UpdateEndCaps then
 		hooksecurefunc(MainActionBar, "UpdateEndCaps", ApplySquid)
 	end

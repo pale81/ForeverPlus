@@ -80,7 +80,7 @@ local function GetGlow(button)
 		glow:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
 		glow:SetBlendMode("ADD")
 		glow:SetPoint("CENTER")
-		local size = button:GetWidth() * 1.8
+		local size = ns.Number(button:GetWidth(), 37) * 1.8
 		glow:SetSize(size, size)
 		local pulse = glow:CreateAnimationGroup()
 		pulse:SetLooping("BOUNCE")

@@ -81,6 +81,14 @@ function ns.OnAddOnLoaded(name, fn)
 	EventUtil.ContinueOnAddOnLoaded(name, fn)
 end
 
+-- A plain number, or the fallback when the client hands out a protected value.
+function ns.Number(value, fallback)
+	if type(value) ~= "number" or (issecretvalue and issecretvalue(value)) then
+		return fallback
+	end
+	return value
+end
+
 -- Quest with objectives that are all fulfilled. The API also reports quests
 -- without objectives (breadcrumbs, "talk to …") as complete; they are not.
 function ns.IsQuestReady(questID, logIndex)

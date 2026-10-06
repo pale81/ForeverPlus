@@ -22,6 +22,8 @@ globals = {
 }
 
 read_globals = {
+	"HasAction", "GetActionInfo", "PlaceAction",
+	"ProfessionsBookFrame",
 	"UnitHealthPercent",
 	"IsInInstance",
 	"UnitHealthMax", "UnitIsPlayer", "GameTooltipTextLeft1",

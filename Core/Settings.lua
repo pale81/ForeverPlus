@@ -136,6 +136,7 @@ local PAGES = {
 	{ title = L.PAGE_BARS,
 		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_KEYS },
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },
+		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
 	},

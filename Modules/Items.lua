@@ -517,88 +517,84 @@ local function KeyItemID(key)
 	return tonumber(key) or tonumber(tostring(key):match("^(%d+)"))
 end
 
-local function JunkEntryText(key, value)
+-- Icon, coloured name and sort name of a junk list entry.
+local function JunkEntry(key, value)
 	local itemID = KeyItemID(key)
 	local icon = itemID and C_Item.GetItemIconByID(itemID)
 	if type(value) == "string" then
 		-- Suffix items: the stored link carries the full coloured name.
 		local name = value:match("%[(.-)%]") or value
-		return icon and ("|T%d:16:16|t %s"):format(icon, value) or value, name
+		return icon, value:gsub("|H.-|h(.-)|h", "%1"), name
 	end
 	local name = C_Item.GetItemNameByID(itemID)
 	if not name then
 		C_Item.RequestLoadItemDataByID(itemID)
 		name = ("item:%d"):format(itemID)
 	end
+	local sortName = name
 	local quality = C_Item.GetItemQualityByID(itemID)
 	if quality then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		name = CreateColor(r, g, b):WrapTextInColorCode(name)
 	end
-	return icon and ("|T%d:16:16|t %s"):format(icon, name) or name, C_Item.GetItemNameByID(itemID) or ""
+	return icon, name, sortName
 end
 
-local function AddJunkEntries(root, list, onRemove)
+local function AddJunkItems(items, list, onRemove)
 	local entries = {}
 	for key, value in pairs(list) do
-		local text, sortName = JunkEntryText(key, value)
-		entries[#entries + 1] = { id = key, value = value, text = text, sortName = sortName }
+		local icon, text, sortName = JunkEntry(key, value)
+		entries[#entries + 1] = { id = key, value = value, icon = icon, text = text, sortName = sortName }
 	end
 	table.sort(entries, function(a, b)
 		return a.sortName < b.sortName
 	end)
 	for _, entry in ipairs(entries) do
-		local button = root:CreateButton(entry.text, function()
-			list[entry.id] = nil
-			onRemove(entry.id, entry.value)
-			return MenuResponse.CloseAll
-		end)
-		button:SetTooltip(function(tooltip)
-			if type(entry.value) == "string" then
-				tooltip:SetHyperlink(entry.value)
-			else
-				tooltip:SetItemByID(KeyItemID(entry.id))
-			end
-			GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
-		end)
+		items[#items + 1] = {
+			icon = entry.icon,
+			text = entry.text,
+			onClick = function()
+				list[entry.id] = nil
+				onRemove(entry.id, entry.value)
+			end,
+			tooltip = function(tooltip)
+				if type(entry.value) == "string" then
+					tooltip:SetHyperlink(entry.value)
+				else
+					tooltip:SetItemByID(KeyItemID(entry.id))
+				end
+				GameTooltip_AddInstructionLine(tooltip, L.ITEMS_JUNK_REMOVE_HINT)
+			end,
+		}
 	end
 	return #entries
 end
 
+-- Popup at the owner (settings button) or at the cursor (/fp schrott).
 function Items:ShowJunkMenu(owner)
-	-- Menus do not rebuild their entries; reopen after each removal.
-	local function Reopen()
-		UpdateAllBags()
-		C_Timer.After(0, function()
-			self:ShowJunkMenu(owner)
-		end)
-	end
-	MenuUtil.CreateContextMenu(owner or UIParent, function(_, root)
-		root:SetScrollMode(400)
-		root:CreateTitle(L.ITEMS_JUNK_LIST)
+	ns.ShowPopupList(owner, function()
+		local items = {}
 		-- A grey item taken off the junk list would still be sold as grey;
 		-- it moves to the kept list instead.
-		local marked = AddJunkEntries(root, self.db.junk, function(key, value)
+		local marked = AddJunkItems(items, self.db.junk, function(key, value)
 			if C_Item.GetItemQualityByID(KeyItemID(key)) == Enum.ItemQuality.Poor then
 				self.db.keep[key] = value
 			end
-			Reopen()
-		end)
-		if next(self.db.keep) then
-			root:CreateDivider()
-			root:CreateTitle(L.ITEMS_JUNK_KEPT)
-		end
-		local kept = AddJunkEntries(root, self.db.keep, Reopen)
-		if marked + kept == 0 then
-			root:CreateTitle(L.ITEMS_JUNK_NONE)
-			return
-		end
-		root:CreateDivider()
-		root:CreateButton(L.ITEMS_CLEAR_JUNK, function()
-			wipe(self.db.junk)
-			wipe(self.db.keep)
 			UpdateAllBags()
 		end)
+		if next(self.db.keep) then
+			items[#items + 1] = { text = L.ITEMS_JUNK_KEPT }
+		end
+		local kept = AddJunkItems(items, self.db.keep, UpdateAllBags)
+		local footer
+		if marked + kept > 0 then
+			footer = { { text = L.ITEMS_CLEAR_JUNK, onClick = function()
+				wipe(self.db.junk)
+				wipe(self.db.keep)
+				UpdateAllBags()
+			end } }
+		end
+		return { title = L.ITEMS_JUNK_LIST, items = items, empty = L.ITEMS_JUNK_NONE, footer = footer }
 	end)
 end
 
@@ -1085,8 +1081,8 @@ Items.options = {
 		{ "None", L.ITEMS_MOUSE_NONE },
 	} },
 	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
-	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function()
-		Items:ShowJunkMenu()
+	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
+		Items:ShowJunkMenu(button)
 	end },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },

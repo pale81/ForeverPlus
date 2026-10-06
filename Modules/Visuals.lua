@@ -611,22 +611,22 @@ function Visuals:OnOptionChanged(key)
 end
 
 -- Checked spells are greyed out while active; a click toggles one spell.
-function Visuals:ShowBuffExceptions()
+function Visuals:ShowBuffExceptions(owner)
 	local exceptions = self.db.activeBuffExceptions
-	MenuUtil.CreateContextMenu(UIParent, function(_, root)
-		root:CreateTitle(L.VISUALS_ACTIVE_BUFF_EXCEPTIONS)
-		local names = SelfBuffsOnBars()
-		if #names == 0 then
-			root:CreateTitle(L.VISUALS_ACTIVE_BUFF_NONE)
+	ns.ShowPopupList(owner, function()
+		local items = {}
+		for _, name in ipairs(SelfBuffsOnBars()) do
+			items[#items + 1] = {
+				icon = C_Spell.GetSpellTexture(name),
+				text = name,
+				checked = not exceptions[name],
+				onClick = function()
+					exceptions[name] = not exceptions[name] or nil
+					RecolorAll()
+				end,
+			}
 		end
-		for _, name in ipairs(names) do
-			root:CreateCheckbox(name, function()
-				return not exceptions[name]
-			end, function()
-				exceptions[name] = not exceptions[name] or nil
-				RecolorAll()
-			end)
-		end
+		return { title = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, items = items, empty = L.VISUALS_ACTIVE_BUFF_NONE }
 	end)
 end
 
@@ -639,8 +639,8 @@ Visuals.options = {
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
-	{ type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function()
-		Visuals:ShowBuffExceptions()
+	{ type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
+		Visuals:ShowBuffExceptions(button)
 	end },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {

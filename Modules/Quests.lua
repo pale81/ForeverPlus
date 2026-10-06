@@ -15,6 +15,7 @@ local Quests = ns:NewModule("Quests", {
 		trackerSort = "default",
 		classFirst = true,
 		instanceTab = true,
+		instancePreQuests = true,
 		regionOnly = false,
 	},
 	charDefaults = {
@@ -341,7 +342,16 @@ end
 
 local questHeaders = {} -- questID -> quest log header, filled by QuestFacts
 
+-- Instance quest: QuestieDB (quest zone is an instance, or with the option
+-- a quest leading to one), otherwise the quest log header or quest tag.
 local function IsInstanceQuest(questID)
+	local qdb = ns.QuestieDB
+	if qdb.IsDungeonQuest(questID) then
+		return true
+	end
+	if Quests.db.instancePreQuests and qdb.LeadsToDungeon(questID) then
+		return true
+	end
 	local header = questHeaders[questID]
 	if header and InstanceNames()[header] then
 		return true
@@ -782,6 +792,13 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Quests:OnLogin()
+	-- QuestieDB quest chains for pre-quests of instance quests, built in the
+	-- background a little after login.
+	C_Timer.After(5, function()
+		if self.db.instanceTab and self.db.instancePreQuests then
+			ns.QuestieDB.BuildChains(QueueSort)
+		end
+	end)
 	self:RegisterEvent("QUEST_LOG_UPDATE", QueueScan)
 	self:RegisterEvent("NAME_PLATE_UNIT_ADDED", function(_, _, unit)
 		UpdateNameplate(unit)
@@ -826,7 +843,10 @@ function Quests:OnOptionChanged(key, value)
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
-	elseif key == "trackerSort" or key == "classFirst" or key == "instanceTab" or key == "regionOnly" then
+	elseif key == "trackerSort" or key == "classFirst" or key == "instanceTab" or key == "regionOnly" or key == "instancePreQuests" then
+		if self.db.instanceTab and self.db.instancePreQuests then
+			ns.QuestieDB.BuildChains(QueueSort)
+		end
 		self:UpdateTrackerSort(true)
 	end
 end
@@ -857,6 +877,7 @@ Quests.options = {
 	end },
 	{ key = "classFirst", type = "toggle", name = L.QUESTS_CLASS_FIRST, desc = L.QUESTS_CLASS_FIRST_DESC },
 	{ key = "instanceTab", type = "toggle", name = L.QUESTS_INSTANCE_TAB, desc = L.QUESTS_INSTANCE_TAB_DESC },
+	{ key = "instancePreQuests", type = "toggle", name = L.QUESTS_INSTANCE_PREQUESTS, desc = L.QUESTS_INSTANCE_PREQUESTS_DESC, parent = "instanceTab" },
 	{ key = "regionOnly", type = "toggle", name = L.QUESTS_REGION_ONLY, desc = L.QUESTS_REGION_ONLY_DESC },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },

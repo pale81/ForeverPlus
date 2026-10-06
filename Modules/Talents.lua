@@ -431,6 +431,44 @@ local function PlanOverlay(button)
 	return overlay
 end
 
+-- Tooltip of a planned talent: the values of the planned rank below
+-- Blizzard's own text, so the effect of the plan is visible while planning.
+local function AddPlanTooltip(button)
+	if not (Talents.db.enabled and Talents.db.planner) or GameTooltip:GetOwner() ~= button then
+		return
+	end
+	local frame = TalentsFrame()
+	local configID = frame and frame:GetConfigID()
+	local nodeID = button.GetNodeID and button:GetNodeID()
+	local planned = nodeID and CurrentPlan()[nodeID]
+	local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
+	if not node or planned <= node.ranksPurchased then
+		return
+	end
+	local entry = node.activeEntry or node.nextEntry
+	local entryID = entry and entry.entryID or (node.entryIDs and node.entryIDs[1])
+	if not entryID then
+		return
+	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
+	if GameTooltip.AppendInfo then
+		GameTooltip:AppendInfo("GetTraitEntry", entryID, planned)
+	else
+		GameTooltip_AddHighlightLine(GameTooltip, C_Traits.GetTraitDescription(entryID, planned), true)
+	end
+	GameTooltip:Show()
+end
+
+local tooltipHooked = {}
+
+local function HookPlanTooltip(button)
+	if not tooltipHooked[button] and button.SetTooltipInternal then
+		tooltipHooked[button] = true
+		hooksecurefunc(button, "SetTooltipInternal", AddPlanTooltip)
+	end
+end
+
 local function UpdatePlan()
 	local frame = TalentsFrame()
 	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
@@ -440,6 +478,7 @@ local function UpdatePlan()
 	local plan = CurrentPlan()
 	local enabled = Talents.db.enabled and Talents.db.planner
 	for button in frame:EnumerateAllTalentButtons() do
+		HookPlanTooltip(button)
 		local nodeID = button.GetNodeID and button:GetNodeID()
 		local planned = enabled and nodeID and plan[nodeID]
 		if planned or button.fpPlan then
@@ -495,6 +534,11 @@ local function OnTalentClick(_, button, mouseButton)
 	end
 	plan[nodeID] = planned > 0 and planned or nil
 	QueuePlanUpdate()
+	-- Rebuild the open tooltip with the new planned rank.
+	if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
+		HookPlanTooltip(button)
+		button:SetTooltipInternal()
+	end
 end
 
 function ApplyPlan()

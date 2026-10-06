@@ -32,9 +32,10 @@ local displays = {}  -- ForeverPlus displays (coordinates, FPS/MS, …)
 local displayOf = {} -- display frame -> entry
 local movingKey
 
--- One switch locks everything; Alt + right-click locks single elements.
+-- Everything starts locked; Alt + right-click unlocks single elements and
+-- one switch locks everything again.
 local function IsLocked(key)
-	return ns.db.lockAll or ns.db.locked[key] and true or false
+	return ns.db.lockAll or not ns.db.unlocked[key]
 end
 
 local RefreshDisplays
@@ -44,8 +45,8 @@ local function ToggleLock(key)
 		ns.Print(L.LOCK_ALL_ACTIVE)
 		return
 	end
-	local locked = not ns.db.locked[key]
-	ns.db.locked[key] = locked or nil
+	local locked = not IsLocked(key)
+	ns.db.unlocked[key] = not locked or nil
 	if ns.db.lockMessage then
 		ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
 	end
@@ -224,25 +225,40 @@ end
 
 -- Windows also without Alt, but only on their own background or title area:
 -- clicks on buttons, items, lists and other child frames stay untouched.
-local wheelWindows = {}
+local wheelWindows = {} -- window -> true when ForeverPlus handles its wheel
 local ScaleFrame -- below
 
+-- The plain wheel scales an unlocked window. Locked windows leave the wheel
+-- alone, so it keeps its key bindings (camera zoom, action bar paging).
 -- Windows that already use the wheel themselves (e.g. merchant pages) keep it.
-local function EnableWindowWheel(frame)
-	if wheelWindows[frame] or (InCombatLockdown() and frame:IsProtected()) then
+local function UpdateWindowWheel(frame, key)
+	if InCombatLockdown() and frame:IsProtected() then
 		return
 	end
-	wheelWindows[frame] = true
-	if frame:IsMouseWheelEnabled() then
-		return
-	end
-	frame:EnableMouseWheel(true)
-	frame:HookScript("OnMouseWheel", function(self, delta)
-		local name = self:GetName()
-		if Mover.db.enabled and name and not IsLocked(name) and GetMouseFoci()[1] == self then
-			ScaleFrame(self, name, delta)
+	if wheelWindows[frame] == nil then
+		if frame:IsMouseWheelEnabled() then
+			wheelWindows[frame] = false
+			return
 		end
-	end)
+		wheelWindows[frame] = true
+		frame:HookScript("OnMouseWheel", function(self, delta)
+			local name = self:GetName()
+			if Mover.db.enabled and name and not IsLocked(name) and GetMouseFoci()[1] == self then
+				ScaleFrame(self, name, delta)
+			end
+		end)
+	end
+	if wheelWindows[frame] then
+		frame:EnableMouseWheel(Mover.db.enabled and not IsLocked(key))
+	end
+end
+
+local function UpdateAllWindowWheels()
+	for frame, handled in pairs(wheelWindows) do
+		if handled then
+			UpdateWindowWheel(frame, frame:GetName())
+		end
+	end
 end
 
 function Mover:GLOBAL_MOUSE_DOWN(_, button)
@@ -257,7 +273,7 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 	end
 	local isWindow = not displayOf[frame]
 	if isWindow then
-		EnableWindowWheel(frame)
+		UpdateWindowWheel(frame, key)
 	end
 	if not IsAltKeyDown() then
 		-- Displays handle plain clicks themselves; windows only on their background.
@@ -386,9 +402,6 @@ local function Migrate()
 	for _, legacy in ipairs(LEGACY_LOCKS) do
 		local moduleDB = db.modules[legacy[1]]
 		if moduleDB then
-			if moduleDB[legacy[2]] then
-				db.locked[legacy[3]] = true
-			end
 			if moduleDB.lockMessage == false then
 				db.lockMessage = false
 			end
@@ -398,14 +411,13 @@ local function Migrate()
 	saved["D:MinimapCoords"], saved["D:Performance"], saved.WorldMapCoords = nil, nil, nil
 	-- Blizzard's world map panel was replaced by an own display.
 	saved["M:WorldMapCoords"] = nil
-	if ns.db.locked["M:WorldMapCoords"] then
-		ns.db.locked["M:WorldMapCoords"], ns.db.locked["M:MapCoords"] = nil, true
-	end
 end
 
 function Mover:OnInitialize()
 	saved = ns.db.frames
-	ns.db.locked = ns.db.locked or {}
+	-- Former list of locked elements: everything starts locked now.
+	ns.db.locked = nil
+	ns.db.unlocked = ns.db.unlocked or {}
 	if ns.db.lockAll == nil then
 		ns.db.lockAll = false
 	end
@@ -561,6 +573,7 @@ function RefreshDisplays()
 	for _, entry in ipairs(displays) do
 		entry.frame:EnableMouseWheel(enabled and not IsLocked(entry.key) or false)
 	end
+	UpdateAllWindowWheels()
 end
 
 -- placeDefault(frame) sets the default point; the saved position is kept
@@ -605,9 +618,6 @@ function ns:HasSavedPosition(entry)
 end
 
 function ns:SetAllLocked(locked)
-	if not locked then
-		wipe(ns.db.locked)
-	end
 	RefreshDisplays()
 	ns.Print(locked and L.LOCK_ALL_DONE or L.UNLOCK_ALL_DONE)
 end
@@ -621,6 +631,8 @@ function ns:ResetFramePositions()
 		end
 	end
 	wipe(saved)
+	wipe(ns.db.unlocked)
+	RefreshDisplays()
 	for _, data in pairs(ns.editFrames or {}) do
 		data.reset()
 	end

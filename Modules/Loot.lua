@@ -333,31 +333,51 @@ local function MoneySource(name, amount)
 	return ("%s: %s"):format(name, GetMoneyString(amount, true))
 end
 
+local POPUP_WIDTH = 380
+
+local function ItemIcon(link)
+	local itemID = tonumber(link:match("item:(%d+)"))
+	return itemID and C_Item.GetItemIconByID(itemID)
+end
+
+-- Soft popup at the cursor: items with icon, count and origin, then money.
+-- Shift-click on an item puts its link into the chat.
 local function ShowSummary(id)
 	local record = summaries[id]
 	if not record then
 		ns.Print(L.LOOT_EXPIRED)
 		return
 	end
-	local lines = {
-		GREY:format(("%s - %s"):format(date("%H:%M", record.started), date("%H:%M", record.ended))),
-	}
-	if record.count > 0 then
-		lines[#lines + 1] = " "
-		lines[#lines + 1] = NORMAL_FONT_COLOR:WrapTextInColorCode(L.LOOT_ITEMS_HEADER)
-		for _, link in ipairs(record.order) do
-			local entry = record.items[link]
-			lines[#lines + 1] = ("%s x%d  " .. GREY):format(link, entry.count, SourceText(entry.sources, entry.order, ItemSource))
+	ns.ShowPopupList(nil, function()
+		local items = {}
+		if record.count > 0 then
+			items[#items + 1] = { text = L.LOOT_ITEMS_HEADER }
+			for _, link in ipairs(record.order) do
+				local entry = record.items[link]
+				items[#items + 1] = {
+					icon = ItemIcon(link),
+					text = ("%s x%d  " .. GREY):format(link:gsub("|H.-|h(.-)|h", "%1"), entry.count, SourceText(entry.sources, entry.order, ItemSource)),
+					tooltip = function(tooltip)
+						tooltip:SetHyperlink(link)
+						GameTooltip_AddInstructionLine(tooltip, L.LOOT_LINK_HINT)
+					end,
+					onClick = function()
+						if IsModifiedClick("CHATLINK") then
+							ChatFrameUtil.TryInsertChatLink(link)
+						end
+					end,
+				}
+			end
 		end
-	end
-	if record.money > 0 then
-		lines[#lines + 1] = " "
-		lines[#lines + 1] = NORMAL_FONT_COLOR:WrapTextInColorCode(L.LOOT_MONEY_HEADER .. " " .. GetMoneyString(record.money, true))
-		for _, name in ipairs(record.moneyOrder) do
-			lines[#lines + 1] = MoneySource(name, record.moneySources[name])
+		if record.money > 0 then
+			items[#items + 1] = { text = L.LOOT_MONEY_HEADER .. " " .. GetMoneyString(record.money, true) }
+			for _, name in ipairs(record.moneyOrder) do
+				items[#items + 1] = { text = MoneySource(name, record.moneySources[name]), onClick = function() end }
+			end
 		end
-	end
-	ns.ShowLinkWindow("Loot", L.LOOT_TITLE, lines)
+		local title = ("%s  " .. GREY):format(L.LOOT_TITLE, ("%s - %s"):format(date("%H:%M", record.started), date("%H:%M", record.ended)))
+		return { title = title, items = items, width = POPUP_WIDTH }
+	end)
 end
 
 ---------------------------------------------------------------------------

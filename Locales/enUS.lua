@@ -545,3 +545,5 @@ L.WHEEL_CHECK_WORLD = "No element under the mouse takes the wheel (key bindings 
 L.WHEEL_CHECK_COMMAND = "Page command ran (%s), page now: %s"
 L.WHEEL_CHECK_PAGE = "Action bar page changed: %s"
 L.WHEEL_CHECK_END = "Mouse wheel check finished."
+L.TOOLTIP_TRAINER_COMPARE = "Comparison at trainers"
+L.TOOLTIP_TRAINER_COMPARE_DESC = "Shows the equipped items of the matching slot next to the tooltip of a learnable recipe, like the comparison in the bags."

@@ -385,8 +385,8 @@ function Tooltip:OnInitialize()
 	if GameTooltip_OnTooltipAddMoney then
 		hooksecurefunc("GameTooltip_OnTooltipAddMoney", OnTooltipAddMoney)
 	end
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Tooltip: item", OnItemTooltip))
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Tooltip: unit", OnUnitTooltip))
 end
 
 Tooltip.options = {

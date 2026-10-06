@@ -6,7 +6,7 @@ Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und ble
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Minimap & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient: **Alt + Ziehen** verschiebt, **Strg + Mausrad** skaliert, **Alt + Rechtsklick** sperrt/entsperrt einzeln. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
-`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars.
+`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
 
 ## Funktionen
 
@@ -21,6 +21,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter holt gesendete Zeilen zurück (letzte 50, auch aus früheren Sitzungen) | ja |
 | | Mausrad scrollt den Chat (auch wenn Blizzards Einstellung beim Laden aus war); Shift + Mausrad springt an Anfang/Ende | ja |
+| | Kopierknopf oben rechts im Chat (bei Mouseover): letzte 50 Zeilen als markierter Text (Strg+C), Links als Klartext | ja |
 | | Chat der letzten Sitzung behalten (je Fenster einstellbare Zeilenzahl, geschützte Nachrichten ausgenommen) | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
@@ -115,7 +116,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Gruppensuche: Rollen sind die in der Gruppe zugewiesenen Rollen; Mitglieder ohne Rolle werden gezählt, aber keiner Rolle zugerechnet. Eigene Ausschreibungen behalten Blizzards Anzeige (dort liegt der Knopf zum Austragen).
 - Interface-Fehler: optionaler Hinweisklang bei neuem Fehler (höchstens alle 5 s; Fehler von vor dem Laden lösen keinen Klang aus).
 - Porträt-Drache: gespiegelt mit `SetTexCoord(1, 0, 0, 1)` wie in BetterBlizzFrames (Forever-Version); die vorher verwendeten absoluten Atlas-Koordinaten zeigten nur Ausschnitte. Größen und Positionen nach BetterBlizzFrames, kein Code übernommen.
-- Große einmalige Durchläufe (Instanznamen aus 2500 Karten, QuestieDB-Questketten, Rezeptradar-Index) laufen in Scheiben von höchstens 2 ms pro Bild. `/fp messen` misst danach alle Ereignisaufrufe; ein zweites `/fp messen` zeigt die längsten Aufrufe. Einmalige Arbeit beim Laden (Initialisierung, Einstellungen, Login) wird immer gemessen, `/fp zeiten` zeigt den Stand ohne Neustart der Messung.
+- Große einmalige Durchläufe (Instanznamen aus 2500 Karten, QuestieDB-Questketten, Rezeptradar-Index) laufen in Scheiben von höchstens 2 ms pro Bild. `/fp messen` misst danach alle Ereignisaufrufe sowie Taschen-, Tooltip-, Questlog- und Tracker-Aufrufe; ein zweites `/fp messen` zeigt die längsten Aufrufe. Einmalige Arbeit beim Laden (Initialisierung, Einstellungen, Login) wird immer gemessen, `/fp zeiten` zeigt den Stand ohne Neustart der Messung.
 - Chatfilter laufen über Blizzards Filterliste (`ChatFrameUtil.AddMessageEventFilter`), die Addon-Filter abgeschirmt aufruft und geschützte Nachrichten gar nicht erst übergibt; solche Nachrichten bleiben unverändert.
 - Kanalkürzel: Blizzards Chatcode verlangt die Kanalnummer vor dem Namen und vergleicht die Länge des Kanaltexts mit den beigetretenen Kanälen; die Nummer bleibt deshalb, und der Kurzname wird mit unsichtbaren `|r` auf die ursprüngliche Länge aufgefüllt.
 - Zeitstempelfarbe: der Farbcode steht im Zeitstempelformat (CVar `showTimestamps`). Blizzards Auswahlfeld unter Soziales enthält nur die ungefärbten Formate; eine neue Auswahl dort wird sofort wieder eingefärbt. Ausschalten stellt das ungefärbte Format her; wird ForeverPlus ohne Ausschalten entfernt, bleibt der Farbcode im Format.

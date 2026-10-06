@@ -540,7 +540,7 @@ function Radar:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
 		WorldMapFrame:AddDataProvider(provider)
 	end)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, AddRecipeSources)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("RecipeRadar: tooltip", AddRecipeSources))
 	-- Index after the login burst; it only runs while the radar is enabled.
 	C_Timer.After(5, function()
 		self:Apply()

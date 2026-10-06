@@ -243,8 +243,8 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Info:OnInitialize()
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("QuestieInfo: item tooltip", OnItemTooltip))
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("QuestieInfo: unit tooltip", OnUnitTooltip))
 end
 
 Info.options = {

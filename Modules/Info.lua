@@ -137,6 +137,41 @@ local function StripColors(text)
 	return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
+-- ForeverPlus self measurement (30 s), started from the display.
+local MEASURE_SECONDS = 30
+local MEASURE_LINES = 5
+
+local function AddMeasureLines()
+	if ns.measureUntil then
+		GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		GameTooltip_AddNormalLine(GameTooltip, L.INFO_MEASURE_RUNNING:format(math.max(0, ns.measureUntil - GetTime())))
+		return
+	end
+	local list = Info.lastMeasure
+	if not list then
+		return
+	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	GameTooltip_AddNormalLine(GameTooltip, L.INFO_MEASURE_RESULT)
+	if #list == 0 then
+		GameTooltip_AddHighlightLine(GameTooltip, L.TIMINGS_EMPTY)
+	end
+	for _, item in ipairs(list) do
+		local color = CpuColor(item.entry.max)
+		GameTooltip:AddDoubleLine(item.name, ("%.1f ms (%d)"):format(item.entry.max, item.entry.count), 1, 1, 1, color.r, color.g, color.b)
+	end
+end
+
+local function StartMeasure()
+	if ns.measureUntil then
+		return
+	end
+	ns.PrintAlways(L.INFO_MEASURE_STARTED:format(MEASURE_SECONDS))
+	ns.StartTimedMeasure(MEASURE_SECONDS, function()
+		Info.lastMeasure = ns.TopTimings(MEASURE_LINES)
+	end)
+end
+
 local function ShowCpuTooltip(owner)
 	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
 	GameTooltip_SetTitle(GameTooltip, L.INFO_CPU_TITLE)
@@ -165,7 +200,9 @@ local function ShowCpuTooltip(owner)
 	local color = CpuColor(total)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_TOTAL, ("%.2f ms"):format(total),
 		NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, color.r, color.g, color.b)
+	AddMeasureLines()
 	GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
+	GameTooltip_AddInstructionLine(GameTooltip, L.INFO_MEASURE_HINT)
 	GameTooltip:Show()
 end
 
@@ -190,6 +227,12 @@ local function CreatePerfFrame()
 	frame.Text:SetPoint("CENTER")
 	frame:SetScript("OnEnter", ShowCpuTooltip)
 	frame:SetScript("OnLeave", GameTooltip_Hide)
+	-- Middle click or Shift + left click: 30 s measurement of ForeverPlus.
+	frame:SetScript("OnMouseUp", function(_, button)
+		if button == "MiddleButton" or (button == "LeftButton" and IsShiftKeyDown()) then
+			StartMeasure()
+		end
+	end)
 	ns:RegisterDisplay(frame, "Performance", function(self)
 		self:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 14)
 	end)

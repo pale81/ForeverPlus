@@ -17,6 +17,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorMana = true,
 		colorUnusable = true,
 		colorActiveBuff = true,
+		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerDragon = "none",
 		dragonScale = 100,
@@ -208,7 +209,25 @@ local function IsActiveSelfBuff(action)
 		return false
 	end
 	local name = C_Spell.GetSpellName(id)
-	return name and activeAuras[name] or false
+	return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+end
+
+-- Self buffs on the action bars, for the exception menu (by name, sorted).
+local MAX_ACTION_SLOT = 180
+local function SelfBuffsOnBars()
+	local names, seen = {}, {}
+	for slot = 1, MAX_ACTION_SLOT do
+		local actionType, id = GetActionInfo(slot)
+		if actionType == "spell" and type(id) == "number" and IsSelfBuff(id) then
+			local name = C_Spell.GetSpellName(id)
+			if name and not seen[name] then
+				seen[name] = true
+				names[#names + 1] = name
+			end
+		end
+	end
+	table.sort(names)
+	return names
 end
 
 local function SetGreyed(button, icon, greyed)
@@ -591,6 +610,26 @@ function Visuals:OnOptionChanged(key)
 	end
 end
 
+-- Checked spells are greyed out while active; a click toggles one spell.
+function Visuals:ShowBuffExceptions()
+	local exceptions = self.db.activeBuffExceptions
+	MenuUtil.CreateContextMenu(UIParent, function(_, root)
+		root:CreateTitle(L.VISUALS_ACTIVE_BUFF_EXCEPTIONS)
+		local names = SelfBuffsOnBars()
+		if #names == 0 then
+			root:CreateTitle(L.VISUALS_ACTIVE_BUFF_NONE)
+		end
+		for _, name in ipairs(names) do
+			root:CreateCheckbox(name, function()
+				return not exceptions[name]
+			end, function()
+				exceptions[name] = not exceptions[name] or nil
+				RecolorAll()
+			end)
+		end
+	end)
+end
+
 Visuals.options = {
 	{ type = "header", name = L.VISUALS_SQUID_HEADER, desc = L.VISUALS_SQUID_CREDIT },
 	{ key = "squid", type = "dropdown", name = L.VISUALS_SQUID, desc = L.VISUALS_SQUID_CREDIT, values = SquidValues },
@@ -600,6 +639,9 @@ Visuals.options = {
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
+	{ type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function()
+		Visuals:ShowBuffExceptions()
+	end },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },

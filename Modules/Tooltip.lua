@@ -373,7 +373,10 @@ function Tooltip:OnInitialize()
 		ClearSpacer(tooltip)
 		tooltip.fpUnitSuffix = nil
 	end)
-	GameTooltip:HookScript("OnTooltipAddMoney", OnTooltipAddMoney)
+	-- The sell price line comes from a tooltip line rule that calls this global.
+	if GameTooltip_OnTooltipAddMoney then
+		hooksecurefunc("GameTooltip_OnTooltipAddMoney", OnTooltipAddMoney)
+	end
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, OnItemTooltip)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)
 end

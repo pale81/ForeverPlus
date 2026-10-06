@@ -8,6 +8,8 @@ local Errors = ns:NewModule("Errors", {
 	order = 6,
 	defaults = {
 		enabled = true,
+		sound = false,
+		soundKit = "UI_BNET_TOAST",
 	},
 	charDefaults = {},
 })
@@ -19,7 +21,26 @@ local luaIndex = {}    -- ScriptErrorsFrame error index -> entry
 local unseen = 0
 local button, window
 
-local function MarkUnseen()
+local SOUNDS = { "UI_BNET_TOAST", "IG_PLAYER_INVITE", "TELL_MESSAGE", "READY_CHECK", "ALARM_CLOCK_WARNING_1", "ALARM_CLOCK_WARNING_2", "MAP_PING" }
+local SOUND_THROTTLE = 5
+local lastSound = 0
+
+local function PlayErrorSound(force)
+	local now = GetTime()
+	if not force and (not Errors.db.sound or now - lastSound < SOUND_THROTTLE) then
+		return
+	end
+	lastSound = now
+	local kit = SOUNDKIT[Errors.db.soundKit]
+	if kit then
+		PlaySound(kit, "Master")
+	end
+end
+
+local function MarkUnseen(quiet)
+	if not quiet then
+		PlayErrorSound()
+	end
 	unseen = unseen + 1
 	if button and Errors.db.enabled then
 		button.Glow:Show()
@@ -368,7 +389,7 @@ function Errors:OnLogin()
 				local entry = { kind = "lua", index = index, count = data.count, last = time() }
 				luaIndex[index] = entry
 				entries[#entries + 1] = entry
-				MarkUnseen()
+				MarkUnseen(true)
 			end
 		end
 	end
@@ -383,5 +404,16 @@ Errors.options = {
 	{ key = "enabled", type = "toggle", name = L.ERRORS_ENABLE, desc = L.ERRORS_ENABLE_DESC },
 	{ type = "button", name = L.ERRORS_SHOW, text = L.ERRORS_SHOW_BUTTON, func = function()
 		Errors:ShowMenu()
+	end },
+	{ key = "sound", type = "toggle", name = L.ERRORS_SOUND, desc = L.ERRORS_SOUND_DESC, parent = "enabled" },
+	{ key = "soundKit", type = "dropdown", name = L.ERRORS_SOUND_KIT, parent = "sound", values = function()
+		local values = {}
+		for _, key in ipairs(SOUNDS) do
+			values[#values + 1] = { key, L["ERRORS_SOUND_" .. key] }
+		end
+		return values
+	end },
+	{ type = "button", name = L.ERRORS_SOUND_TEST, text = L.QUESTS_TEST, func = function()
+		PlayErrorSound(true)
 	end },
 }

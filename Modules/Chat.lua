@@ -15,7 +15,6 @@ local Chat = ns:NewModule("Chat", {
 		keywordSound = "RAID_WARNING",
 		keywordHighlight = false,
 		keywordColor = "ORANGE",
-		classColors = false,
 		channelShort = false,
 		timestampColor = false,
 		timestampColorValue = "GREY",
@@ -403,22 +402,6 @@ function Chat:UpdateKeywordAlert()
 end
 
 ---------------------------------------------------------------------------
--- Class coloured names: Blizzard's own switch (CVar chatClassColorOverride,
--- "0" = always class colours). Switching off restores the former value.
----------------------------------------------------------------------------
-function Chat:UpdateClassColors(changed)
-	local current = GetCVar("chatClassColorOverride")
-	if self.db.classColors then
-		if current ~= "0" then
-			self.db.classColorsPrevious = current
-			SetCVar("chatClassColorOverride", "0")
-		end
-	elseif changed and current == "0" then
-		SetCVar("chatClassColorOverride", self.db.classColorsPrevious or "2")
-	end
-end
-
----------------------------------------------------------------------------
 -- Short channel names: [2. Handel - Stadt] becomes [2. H]. Blizzard's code
 -- needs the number in front and compares the length of the channel string
 -- with the joined channel names, so the short name is padded with "|r"
@@ -527,7 +510,6 @@ function Chat:OnLogin()
 	-- Chat window settings arrive from the server after login and may overwrite
 	-- the first application, so apply once more when they do.
 	self:UpdateKeywordAlert()
-	self:UpdateClassColors()
 	self:UpdateChannelNames()
 	self:UpdateTimestampColor()
 	self:ApplyTransparency()
@@ -542,8 +524,6 @@ end
 function Chat:OnOptionChanged(key, value)
 	if key == "keywordAlert" or key == "keywordHighlight" then
 		self:UpdateKeywordAlert()
-	elseif key == "classColors" then
-		self:UpdateClassColors(true)
 	elseif key == "channelShort" then
 		self:UpdateChannelNames()
 	elseif key == "timestampColor" or key == "timestampColorValue" then
@@ -574,7 +554,6 @@ Chat.options = {
 	{ key = "languageMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "languageClick" },
 	{ key = "transparent", type = "toggle", name = L.CHAT_TRANSPARENT, desc = L.CHAT_TRANSPARENT_DESC },
 	{ type = "header", name = L.CHAT_MESSAGES_HEADER },
-	{ key = "classColors", type = "toggle", name = L.CHAT_CLASS_COLORS, desc = L.CHAT_CLASS_COLORS_DESC },
 	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },
 	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },
 	{ key = "timestampColorValue", type = "dropdown", name = L.CHAT_COLOR, parent = "timestampColor", values = ColorValues },

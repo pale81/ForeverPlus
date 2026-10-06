@@ -18,6 +18,7 @@ Core\Core.lua
 Core\Settings.xml
 Core\Settings.lua
 Core\Widgets.lua
+Core\QuestieDB.lua
 Core\Mover.lua
 
 Modules\Chat.lua

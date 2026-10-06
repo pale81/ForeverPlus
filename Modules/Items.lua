@@ -8,6 +8,7 @@ local Items = ns:NewModule("Items", {
 	order = 4,
 	defaults = {
 		autoSell = true,
+		sellButton = true,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
@@ -687,17 +688,87 @@ local function Repair()
 	end
 end
 
+local function StartSelling()
+	if sellTicker then
+		return
+	end
+	soldValue = 0
+	SellBatch()
+	if soldValue then
+		sellTicker = C_Timer.NewTicker(SELL_INTERVAL, SellBatch)
+	end
+end
+
+-- Count and value of the junk in the bags (same rules as selling).
+local function JunkValue()
+	local count, value = 0, 0
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if IsJunk(info) then
+				local price = select(11, C_Item.GetItemInfo(info.itemID))
+				if price and price > 0 then
+					count = count + 1
+					value = value + price * info.stackCount
+				end
+			end
+		end
+	end
+	return count, value
+end
+
+-- Blizzard's sell-junk button sells every grey item, including kept ones.
+-- A button of our own lies on top and sells by the junk rules instead.
+local sellButton
+
+local function UpdateSellButton()
+	if not sellButton or not sellButton:IsShown() then
+		return
+	end
+	local count = JunkValue()
+	sellButton:GetParent().Icon:SetDesaturated(count == 0)
+	sellButton:SetEnabled(count > 0)
+end
+
+local function CreateSellButton()
+	local parent = _G.MerchantSellAllJunkButton
+	if sellButton or not parent then
+		return
+	end
+	sellButton = CreateFrame("Button", nil, parent)
+	sellButton:SetAllPoints()
+	sellButton:SetFrameLevel(parent:GetFrameLevel() + 2)
+	sellButton:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+	sellButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	-- Disabled buttons get no OnEnter; keep the tooltip anyway.
+	sellButton:SetMotionScriptsWhileDisabled(true)
+	sellButton:SetScript("OnClick", function()
+		if merchantOpen then
+			StartSelling()
+		end
+	end)
+	sellButton:SetScript("OnEnter", function(self)
+		local count, value = JunkValue()
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(SELL_ALL_JUNK_ITEMS)
+		GameTooltip:AddLine(L.ITEMS_SELL_BUTTON_TIP, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
+		if count > 0 then
+			GameTooltip:AddDoubleLine(L.ITEMS_SELL_BUTTON_COUNT:format(count), GetMoneyString(value, true), 1, 1, 1, 1, 1, 1)
+		end
+		GameTooltip:Show()
+	end)
+	sellButton:SetScript("OnLeave", GameTooltip_Hide)
+	sellButton:SetScript("OnShow", UpdateSellButton)
+	hooksecurefunc("MerchantFrame_Update", ns.Measured("Items: sell button", UpdateSellButton))
+end
+
 function Items:MERCHANT_SHOW()
 	merchantOpen = true
 	if self.db.autoRepair then
 		Repair()
 	end
-	if self.db.autoSell and not sellTicker then
-		soldValue = 0
-		SellBatch()
-		if soldValue then
-			sellTicker = C_Timer.NewTicker(SELL_INTERVAL, SellBatch)
-		end
+	if self.db.autoSell then
+		StartSelling()
 	end
 end
 
@@ -1039,7 +1110,16 @@ end
 ---------------------------------------------------------------------------
 function Items:Refresh()
 	local db = self.db
-	local merchant = db.autoSell or db.autoRepair
+	local merchant = db.autoSell or db.autoRepair or db.sellButton
+	if db.sellButton then
+		CreateSellButton()
+	end
+	if sellButton then
+		sellButton:SetShown(db.sellButton)
+		if not db.sellButton and MerchantFrame:IsShown() then
+			MerchantFrame_Update()
+		end
+	end
 	self:ToggleEvent("MERCHANT_SHOW", merchant)
 	self:ToggleEvent("MERCHANT_CLOSED", merchant)
 	if not merchant then
@@ -1098,6 +1178,7 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_MERCHANT },
 	{ key = "autoSell", type = "toggle", name = L.ITEMS_AUTOSELL, desc = L.ITEMS_AUTOSELL_DESC },
 	{ key = "sellMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "autoSell" },
+	{ key = "sellButton", type = "toggle", name = L.ITEMS_SELL_BUTTON, desc = L.ITEMS_SELL_BUTTON_DESC },
 	{ key = "autoRepair", type = "toggle", name = L.ITEMS_AUTOREPAIR, desc = L.ITEMS_AUTOREPAIR_DESC },
 	{ key = "repairGuild", type = "toggle", name = L.ITEMS_REPAIR_GUILD, desc = L.ITEMS_REPAIR_GUILD_DESC, parent = "autoRepair" },
 	{ key = "repairMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "autoRepair" },

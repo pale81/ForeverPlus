@@ -133,6 +133,7 @@ local PAGES = {
 		{ "QoL", keys = Keys("bagSlots") },
 	},
 	{ title = L.QUESTS_TITLE, { "Quests" } },
+	{ title = L.GROUPFINDER_TITLE, { "GroupFinder" } },
 	{ title = L.PAGE_BARS,
 		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_KEYS },
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },

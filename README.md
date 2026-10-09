@@ -30,7 +30,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Beute zusammenfassen: eigene Beute, selbst hergestellte Gegenstände und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet ein Popup am Mauszeiger mit Symbol, Anzahl und Herkunft (Shift-Klick verlinkt im Chat); Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
 | | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
-| | Mit QuestieDB: Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
+| | Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
 | | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
@@ -73,6 +73,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Gruppensuche | Dungeongruppen für 5 und 10 Spieler: Klassen der Gruppe (nach Rolle sortiert) und fehlende Rollen nach einstellbarer Aufstellung (5er: 1 Tank, 1 Heiler, 3 Schaden; 10er: einstellbar) | ja |
 | Quests | Questklänge (abschaltbar) bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
+| | Forever-Quests (ID ab 10000) im Questlog und Tracker mit Stern vor dem Namen oder hellblau | ja |
 | | Quest- und Gesprächsfenster nur als Pergament (ohne Rahmen, Porträt, Hintergrund, Schließen-Knopf) | – |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
 | Flugzeiten | Jeder Flug wird gemessen und je Strecke gespeichert; Dauer im Tooltip der Flugkarte, Restzeit-Leiste während des Flugs (verschieb- und sperrbar) | ja |
@@ -93,7 +94,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Knopf für öffnbare Gegenstände (Muscheln, Beutel, geknackte Kassetten), Bearbeitungsmodus | ja |
 | | Doppel-Rechtsklick in die Welt wirft die Angel aus | ja |
 | | Bereits bekannte Rezepte in Taschen und beim Händler ausgegraut | ja |
-| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
+| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Anfangs gesperrt; Alt + Rechtsklick entsperrt, dann verschiebt Alt + Ziehen jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert; Position/Größe je Element gespeichert, als Abstand zur nächsten Ecke, Kante oder Mitte (bei Minimap-Anzeigen zur Minimap), damit Auflösung und UI-Skalierung nichts verschieben | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler); nicht verschobene Fenster reihen sich rechts neben Blizzards Fenster (z. B. Zauberbuch) | ja |
@@ -109,7 +110,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 - Kein Test im laufenden Spiel möglich gewesen; geprüft wurden Syntax, `luacheck`, ein Lade-/Initialisierungstest mit simulierter API sowie alle verwendeten Funktionen gegen den Forever-UI-Quellcode.
 - Buff-Erinnerung nutzt Classic-Zauber-IDs; nicht existierende IDs werden still übersprungen.
-- Rezeptradar, Rezeptquellen, Vorquests von Instanzquests, Herkunft im Gegenstands-Tooltip und Quests im NPC-Tooltip benötigen das eigenständige Daten-Addon **QuestieDB** (die Optionen nennen das); Instanzquests erkennt ForeverPlus damit zusätzlich an der Questzone (nur Daten und Schnittstelle, nicht das Questie-Addon). In den Repositories von Questie und QuestieDB liegt keine Lizenzdatei für die Daten (Lizenzen nur für einzelne Symbole und Bibliotheken in Questie); QuestieDB dokumentiert aber ausdrücklich eine öffentliche Schnittstelle für fremde Addons (`docs/api.md`). ForeverPlus liest die Daten deshalb nur zur Laufzeit über diese Schnittstelle (`LibQuestieDB`), kopiert keine Daten und ist ohne QuestieDB voll funktionsfähig; dann sind diese Funktionen inaktiv. Namen kommen in der Sprache des Clients, sofern kein anderes Addon (Questie) schon eine Sprache für QuestieDB gewählt hat. Quest-EP werden nicht aus QuestieDB gelesen: der Client liefert sie für Quests im Log selbst (`GetQuestLogRewardXP`), genauer als Tabellenwerte. Die Questketten-Übersicht entsteht einmal je Sitzung im Hintergrund (400 Quests pro Bild). Der Forever-Datensatz von QuestieDB ist selbst noch in Arbeit (laut Projekt nicht vollständig live geprüft).
 - „Mehrere Fenster gleichzeitig“ gilt nicht für Spielmenü, Optionen, Zauberbuch, Sammlungen, Dungeonbrowser und geschützte Fenster: deren Anzeige über Addon-Werte zu steuern würde Abmelden/Beenden bzw. Kampfaktionen blockieren (Taint).
 - Kopieren in die Zwischenablage ist für Addons gesperrt (`CopyToClipboard` ist eingeschränkt); das Kopier-Symbol markiert den Text, kopiert wird mit Strg+C.
 - Schrift: Namen über Köpfen und Kampftext nutzen vom Client beim Start gelesene globale Schriftpfade; diese zu ändern würde Taint riskieren, daher nicht enthalten.
@@ -143,5 +143,5 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 - Code: MIT (siehe `LICENSE`).
 - iSquidMod-Grafiken (`Media/iSquidMod`): Ganders & Imithat, Originalautor SAM – WML 1.0, siehe `Media/iSquidMod/LICENSE.txt`.
-- Rezeptdaten: zur Laufzeit aus [QuestieDB](https://github.com/Questie/QuestieDB) (Questie-Team).
+- Quest-, NPC-, Gegenstands- und Rezeptdaten (Rezeptradar, Herkunft im Tooltip, Quests am NPC, Instanz-Vorquests; daraus auch die ID-Grenze der Forever-Quests): zur Laufzeit aus [QuestieDB](https://github.com/Questie/QuestieDB) (Questie-Team), im Paket enthalten.
 - Ideen: oGlow (haste), Leatrix Plus, BlizzMove, RecipeRadar, Questie/Quester/Plumber, ncHoverName, ExtraQuestButton.

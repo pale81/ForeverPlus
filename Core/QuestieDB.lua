@@ -76,6 +76,70 @@ function QDB.HasContract(lib, version)
 end
 
 ---------------------------------------------------------------------------
+-- QuestieDB's areas (zone IDs of the spawn lists) to the client's map IDs.
+-- Loaded on first use; QuestieDB may hand the tables over as source text.
+---------------------------------------------------------------------------
+local areaToUiMap
+
+local function LoadAreaMap(lib)
+	areaToUiMap = {}
+	local ok, zoneDB = pcall(lib.Support.Get, "ZoneDB")
+	local private = ok and type(zoneDB) == "table" and zoneDB.private
+	if type(private) ~= "table" then
+		return
+	end
+	for _, key in ipairs({ "areaIdToUiMapId", "areaIdToUiMapIdOverride" }) do
+		local source = private[key]
+		if type(source) == "string" then
+			local chunk = loadstring(source)
+			local success, map = pcall(chunk or error)
+			source = success and map or nil
+		end
+		if type(source) == "table" then
+			for areaID, uiMapID in pairs(source) do
+				areaToUiMap[areaID] = uiMapID
+			end
+		end
+	end
+end
+
+-- Map ID of a QuestieDB area, nil when the client has no map for it.
+function QDB.UiMapForArea(lib, areaID)
+	if not areaToUiMap then
+		LoadAreaMap(lib)
+	end
+	local uiMapID = areaToUiMap[areaID]
+	return type(uiMapID) == "number" and uiMapID > 0 and uiMapID or nil
+end
+
+-- Spawn points of a QuestieDB spawn list ({ [areaID] = { { x, y }, … } },
+-- 0–100 per zone map) by map: { [uiMapID] = { { x, y }, … } }. Points
+-- without a position on the map (instances: -1) are left out.
+function QDB.SpawnsByMap(lib, spawns, into)
+	into = into or {}
+	if type(spawns) ~= "table" then
+		return into
+	end
+	for areaID, points in pairs(spawns) do
+		local uiMapID = QDB.UiMapForArea(lib, areaID)
+		if uiMapID and type(points) == "table" then
+			local list = into[uiMapID]
+			for _, point in ipairs(points) do
+				local x, y = point[1], point[2]
+				if type(x) == "number" and type(y) == "number" and x >= 0 and y >= 0 then
+					if not list then
+						list = {}
+						into[uiMapID] = list
+					end
+					list[#list + 1] = { x, y }
+				end
+			end
+		end
+	end
+	return into
+end
+
+---------------------------------------------------------------------------
 -- Dungeon and raid quests: the quest's zone (zoneOrSort) is the area of an
 -- instance in QuestieDB's dungeon table (including alternative area IDs).
 ---------------------------------------------------------------------------

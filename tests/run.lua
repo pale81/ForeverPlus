@@ -159,6 +159,7 @@ wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 GetMouseFoci = function() return {} end
 local function Color(r, g, b) return { r = r, g = g, b = b, GetRGB = function() return r, g, b end, WrapTextInColorCode = function(_, t) return "<" .. t .. ">" end } end
 NORMAL_FONT_COLOR, GREEN_FONT_COLOR, ORANGE_FONT_COLOR, RED_FONT_COLOR = Color(1, .82, 0), Color(0, 1, 0), Color(1, .5, 0), Color(1, 0, 0)
+DISABLED_FONT_COLOR, HIGHLIGHT_FONT_COLOR = Color(.5, .5, .5), Color(1, 1, 1)
 UnitName = function() return "Helaku" end
 time = os.time
 C_Texture = { GetAtlasInfo = function() return { width = 64, height = 64, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 } end }
@@ -1447,4 +1448,48 @@ end)()
 	setuv(MoveOne, "run", nil)
 	setuv(MoveOne, "atBank", false)
 	print("restock OK")
+end)()
+;(function()
+	-- Quest preview: open objectives on the map, turn-in once they are done.
+	local spawns = { [6] = { [12] = { { 40, 80 } } }, [7] = { [12] = { { 30, 30 }, { 31, 31 } } }, [20] = { [40] = { { 50, 50 } } },
+		[30] = { [12] = { { 60, 60 } } } }
+	local quest = { objectives = { { { 6, nil, 0 } }, nil, { { 750, nil, 0 } }, nil, { { { 20, 21 }, 22, nil, 0 } } },
+		finishedBy = { { 30 } } }
+	LibQuestieDB = {
+		Support = { Get = function() return { private = { areaIdToUiMapId = { [12] = 1429, [40] = 1436 } } } end },
+		Quest = { Exists = function(id) return id == 33 end, Get = function(_, key) return quest[key] end, GetAll = function() end, GetAllIds = function() return {} end },
+		Npc = { Get = function(id, key) if key == "spawns" then return spawns[id] end if key == "name" then return id == 30 and "Marschall" end end },
+		Item = { Get = function(id, key) return id == 750 and key == "npcDrops" and { 7 } or nil end },
+		Object = { Get = function() end },
+	}
+	setuv(ns.QuestieDB.UiMapForArea, "areaToUiMap", nil)
+	local objectives = { { type = "monster", text = "Kobold: 10/10", finished = true }, { type = "item", text = "Kerze: 0/8", finished = false },
+		{ type = "monster", text = "Mine erkundet: 0/1", finished = false } }
+	C_QuestLog.GetQuestObjectives = function() return objectives end
+	C_QuestLog.GetTitleForQuestID = function() return "Koboldlager" end
+	C_Map.GetBestMapForUnit = function() return 1429 end
+	C_Map.GetMapInfo = function(id) return { name = id == 1429 and "Wald von Elwynn" or "Westfall" } end
+	C_Map.GetMapArtLayers = function() return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256 } } end
+	C_Map.GetMapArtLayerTextures = function() local t = {} for i = 1, 12 do t[i] = 100 + i end return t end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+	C_MapExplorationInfo = { GetExploredMapTextures = function() return {} end }
+	GameTooltip = CreateFrame("GameTooltip")
+	ns:GetModule("WorldMap").db.reveal = false
+	local P = ns.QuestPreview
+	local build, bodyText = uv(P.Show, "Build"), uv(P.Show, "BodyText")
+	local model = build(33)
+	assert(#model.maps[1429] == 2 and #model.maps[1436] == 1 and not model.turnIn, "item drops in Elwynn, kill credit in Westfall")
+	assert(uv(P.Show, "ChooseMap")(model.maps) == 1429, "player's map first")
+	local text = bodyText(model, 1429)
+	print("  ", (text:gsub("\n", " / ")))
+	assert(text:find("Kerze") and text:find("Westfall"), "objectives and other zone")
+	P.Show(CreateFrame("Frame"), 33)
+	local release = uv(P.Show, "ReleaseAll")
+	assert(uv(release, "mapUsed") == 12 and uv(release, "markUsed") == 5, "12 map tiles, 2 dots with rings, player arrow")
+	for _, objective in ipairs(objectives) do objective.finished = true end
+	model = build(33)
+	assert(model.turnIn and #model.maps[1429] == 1 and model.turnInName == "Marschall", "turn-in")
+	assert(bodyText(model, 1429):find("Marschall"), "turn-in line")
+	P.Hide()
+	print("quest preview OK")
 end)()

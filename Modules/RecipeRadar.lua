@@ -43,7 +43,6 @@ local RECIPE_SKILL = {
 local DB                -- LibQuestieDB
 local recipes = {}      -- itemID -> { skill =, vendors =, drops =, quests = }
 local vendorsByMap = {} -- uiMapID -> { { npc =, team =, x =, y =, items = {} }, ... }
-local areaToUiMap = {}
 local indexReady = false
 local skills = {}       -- skillLineID -> current rank
 local statusCache = {}  -- itemID -> "known" | "ok" | "low"
@@ -53,27 +52,6 @@ local waitingForItems = false
 ---------------------------------------------------------------------------
 -- QuestieDB index (built once per session, spread over frames)
 ---------------------------------------------------------------------------
-local function LoadAreaMap()
-	local ok, zoneDB = pcall(DB.Support.Get, "ZoneDB")
-	local private = ok and zoneDB and zoneDB.private
-	if not private then
-		return
-	end
-	for _, key in ipairs({ "areaIdToUiMapId", "areaIdToUiMapIdOverride" }) do
-		local source = private[key]
-		if type(source) == "string" then
-			local chunk = loadstring(source)
-			local success, map = pcall(chunk or error)
-			source = success and map or nil
-		end
-		if type(source) == "table" then
-			for areaID, uiMapID in pairs(source) do
-				areaToUiMap[areaID] = uiMapID
-			end
-		end
-	end
-end
-
 -- Summoned helpers that sell (Forever's Reagent Bot) are recorded wherever
 -- players called them; an NPC seen in more zones than this has no fixed place.
 local MAX_VENDOR_ZONES = 3
@@ -95,9 +73,9 @@ local function AddVendorSpawns(npc, items)
 	end
 	local team = faction == "AH" and "N" or faction
 	for areaID, points in pairs(spawns) do
-		local uiMapID = areaToUiMap[areaID]
+		local uiMapID = ns.QuestieDB.UiMapForArea(DB, areaID)
 		local point = points[1]
-		if uiMapID and uiMapID > 0 and point and point[1] and point[1] >= 0 then
+		if uiMapID and point and point[1] and point[1] >= 0 then
 			local list = vendorsByMap[uiMapID]
 			if not list then
 				list = {}
@@ -111,7 +89,6 @@ end
 local indexError -- first error while indexing, for /fp radar
 
 local function BuildIndex(onDone)
-	LoadAreaMap()
 	local ids = DB.Item.GetAllIds() or {}
 	local npcItems = {}
 	local function IndexItem(id)
@@ -282,7 +259,8 @@ end
 local function ZoneName(npc)
 	local spawns = DB.Npc.Get(npc, "spawns")
 	for areaID in pairs(spawns or {}) do
-		local info = areaToUiMap[areaID] and C_Map.GetMapInfo(areaToUiMap[areaID])
+		local uiMapID = ns.QuestieDB.UiMapForArea(DB, areaID)
+		local info = uiMapID and C_Map.GetMapInfo(uiMapID)
 		if info then
 			return info.name
 		end

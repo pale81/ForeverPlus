@@ -36,6 +36,7 @@ Modules\QoL.lua
 Modules\Info.lua
 Modules\Quests.lua
 Modules\Parchment.lua
+Modules\QuestPreview.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
 Modules\Errors.lua

@@ -99,7 +99,7 @@ local function TileSize(index, count, total, tile)
 	return pixels, file
 end
 
-local function DrawOverlay(overlay, tileWidth, tileHeight, alpha, r, g, b)
+local function DrawOverlay(acquire, overlay, tileWidth, tileHeight, alpha, r, g, b)
 	local width, height, left, top = overlay[1], overlay[2], overlay[3], overlay[4]
 	local columns, rows = math.ceil(width / tileWidth), math.ceil(height / tileHeight)
 	if #overlay - 4 ~= columns * rows then
@@ -109,7 +109,7 @@ local function DrawOverlay(overlay, tileWidth, tileHeight, alpha, r, g, b)
 		local pixelHeight, fileHeight = TileSize(row, rows, height, tileHeight)
 		for column = 1, columns do
 			local pixelWidth, fileWidth = TileSize(column, columns, width, tileWidth)
-			local texture = Acquire()
+			local texture = acquire()
 			texture:SetSize(pixelWidth, pixelHeight)
 			texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
 			texture:ClearAllPoints()
@@ -122,21 +122,13 @@ local function DrawOverlay(overlay, tileWidth, tileHeight, alpha, r, g, b)
 	end
 end
 
-local function Draw()
-	Release()
-	local db = WorldMap.db
-	local map = pin and pin:GetMap()
-	local mapID = db.reveal and map and map:GetMapID()
-	-- The data hold the first art layer (the only one of these maps).
-	if not mapID or map:GetCanvasContainer():GetCurrentLayerIndex() ~= 1 then
-		return
-	end
+-- Unexplored parts of the map as the options ask for them.
+local function DrawUnexplored(mapID, layer, acquire)
 	local overlays, explored, unknown = Analyse(mapID)
-	local layers = overlays and unknown == 0 and C_Map.GetMapArtLayers(mapID)
-	local layer = layers and layers[1]
-	if not layer then
+	if not overlays or unknown > 0 then
 		return
 	end
+	local db = WorldMap.db
 	local alpha = db.revealAlpha / 100
 	local r, g, b = 1, 1, 1
 	if db.revealTint then
@@ -144,9 +136,65 @@ local function Draw()
 	end
 	for _, overlay in ipairs(overlays) do
 		if not explored[overlay[5]] then
-			DrawOverlay(overlay, layer.tileWidth, layer.tileHeight, alpha, r, g, b)
+			DrawOverlay(acquire, overlay, layer.tileWidth, layer.tileHeight, alpha, r, g, b)
 		end
 	end
+end
+
+local function Draw()
+	Release()
+	local map = pin and pin:GetMap()
+	local mapID = WorldMap.db.reveal and map and map:GetMapID()
+	-- The data hold the first art layer (the only one of these maps).
+	if not mapID or map:GetCanvasContainer():GetCurrentLayerIndex() ~= 1 then
+		return
+	end
+	local layers = C_Map.GetMapArtLayers(mapID)
+	if layers and layers[1] then
+		DrawUnexplored(mapID, layers[1], Acquire)
+	end
+end
+
+-- The map as the world map draws it, for small map views: base tiles,
+-- explored parts and, with the reveal option, the unexplored ones; in map
+-- pixels from the top left. acquire(drawLayer, subLevel) hands out a
+-- texture. Returns the art layer (size of the drawing) or nil.
+function WorldMap:DrawMapArt(mapID, acquire)
+	local layers = C_Map.GetMapArtLayers(mapID)
+	local layer = layers and layers[1]
+	local files = layer and C_Map.GetMapArtLayerTextures(mapID, 1)
+	if not files or #files == 0 then
+		return nil
+	end
+	local tileWidth, tileHeight = layer.tileWidth, layer.tileHeight
+	local columns = math.ceil(layer.layerWidth / tileWidth)
+	for index, file in ipairs(files) do
+		local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
+		local texture = acquire("BACKGROUND", 0)
+		texture:SetSize(tileWidth, tileHeight)
+		texture:SetTexCoord(0, 1, 0, 1)
+		texture:ClearAllPoints()
+		texture:SetPoint("TOPLEFT", tileWidth * column, -tileHeight * row)
+		texture:SetTexture(file, nil, nil, "TRILINEAR")
+		texture:SetVertexColor(1, 1, 1)
+		texture:SetAlpha(1)
+		texture:Show()
+	end
+	for _, info in ipairs(C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}) do
+		if not info.isShownByMouseOver and type(info.fileDataIDs) == "table" then
+			local part = { info.textureWidth, info.textureHeight, info.offsetX, info.offsetY, unpack(info.fileDataIDs) }
+			local subLevel = info.isDrawOnTopLayer and 1 or 0
+			DrawOverlay(function()
+				return acquire("ARTWORK", subLevel)
+			end, part, tileWidth, tileHeight, 1, 1, 1, 1)
+		end
+	end
+	if self.db.reveal then
+		DrawUnexplored(mapID, layer, function()
+			return acquire("ARTWORK", SUB_LEVEL)
+		end)
+	end
+	return layer
 end
 
 -- The map has exactly one exploration pin.

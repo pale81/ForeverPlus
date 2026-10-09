@@ -17,6 +17,7 @@ local Quests = ns:NewModule("Quests", {
 		instanceTab = true,
 		instancePreQuests = true,
 		regionOnly = false,
+		trackerPreview = true,
 		questParchment = false,
 		foreverMark = true,
 		foreverMarkStyle = "ICON",
@@ -904,6 +905,23 @@ local function MarkQuestLog()
 	end
 end
 
+-- Map preview of the quest's objectives on hovering a tracker title
+-- (Modules/QuestPreview.lua).
+local function OnHeaderEnter(_, block)
+	if Quests.db.trackerPreview and block then
+		ns.QuestPreview.Show(block, block.id)
+	end
+end
+
+local function HookPreview()
+	for _, tracker in ipairs({ QuestObjectiveTracker or false, CampaignQuestObjectiveTracker or false }) do
+		if tracker and tracker.OnBlockHeaderEnter and tracker.OnBlockHeaderLeave then
+			hooksecurefunc(tracker, "OnBlockHeaderEnter", ns.Measured("Quests: tracker preview", OnHeaderEnter))
+			hooksecurefunc(tracker, "OnBlockHeaderLeave", ns.QuestPreview.Hide)
+		end
+	end
+end
+
 -- Quest, gossip and book windows as a parchment page (Modules/Parchment.lua).
 function Quests:UpdateQuestParchment()
 	ns.Parchment.Update(self.db.questParchment)
@@ -939,6 +957,7 @@ function Quests:OnLogin()
 	QueueScan()
 	self:UpdateItemTicker()
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", CreateSortButton)
+	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", HookPreview)
 	self:RegisterEvent("QUEST_ACCEPTED", QueueSort)
 	self:RegisterEvent("QUEST_REMOVED", function(_, _, questID)
 		if questID and self.cdb.watched then
@@ -968,6 +987,8 @@ function Quests:OnOptionChanged(key, value)
 		Settings.SetValue("ForeverPlus_Quests_sounds", true)
 	elseif key == "questParchment" then
 		self:UpdateQuestParchment()
+	elseif key == "trackerPreview" and not value then
+		ns.QuestPreview.Hide()
 	elseif key == "nameplateIcons" then
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
@@ -1008,6 +1029,7 @@ Quests.options = {
 	{ key = "instanceTab", type = "toggle", name = L.QUESTS_INSTANCE_TAB, desc = L.QUESTS_INSTANCE_TAB_DESC },
 	{ key = "instancePreQuests", type = "toggle", name = L.QUESTS_INSTANCE_PREQUESTS, desc = L.QUESTS_INSTANCE_PREQUESTS_DESC, parent = "instanceTab" },
 	{ key = "regionOnly", type = "toggle", name = L.QUESTS_REGION_ONLY, desc = L.QUESTS_REGION_ONLY_DESC },
+	{ key = "trackerPreview", type = "toggle", name = L.QUESTS_TRACKER_PREVIEW, desc = L.QUESTS_TRACKER_PREVIEW_DESC },
 	{ type = "header", name = L.QUESTS_FOREVER_HEADER },
 	{ key = "foreverMark", type = "toggle", name = L.QUESTS_FOREVER_MARK, desc = L.QUESTS_FOREVER_MARK_DESC },
 	{ key = "foreverMarkStyle", type = "dropdown", name = L.QUESTS_FOREVER_STYLE, parent = "foreverMark", values = {

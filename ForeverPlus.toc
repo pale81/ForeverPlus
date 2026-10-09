@@ -26,6 +26,7 @@ Modules\Loot.lua
 Modules\Tooltip.lua
 Modules\QuestieInfo.lua
 Modules\Minimap.lua
+Data\MapOverlays.lua
 Modules\WorldMap.lua
 Modules\Items.lua
 Modules\Auction.lua

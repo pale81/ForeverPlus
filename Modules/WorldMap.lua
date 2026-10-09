@@ -56,10 +56,11 @@ local function Analyse(mapID)
 	local explored, unknown = {}, 0
 	if overlays then
 		for _, info in ipairs(C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}) do
+			-- Parts without files (they exist in the data) have nothing to compare.
 			local file = info.fileDataIDs and info.fileDataIDs[1]
 			if file and overlays.known[file] then
 				explored[file] = true
-			else
+			elseif file then
 				unknown = unknown + 1
 			end
 		end
@@ -197,7 +198,10 @@ function WorldMap:PrintStatus()
 	for _ in pairs(explored) do
 		exploredCount = exploredCount + 1
 	end
-	ns.PrintAlways(L.WORLDMAP_STATUS, mapID, artID, #overlays, exploredCount)
+	local layers = C_Map.GetMapArtLayers(mapID)
+	local layer = layers and layers[1]
+	ns.PrintAlways(L.WORLDMAP_STATUS, mapID, artID, #overlays, exploredCount,
+		layer and ns.Number(layer.tileWidth, 0) or 0, layer and ns.Number(layer.tileHeight, 0) or 0)
 	if unknown > 0 then
 		ns.PrintAlways(L.WORLDMAP_STATUS_MISMATCH, unknown)
 	end

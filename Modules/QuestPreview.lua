@@ -9,7 +9,7 @@ local Preview = {}
 ns.QuestPreview = Preview
 
 local MAP_WIDTH = 260
-local PADDING = 10
+local PADDING = ns.PANEL_PADDING
 local GAP = 6
 local MAX_POINTS = 150  -- per map; longer spawn lists are thinned out
 local MAX_SOURCES = 12  -- NPCs or objects per item objective
@@ -278,15 +278,11 @@ local function DrawPlayer(mapID, width, height)
 end
 
 local function CreateWindow()
-	frame = CreateFrame("Frame", "ForeverPlusQuestPreview", UIParent, "TooltipBackdropTemplate")
-	frame:SetFrameStrata("TOOLTIP")
-	frame:SetClampedToScreen(true)
+	-- The panel all ForeverPlus popups share (Core/Widgets.lua), shown like a tooltip.
+	frame = ns.CreatePanel("ForeverPlusQuestPreview", { strata = "TOOLTIP", escape = false })
+	frame:EnableMouse(false)
 	frame:SetWidth(MAP_WIDTH + 2 * PADDING)
-	frame:Hide()
-	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameTooltipHeaderText")
-	frame.Title:SetPoint("TOPLEFT", PADDING, -PADDING)
 	frame.Title:SetWidth(MAP_WIDTH)
-	frame.Title:SetJustifyH("LEFT")
 	frame.Map = CreateFrame("Frame", nil, frame)
 	frame.Map:SetClipsChildren(true)
 	frame.Map:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -GAP)

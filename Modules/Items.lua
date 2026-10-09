@@ -449,7 +449,6 @@ local upgradeQueue = {} -- { link, score, equippedScore, invSlot }
 local upgradeFrame
 local bagsSeen = false  -- the first scan after login only records the items
 
-local PARCHMENT_TEXT = { 0.18, 0.1, 0.04 }
 
 -- Equipped slot the item would replace: the weaker of two (rings, trinkets).
 local function TargetSlot(link)
@@ -470,29 +469,13 @@ end
 local ShowNextUpgrade
 
 local function CreateUpgradeFrame()
-	local frame = CreateFrame("Frame", "ForeverPlusUpgradeFrame", UIParent)
-	frame:SetSize(360, 172)
+	local frame = ns.CreatePanel("ForeverPlusUpgradeFrame", { close = true })
+	frame:SetSize(360, 150)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
-	frame:SetFrameStrata("DIALOG")
-	frame:EnableMouse(true)
-	frame:SetClampedToScreen(true)
-	frame:Hide()
-
-	local background = frame:CreateTexture(nil, "BACKGROUND")
-	background:SetPoint("TOPLEFT", 8, -8)
-	background:SetPoint("BOTTOMRIGHT", -8, 8)
-	if not background:SetAtlas("QuestBG-Parchment") then
-		background:SetColorTexture(0.84, 0.74, 0.55)
-	end
-	frame.Border = CreateFrame("Frame", nil, frame, "DialogBorderNoCenterTemplate")
-
-	local title = frame:CreateFontString(nil, "ARTWORK", "QuestTitleFont")
-	title:SetPoint("TOP", 0, -22)
-	title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
-	title:SetTextColor(unpack(PARCHMENT_TEXT))
+	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
 
 	local icon = CreateFrame("ItemButton", nil, frame)
-	icon:SetPoint("TOPLEFT", 26, -50)
+	icon:SetPoint("TOPLEFT", ns.PANEL_PADDING + 2, -36)
 	icon:SetScript("OnEnter", function(self)
 		local entry = upgradeQueue[1]
 		if entry then
@@ -506,28 +489,26 @@ local function CreateUpgradeFrame()
 
 	local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -2)
-	name:SetPoint("RIGHT", -26, 0)
+	name:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
 	name:SetJustifyH("LEFT")
-	name:SetShadowOffset(0, 0)
 	frame.Name = name
 
-	local replaces = frame:CreateFontString(nil, "ARTWORK", "QuestFont")
+	local replaces = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
 	replaces:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -4)
-	replaces:SetPoint("RIGHT", -26, 0)
+	replaces:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
 	replaces:SetJustifyH("LEFT")
-	replaces:SetTextColor(unpack(PARCHMENT_TEXT))
+	replaces:SetTextColor(DISABLED_FONT_COLOR:GetRGB())
 	frame.Replaces = replaces
 
-	local score = frame:CreateFontString(nil, "ARTWORK", "QuestFont")
+	local score = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
 	score:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
-	score:SetPoint("RIGHT", -26, 0)
+	score:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
 	score:SetJustifyH("LEFT")
-	score:SetTextColor(unpack(PARCHMENT_TEXT))
 	frame.Score = score
 
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	equip:SetSize(110, 24)
-	equip:SetPoint("BOTTOMRIGHT", -24, 20)
+	equip:SetPoint("BOTTOMRIGHT", -ns.PANEL_PADDING, ns.PANEL_PADDING)
 	equip:SetText(L.ITEMS_UPGRADE_POPUP_EQUIP)
 	equip:SetScript("OnClick", function()
 		local entry = table.remove(upgradeQueue, 1)
@@ -547,14 +528,6 @@ local function CreateUpgradeFrame()
 		ShowNextUpgrade()
 	end)
 
-	local fade = frame:CreateAnimationGroup()
-	local alpha = fade:CreateAnimation("Alpha")
-	alpha:SetFromAlpha(0)
-	alpha:SetToAlpha(1)
-	alpha:SetDuration(0.2)
-	frame:SetScript("OnShow", function()
-		fade:Play()
-	end)
 	-- Escape closes it; the offers stay declined for this session. Hiding
 	-- for combat keeps them.
 	frame:SetScript("OnHide", function(self)
@@ -563,7 +536,6 @@ local function CreateUpgradeFrame()
 		end
 		self.combatHide = nil
 	end)
-	tinsert(UISpecialFrames, frame:GetName())
 	return frame
 end
 
@@ -1298,18 +1270,14 @@ local function FindCheapestItem()
 end
 
 local function CreateDestroyDialog()
-	local frame = CreateFrame("Frame", "ForeverPlusDestroyDialog", UIParent, "BasicFrameTemplateWithInset")
+	local frame = ns.CreatePanel("ForeverPlusDestroyDialog", { close = true })
 	frame:SetSize(360, 150)
 	frame:SetPoint("TOP", UIParent, "TOP", 0, -180)
-	frame:SetFrameStrata("DIALOG")
-	frame:SetToplevel(true)
-	frame:EnableMouse(true)
-	frame.TitleText:SetText(L.ITEMS_BAGS_FULL)
-	tinsert(UISpecialFrames, frame:GetName())
+	frame.Title:SetText(L.ITEMS_BAGS_FULL)
 
 	frame.Icon = frame:CreateTexture(nil, "ARTWORK")
 	frame.Icon:SetSize(36, 36)
-	frame.Icon:SetPoint("TOPLEFT", 18, -36)
+	frame.Icon:SetPoint("TOPLEFT", ns.PANEL_PADDING + 2, -36)
 	frame.Item = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	frame.Item:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 10, -2)
 	frame.Item:SetPoint("RIGHT", -16, 0)
@@ -1341,7 +1309,6 @@ local function CreateDestroyDialog()
 	frame.Cancel:SetScript("OnClick", function()
 		frame:Hide()
 	end)
-	frame:Hide()
 	return frame
 end
 

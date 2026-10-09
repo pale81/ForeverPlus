@@ -1,22 +1,88 @@
 -- Small shared windows: a scrolling text view and a text input with a button.
 local _, ns = ...
 
+---------------------------------------------------------------------------
+-- Panel: the one look of all ForeverPlus popups and windows, taken from the
+-- quest preview at the tracker: tooltip background and border, the title in
+-- the tooltip header font at the top left, 10 px padding, a short fade-in.
+-- options: strata, close (small X at the top right), movable (drag),
+-- escape (false: Escape does not close it; needs a name).
+---------------------------------------------------------------------------
+local PADDING = 10
+ns.PANEL_PADDING = PADDING
+
+local function OnCloseEnter(button)
+	button.Icon:SetVertexColor(1, 1, 1)
+end
+
+local function OnCloseLeave(button)
+	button.Icon:SetVertexColor(0.7, 0.7, 0.7)
+end
+
+function ns.CreatePanel(name, options)
+	options = options or {}
+	local panel = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
+	panel:SetFrameStrata(options.strata or "DIALOG")
+	panel:SetToplevel(true)
+	panel:SetClampedToScreen(true)
+	panel:EnableMouse(true)
+	panel:Hide()
+	panel.Title = panel:CreateFontString(nil, "ARTWORK", "GameTooltipHeaderText")
+	panel.Title:SetPoint("TOPLEFT", PADDING, -PADDING)
+	panel.Title:SetPoint("RIGHT", -(PADDING + (options.close and 18 or 0)), 0)
+	panel.Title:SetJustifyH("LEFT")
+	if options.close then
+		local close = CreateFrame("Button", nil, panel)
+		close:SetSize(16, 16)
+		close:SetPoint("TOPRIGHT", -7, -7)
+		close.Icon = close:CreateTexture(nil, "ARTWORK")
+		close.Icon:SetAllPoints()
+		close.Icon:SetAtlas("uitools-icon-close")
+		close:SetScript("OnClick", function()
+			panel:Hide()
+		end)
+		close:SetScript("OnEnter", OnCloseEnter)
+		close:SetScript("OnLeave", OnCloseLeave)
+		OnCloseLeave(close)
+		panel.Close = close
+	end
+	if options.movable then
+		panel:SetMovable(true)
+		panel:RegisterForDrag("LeftButton")
+		panel:SetScript("OnDragStart", panel.StartMoving)
+		panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
+	end
+	if name and options.escape ~= false then
+		tinsert(UISpecialFrames, name)
+	end
+	local fade = panel:CreateAnimationGroup()
+	local alpha = fade:CreateAnimation("Alpha")
+	alpha:SetFromAlpha(0)
+	alpha:SetToAlpha(1)
+	alpha:SetDuration(0.12)
+	panel.Fade = fade
+	panel:HookScript("OnShow", function()
+		fade:Play()
+	end)
+	return panel
+end
+
+-- Darker area behind scrolling texts inside a panel.
+function ns.AddPanelInset(panel, region)
+	local inset = panel:CreateTexture(nil, "BACKGROUND", nil, 1)
+	inset:SetColorTexture(0, 0, 0, 0.3)
+	inset:SetPoint("TOPLEFT", region, "TOPLEFT", -4, 4)
+	inset:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 4, -4)
+	return inset
+end
+
 local windows = {}
 
 local function CreateWindow(key, width, height)
-	local frame = CreateFrame("Frame", "ForeverPlus" .. key .. "Window", UIParent, "BasicFrameTemplateWithInset")
+	local frame = ns.CreatePanel("ForeverPlus" .. key .. "Window", { close = true, movable = true })
 	frame:SetSize(width, height)
 	frame:SetPoint("CENTER")
-	frame:SetFrameStrata("DIALOG")
-	frame:SetToplevel(true)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-	frame:SetClampedToScreen(true)
-	tinsert(UISpecialFrames, frame:GetName())
-	frame:Hide()
+	frame.TitleText = frame.Title
 	windows[key] = frame
 	return frame
 end
@@ -34,8 +100,9 @@ function ns.ShowTextWindow(key, title, text)
 	if not frame then
 		frame = CreateWindow(key, 420, 480)
 		frame.Scroll = CreateFrame("Frame", nil, frame, "ForeverPlusScrollingFontTemplate")
-		frame.Scroll:SetPoint("TOPLEFT", 16, -34)
-		frame.Scroll:SetPoint("BOTTOMRIGHT", -30, 12)
+		frame.Scroll:SetPoint("TOPLEFT", PADDING + 4, -40)
+		frame.Scroll:SetPoint("BOTTOMRIGHT", -30, PADDING + 4)
+		ns.AddPanelInset(frame, frame.Scroll)
 		AddScrollBar(frame, frame.Scroll)
 	end
 	frame.TitleText:SetText(title)
@@ -51,18 +118,19 @@ function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
 	if not frame then
 		frame = CreateWindow(key, 460, 260)
 		frame.Scroll = CreateFrame("Frame", nil, frame, "ScrollingEditBoxTemplate")
-		frame.Scroll:SetPoint("TOPLEFT", 16, -34)
-		frame.Scroll:SetPoint("BOTTOMRIGHT", -30, 66)
+		frame.Scroll:SetPoint("TOPLEFT", PADDING + 4, -40)
+		frame.Scroll:SetPoint("BOTTOMRIGHT", -30, 70)
+		ns.AddPanelInset(frame, frame.Scroll)
 		AddScrollBar(frame, frame.Scroll)
 		frame.EditBox = frame.Scroll:GetEditBox()
 		frame.EditBox:SetFontObject("GameFontHighlightSmall")
 		frame.Hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		frame.Hint:SetPoint("BOTTOMLEFT", 16, 44)
-		frame.Hint:SetPoint("RIGHT", -16, 0)
+		frame.Hint:SetPoint("BOTTOMLEFT", PADDING + 4, 44)
+		frame.Hint:SetPoint("RIGHT", -PADDING - 4, 0)
 		frame.Hint:SetJustifyH("LEFT")
 		frame.Button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 		frame.Button:SetSize(160, 22)
-		frame.Button:SetPoint("BOTTOM", 0, 14)
+		frame.Button:SetPoint("BOTTOM", 0, PADDING + 2)
 		frame.Button:SetScript("OnClick", function()
 			local callback = frame.onAccept
 			frame:Hide()
@@ -88,7 +156,7 @@ end
 -- rebuilds the list in place. Closes with Escape, a click elsewhere or when
 -- the owner disappears. build() returns { title, items, empty, footer }.
 ---------------------------------------------------------------------------
-local POPUP_WIDTH, ROW_HEIGHT, MAX_ROWS, POPUP_PAD = 300, 22, 14, 8
+local POPUP_WIDTH, ROW_HEIGHT, MAX_ROWS, POPUP_PAD = 300, 22, 14, PADDING
 local popups = {} -- frame name -> popup
 
 local function PopupRow(popup, index)
@@ -110,7 +178,7 @@ local function PopupRow(popup, index)
 	row.Check = row:CreateTexture(nil, "OVERLAY")
 	row.Check:SetSize(16, 16)
 	row.Check:SetPoint("RIGHT", -2, 0)
-	row.Text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	row.Text = row:CreateFontString(nil, "OVERLAY", "GameTooltipText")
 	row.Text:SetPoint("LEFT", row.Icon, "RIGHT", 6, 0)
 	row.Text:SetPoint("RIGHT", row.Check, "LEFT", -4, 0)
 	row.Text:SetJustifyH("LEFT")
@@ -153,29 +221,14 @@ local function PopupFooter(popup, index)
 end
 
 local function CreatePopup(name)
-	local popup = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
-	popup:SetFrameStrata("FULLSCREEN_DIALOG")
-	popup:SetToplevel(true)
-	popup:SetClampedToScreen(true)
-	popup:EnableMouse(true)
+	local popup = ns.CreatePanel(name, { strata = "FULLSCREEN_DIALOG" })
 	popup:EnableMouseWheel(true)
 	popup:SetWidth(POPUP_WIDTH)
 	popup.rows, popup.footer, popup.offset = {}, {}, 0
-	popup.Title = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	popup.Title:SetPoint("TOPLEFT", POPUP_PAD + 2, -POPUP_PAD - 2)
-	popup.Title:SetPoint("RIGHT", -POPUP_PAD, 0)
-	popup.Title:SetJustifyH("LEFT")
 	popup.Info = popup:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	popup.Info:SetPoint("TOPRIGHT", -POPUP_PAD - 2, -POPUP_PAD - 3)
+	popup.Info:SetPoint("TOPRIGHT", -POPUP_PAD, -POPUP_PAD - 1)
 	popup.Empty = popup:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 	popup.Empty:SetPoint("TOPLEFT", popup.Title, "BOTTOMLEFT", 2, -8)
-	local fade = popup:CreateAnimationGroup()
-	local alpha = fade:CreateAnimation("Alpha")
-	alpha:SetFromAlpha(0)
-	alpha:SetToAlpha(1)
-	alpha:SetDuration(0.12)
-	popup.Fade = fade
-	tinsert(UISpecialFrames, popup:GetName())
 	popup:SetScript("OnMouseWheel", function(self, delta)
 		self.offset = self.offset - delta * 3
 		self:Refresh()
@@ -185,7 +238,7 @@ local function CreatePopup(name)
 			self:Hide()
 		end
 	end)
-	popup:SetScript("OnShow", function(self)
+	popup:HookScript("OnShow", function(self)
 		self:RegisterEvent("GLOBAL_MOUSE_DOWN")
 	end)
 	popup:SetScript("OnHide", function(self)
@@ -280,7 +333,6 @@ function ns.ShowPopupList(owner, build, key)
 	end
 	popup:Refresh()
 	popup:Show()
-	popup.Fade:Play()
 end
 
 ---------------------------------------------------------------------------

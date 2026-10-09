@@ -63,6 +63,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
 | | Questtracker: Klassenquests immer oben; Reiter „Welt“/„Instanz“ für Dungeon- und Schlachtzugsquests (wechselt beim Betreten einer Instanz); optional nur Quests der aktuellen Region | ja |
+| | Questtracker: Maus über einem Questtitel zeigt eine Kartenvorschau mit den offenen Zielen (rote Punkte: Gegner, Gegenstandsquellen, Orte) oder dem Abgabe-NPC, dazu Ziele, weitere Gebiete und die eigene Position (Daten: QuestieDB) | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
@@ -135,6 +136,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Kanalkürzel: Blizzards Chatcode verlangt die Kanalnummer vor dem Namen und vergleicht die Länge des Kanaltexts mit den beigetretenen Kanälen; die Nummer bleibt deshalb, und der Kurzname wird mit unsichtbaren `|r` auf die ursprüngliche Länge aufgefüllt.
 - Zeitstempelfarbe: der Farbcode steht im Zeitstempelformat (CVar `showTimestamps`). Blizzards Auswahlfeld unter Soziales enthält nur die ungefärbten Formate; eine neue Auswahl dort wird sofort wieder eingefärbt. Ausschalten stellt das ungefärbte Format her; wird ForeverPlus ohne Ausschalten entfernt, bleibt der Farbcode im Format.
 - Beute-Herkunft: angeklickte tote Einheit, sonst Ziel eines Zaubers bis 6 s vor dem Plündern (Kräuter, Erz, Kürschnern, Angeln), sonst geöffneter Taschengegenstand (bis 2 s), sonst totes Ziel; sonst „Unbekannt“; Hergestelltes als „Hergestellt“. Geldanteile aus fremden Beutefenstern stehen als „Anteil der Gruppe“. Die Listen gelten bis zum Ausloggen (die letzten 20).
+- Questvorschau im Tracker: Ziele werden QuestieDB-Einträgen je Zieltyp in der Reihenfolge des Questlogs zugeordnet (Gegner inklusive Kill-Credit, Objekte, Gegenstände mit bis zu 12 Beute-NPCs/-Objekten, Erkundungsorte); höchstens 150 Punkte je Karte. Gezeigt wird die Karte des Spielers, wenn sie Ziele enthält, sonst die mit den meisten Punkten. Im Spiel ungeprüft.
 - Weltkarte: Der Client nennt Addons nur die entdeckten Kartenteile. Alle Teile stehen in `Data/MapOverlays.lua`, erzeugt mit `tools/mapoverlays.py` aus den Spieldaten-Tabellen `WorldMapOverlay` und `WorldMapOverlayTile` (Build 1.60.1.70291, CSV von wago.tools). Meldet der Client ein entdecktes Teil, das in den Daten fehlt (andere Kartenversion), bleibt die Karte unverändert. Nur die erste Kartenebene; im Spiel ungeprüft.
 - Bekannte Rezepte im Auktionshaus werden nicht ausgegraut (Blizzards Tooltip zeigt dort weiterhin „Bereits bekannt“).
 

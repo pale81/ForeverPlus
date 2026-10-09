@@ -140,7 +140,7 @@ read_globals = {
 	"C_ClassColor",
 	"C_Container",
 	"C_Item",
-	"C_Map",
+	"C_Map", "C_MapExplorationInfo",
 	"C_MerchantFrame",
 	"C_Minimap",
 	"C_QuestLog",

@@ -96,6 +96,7 @@ for _, n in ipairs({ "ChatFrameMenuButton", "ChatFrameChannelButton", "QuickJoin
 	"QuestObjectiveTracker", "UIParent", "WorldMapFrame", "GameTooltip", "MainActionBar", "QuestInfoFrame", "MerchantFrame",
 	"ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
 ContainerFrameContainer = { ContainerFrames = {} }
+WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
 ActionBarButtonEventsFrame.frames = {}
 BuffFrame.auraFrames = { NewFrame("Aura") }
 BuffFrame.auraFrames[1].Icon = NewFrame("Icon")
@@ -1240,4 +1241,81 @@ end)()
 	markLog()
 	assert(a.Text.r ~= nil and not b.Text.r, "color mark")
 	print("forever marks OK")
+end)()
+;(function()
+	-- World map: unexplored parts from the data, explored and mismatching maps skipped.
+	local wm = ns:GetModule("WorldMap")
+	local made = {}
+	local function NewTexture(layer, sub)
+		local t = { layer = layer, sub = sub, shown = true }
+		function t:SetSize(w, h) self.w, self.h = w, h end
+		function t:SetTexCoord(...) self.coord = { ... } end
+		function t:ClearAllPoints() end
+		function t:SetPoint(point, x, y) self.point, self.x, self.y = point, x, y end
+		function t:SetTexture(file, _, _, filter) self.file, self.filter = file, filter end
+		function t:SetVertexColor(r, g, b) self.r, self.g, self.b = r, g, b end
+		function t:SetAlpha(a) self.alpha = a end
+		function t:Show() self.shown = true end
+		function t:Hide() self.shown = false end
+		made[#made + 1] = t
+		return t
+	end
+	local layerIndex = 1
+	local map = { GetMapID = function() return 1429 end,
+		GetCanvasContainer = function() return { GetCurrentLayerIndex = function() return layerIndex end } end }
+	local pin = { GetMap = function() return map end, RefreshOverlays = function() end, RemoveAllData = function() end,
+		CreateTexture = function(_, _, layer, _, sub) return NewTexture(layer, sub) end }
+	WorldMapFrame.EnumeratePinsByTemplate = function(_, template)
+		assert(template == "MapExplorationPinTemplate")
+		local done
+		return function() if not done then done = true return pin end end
+	end
+	WorldMapFrame.GetMapID = function() return 1429 end
+	ns.MapOverlays, ns.MapOverlayBuild = { [15] = "300,200,10,20,1001,1002;100,100,400,5,2001;300,300,0,0,3001" }, "test"
+	local explored = { { fileDataIDs = { 2001 } } }
+	C_Map.GetMapArtID = function(id) return id == 1429 and 15 or nil end
+	C_Map.GetMapArtLayers = function() return { { tileWidth = 256, tileHeight = 256 } } end
+	C_MapExplorationInfo = { GetExploredMapTextures = function() return explored end }
+	local function shown()
+		local list = {}
+		for _, t in ipairs(made) do if t.shown then list[#list + 1] = t end end
+		return list
+	end
+	wm.db.reveal, wm.db.revealAlpha, wm.db.revealTint = true, 60, true
+	wm:Apply()
+	local list = shown()
+	-- 300 x 200 in two tiles; the explored part and the one with a missing tile are left out.
+	assert(#list == 2, "two tiles, got " .. #list)
+	local a, b = list[1], list[2]
+	assert(a.layer == "ARTWORK" and a.sub == -1, "below Blizzard's parts")
+	assert(a.file == 1001 and a.w == 256 and a.h == 200 and a.x == 10 and a.y == -20, "first tile")
+	assert(a.coord[2] == 1 and a.coord[4] == 200 / 256, "first tile coords")
+	assert(b.file == 1002 and b.w == 44 and b.x == 266 and b.coord[2] == 44 / 64, "edge tile")
+	assert(a.alpha == 0.6 and a.r == 0.75 and a.g == 1 and a.filter == "TRILINEAR", "faded and tinted")
+	wm.db.revealTint = false
+	wm:OnOptionChanged("revealTint", false)
+	assert(#shown() == 2 and shown()[1].r == 1 and #made == 2, "untinted, textures reused")
+	explored = { { fileDataIDs = { 2001 } }, { fileDataIDs = { 9999 } } }
+	wm:Apply()
+	assert(#shown() == 0, "unknown explored part: map left alone")
+	explored = {}
+	layerIndex = 2
+	wm:Apply()
+	assert(#shown() == 0, "other art layer")
+	layerIndex = 1
+	wm:Apply()
+	assert(#shown() == 3, "nothing explored: all complete parts")
+	wm.db.reveal = false
+	wm:OnOptionChanged("reveal", false)
+	assert(#shown() == 0, "switched off")
+	local printed = {}
+	local printAlways = ns.PrintAlways
+	ns.PrintAlways = function(msg, ...) printed[#printed + 1] = msg:format(...) end
+	wm:PrintStatus()
+	C_Map.GetMapArtID = function() return 99 end
+	wm:PrintStatus()
+	ns.PrintAlways = printAlways
+	for _, line in ipairs(printed) do print("  ", line) end
+	assert(#printed == 2 and printed[1]:find("1429") and printed[2]:find("test"), "status lines")
+	print("world map OK")
 end)()

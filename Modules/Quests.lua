@@ -1132,8 +1132,77 @@ local function SetBarShown(bar, shown)
 	end
 end
 
+-- Space continues the quest dialog (accept, continue, complete) like the
+-- text link at the bottom left. The quest functions are called directly:
+-- Blizzard's buttons may open confirmation dialogs, which must not be run
+-- from addon code; those cases (PvP quest, quest costing money, reward not
+-- chosen yet) stay with the mouse. Not in combat: key handling cannot be
+-- changed there.
+local function ContinueQuest()
+	if QuestFrameDetailPanel:IsVisible() then
+		if not QuestFrameAcceptButton:IsEnabled() or QuestFlagsPVP() then
+			return false
+		end
+		if QuestFrame.autoQuest then
+			AcknowledgeAutoAcceptQuest()
+		else
+			AcceptQuest()
+		end
+		return true
+	elseif QuestFrameProgressPanel:IsVisible() then
+		if not QuestFrameCompleteButton:IsEnabled() then
+			return false
+		end
+		CompleteQuest()
+		PlaySound(SOUNDKIT.IG_QUEST_LIST_OPEN)
+		return true
+	elseif QuestFrameRewardPanel:IsVisible() then
+		local choices = GetNumQuestChoices()
+		local choice = choices == 1 and 1 or ns.Number(QuestInfoFrame.itemChoice, 0)
+		local money = GetQuestMoneyToGet()
+		if not QuestFrameCompleteQuestButton:IsEnabled() or (choices > 1 and choice == 0) or (money and money > 0) then
+			return false
+		end
+		GetQuestReward(choice)
+		return true
+	end
+	return false
+end
+
+local questKeys
+
+local function CreateQuestKeys()
+	questKeys = CreateFrame("Frame", nil, QuestFrame)
+	questKeys:EnableKeyboard(true)
+	questKeys:SetPropagateKeyboardInput(true)
+	questKeys:SetScript("OnKeyDown", function(self, key)
+		if InCombatLockdown() then
+			return
+		end
+		self:SetPropagateKeyboardInput(not (key == "SPACE" and ContinueQuest()))
+	end)
+	questKeys:SetScript("OnKeyUp", function(self)
+		if not InCombatLockdown() then
+			self:SetPropagateKeyboardInput(true)
+		end
+	end)
+	-- Hidden in combat, where the key handling cannot be changed.
+	Quests:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+		questKeys:Hide()
+	end)
+	Quests:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+		questKeys:SetShown(Quests.db.questParchment)
+	end)
+end
+
 function Quests:UpdateQuestParchment()
 	local plain = self.db.questParchment
+	if QuestFrame and (plain or questKeys) and not InCombatLockdown() then
+		if not questKeys then
+			CreateQuestKeys()
+		end
+		questKeys:SetShown(plain)
+	end
 	for _, window in ipairs(Windows()) do
 		local frame = window.frame
 		local page = pages[frame] or (plain and CreatePage(window))

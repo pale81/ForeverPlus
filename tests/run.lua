@@ -1391,3 +1391,46 @@ end)()
 	C_Timer.After = after
 	print("early planning toggle OK")
 end)()
+;(function()
+	-- Space in the quest window: accept, continue or complete without Blizzard's dialogs.
+	local q = ns:GetModule("Quests")
+	q.db.questParchment = true
+	q:UpdateQuestParchment()
+	local keys = uv(q.UpdateQuestParchment, "questKeys")
+	assert(keys and keys.scripts.OnKeyDown, "key frame")
+	local propagate
+	keys.SetPropagateKeyboardInput = function(_, value) propagate = value end
+	local calls = {}
+	local function panel(visible) return { IsVisible = function() return visible end } end
+	local function button(enabled) return { IsEnabled = function() return enabled end } end
+	local saved = { QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton }
+	QuestFrameDetailPanel, QuestFrameProgressPanel, QuestFrameRewardPanel = panel(true), panel(false), panel(false)
+	QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton = button(true), button(true), button(true)
+	AcceptQuest = function() calls[#calls + 1] = "accept" end
+	CompleteQuest = function() calls[#calls + 1] = "complete" end
+	GetQuestReward = function(choice) calls[#calls + 1] = "reward" .. choice end
+	PlaySound = function() end
+	SOUNDKIT = { IG_QUEST_LIST_OPEN = 1 }
+	QuestFlagsPVP = function() return false end
+	rawset(QuestFrame, "autoQuest", false)
+	keys.scripts.OnKeyDown(keys, "SPACE")
+	assert(calls[1] == "accept" and propagate == false, "space accepts")
+	keys.scripts.OnKeyDown(keys, "W")
+	assert(propagate == true and #calls == 1, "other keys pass")
+	QuestFlagsPVP = function() return true end
+	keys.scripts.OnKeyDown(keys, "SPACE")
+	assert(#calls == 1 and propagate == true, "PvP quest stays with Blizzard's button")
+	QuestFrameDetailPanel, QuestFrameRewardPanel = panel(false), panel(true)
+	GetNumQuestChoices = function() return 2 end
+	GetQuestMoneyToGet = function() return 0 end
+	QuestInfoFrame = { itemChoice = 0 }
+	keys.scripts.OnKeyDown(keys, "SPACE")
+	assert(#calls == 1 and propagate == true, "reward not chosen yet")
+	QuestInfoFrame.itemChoice = 2
+	keys.scripts.OnKeyDown(keys, "SPACE")
+	assert(calls[2] == "reward2" and propagate == false, "chosen reward taken")
+	QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton = unpack(saved)
+	q.db.questParchment = false
+	q:UpdateQuestParchment()
+	print("quest space key OK")
+end)()

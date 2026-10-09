@@ -310,9 +310,10 @@ local function Update()
 
 	local count = 0
 	local nextCheck, waitingForPower
-	-- In rest areas (inns, cities) only when wanted.
+	-- In rest areas (inns, cities) only when wanted; never during a flight.
 	local resting = IsResting() and not Buffs.db.restingZones
-	if Buffs.db.enabled and not resting and not UnitIsDeadOrGhost("player") then
+	local flying = UnitOnTaxi("player") or IsFlying()
+	if Buffs.db.enabled and not resting and not flying and not UnitIsDeadOrGhost("player") then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
@@ -412,6 +413,9 @@ local function CreateBar()
 	events:RegisterEvent("PLAYER_UNGHOST")
 	events:RegisterEvent("PLAYER_ALIVE")
 	events:RegisterEvent("PLAYER_UPDATE_RESTING")
+	-- Flights start and end with the loss and return of control.
+	events:RegisterEvent("PLAYER_CONTROL_LOST")
+	events:RegisterEvent("PLAYER_CONTROL_GAINED")
 	if playerClass == "ROGUE" then
 		events:RegisterEvent("BAG_UPDATE_DELAYED")
 	end

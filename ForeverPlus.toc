@@ -33,6 +33,7 @@ Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua
 Modules\Restock.lua
+Modules\Services.lua
 Modules\Auction.lua
 Modules\Helpers.lua
 Modules\QoL.lua
@@ -46,7 +47,6 @@ Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\Talents.lua
-Modules\TalentPlanner.lua
 Modules\Visuals.lua
 Modules\XPBar.lua
 Modules\Fonts.lua

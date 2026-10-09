@@ -65,30 +65,47 @@ local function UpdateBar()
 	local elapsed = GetTime() - current.start
 	if current.duration then
 		local left = current.duration - elapsed
-		bar:SetMinMaxValues(0, current.duration)
-		bar:SetValue(min(elapsed, current.duration))
+		bar.StatusBar:SetMinMaxValues(0, current.duration)
+		bar.StatusBar:SetValue(max(0, current.duration - elapsed))
 		bar.Time:SetText(left >= 0 and FormatTime(left) or ("+" .. FormatTime(-left)))
 	else
-		bar:SetMinMaxValues(0, 1)
-		bar:SetValue(1)
+		bar.StatusBar:SetMinMaxValues(0, 1)
+		bar.StatusBar:SetValue(1)
 		bar.Time:SetText(FormatTime(elapsed))
 	end
 end
 
+-- Built like Blizzard's timer bars (breath, fatigue): the casting bar art
+-- with the name in the box below.
 local function CreateBar()
-	bar = CreateFrame("StatusBar", nil, UIParent)
-	bar:SetSize(220, 14)
-	bar:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
-	bar:SetStatusBarColor(0.25, 0.6, 1)
-	bar.Background = bar:CreateTexture(nil, "BACKGROUND")
-	bar.Background:SetAllPoints()
-	bar.Background:SetColorTexture(0, 0, 0, 0.6)
-	bar.Border = ns.CreatePixelBorder(bar, bar, 1, "OVERLAY", 7)
-	bar.Border:ShowColor(0.1, 0.1, 0.1)
+	bar = CreateFrame("Frame", nil, UIParent)
+	bar:SetSize(206, 32)
+	bar.StatusBar = CreateFrame("StatusBar", nil, bar)
+	bar.StatusBar:SetSize(195, 13)
+	bar.StatusBar:SetPoint("TOP", 0, -2)
+	bar.StatusBar:SetStatusBarTexture("ui-castingbar-filling-channel")
+	bar.StatusBar:SetFrameLevel(bar:GetFrameLevel())
+	bar.TextBorder = bar:CreateTexture(nil, "BACKGROUND", nil, 0)
+	bar.TextBorder:SetAtlas("ui-castingbar-textbox")
+	bar.TextBorder:SetPoint("TOPLEFT", bar.StatusBar, "TOPLEFT")
+	bar.TextBorder:SetPoint("BOTTOMRIGHT", bar.StatusBar, "BOTTOMRIGHT", 0, -14)
+	bar.Background = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
+	bar.Background:SetAtlas("ui-castingbar-background")
+	bar.Background:SetPoint("TOPLEFT", bar.StatusBar, "TOPLEFT", -1, 1)
+	bar.Background:SetPoint("BOTTOMRIGHT", bar.StatusBar, "BOTTOMRIGHT", 1, -1)
+	bar.Border = bar:CreateTexture(nil, "OVERLAY")
+	bar.Border:SetAtlas("ui-castingbar-frame")
+	bar.Border:SetPoint("TOPLEFT", bar.StatusBar, "TOPLEFT", -2, 2)
+	bar.Border:SetPoint("BOTTOMRIGHT", bar.StatusBar, "BOTTOMRIGHT", 2, -2)
 	bar.Text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	bar.Text:SetPoint("LEFT", 4, 0)
+	bar.Text:SetPoint("TOPLEFT", bar.StatusBar, "BOTTOMLEFT", 6, 0)
+	bar.Text:SetPoint("BOTTOMRIGHT", bar.TextBorder, "BOTTOMRIGHT", -40, 2)
+	bar.Text:SetJustifyH("LEFT")
+	bar.Text:SetWordWrap(false)
 	bar.Time = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	bar.Time:SetPoint("RIGHT", -4, 0)
+	bar.Time:SetPoint("TOPRIGHT", bar.StatusBar, "BOTTOMRIGHT", -6, 0)
+	bar.Time:SetPoint("BOTTOM", bar.TextBorder, "BOTTOM", 0, 2)
+	bar.Time:SetJustifyH("RIGHT")
 	bar:Hide()
 	local elapsed = 0
 	bar:SetScript("OnUpdate", function(_, delta)
@@ -101,13 +118,6 @@ local function CreateBar()
 	ns:RegisterDisplay(bar, "FlightBar", function(frame)
 		frame:SetPoint("TOP", UIParent, "TOP", 0, -120)
 	end)
-end
-
-function Flight:UpdateFont()
-	if bar then
-		bar.Text:SetFont(ns.GetFontFace(), 11, "OUTLINE")
-		bar.Time:SetFont(ns.GetFontFace(), 11, "OUTLINE")
-	end
 end
 
 ---------------------------------------------------------------------------
@@ -136,7 +146,6 @@ function Flight:PLAYER_CONTROL_LOST()
 			if not bar then
 				CreateBar()
 			end
-			self:UpdateFont()
 			bar.Text:SetText(current.destination or "")
 			UpdateBar()
 			bar:Show()

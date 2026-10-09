@@ -11,6 +11,7 @@ local Loot = ns:NewModule("Loot", {
 		summary = false,
 		delay = 20,
 		inlineQuality = "UNCOMMON",
+		combineMoney = true,
 	},
 })
 
@@ -167,12 +168,20 @@ local function SummaryLink(id, text)
 	return ("|H%s%d|h[%s]|h"):format(LINK_PREFIX, id, text)
 end
 
-local function Print(group, text)
+-- Prints into the chat frames that showed the lines of the given groups
+-- (each frame once), coloured like the first group.
+local function Print(text, group, otherGroup)
 	local info = ChatTypeInfo[group]
-	for chatFrame in pairs(frames[group]) do
-		chatFrame:AddMessage(text, info.r, info.g, info.b, info.id)
+	local done = {}
+	for _, key in ipairs({ group, otherGroup }) do
+		for chatFrame in pairs(frames[key]) do
+			if not done[chatFrame] then
+				done[chatFrame] = true
+				chatFrame:AddMessage(text, info.r, info.g, info.b, info.id)
+			end
+		end
+		wipe(frames[key])
 	end
-	wipe(frames[group])
 end
 
 local function Flush()
@@ -191,8 +200,12 @@ local function Flush()
 	summaries[id] = record
 	summaries[id - MAX_SUMMARIES] = nil
 
+	local money = record.money > 0 and GetMoneyString(record.money, true)
 	if record.count > 0 then
-		local text = SummaryLink(id, record.count == 1 and L.LOOT_ITEM_ONE or L.LOOT_ITEMS:format(record.count))
+		local label = record.count == 1 and L.LOOT_ITEM_ONE or L.LOOT_ITEMS:format(record.count)
+		-- Items and money in one line when both came in.
+		local combined = money and Loot.db.combineMoney
+		local text = SummaryLink(id, combined and L.LOOT_ITEMS_AND_MONEY:format(label, money) or label)
 		local minQuality = INLINE_QUALITY[Loot.db.inlineQuality]
 		if minQuality then
 			local notable = {}
@@ -206,10 +219,14 @@ local function Flush()
 				text = text .. " " .. table.concat(notable, ", ")
 			end
 		end
-		Print("LOOT", text)
+		if combined then
+			Print(text, "LOOT", "MONEY")
+			return
+		end
+		Print(text, "LOOT")
 	end
-	if record.money > 0 then
-		Print("MONEY", SummaryLink(id, L.LOOT_MONEY:format(GetMoneyString(record.money, true))))
+	if money then
+		Print(SummaryLink(id, L.LOOT_MONEY:format(money)), "MONEY")
 	end
 end
 
@@ -428,4 +445,5 @@ Loot.options = {
 		end
 		return values
 	end },
+	{ key = "combineMoney", type = "toggle", name = L.LOOT_COMBINE_MONEY, desc = L.LOOT_COMBINE_MONEY_DESC, parent = "summary" },
 }

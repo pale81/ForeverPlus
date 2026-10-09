@@ -158,6 +158,10 @@ UnitIsDeadOrGhost = function() return false end
 min, max, floor = math.min, math.max, math.floor
 wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 GetMouseFoci = function() return {} end
+UnitOnTaxi = function() return false end
+IsFlying = function() return false end
+GetNumTrainerServices = function() return 0 end
+GetMoney = function() return 0 end
 local function Color(r, g, b) return { r = r, g = g, b = b, GetRGB = function() return r, g, b end, WrapTextInColorCode = function(_, t) return "<" .. t .. ">" end } end
 NORMAL_FONT_COLOR, GREEN_FONT_COLOR, ORANGE_FONT_COLOR, RED_FONT_COLOR = Color(1, .82, 0), Color(0, 1, 0), Color(1, .5, 0), Color(1, 0, 0)
 DISABLED_FONT_COLOR, HIGHLIGHT_FONT_COLOR = Color(.5, .5, .5), Color(1, 1, 1)
@@ -1320,47 +1324,68 @@ end)()
 	print("quest parchment OK")
 end)()
 ;(function()
-	-- Talent planner: model from the trait tree, classic row and arrow rules.
-	local P = ns.TalentPlanner
+	-- Talent planner in Blizzard's window: right-click plans, Shift + right-click removes, classic rules.
+	local talents = ns:GetModule("Talents")
+	talents.db.enabled, talents.db.planner = true, true
+	local onClick = uv(uv(talents.OnLogin, "SetupPlanner"), "OnTalentClick")
+	assert(onClick, "planner click handler")
+	GameTooltip = { GetOwner = function() return nil end }
+	do
+	local plannerButtons = {}
+	PlayerSpellsFrame = { TalentsFrame = { GetConfigID = function() return 1 end, EnumerateAllTalentButtons = function() return pairs(plannerButtons) end } }
 	PlayerUtil = { GetCurrentSpecID = function() return 1 end }
-	C_ClassTalents = { GetActiveConfigID = function() return nil end, InitializeViewLoadout = function() end, GetTraitTreeForSpec = function() return 5 end }
+	C_Traits = { GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 0 } end }
+	IsShiftKeyDown = function() return false end
+	IsControlKeyDown = function() return false end
+	local btn = { GetNodeID = function() return 77 end, CanRefundRank = function() return false end }
+	plannerButtons[btn] = true
+	onClick(nil, btn, "RightButton"); onClick(nil, btn, "RightButton")
+	local plan = uv(onClick, "CurrentPlan")()
+	assert(plan[77] == 2, "planned 2 ranks")
+	IsShiftKeyDown = function() return true end
+	onClick(nil, btn, "RightButton")
+	assert(plan[77] == 1, "shift removes")
+	-- Tooltip shows the planned rank
+	plan[77] = 3
+	local lines = {}
+	GameTooltip = { GetOwner = function() return btn end, AppendInfo = function(_, getter, entryID, rank) lines[#lines + 1] = getter .. ":" .. entryID .. ":" .. rank end, Show = function() end }
+	GameTooltip_AddBlankLineToTooltip = function() end
+	GameTooltip_AddColoredLine = function(_, text) lines[#lines + 1] = text end
+	C_Traits.GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 1, activeEntry = { entryID = 500, rank = 1 } } end
+	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(btn)
+	print("  plan tooltip", table.concat(lines, " | "))
+	assert(lines[#lines] == "GetTraitEntry:500:3", "planned rank values")
+	-- Row rule and arrows: node 2 in row 2 needs 5 points, node 3 needs node 1 at full rank
+	local plan2 = uv(onClick, "CurrentPlan")()
+	for k in pairs(plan2) do plan2[k] = nil end
 	local defs = {
-		[1] = { posX = 0, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 11 }, visibleEdges = { { targetNode = 3, type = Enum.TraitEdgeType.RequiredForAvailability } } },
-		[2] = { posX = 600, posY = 0, maxRanks = 3, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 12 }, visibleEdges = {} },
-		[3] = { posX = 0, posY = 600, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 13 }, visibleEdges = {} },
-		[4] = { posX = 1800, posY = 1200, maxRanks = 1, ranksPurchased = 0, groupIDs = { 8 }, entryIDs = { 14 }, visibleEdges = {} },
+		[1] = { ID = 1, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = { { targetNode = 3, type = Enum.TraitEdgeType.RequiredForAvailability } } },
+		[2] = { ID = 2, posY = 200, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {} },
+		[3] = { ID = 3, posY = 100, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {} },
 	}
-	C_Traits = {
-		GetTreeNodes = function() return { 1, 2, 3, 4 } end,
-		GetNodeInfo = function(_, id) return defs[id] end,
-		GetEntryInfo = function(_, entryID) return { definitionID = entryID } end,
-		GetDefinitionInfo = function(id) return { spellID = id } end,
-		GetGroupDisplayInfoByTreeID = function() return { { groupID = 9, displayName = "A", icon = 1 }, { groupID = 8, displayName = "B", icon = 2 } } end,
-	}
-	C_Spell.GetSpellName = function(id) return "S" .. id end
-	local model = P.BuildModel()
-	local n = model.nodes
-	assert(n[1].row == 0 and n[3].row == 1 and n[4].row == 2 and n[2].column == 1 and n[4].column == 0, "rows and columns")
-	assert(#model.groups == 2 and model.groups[1].name == "A", "trees in Blizzard's order")
-	local plan = {}
-	assert(not P.Add(model, plan, n[3]), "row 2 needs 5 points")
-	for _ = 1, 4 do P.Add(model, plan, n[1]) end
-	P.Add(model, plan, n[2])
-	assert(P.Spent(model, plan) == 5 and P.AddProblem(model, plan, n[3]):find("S11"), "arrow needs its source at full rank")
-	assert(not P.Add(model, plan, n[1]) == false, "fifth rank")
-	assert(P.Add(model, plan, n[3]) and plan[3] == 1, "unlocked")
-	local ok, why = P.Remove(model, plan, n[1])
-	assert(not ok and why, "source rank needed below")
-	plan[2] = nil
-	assert(P.AddProblem(model, plan, n[4]), "other tree needs its own points")
-	assert(P.Remove(model, plan, n[3]) and not plan[3], "take back")
-	-- The window builds from the same model.
-	UISpecialFrames = UISpecialFrames or {}
-	P.Show()
-	assert(ForeverPlusTalentPlanner and ForeverPlusTalentPlanner:IsShown(), "planner window shown")
-	P.Toggle()
-	assert(not ForeverPlusTalentPlanner:IsShown(), "toggle closes")
-	print("talent planner OK")
+	C_Traits.GetNodeInfo = function(_, id) local d = defs[id] local c = {} for k, v in pairs(d) do c[k] = v end return c end
+	for k in pairs(plannerButtons) do plannerButtons[k] = nil end
+	local bs = {}
+	for id = 1, 3 do bs[id] = { GetNodeID = function() return id end, CanRefundRank = function() return false end, GetName = function() return "T" .. id end } plannerButtons[bs[id]] = true end
+	IsShiftKeyDown = function() return false end
+	local printed
+	local oldPrint = ns.Print
+	ns.Print = function(msg) printed = msg end
+	onClick(nil, bs[3], "RightButton")
+	assert(not plan2[3], "row 1 needs 5 points")
+	for _ = 1, 4 do onClick(nil, bs[1], "RightButton") end
+	onClick(nil, bs[3], "RightButton")
+	assert(not plan2[3], "needs node 1 at full rank / 5 points")
+	onClick(nil, bs[1], "RightButton")
+	onClick(nil, bs[3], "RightButton")
+	assert(plan2[3] == 1, "row 1 unlocked with 5 points and arrow source maxed")
+	IsShiftKeyDown = function() return true end
+	onClick(nil, bs[1], "RightButton")
+	assert(plan2[1] == 5, "removal blocked while node 3 depends on it")
+	ns.Print = oldPrint
+	print("  planner rules ok, last message:", printed)
+	print("planner OK")
+	end
 end)()
 ;(function()
 	-- Space in the quest window: accept, continue or complete without Blizzard's dialogs.
@@ -1640,4 +1665,81 @@ end)()
 	shown, _, _, waiting = evaluate(reminder, 60)
 	assert(shown and not waiting, "mana back: shown")
 	print("buff power OK")
+end)()
+;(function()
+	-- Trainer: train all from the last entry, as far as the money goes; new professions left out.
+	local services = ns:GetModule("Services")
+	local learnable = uv(uv(services.Apply, "UpdateTrainButton"), "Learnable")
+	local trainAll = uv(uv(services.Apply, "CreateTrainButton"), "TrainAll")
+	local entries = { { "available", 100 }, { "used", 50 }, { "available", 300, true }, { "available", 200 }, { "unavailable", 10 } }
+	GetNumTrainerServices = function() return #entries end
+	GetTrainerServiceInfo = function(i) return "x", entries[i][1] end
+	GetTrainerServiceCost = function(i) return entries[i][2], entries[i][3] end
+	local list, total = learnable()
+	assert(#list == 2 and total == 300, "learnable without professions")
+	local bought = {}
+	BuyTrainerService = function(i) bought[#bought + 1] = i end
+	GetMoney = function() return 250 end
+	trainAll()
+	assert(#bought == 1 and bought[1] == 4, "last first, stops at the money")
+	GetMoney = function() return 1000 end
+	bought = {}
+	trainAll()
+	assert(bought[1] == 4 and bought[2] == 1, "all affordable, from the end")
+	-- Bank: reagents onto a bank stack with room, the rest stays.
+	local deposit = uv(uv(uv(services.Apply, "CreateDepositButton"), "DepositReagents"), "Step")
+	local depositOne = uv(deposit, "DepositOne")
+	local bags = { [0] = { [1] = { itemID = 2589, stackCount = 15, hyperlink = "item:2589" }, [2] = { itemID = 118, stackCount = 3, hyperlink = "item:118" } },
+		[6] = { [1] = { itemID = 2589, stackCount = 10 } } }
+	C_Container.GetContainerNumSlots = function(bag) return bags[bag] and 2 or 0 end
+	C_Container.GetContainerItemInfo = function(bag, slot) return bags[bag] and bags[bag][slot] end
+	C_Item.GetItemInfo = function(link) return "x", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, link == "item:2589" end
+	C_Item.GetItemMaxStackSizeByID = function() return 20 end
+	C_Bank = { CanUseBank = function() return true end, FetchPurchasedBankTabIDs = function() return { 6 } end }
+	local calls = {}
+	C_Container.SplitContainerItem = function(bag, slot, n) calls[#calls + 1] = ("split %d %d %d"):format(bag, slot, n) end
+	C_Container.PickupContainerItem = function(bag, slot) calls[#calls + 1] = ("pickup %d %d"):format(bag, slot) end
+	GetCursorInfo = function() return nil end
+	ns:GetModule("Restock").cdb.items = {} -- the restock test marked linen
+	setuv(depositOne, "run", { steps = 0, moved = 0, skip = {} })
+	assert(depositOne(), "one move")
+	print("  ", table.concat(calls, " | "))
+	assert(calls[1] == "split 0 1 10" and calls[2] == "pickup 6 1", "10 linen onto the bank stack of 10; the potion stays")
+	setuv(depositOne, "run", nil)
+	print("services OK")
+end)()
+;(function()
+	-- Loot summary: items and money in one line.
+	local loot = ns:GetModule("Loot")
+	local flush = uv(uv(loot.CHAT_MSG_LOOT, "Touch"), "Flush")
+	local frames = uv(uv(flush, "Print"), "frames")
+	local out = {}
+	local chat = { AddMessage = function(_, text) out[#out + 1] = text end }
+	frames.LOOT[chat], frames.MONEY[chat] = true, true
+	ChatTypeInfo = { LOOT = { r = 0, g = 1, b = 0 }, MONEY = { r = 1, g = 1, b = 0 } }
+	GetMoneyString = function(money) return money .. "c" end
+	setuv(flush, "batch", { items = {}, order = {}, count = 6, money = 81, moneySources = {}, moneyOrder = {}, started = 0 })
+	loot.db.combineMoney, loot.db.inlineQuality = true, "NONE"
+	flush()
+	print("  ", out[1])
+	assert(#out == 1 and out[1]:find("6") and out[1]:find("81c"), "one line")
+	print("loot money OK")
+end)()
+;(function()
+	-- Casts left: mana divided by the spell's cost.
+	local vis = ns:GetModule("Visuals")
+	local update = uv(uv(vis.OnLogin, "UpdateCastWatch"), "UpdateAllCasts")
+	local casts = uv(update, "UpdateCasts")
+	vis.db.castsLeft = true
+	GetActionInfo = function() return "spell", 403 end
+	C_Spell.GetSpellPowerCost = function() return { { type = 0, cost = 25, minCost = 25 } } end
+	Enum.PowerType = { Mana = 0 }
+	UnitPower = function() return 110 end
+	local shown
+	local button = CreateFrame("Button")
+	button.action = 1
+	button.CreateFontString = function() local f = CreateFrame("FontString") f.SetText = function(_, t) shown = t end return f end
+	casts(button)
+	assert(shown == 4, "110 mana / 25 = 4 casts, got " .. tostring(shown))
+	print("casts left OK")
 end)()

@@ -9,7 +9,6 @@ local Talents = ns:NewModule("Talents", {
 	defaults = {
 		enabled = true,
 		planner = true,
-		earlyPlanner = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
@@ -369,7 +368,6 @@ local function ShowBuildMenu(owner)
 		if Talents.db.planner then
 			root:CreateDivider()
 			root:CreateTitle(L.TALENTS_PLAN)
-			root:CreateButton(L.TALENTS_PLANNER_OPEN, ns.TalentPlanner.Toggle)
 			root:CreateButton(L.TALENTS_PLAN_APPLY, ApplyPlan)
 			root:CreateButton(L.TALENTS_PLAN_CLEAR, ClearPlan)
 		end
@@ -514,6 +512,129 @@ local function QueuePlanUpdate()
 	end
 end
 
+-- Rules of the classic talent trees: each row needs 5 points in rows above
+-- it in the same tree, and a talent behind an arrow needs its source talent
+-- at full rank. Rows come from the node positions of the whole tree.
+local POINTS_PER_ROW = 5
+local REQUIRED_EDGES = { [Enum.TraitEdgeType.SufficientForAvailability] = true, [Enum.TraitEdgeType.RequiredForAvailability] = true }
+
+local function TreeState(frame, configID)
+	local nodes, rowsY, names = {}, {}, {}
+	for button in frame:EnumerateAllTalentButtons() do
+		local nodeID = button.GetNodeID and button:GetNodeID()
+		local node = nodeID and C_Traits.GetNodeInfo(configID, nodeID)
+		if node and node.maxRanks and node.maxRanks > 0 then
+			node.ID = node.ID or nodeID
+			node.posY = node.posY or 0
+			nodes[nodeID] = node
+			rowsY[node.posY] = true
+			names[nodeID] = button.GetName and button:GetName()
+		end
+	end
+	local sorted = {}
+	for y in pairs(rowsY) do
+		sorted[#sorted + 1] = y
+	end
+	table.sort(sorted)
+	local rowOf = {}
+	for index, y in ipairs(sorted) do
+		rowOf[y] = index - 1
+	end
+	return nodes, rowOf, names
+end
+
+local function Effective(node, plan)
+	return math.max(node.ranksPurchased or 0, plan[node.ID] or 0)
+end
+
+-- nil if the node may carry `rank` with the given plan, else a message.
+local function CheckNode(nodes, rowOf, names, plan, node, rank)
+	if rank <= 0 then
+		return nil
+	end
+	local group = node.groupIDs and node.groupIDs[1]
+	local row = rowOf[node.posY] or 0
+	local spent = 0
+	for _, other in pairs(nodes) do
+		if other.ID ~= node.ID and (other.groupIDs and other.groupIDs[1]) == group and (rowOf[other.posY] or 0) < row then
+			spent = spent + Effective(other, plan)
+		end
+	end
+	if spent < row * POINTS_PER_ROW then
+		return L.TALENTS_PLAN_NEED_POINTS:format(row * POINTS_PER_ROW - spent)
+	end
+	for _, source in pairs(nodes) do
+		for _, edge in ipairs(source.visibleEdges or {}) do
+			if edge.targetNode == node.ID and REQUIRED_EDGES[edge.type] and Effective(source, plan) < source.maxRanks then
+				return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
+			end
+		end
+	end
+	return nil
+end
+
+local function CheckPlan(nodes, rowOf, names, plan)
+	for nodeID, node in pairs(nodes) do
+		local planned = plan[nodeID]
+		if planned and planned > (node.ranksPurchased or 0) then
+			local problem = CheckNode(nodes, rowOf, names, plan, node, planned)
+			if problem then
+				return problem
+			end
+		end
+	end
+	return nil
+end
+
+local function OnTalentClick(_, button, mouseButton)
+	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
+		return
+	end
+	local frame = TalentsFrame()
+	local nodeID = button.GetNodeID and button:GetNodeID()
+	local configID = frame and frame:GetConfigID()
+	local node = nodeID and configID and C_Traits.GetNodeInfo(configID, nodeID)
+	if not node or not node.maxRanks or node.maxRanks == 0 then
+		return
+	end
+	local plan = CurrentPlan()
+	local planned = plan[nodeID] or 0
+	local nodes, rowOf, names = TreeState(frame, configID)
+	local problem
+	if IsShiftKeyDown() then
+		planned = planned - 1
+		local old = plan[nodeID]
+		plan[nodeID] = planned > 0 and planned or nil
+		-- Removing must not leave a talent above without its requirement.
+		problem = CheckPlan(nodes, rowOf, names, plan)
+		plan[nodeID] = old
+		if problem then
+			ns.Print(L.TALENTS_PLAN_REMOVE_BLOCKED)
+			return
+		end
+	elseif button.CanRefundRank and button:CanRefundRank() then
+		return -- Blizzard refunds a staged rank with this click
+	else
+		local target = math.max(planned, node.ranksPurchased or 0) + 1
+		if target > node.maxRanks or PlannedPoints(plan) - planned + target > PLAN_POINTS then
+			return
+		end
+		problem = CheckNode(nodes, rowOf, names, plan, node, target)
+		if problem then
+			ns.Print(problem)
+			return
+		end
+		planned = target
+	end
+	plan[nodeID] = planned > 0 and planned or nil
+	QueuePlanUpdate()
+	-- Rebuild the open tooltip with the new planned rank.
+	if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
+		HookPlanTooltip(button)
+		button:SetTooltipInternal()
+	end
+end
+
 -- Buys the planned ranks the points allow; Blizzard's talent window shows
 -- them as pending until they are confirmed with its button.
 function ApplyPlan()
@@ -550,43 +671,13 @@ local function SetupPlanner(frame)
 	planCounter:SetPoint("TOP", anchor, "BOTTOM", 0, -2)
 	planCounter:SetTextColor(PLAN_COLOR:GetRGB())
 	planCounter:Hide()
+	EventRegistry:RegisterCallback("TalentButton.OnClick", OnTalentClick, Talents)
 	frame:HookScript("OnShow", QueuePlanUpdate)
 	if frame.SetTab then
 		hooksecurefunc(frame, "SetTab", QueuePlanUpdate)
 	end
 	for _, event in ipairs({ "TRAIT_CONFIG_UPDATED", "TRAIT_NODE_CHANGED", "TRAIT_TREE_CURRENCY_INFO_UPDATED" }) do
 		Talents:RegisterEvent(event, QueuePlanUpdate)
-	end
-end
-
----------------------------------------------------------------------------
--- Before the first talent point Blizzard's talent window stays closed; the
--- talent key and the (disabled) talent button open ForeverPlus' planner.
----------------------------------------------------------------------------
-local function CanPlanEarly()
-	return Talents.db.enabled and Talents.db.planner and Talents.db.earlyPlanner
-		and not C_SpecializationInfo.HasPlayerEarnedATalentPoint()
-end
-
-local function ToggleEarly()
-	if CanPlanEarly() then
-		ns.TalentPlanner.Toggle()
-	end
-end
-
-local function HookEarlyPlanning()
-	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentFrame then
-		hooksecurefunc(PlayerSpellsUtil, "ToggleClassTalentFrame", ToggleEarly)
-	end
-	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentOrSpecFrame then
-		hooksecurefunc(PlayerSpellsUtil, "ToggleClassTalentOrSpecFrame", ToggleEarly)
-	end
-	if TalentMicroButton then
-		TalentMicroButton:HookScript("OnMouseUp", function(button, mouseButton)
-			if mouseButton == "LeftButton" and not button:IsEnabled() and button:IsMouseOver() then
-				ToggleEarly()
-			end
-		end)
 	end
 end
 
@@ -656,7 +747,6 @@ function Talents:OnLogin()
 			end
 		end
 	end)
-	HookEarlyPlanning()
 	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
 	self:RegisterEvent("TRAINER_SHOW", function()
 		C_Timer.After(0.3, function()
@@ -675,5 +765,4 @@ end
 Talents.options = {
 	{ key = "enabled", type = "toggle", name = L.TALENTS_ENABLE, desc = L.TALENTS_ENABLE_DESC },
 	{ key = "planner", type = "toggle", name = L.TALENTS_PLANNER, desc = L.TALENTS_PLANNER_DESC },
-	{ key = "earlyPlanner", type = "toggle", name = L.TALENTS_EARLY, desc = L.TALENTS_EARLY_DESC, parent = "planner" },
 }

@@ -17,6 +17,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorMana = true,
 		colorUnusable = true,
 		colorActiveBuff = true,
+		castsLeft = false,
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerDragon = "none",
@@ -312,6 +313,106 @@ local function RecolorAll()
 	end
 end
 
+---------------------------------------------------------------------------
+-- Casts left: how often a spell on an action button can still be cast with
+-- the current mana (small number at the bottom left).
+---------------------------------------------------------------------------
+local CASTS_COLOR = { 0.6, 0.8, 1 }
+local CASTS_DELAY = 0.1
+local castTexts = {}
+local manaCosts = {} -- spellID -> mana cost or false
+
+local function ManaCost(spellID)
+	local cost = manaCosts[spellID]
+	if cost == nil then
+		cost = false
+		for _, info in ipairs(C_Spell.GetSpellPowerCost(spellID) or {}) do
+			local needed = ns.Number(info.minCost, 0) > 0 and info.minCost or ns.Number(info.cost, 0)
+			if info.type == Enum.PowerType.Mana and needed > 0 then
+				cost = needed
+			end
+		end
+		manaCosts[spellID] = cost
+	end
+	return cost or nil
+end
+
+local function ActionSpell(action)
+	local actionType, id = GetActionInfo(action)
+	if actionType == "macro" then
+		id = GetMacroSpell(id)
+		actionType = id and "spell"
+	end
+	return actionType == "spell" and ns.Number(id) or nil
+end
+
+local function UpdateCasts(button)
+	local count
+	if Visuals.db.castsLeft and button.action then
+		local spellID = ActionSpell(button.action)
+		local cost = spellID and ManaCost(spellID)
+		local mana = cost and ns.Number(UnitPower("player", Enum.PowerType.Mana))
+		count = mana and math.floor(mana / cost)
+	end
+	local text = castTexts[button]
+	if count and not text then
+		text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+		text:SetPoint("BOTTOMLEFT", 2, 2)
+		text:SetTextColor(CASTS_COLOR[1], CASTS_COLOR[2], CASTS_COLOR[3])
+		castTexts[button] = text
+	end
+	if text then
+		text:SetText(count or "")
+		text:SetShown(count ~= nil)
+	end
+end
+
+local castsPending = false
+local function UpdateAllCasts()
+	castsPending = false
+	for button in pairs(actionButtons) do
+		UpdateCasts(button)
+	end
+end
+
+local function QueueCasts()
+	if not castsPending then
+		castsPending = true
+		C_Timer.After(CASTS_DELAY, UpdateAllCasts)
+	end
+end
+
+local castWatcher
+local function UpdateCastWatch()
+	local enabled = Visuals.db.castsLeft
+	if enabled and not castWatcher then
+		castWatcher = CreateFrame("Frame")
+		castWatcher:SetScript("OnEvent", function(_, event)
+			if event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
+				wipe(manaCosts)
+			end
+			QueueCasts()
+		end)
+	end
+	if castWatcher then
+		local events = { "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "SPELLS_CHANGED",
+			"PLAYER_LEVEL_UP", "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD" }
+		for _, event in ipairs(events) do
+			if enabled then
+				castWatcher:RegisterEvent(event)
+			else
+				castWatcher:UnregisterEvent(event)
+			end
+		end
+		if enabled then
+			castWatcher:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+		else
+			castWatcher:UnregisterEvent("UNIT_POWER_UPDATE")
+		end
+	end
+	UpdateAllCasts()
+end
+
 -- Rebuilds the aura name set; recolours only when it changed.
 local auraWatcher
 local function UpdateActiveAuras()
@@ -427,6 +528,16 @@ end
 -- book names on parchment). Those texts get their outline removed directly.
 local MAX_DEPTH = 8
 
+local function StripDarkText(fontString)
+	local r, g, b = fontString:GetTextColor()
+	if ns.Number(r) and r + g + b < 0.9 then
+		local face, size, flags = fontString:GetFont()
+		if face and flags and flags:find("OUTLINE") then
+			fontString:SetFont(face, size, "")
+		end
+	end
+end
+
 local function StripDarkOutlines(frame, depth)
 	depth = depth or 0
 	if depth > MAX_DEPTH or not frame or frame:IsForbidden() then
@@ -434,17 +545,22 @@ local function StripDarkOutlines(frame, depth)
 	end
 	for _, region in ipairs({ frame:GetRegions() }) do
 		if region:IsObjectType("FontString") then
-			local r, g, b = region:GetTextColor()
-			if ns.Number(r) and r + g + b < 0.9 then
-				local face, size, flags = region:GetFont()
-				if face and flags and flags:find("OUTLINE") then
-					region:SetFont(face, size, "")
-				end
-			end
+			StripDarkText(region)
 		end
 	end
 	for _, child in ipairs({ frame:GetChildren() }) do
 		StripDarkOutlines(child, depth + 1)
+	end
+end
+
+-- Spell book entries are created and refilled as pages change or more
+-- ranks are shown; each one is checked when its texts are set.
+local function StripSpellBookItem(item)
+	for _, key in ipairs({ "Name", "SubName", "RequiredLevel" }) do
+		local text = item[key]
+		if text and text.GetTextColor then
+			StripDarkText(text)
+		end
 	end
 end
 
@@ -461,6 +577,10 @@ local function HookParchmentWindows()
 			hooksecurefunc(book, "OnPagedSpellsUpdate", Strip)
 		end
 		book:HookScript("OnShow", Strip)
+		-- Entries made from here on carry the hook (the mixin is copied into each).
+		if SpellBookItemMixin and SpellBookItemMixin.UpdateVisuals then
+			hooksecurefunc(SpellBookItemMixin, "UpdateVisuals", StripSpellBookItem)
+		end
 	end)
 	ns.OnAddOnLoaded("Blizzard_ProfessionsBook", function()
 		if ProfessionsBookFrame then
@@ -610,6 +730,7 @@ function Visuals:OnLogin()
 	HookActionButtons()
 	UpdateAuraWatch()
 	RecolorAll()
+	UpdateCastWatch()
 	StyleUnitBars()
 	ApplyPlayerDragon()
 end
@@ -619,6 +740,8 @@ function Visuals:OnOptionChanged(key)
 		ApplySquid()
 	elseif key == "playerDragon" or key == "dragonScale" then
 		ApplyPlayerDragon()
+	elseif key == "castsLeft" then
+		UpdateCastWatch()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
 			StyleUnitBars()
@@ -660,6 +783,7 @@ Visuals.options = {
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
+	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
 	{ type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
 		Visuals:ShowBuffExceptions(button)
 	end },

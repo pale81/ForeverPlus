@@ -127,6 +127,7 @@ GetCVar = function() return "1" end
 debugprofilestop = function() return os.clock() * 1000 end
 SetCVar = function() end
 ITEM_SPELL_KNOWN = "Already known"
+YES, NO = "Yes", "No"
 INVSLOT_MAINHAND, INVSLOT_OFFHAND, INVSLOT_RANGED = 16, 17, 18
 Settings = Mock("Settings"); Settings.VarType = { Boolean = "boolean", Number = "number", String = "string" }
 Settings.RegisterAddOnSetting = function(cat, var, key, tbl, t, name, def)
@@ -328,7 +329,7 @@ do
 	for _, list in pairs(vbm) do maps = maps + 1 total = total + #list end
 	print("radar vendors", maps, total, "ready", uv(gv, "indexReady"))
 end
-local P = ns.Print; ns.Print = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.Print = P
+local P = ns.PrintAlways; ns.PrintAlways = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.PrintAlways = P
 print("radar OK")
 -- Upgrade arrow logic (Shaman level 20, enhancement)
 local function upvalue(fn, name)
@@ -1318,4 +1319,45 @@ end)()
 	for _, line in ipairs(printed) do print("  ", line) end
 	assert(#printed == 2 and printed[1]:find("1429") and printed[2]:find("test"), "status lines")
 	print("world map OK")
+end)()
+;(function()
+	-- Quest window as parchment page: buttons become text links in the page corners and come back.
+	local q = ns:GetModule("Quests")
+	local function Button(name)
+		local b = { alpha = {}, points = { { "BOTTOMLEFT", "QuestFrame", "BOTTOMLEFT", 6, 4 } }, width = 78, fonts = { "GameFontNormal", "GameFontHighlight", "GameFontDisable" } }
+		for _, key in ipairs({ "Left", "Middle", "Right" }) do
+			b[key] = { SetAlpha = function(_, a) b.alpha[key] = a end }
+		end
+		b.hl = { SetAlpha = function(_, a) b.alpha.hl = a end }
+		function b:GetHighlightTexture() return self.hl end
+		function b:GetNormalFontObject() return self.fonts[1] end
+		function b:GetHighlightFontObject() return self.fonts[2] end
+		function b:GetDisabledFontObject() return self.fonts[3] end
+		function b:SetNormalFontObject(f) self.fonts[1] = f end
+		function b:SetHighlightFontObject(f) self.fonts[2] = f end
+		function b:SetDisabledFontObject(f) self.fonts[3] = f end
+		function b:GetWidth() return self.width end
+		function b:SetWidth(w) self.width = w end
+		function b:GetTextWidth() return 50 end
+		function b:GetNumPoints() return #self.points end
+		function b:GetPoint(i) return unpack(self.points[i]) end
+		function b:ClearAllPoints() self.points = {} end
+		function b:SetPoint(...) self.points[#self.points + 1] = { ... } end
+		_G[name] = b
+		return b
+	end
+	local accept, decline = Button("QuestFrameAcceptButton"), Button("QuestFrameDeclineButton")
+	for _, n in ipairs({ "QuestFrameCompleteButton", "QuestFrameCompleteQuestButton", "QuestFrameGoodbyeButton", "QuestFrameGreetingGoodbyeButton" }) do Button(n) end
+	QuestFrame, GossipFrame = CreateFrame("Frame"), CreateFrame("Frame")
+	GossipFrame.GreetingPanel.GoodbyeButton = Button("GossipGoodbye")
+	q.db.questParchment = true
+	q:OnOptionChanged("questParchment", true)
+	assert(accept.points[1][1] == "BOTTOMLEFT" and accept.points[1][4] == 8 and decline.points[1][1] == "BOTTOMRIGHT", "links in the page corners")
+	assert(accept.width == 62 and accept.alpha.Left == 0 and accept.alpha.hl == 0 and accept.fonts[1] ~= "GameFontNormal", "text link look")
+	assert(GossipFrame.GreetingPanel.GoodbyeButton.points[1][1] == "BOTTOMRIGHT", "gossip goodbye as link")
+	q.db.questParchment = false
+	q:OnOptionChanged("questParchment", false)
+	assert(accept.points[1][2] == "QuestFrame" and accept.points[1][5] == 4 and accept.width == 78, "anchors back")
+	assert(accept.alpha.Left == 1 and accept.fonts[1] == "GameFontNormal" and accept.fonts[3] == "GameFontDisable", "look back")
+	print("quest parchment OK")
 end)()

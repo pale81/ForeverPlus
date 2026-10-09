@@ -160,7 +160,7 @@ end
 -- Blizzard's pin redraws on map changes, exploration and zoom layer
 -- changes; the extra parts follow right after.
 function WorldMap:Apply()
-	if self.db.reveal and not pin and WorldMapFrame then
+	if self.db.reveal and ns.MapOverlays and not pin and WorldMapFrame then
 		pin = FindPin()
 		if pin then
 			hooksecurefunc(pin, "RemoveAllData", Release)
@@ -203,7 +203,8 @@ function WorldMap:PrintStatus()
 	end
 end
 
-WorldMap.options = {
+-- Without the map data there is nothing to offer.
+WorldMap.options = ns.MapOverlays and {
 	{ key = "reveal", type = "toggle", name = L.WORLDMAP_REVEAL, desc = L.WORLDMAP_REVEAL_DESC },
 	{ key = "revealAlpha", type = "slider", name = L.WORLDMAP_REVEAL_ALPHA, parent = "reveal", min = 10, max = 100, step = 5,
 		format = function(value)

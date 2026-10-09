@@ -271,6 +271,7 @@ read_globals = {
 	"UiMapPoint",
 	"UnitClass",
 	"UnitFactionGroup",
+	"GetRealZoneText",
 	"UnitIsDeadOrGhost",
 	"UnitOnTaxi",
 	"WorldMapFrame",

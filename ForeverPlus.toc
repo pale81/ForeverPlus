@@ -27,6 +27,7 @@ Modules\Tooltip.lua
 Modules\QuestieInfo.lua
 Modules\Minimap.lua
 Data\MapOverlays.lua
+Data\Instances.lua
 Modules\WorldMap.lua
 Modules\Items.lua
 Modules\Restock.lua

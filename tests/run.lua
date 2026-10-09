@@ -1272,7 +1272,7 @@ end)()
 	wm:PrintStatus()
 	ns.PrintAlways = printAlways
 	for _, line in ipairs(printed) do print("  ", line) end
-	assert(#printed == 2 and printed[1]:find("1429") and printed[2]:find("test"), "status lines")
+	assert(#printed == 4 and printed[1]:find("1429") and printed[2]:find("0") and printed[3]:find("test"), "status lines")
 	print("world map OK")
 end)()
 ;(function()
@@ -1492,4 +1492,70 @@ end)()
 	assert(bodyText(model, 1429):find("Marschall"), "turn-in line")
 	P.Hide()
 	print("quest preview OK")
+end)()
+
+;(function()
+	-- World map symbols: instance entrances from the group finder list, flight masters of the own faction.
+	local wm = ns:GetModule("WorldMap")
+	local dungeons = { [1581] = { "The Deadmines", nil, 40, { { 40, 42.5, 71.7 } } }, [1584] = { "Blackrock Depths", nil, 51, { { 51, 34.8, 85.3 } } },
+		[2717] = { "Molten Core", nil, 51, { { 51, 35, 85 } } }, [2366] = { "The Black Morass", nil, 440, { { 440, 65.7, 49.8 } } } }
+	local npcs = { [523] = { name = "Thor", subName = "Greifenmeister", npcFlags = 11, friendlyToFaction = "A", spawns = { [40] = { { 56.6, 52.6 } } } },
+		[2995] = { name = "Tal", npcFlags = 11, friendlyToFaction = "H", spawns = { [40] = { { 10, 10 } } } },
+		[100] = { name = "Händler", npcFlags = 4, friendlyToFaction = "A", spawns = { [40] = { { 20, 20 } } } } }
+	LibQuestieDB = {
+		Support = { Get = function() return { private = { dungeons = dungeons, areaIdToUiMapId = { [40] = 1436, [51] = 1427, [440] = 1446 } },
+			instanceIdToAreaId = { [36] = 1581, [230] = 1584, [409] = 2717, [269] = 2366 } } end },
+		Quest = { Exists = function() return false end, Get = function() end, GetAll = function() end, GetAllIds = function() return {} end },
+		Npc = { GetAllIds = function() return { 100, 523, 2995 } end, Get = function(id, key) return npcs[id] and npcs[id][key] end },
+	}
+	setuv(ns.QuestieDB.UiMapForArea, "areaToUiMap", nil)
+	ns.Instances = { [36] = "dungeon", [230] = "dungeon", [409] = "raid" }
+	GetRealZoneText = function(id) return id == 36 and "Die Todesminen" or "" end
+	UnitFactionGroup = function() return "Alliance" end
+	C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
+	local canvas = CreateFrame("Frame")
+	canvas.GetWidth = function() return 1000 end
+	canvas.GetHeight = function() return 600 end
+	local mapID = 1436
+	WorldMapFrame = CreateFrame("Frame")
+	WorldMapFrame.GetCanvas = function() return canvas end
+	WorldMapFrame.GetCanvasScale = function() return 2 end
+	WorldMapFrame.GetMapID = function() return mapID end
+	WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
+	C_Map.GetMapInfo = function(id) return { mapType = id == 1415 and 2 or 3 } end
+	C_Map.GetMapChildrenInfo = function() return { { mapID = 1436 }, { mapID = 1427 } } end
+	C_Map.GetMapRectOnMap = function(child) if child == 1436 then return 0.4, 0.5, 0.7, 0.8 end return 0.5, 0.6, 0.5, 0.6 end
+	Enum.UIMapType = { Continent = 2 }
+	-- Set up on the earlier test's map mock and built from other data.
+	setuv(uv(wm.Apply, "SetupSymbols"), "symbolLayer", nil)
+	local refresh = uv(wm.Apply, "RefreshSymbols")
+	setuv(refresh, "entrances", nil)
+	setuv(uv(refresh, "BuildFlights"), "flights", nil)
+	wm.db.entrances, wm.db.flightPoints = true, true
+	wm:Apply()
+	local draw = uv(uv(wm.Apply, "RefreshSymbols"), "DrawSymbols")
+	local function active()
+		local list, symbols = {}, uv(draw, "symbols")
+		for i = 1, uv(draw, "symbolsUsed") do list[#list + 1] = symbols[i] end
+		return list
+	end
+	local list = active()
+	assert(#list == 2, "Westfall: Deadmines and Thor, got " .. #list)
+	assert(list[1].kind == "entrance" and list[1].data.names[1][1] == "Die Todesminen", "client name")
+	assert(list[2].kind == "flight" and list[2].data.name == "Thor" and math.abs(list[2].x - 0.566) < 1e-9, "own faction only")
+	mapID = 1415
+	draw()
+	list = active()
+	assert(#list == 3, "continent: zones' symbols, got " .. #list)
+	assert(math.abs(list[1].x - (0.4 + 0.425 * 0.1)) < 1e-9, "zone rect on continent")
+	local blackrock = list[3]
+	local kinds = {}
+	for _, entry in ipairs(blackrock.data.names) do kinds[entry[2]] = (kinds[entry[2]] or 0) + 1 end
+	assert(#blackrock.data.names == 2 and kinds.raid == 1 and kinds.dungeon == 1, "Blackrock Depths and Molten Core share a symbol")
+	wm.db.flightPoints = false
+	wm:OnOptionChanged("flightPoints", false)
+	mapID = 1436
+	draw()
+	assert(#active() == 1, "flight points off")
+	print("world map symbols OK")
 end)()

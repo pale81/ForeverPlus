@@ -1361,3 +1361,22 @@ end)()
 	assert(accept.alpha.Left == 1 and accept.fonts[1] == "GameFontNormal" and accept.fonts[3] == "GameFontDisable", "look back")
 	print("quest parchment OK")
 end)()
+;(function()
+	-- Early talent planning: a toggle that just closed the window does not reopen it.
+	local t = ns:GetModule("Talents")
+	t.db.enabled, t.db.planner, t.db.earlyPlanner = true, true, true
+	C_SpecializationInfo = { HasPlayerEarnedATalentPoint = function() return false end }
+	local hook = uv(t.OnLogin, "HookEarlyPlanning")
+	local toggle = uv(hook, "OpenEarlyAfterToggle")
+	local scheduled = 0
+	local after = C_Timer.After
+	C_Timer.After = function() scheduled = scheduled + 1 end
+	setuv(toggle, "closedAt", GetTime())
+	toggle()
+	assert(scheduled == 0, "closed by this toggle: stays closed")
+	setuv(toggle, "closedAt", nil)
+	toggle()
+	assert(scheduled == 1, "closed window: opens the view")
+	C_Timer.After = after
+	print("early planning toggle OK")
+end)()

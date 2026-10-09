@@ -81,7 +81,7 @@ read_globals = {
 	"ChatFrameUtil",
 	"Mixin",
 	"UIErrorsFrame",
-	"PlayerFrame",
+	"PlayerFrame", "TargetFrame", "FocusFrame", "MainStatusTrackingBarContainer", "SecondaryStatusTrackingBarContainer",
 	"PlaySoundFile",
 	"C_NamePlate",
 	"PlayerSpellsFrame",

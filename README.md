@@ -3,7 +3,7 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
-Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Karten & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
+Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Mouseover, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Karten & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient und ist anfangs gesperrt: **Alt + Rechtsklick** entsperrt/sperrt einzeln, dann verschiebt **Alt + Ziehen** und **Strg + Mausrad** skaliert. Gesperrte Fenster lassen das Mausrad in Ruhe (Kamera-Zoom, Aktionsleisten-Blättern); „Zurücksetzen“ sperrt alles wieder. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
 `/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars (Index, Berufe, Händler der aktuellen Karte und warum ihre Rezepte fehlen: bekannt, Fertigkeit, anderer Beruf, Fraktion, Optionen), `/fp karte` prüft die Weltkarten-Daten zur offenen Karte, `/fp talente` öffnet den Talentbaum (vor Stufe 10 zum Planen), `/fp mausrad` prüft eine Minute lang, wer das Mausrad bekommt (auch Elemente ohne Mausfokus), wie Shift + Mausrad belegt ist und ob Blizzards Blätter-Befehl läuft, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
@@ -55,7 +55,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
-| Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste nur bei Mouseover (jede Leiste einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
+| Komfort | Eigene Seite „Mouseover“: Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste, Statusleisten (Erfahrung, Ruf), Spieler-, Ziel- und Fokusfenster, Minimap nur bei Mouseover (jedes Element einzeln wählbar; Aktionsleisten und Fenster standardmäßig aus), optional im Kampf immer sichtbar; dort auch EP-/Rufzahlen bei Mouseover und die ausblendenden Chatreiter | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
 | | Namensplaketten außerhalb des Kampfes transparent (Standard 70 %, einstellbar), im Kampf voll sichtbar | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |

@@ -20,6 +20,12 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverBar8 = false,
 		mouseoverStance = false,
 		mouseoverPet = false,
+		mouseoverXP = false,
+		mouseoverRep = false,
+		mouseoverPlayer = false,
+		mouseoverTarget = false,
+		mouseoverMinimap = false,
+		mouseoverCombat = false,
 		nameplatesCombat = false,
 		nameplatesFade = false,
 		nameplatesFadeAmount = 70, -- transparency in percent out of combat
@@ -49,9 +55,10 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 	elapsedSinceCheck = elapsedSinceCheck + elapsed
 	if elapsedSinceCheck >= CHECK_INTERVAL then
 		elapsedSinceCheck = 0
-		local editMode = ns:IsEditModeActive()
+		-- Edit Mode and (optionally) combat show everything.
+		local shown = ns:IsEditModeActive() or (QoL.db.mouseoverCombat and InCombatLockdown())
 		for frame, state in pairs(fadeTargets) do
-			local target = (editMode or frame:IsMouseOver()) and 1 or 0
+			local target = (shown or frame:IsMouseOver()) and 1 or 0
 			if target ~= state.target then
 				state.target = target
 				fading = true
@@ -106,6 +113,13 @@ function QoL:UpdateMouseover()
 	end
 	SetFaded(StanceBar, db.mouseover and db.mouseoverStance)
 	SetFaded(PetActionBar, db.mouseover and db.mouseoverPet)
+	-- Blizzard's status bars 1 and 2 (experience, at the level cap reputation).
+	SetFaded(MainStatusTrackingBarContainer, db.mouseover and db.mouseoverXP)
+	SetFaded(SecondaryStatusTrackingBarContainer, db.mouseover and db.mouseoverRep)
+	SetFaded(PlayerFrame, db.mouseover and db.mouseoverPlayer)
+	SetFaded(TargetFrame, db.mouseover and db.mouseoverTarget)
+	SetFaded(FocusFrame, db.mouseover and db.mouseoverTarget)
+	SetFaded(MinimapCluster, db.mouseover and db.mouseoverMinimap)
 end
 
 ---------------------------------------------------------------------------
@@ -463,6 +477,7 @@ end
 QoL.options = {
 	{ type = "header", name = L.QOL_MOUSEOVER_HEADER },
 	{ key = "mouseover", type = "toggle", name = L.QOL_MOUSEOVER, desc = L.QOL_MOUSEOVER_DESC },
+	{ key = "mouseoverCombat", type = "toggle", name = L.QOL_MOUSEOVER_COMBAT, desc = L.QOL_MOUSEOVER_COMBAT_DESC, parent = "mouseover" },
 	{ key = "mouseoverMicro", type = "toggle", name = L.QOL_MOUSEOVER_MICRO, parent = "mouseover" },
 	{ key = "mouseoverTracker", type = "toggle", name = L.QOL_MOUSEOVER_TRACKER, parent = "mouseover" },
 	{ key = "mouseoverBags", type = "toggle", name = L.QOL_MOUSEOVER_BAGS, parent = "mouseover" },
@@ -476,6 +491,11 @@ QoL.options = {
 	{ key = "mouseoverBar8", type = "toggle", name = L.QOL_MOUSEOVER_BAR:format(8), parent = "mouseover" },
 	{ key = "mouseoverStance", type = "toggle", name = L.QOL_MOUSEOVER_STANCE, parent = "mouseover" },
 	{ key = "mouseoverPet", type = "toggle", name = L.QOL_MOUSEOVER_PET, parent = "mouseover" },
+	{ key = "mouseoverXP", type = "toggle", name = L.QOL_MOUSEOVER_XP, desc = L.QOL_MOUSEOVER_STATUS_DESC, parent = "mouseover" },
+	{ key = "mouseoverRep", type = "toggle", name = L.QOL_MOUSEOVER_REP, desc = L.QOL_MOUSEOVER_STATUS_DESC, parent = "mouseover" },
+	{ key = "mouseoverPlayer", type = "toggle", name = L.QOL_MOUSEOVER_PLAYER, parent = "mouseover" },
+	{ key = "mouseoverTarget", type = "toggle", name = L.QOL_MOUSEOVER_TARGET, parent = "mouseover" },
+	{ key = "mouseoverMinimap", type = "toggle", name = L.QOL_MOUSEOVER_MINIMAP, desc = L.QOL_MOUSEOVER_MINIMAP_DESC, parent = "mouseover" },
 	{ type = "header", name = L.QOL_ERRORS_HEADER },
 	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },

@@ -1743,3 +1743,20 @@ end)()
 	assert(shown == 4, "110 mana / 25 = 4 casts, got " .. tostring(shown))
 	print("casts left OK")
 end)()
+;(function()
+	-- Shared panel look: title, small close button, Escape.
+	UISpecialFrames = {}
+	local panel = ns.CreatePanel("ForeverPlusTestPanel", { close = true, movable = true })
+	assert(panel.Title and panel.Close and not panel:IsShown(), "title, close, hidden")
+	local listed
+	for _, name in ipairs(UISpecialFrames) do listed = listed or name == "ForeverPlusTestPanel" end
+	assert(listed, "Escape closes it")
+	panel:Show()
+	panel.Close.scripts.OnClick()
+	assert(not panel:IsShown(), "close button hides")
+	local quiet = ns.CreatePanel("ForeverPlusQuietPanel", { escape = false })
+	listed = false
+	for _, name in ipairs(UISpecialFrames) do listed = listed or name == "ForeverPlusQuietPanel" end
+	assert(not listed and not rawget(quiet, "Close"), "tooltip-like panel")
+	print("panel OK")
+end)()

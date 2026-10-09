@@ -172,20 +172,11 @@ local function ShowIndex(index)
 end
 
 local function CreateWindow()
-	local frame = CreateFrame("Frame", "ForeverPlusErrorFrame", UIParent, "BasicFrameTemplateWithInset")
+	local frame = ns.CreatePanel("ForeverPlusErrorFrame", { close = true, movable = true })
 	window = frame
 	frame:SetSize(560, 400)
 	frame:SetPoint("CENTER")
-	frame:SetFrameStrata("DIALOG")
-	frame:SetToplevel(true)
-	frame:SetClampedToScreen(true)
-	frame:EnableMouse(true)
-	frame:SetMovable(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-	frame.TitleText:SetText(L.ERRORS_TITLE)
-	tinsert(UISpecialFrames, frame:GetName())
+	frame.Title:SetText(L.ERRORS_TITLE)
 
 	-- Navigation row at the top: previous / index / next, copy on the right.
 	frame.IndexLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -203,7 +194,7 @@ local function CreateWindow()
 
 	local copy = CreateFrame("Button", nil, frame)
 	copy:SetSize(22, 22)
-	copy:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -32)
+	copy:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -32)
 	if C_Texture.GetAtlasInfo("friends-icon-battlenet-copy") then
 		copy:SetNormalAtlas("friends-icon-battlenet-copy")
 	else
@@ -220,8 +211,9 @@ local function CreateWindow()
 	copy:SetScript("OnLeave", GameTooltip_Hide)
 
 	local scroll = CreateFrame("Frame", nil, frame, "ScrollingEditBoxTemplate")
-	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -56)
-	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 26)
+	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -60)
+	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 28)
+	ns.AddPanelInset(frame, scroll)
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOM", frame, "BOTTOM", 0, 9)
 	hint:SetText(L.ERRORS_WINDOW_HINT)
@@ -232,7 +224,6 @@ local function CreateWindow()
 	frame.EditBox = scroll:GetEditBox()
 	frame.EditBox:SetFontObject("GameFontHighlightSmall")
 	frame.Scroll = scroll
-	frame:Hide()
 	return frame
 end
 

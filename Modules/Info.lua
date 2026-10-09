@@ -235,7 +235,7 @@ local function CreatePerfFrame()
 	end)
 	ns:RegisterDisplay(frame, "Performance", function(self)
 		self:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 14)
-	end)
+	end, Minimap)
 	return frame
 end
 

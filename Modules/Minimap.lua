@@ -8,6 +8,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 	order = 3,
 	defaults = {
 		worldMapCoords = true,
+		trackingIcons = true,
 	},
 })
 
@@ -140,7 +141,42 @@ function MinimapCoords:UpdateFont()
 	end
 end
 
+---------------------------------------------------------------------------
+-- Tracking menu: spell icons fill their whole square, the other symbols
+-- have empty margins. Spell icons get the visible size of the others.
+---------------------------------------------------------------------------
+local MENU_ICON_SIZE = 20 -- Blizzard's size in the tracking menu
+local SPELL_ICON_SIZE = 15
+
+local function ShrinkTrackingIcon(button, description)
+	local info = description:GetData()
+	if not MinimapCoords.db.trackingIcons or type(info) ~= "table" or info.type ~= "spell" then
+		return
+	end
+	for _, region in ipairs({ button:GetRegions() }) do
+		if region:IsObjectType("Texture") and region:GetNumPoints() == 1 then
+			local point, relativeTo = region:GetPoint(1)
+			if point == "RIGHT" and relativeTo == button then
+				region:SetSize(SPELL_ICON_SIZE, SPELL_ICON_SIZE)
+				region:SetPoint("RIGHT", button, "RIGHT", -(MENU_ICON_SIZE - SPELL_ICON_SIZE) / 2, 0)
+			end
+		end
+	end
+end
+
+local function AddIconInitializers(description)
+	for _, element in description:EnumerateElementDescriptions() do
+		element:AddInitializer(ShrinkTrackingIcon)
+		AddIconInitializers(element)
+	end
+end
+
 function MinimapCoords:OnLogin()
+	if Menu and Menu.ModifyMenu then
+		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
+			AddIconInitializers(rootDescription)
+		end)
+	end
 	-- Small frame around the text: movable and lockable like a window.
 	local holder = CreateFrame("Frame", nil, Minimap)
 	holder:SetSize(100, 18)
@@ -157,7 +193,7 @@ function MinimapCoords:OnLogin()
 	holder:SetScript("OnLeave", GameTooltip_Hide)
 	ns:RegisterDisplay(holder, "MinimapCoords", function(frame)
 		frame:SetPoint("TOP", Minimap, "TOP", 0, -12)
-	end)
+	end, Minimap)
 	local _, classFile = UnitClass("player")
 	local color = C_ClassColor.GetClassColor(classFile)
 	if color then
@@ -185,4 +221,5 @@ end
 
 MinimapCoords.options = {
 	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
+	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 }

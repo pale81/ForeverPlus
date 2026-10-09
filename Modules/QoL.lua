@@ -21,6 +21,8 @@ local QoL = ns:NewModule("QoL", {
 		mouseoverStance = false,
 		mouseoverPet = false,
 		nameplatesCombat = false,
+		nameplatesFade = false,
+		nameplatesFadeAmount = 70, -- transparency in percent out of combat
 		hideErrors = true,
 		actionText = true,
 		hideHotkeys = true,
@@ -127,25 +129,66 @@ end
 local NAMEPLATE_CVAR = "nameplateShowEnemies"
 
 ---------------------------------------------------------------------------
+-- Nameplates out of combat: transparent (the unit frame inside the plate;
+-- the plate itself is the game's).
+---------------------------------------------------------------------------
+local inCombat = false
+
+local function PlateAlpha()
+	if QoL.db.nameplatesFade and not inCombat then
+		return 1 - QoL.db.nameplatesFadeAmount / 100
+	end
+	return 1
+end
+
+local function FadePlate(plate, alpha)
+	if plate and not plate:IsForbidden() and plate.UnitFrame then
+		plate.UnitFrame:SetAlpha(alpha)
+	end
+end
+
+local function FadeAllPlates()
+	local alpha = PlateAlpha()
+	for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
+		FadePlate(plate, alpha)
+	end
+end
+
+local function OnPlateAdded(_, _, unit)
+	FadePlate(C_NamePlate.GetNamePlateForUnit(unit), PlateAlpha())
+end
+
+---------------------------------------------------------------------------
 -- Combat start/end
 ---------------------------------------------------------------------------
 local function OnCombatStart()
-	SetCVar(NAMEPLATE_CVAR, "1")
+	inCombat = true
+	if QoL.db.nameplatesCombat then
+		SetCVar(NAMEPLATE_CVAR, "1")
+	end
+	if QoL.db.nameplatesFade then
+		FadeAllPlates()
+	end
 end
 
 local function OnCombatEnd()
-	SetCVar(NAMEPLATE_CVAR, "0")
+	inCombat = false
+	if QoL.db.nameplatesCombat then
+		SetCVar(NAMEPLATE_CVAR, "0")
+	end
+	if QoL.db.nameplatesFade then
+		FadeAllPlates()
+	end
 end
 
 function QoL:UpdateNameplates()
 	local db = self.db
-	if db.nameplatesCombat then
-		self:RegisterEvent("PLAYER_REGEN_DISABLED", OnCombatStart)
-		self:RegisterEvent("PLAYER_REGEN_ENABLED", OnCombatEnd)
-	else
-		self:UnregisterEvent("PLAYER_REGEN_DISABLED")
-		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-	end
+	inCombat = InCombatLockdown()
+	local combatEvents = db.nameplatesCombat or db.nameplatesFade
+	self:ToggleEvent("PLAYER_REGEN_DISABLED", combatEvents, OnCombatStart)
+	self:ToggleEvent("PLAYER_REGEN_ENABLED", combatEvents, OnCombatEnd)
+	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", db.nameplatesFade, OnPlateAdded)
+	FadeAllPlates()
 	if db.nameplatesCombat then
 		if db.nameplatesOriginal == nil then
 			db.nameplatesOriginal = GetCVar(NAMEPLATE_CVAR)
@@ -408,7 +451,7 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideErrors" then
 		self:UpdateErrorMessages()
-	elseif key == "nameplatesCombat" then
+	elseif key == "nameplatesCombat" or key == "nameplatesFade" or key == "nameplatesFadeAmount" then
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
@@ -437,6 +480,11 @@ QoL.options = {
 	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
 	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
+	{ key = "nameplatesFade", type = "toggle", name = L.QOL_NAMEPLATES_FADE, desc = L.QOL_NAMEPLATES_FADE_DESC },
+	{ key = "nameplatesFadeAmount", type = "slider", name = L.QOL_NAMEPLATES_FADE_AMOUNT, parent = "nameplatesFade", min = 10, max = 90, step = 5,
+		format = function(value)
+			return ("%d %%"):format(value)
+		end },
 	{ type = "header", name = L.QOL_ACTIONBAR_HEADER },
 	{ key = "actionText", type = "toggle", name = L.QOL_ACTION_TEXT, desc = L.QOL_ACTION_TEXT_DESC },
 	{ key = "hideHotkeys", type = "toggle", name = L.QOL_HIDE_HOTKEYS, parent = "actionText" },

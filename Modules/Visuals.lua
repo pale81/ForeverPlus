@@ -102,13 +102,21 @@ local function FrameQuestItem(button)
 	ns.ApplyActionFrame(button, button.icon, ICON_FRAME_STYLE)
 end
 
--- Item icons of quest rewards and quest log rewards.
+-- Item icons of quest rewards and quest log rewards. Their frame lies above
+-- the button's own overlays: Blizzard's icon border (same size as the icon)
+-- otherwise covers most of it. Sized on every display, the buttons are
+-- laid out anew each time.
+local REWARD_FRAME_LEVEL = 3
+
 local function FrameQuestRewards()
 	local rewardsFrame = QuestInfoFrame and QuestInfoFrame.rewardsFrame
 	for _, button in ipairs(rewardsFrame and rewardsFrame.RewardButtons or {}) do
-		if button.Icon and not framedQuestItems[button] then
-			framedQuestItems[button] = true
-			ns.ApplyActionFrame(button, button.Icon, ICON_FRAME_STYLE)
+		if button.Icon then
+			if not framedQuestItems[button] then
+				framedQuestItems[button] = true
+				ns.ApplyActionFrame(button, button.Icon, ICON_FRAME_STYLE, REWARD_FRAME_LEVEL)
+			end
+			ns.SizeActionFrame(button)
 		end
 	end
 end

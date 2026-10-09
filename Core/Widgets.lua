@@ -400,14 +400,16 @@ function ns.SizeActionFrame(owner, style)
 	end
 end
 
-function ns.ApplyActionFrame(owner, icon, style)
+-- subLevel: draw level of the frame within OVERLAY (default -1, below the
+-- owner's own overlays).
+function ns.ApplyActionFrame(owner, icon, style, subLevel)
 	if actionFrames[owner] or not icon then
 		return actionFrames[owner]
 	end
 	local mask = owner:CreateMaskTexture()
 	mask:SetAtlas(MASK_ATLAS)
 	mask:SetPoint("CENTER", icon, "CENTER")
-	local frame = owner:CreateTexture(nil, "OVERLAY", nil, -1)
+	local frame = owner:CreateTexture(nil, "OVERLAY", nil, subLevel or -1)
 	actionFrames[owner] = { icon = icon, mask = mask, frame = frame, style = style or "bar" }
 	ns.SizeActionFrame(owner)
 	return actionFrames[owner]

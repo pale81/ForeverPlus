@@ -200,7 +200,7 @@ read_globals = {
 	"GetMoneyString",
 	"GetMouseFoci",
 	"GetNumLootItems",
-	"GetNumQuestChoices",
+	"GetNumQuestChoices", "GetQuestReward", "GetQuestMoneyToGet", "AcceptQuest", "CompleteQuest", "AcknowledgeAutoAcceptQuest", "QuestFlagsPVP",
 	"GetPlayerFacing",
 	"GetProfessionInfo",
 	"GetProfessions",

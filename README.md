@@ -96,7 +96,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Knopf für öffnbare Gegenstände (Muscheln, Beutel, geknackte Kassetten), Bearbeitungsmodus | ja |
 | | Doppel-Rechtsklick in die Welt wirft die Angel aus | ja |
 | | Bereits bekannte Rezepte in Taschen und beim Händler ausgegraut | ja |
-| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt | ja |
+| Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt; NPCs ohne festen Ort (in mehr als drei Zonen gesehen, z. B. der beschwörbare Reagent Bot) zählen nicht als Händler | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
 | Fenster | Anfangs gesperrt; Alt + Rechtsklick entsperrt, dann verschiebt Alt + Ziehen jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert; Position/Größe je Element gespeichert, als Abstand zur nächsten Ecke, Kante oder Mitte (bei Minimap-Anzeigen zur Minimap), damit Auflösung und UI-Skalierung nichts verschieben | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler); nicht verschobene Fenster reihen sich rechts neben Blizzards Fenster (z. B. Zauberbuch) | ja |

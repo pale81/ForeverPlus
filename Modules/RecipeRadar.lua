@@ -74,11 +74,24 @@ local function LoadAreaMap()
 	end
 end
 
+-- Summoned helpers that sell (Forever's Reagent Bot) are recorded wherever
+-- players called them; an NPC seen in more zones than this has no fixed place.
+local MAX_VENDOR_ZONES = 3
+local mobile = {} -- npcID -> true
+
 local function AddVendorSpawns(npc, items)
 	local spawns = DB.Npc.Get(npc, "spawns")
 	local faction = DB.Npc.Get(npc, "friendlyToFaction")
 	if not spawns or not faction then
 		return -- hostile to both factions or no known position
+	end
+	local zones = 0
+	for _ in pairs(spawns) do
+		zones = zones + 1
+	end
+	if zones > MAX_VENDOR_ZONES then
+		mobile[npc] = true
+		return
 	end
 	local team = faction == "AH" and "N" or faction
 	for areaID, points in pairs(spawns) do
@@ -287,7 +300,7 @@ local function AddRecipeSources(tooltip, data)
 	end
 	local shown = 0
 	for _, npc in ipairs(recipe.vendors or {}) do
-		local team = DB.Npc.Get(npc, "friendlyToFaction")
+		local team = not mobile[npc] and DB.Npc.Get(npc, "friendlyToFaction")
 		if team and (team == "AH" or team == playerTeam) then
 			shown = shown + 1
 			if shown > TOOLTIP_MAX_VENDORS then

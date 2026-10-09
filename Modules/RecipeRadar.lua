@@ -20,7 +20,6 @@ local Radar = ns:NewModule("RecipeRadar", {
 	},
 })
 
-local PIN_TEMPLATE = "ForeverPlusRecipePinTemplate"
 local MINIMAP_UPDATE_INTERVAL = 0.05
 local RECIPE_CLASS = 9           -- Enum.ItemClass.Recipe
 local TOOLTIP_MAX_VENDORS = 3
@@ -219,22 +218,26 @@ end
 ---------------------------------------------------------------------------
 -- Shared pin behaviour (tooltip, waypoint)
 ---------------------------------------------------------------------------
-local function ShowVendorTooltip(owner, entry)
+local function FillVendorTooltip(tooltip, entry)
 	local vendor = entry.vendor
-	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-	GameTooltip_SetTitle(GameTooltip, DB.Npc.Get(vendor.npc, "name") or "?")
+	GameTooltip_SetTitle(tooltip, DB.Npc.Get(vendor.npc, "name") or "?")
 	local subName = DB.Npc.Get(vendor.npc, "subName")
 	if subName then
-		GameTooltip_AddNormalLine(GameTooltip, subName)
+		GameTooltip_AddNormalLine(tooltip, subName)
 	end
-	GameTooltip_AddNormalLine(GameTooltip, ("%.1f, %.1f"):format(vendor.x, vendor.y))
+	GameTooltip_AddNormalLine(tooltip, ("%.1f, %.1f"):format(vendor.x, vendor.y))
 	for _, recipe in ipairs(entry.recipes) do
 		local itemID, status = recipe[1], recipe[2]
 		local name = C_Item.GetItemNameByID(itemID) or DB.Item.Get(itemID, "name") or ("item:" .. itemID)
 		local color = status == "ok" and GREEN_FONT_COLOR or ORANGE_FONT_COLOR
-		GameTooltip:AddLine(name, color.r, color.g, color.b)
+		tooltip:AddLine(name, color.r, color.g, color.b)
 	end
-	GameTooltip_AddInstructionLine(GameTooltip, L.RADAR_CLICK_WAYPOINT)
+	GameTooltip_AddInstructionLine(tooltip, L.RADAR_CLICK_WAYPOINT)
+end
+
+local function ShowVendorTooltip(owner, entry)
+	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	FillVendorTooltip(GameTooltip, entry)
 	GameTooltip:Show()
 end
 
@@ -300,57 +303,33 @@ local function AddRecipeSources(tooltip, data)
 end
 
 ---------------------------------------------------------------------------
--- World map
+-- World map (symbols on ForeverPlus' own map layer, Modules/MapSymbols.lua)
 ---------------------------------------------------------------------------
-ForeverPlusRecipePinMixin = CreateFromMixins(MapCanvasPinMixin)
+local WORLD_MAP_PIN_SIZE = 20
 
-function ForeverPlusRecipePinMixin:OnLoad()
-	self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
-	self:SetScalingLimits(1, 1.0, 1.2)
+local function WorldMapTooltip(tooltip, symbol)
+	FillVendorTooltip(tooltip, symbol.data)
 end
 
-function ForeverPlusRecipePinMixin:OnAcquired(entry, mapID)
-	self.entry, self.mapID = entry, mapID
-	self.Icon:SetTexture(PinIcon(entry))
-	self:SetPosition(entry.vendor.x / 100, entry.vendor.y / 100)
-end
-
-function ForeverPlusRecipePinMixin:OnMouseEnter()
-	ShowVendorTooltip(self, self.entry)
-end
-
-function ForeverPlusRecipePinMixin:OnMouseLeave()
-	GameTooltip:Hide()
-end
-
-function ForeverPlusRecipePinMixin:OnMouseClickAction(button)
+local function WorldMapClick(symbol, button)
 	if button == "LeftButton" then
-		SetWaypoint(self.mapID, self.entry.vendor)
+		SetWaypoint(symbol.mapID, symbol.data.vendor)
 	end
 end
 
-local provider = CreateFromMixins(MapCanvasDataProviderMixin)
-
-function provider:RemoveAllData()
-	self:GetMap():RemoveAllPinsByTemplate(PIN_TEMPLATE)
-end
-
-function provider:RefreshAllData()
-	self:RemoveAllData()
+ns.MapSymbols.AddSource(function(mapID, add)
 	local db = Radar.db
-	if not (db.enabled and db.worldMap) then
+	if not (db and db.enabled and db.worldMap) then
 		return
 	end
-	local mapID = self:GetMap():GetMapID()
 	for _, entry in ipairs(GetVendors(mapID) or {}) do
-		self:GetMap():AcquirePin(PIN_TEMPLATE, entry, mapID)
+		add(entry.vendor.x / 100, entry.vendor.y / 100, { kind = "radar", texture = PinIcon(entry), size = WORLD_MAP_PIN_SIZE,
+			round = true, data = entry, mapID = mapID, tooltip = WorldMapTooltip, click = WorldMapClick })
 	end
-end
+end)
 
 local function RefreshWorldMap()
-	if provider:GetMap() and provider:GetMap():IsShown() then
-		provider:RefreshAllData()
-	end
+	ns.MapSymbols.Refresh()
 end
 
 ---------------------------------------------------------------------------
@@ -534,9 +513,7 @@ local function Start()
 		return false
 	end
 	UpdateSkills()
-	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
-		WorldMapFrame:AddDataProvider(provider)
-	end)
+	ns.OnAddOnLoaded("Blizzard_WorldMap", ns.MapSymbols.Setup)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("RecipeRadar: tooltip", AddRecipeSources))
 	-- Index after the login burst; it only runs while the radar is enabled.
 	C_Timer.After(5, function()

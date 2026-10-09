@@ -28,7 +28,9 @@ Modules\QuestieInfo.lua
 Modules\Minimap.lua
 Data\MapOverlays.lua
 Data\Instances.lua
+Data\Places.lua
 Modules\WorldMap.lua
+Modules\MapSymbols.lua
 Modules\Items.lua
 Modules\Restock.lua
 Modules\Auction.lua
@@ -49,5 +51,4 @@ Modules\Visuals.lua
 Modules\XPBar.lua
 Modules\Fonts.lua
 
-Modules\RecipeRadar.xml
 Modules\RecipeRadar.lua

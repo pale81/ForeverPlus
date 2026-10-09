@@ -3,9 +3,7 @@
 -- list comes from the game data in Data/MapOverlays.lua
 -- (tools/mapoverlays.py). Blizzard's exploration pin stays untouched apart
 -- from extra textures below its own.
--- Also symbols for instance entrances and flight masters (positions from
--- QuestieDB) on own frames over the map; Blizzard's map shows neither on
--- Forever's maps (no map has the ShowTaxiNodes flag).
+-- Options for the symbols and names on the map (Modules/MapSymbols.lua).
 local _, ns = ...
 local L = ns.L
 
@@ -18,6 +16,8 @@ local WorldMap = ns:NewModule("WorldMap", {
 		revealTint = true,
 		entrances = true,
 		flightPoints = true,
+		inns = true,
+		places = true,
 	},
 })
 
@@ -149,7 +149,8 @@ end
 local function Draw()
 	Release()
 	local map = pin and pin:GetMap()
-	local mapID = WorldMap.db.reveal and map and map:GetMapID()
+	-- The zoom levels exist only once the map has been shown.
+	local mapID = WorldMap.db.reveal and map and map:IsShown() and map:GetMapID()
 	-- The data hold the first art layer (the only one of these maps).
 	if not mapID or map:GetCanvasContainer():GetCurrentLayerIndex() ~= 1 then
 		return
@@ -211,285 +212,6 @@ local function FindPin()
 	return found
 end
 
----------------------------------------------------------------------------
--- Instance entrances and flight masters
----------------------------------------------------------------------------
-local ENTRANCE_SIZE, FLIGHT_SIZE = 22, 16
-local MERGE_DISTANCE = 1 -- entrances closer than this (map percent) share a symbol
-local FLIGHT_MASTER_FLAG = 8 -- npcFlags bit in QuestieDB's Forever data
-local FLIGHT_ATLAS = { A = "taxinode_alliance", H = "taxinode_horde", AH = "taxinode_neutral" }
-
-local symbolLayer
-local symbols, symbolsUsed = {}, 0
-local entrances  -- uiMapID -> { { x, y, names = { { name, kind } } } } (x, y: 0–100)
-local flights    -- uiMapID -> { { x, y, npc, name, title, faction } }
-local flightsBuilding = false
-local rects = {} -- "child:parent" -> { left, right, top, bottom } or false
-
-local function Text(value)
-	if type(value) == "string" and not (issecretvalue and issecretvalue(value)) and value ~= "" then
-		return value
-	end
-end
-
-local function AddEntrance(uiMapID, x, y, name, kind)
-	local list = entrances[uiMapID]
-	if not list then
-		list = {}
-		entrances[uiMapID] = list
-	end
-	for _, entrance in ipairs(list) do
-		if math.abs(entrance.x - x) < MERGE_DISTANCE and math.abs(entrance.y - y) < MERGE_DISTANCE then
-			for _, known in ipairs(entrance.names) do
-				if known[1] == name then
-					return
-				end
-			end
-			entrance.names[#entrance.names + 1] = { name, kind }
-			return
-		end
-	end
-	list[#list + 1] = { x = x, y = y, names = { { name, kind } } }
-end
-
--- Entrances of the instances in the client's group finder
--- (Data/Instances.lua) at QuestieDB's positions; names from the client.
-local function BuildEntrances(lib)
-	entrances = {}
-	local ok, zoneDB = pcall(lib.Support.Get, "ZoneDB")
-	local dungeons = ok and type(zoneDB) == "table" and type(zoneDB.private) == "table" and zoneDB.private.dungeons
-	local instanceAreas = ok and type(zoneDB) == "table" and zoneDB.instanceIdToAreaId
-	if type(dungeons) ~= "table" or type(instanceAreas) ~= "table" then
-		return
-	end
-	for instanceID, kind in pairs(ns.Instances or {}) do
-		local areaID = instanceAreas[instanceID]
-		local entry = areaID and dungeons[areaID]
-		if type(entry) == "table" and type(entry[4]) == "table" then
-			local name = Text(GetRealZoneText(instanceID)) or Text(entry[1]) or tostring(instanceID)
-			for _, location in ipairs(entry[4]) do
-				local uiMapID = type(location) == "table" and ns.QuestieDB.UiMapForArea(lib, location[1])
-				local x, y = uiMapID and location[2], uiMapID and location[3]
-				if type(x) == "number" and type(y) == "number" then
-					AddEntrance(uiMapID, x, y, name, kind)
-				end
-			end
-		end
-	end
-end
-
-local function PlayerFactionLetter()
-	local faction = UnitFactionGroup("player")
-	return faction == "Alliance" and "A" or faction == "Horde" and "H" or nil
-end
-
--- Flight masters of the player's faction and neutral ones: all NPCs with
--- the flight master flag, read once in the background.
-local function BuildFlights(lib, onDone)
-	if flights or flightsBuilding then
-		return
-	end
-	local npc = lib.Npc
-	if type(npc) ~= "table" or type(npc.GetAllIds) ~= "function" or type(npc.Get) ~= "function" then
-		flights = {}
-		return
-	end
-	flightsBuilding = true
-	local letter = PlayerFactionLetter()
-	local ids = npc.GetAllIds() or {}
-	local found = {}
-	ns.RunSliced("WorldMap: flight masters", #ids, function(i)
-		local id = ids[i]
-		local flags = npc.Get(id, "npcFlags")
-		if type(flags) == "number" and math.floor(flags / FLIGHT_MASTER_FLAG) % 2 == 1 then
-			local faction = npc.Get(id, "friendlyToFaction")
-			if type(faction) == "string" and letter and faction:find(letter, 1, true) then
-				for uiMapID, points in pairs(ns.QuestieDB.SpawnsByMap(lib, npc.Get(id, "spawns"))) do
-					local list = found[uiMapID]
-					if not list then
-						list = {}
-						found[uiMapID] = list
-					end
-					list[#list + 1] = { x = points[1][1], y = points[1][2], name = Text(npc.Get(id, "name")),
-						title = Text(npc.Get(id, "subName")), faction = faction }
-				end
-			end
-		end
-	end, function()
-		flights, flightsBuilding = found, false
-		onDone()
-	end)
-end
-
--- Position of a child map on a continent map (0–1), cached.
-local function Rect(child, parent)
-	local key = child .. ":" .. parent
-	local rect = rects[key]
-	if rect == nil then
-		local left, right, top, bottom = C_Map.GetMapRectOnMap(child, parent)
-		rect = left and right and top and bottom and { left, right, top, bottom } or false
-		rects[key] = rect
-	end
-	return rect or nil
-end
-
--- Symbols for a map: { x, y (0–1), kind = "entrance"|"flight", data }.
--- Continents show the symbols of their zones.
-local function Collect(mapID, into)
-	local db = WorldMap.db
-	local function Add(childMapID, rect)
-		local function Place(x, y, kind, data)
-			x, y = x / 100, y / 100
-			if rect then
-				x, y = rect[1] + x * (rect[2] - rect[1]), rect[3] + y * (rect[4] - rect[3])
-			end
-			into[#into + 1] = { x = x, y = y, kind = kind, data = data }
-		end
-		if db.entrances and entrances then
-			for _, entrance in ipairs(entrances[childMapID] or {}) do
-				Place(entrance.x, entrance.y, "entrance", entrance)
-			end
-		end
-		if db.flightPoints and flights then
-			for _, flight in ipairs(flights[childMapID] or {}) do
-				Place(flight.x, flight.y, "flight", flight)
-			end
-		end
-	end
-	Add(mapID)
-	local info = C_Map.GetMapInfo(mapID)
-	if info and info.mapType == Enum.UIMapType.Continent then
-		for _, child in ipairs(C_Map.GetMapChildrenInfo(mapID) or {}) do
-			local rect = child.mapID and Rect(child.mapID, mapID)
-			if rect then
-				Add(child.mapID, rect)
-			end
-		end
-	end
-	return into
-end
-
-local function ShowSymbolTooltip(symbol)
-	local data = symbol.data
-	GameTooltip:SetOwner(symbol, "ANCHOR_RIGHT")
-	if symbol.kind == "entrance" then
-		for _, entry in ipairs(data.names) do
-			local name = entry[2] == "raid" and L.WORLDMAP_RAID:format(entry[1]) or entry[1]
-			GameTooltip:AddLine(name, 1, 1, 1)
-		end
-		GameTooltip:AddLine(L.WORLDMAP_ENTRANCE, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
-	else
-		GameTooltip:AddLine(data.name or L.WORLDMAP_FLIGHT, 1, 1, 1)
-		GameTooltip:AddLine(data.title or L.WORLDMAP_FLIGHT, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
-	end
-	GameTooltip:Show()
-end
-
-local function AcquireSymbol()
-	symbolsUsed = symbolsUsed + 1
-	local symbol = symbols[symbolsUsed]
-	if not symbol then
-		symbol = CreateFrame("Frame", nil, symbolLayer)
-		symbol.Icon = symbol:CreateTexture(nil, "ARTWORK")
-		symbol.Icon:SetAllPoints()
-		-- Hover shows the tooltip; clicks go on to the map (dragging, zooming).
-		symbol:EnableMouse(true)
-		symbol:SetMouseClickEnabled(false)
-		symbol:SetScript("OnEnter", ShowSymbolTooltip)
-		symbol:SetScript("OnLeave", GameTooltip_Hide)
-		symbols[symbolsUsed] = symbol
-	end
-	symbol:SetFrameLevel(symbolLayer:GetFrameLevel() + 1)
-	symbol:Show()
-	return symbol
-end
-
--- Positions in the canvas; the symbols keep their size while zooming.
-local function PlaceSymbols()
-	if symbolsUsed == 0 then
-		return
-	end
-	local canvas = WorldMapFrame:GetCanvas()
-	local width, height = canvas:GetWidth(), canvas:GetHeight()
-	local scale = 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
-	for i = 1, symbolsUsed do
-		local symbol = symbols[i]
-		symbol:SetScale(scale)
-		symbol:ClearAllPoints()
-		symbol:SetPoint("CENTER", canvas, "TOPLEFT", width * symbol.x / scale, -height * symbol.y / scale)
-	end
-end
-
-local function DrawSymbols()
-	for i = 1, symbolsUsed do
-		symbols[i]:Hide()
-	end
-	symbolsUsed = 0
-	local mapID = symbolLayer and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID()
-	if not mapID then
-		return
-	end
-	for _, item in ipairs(Collect(mapID, {})) do
-		local symbol = AcquireSymbol()
-		symbol.x, symbol.y, symbol.kind, symbol.data = item.x, item.y, item.kind, item.data
-		if item.kind == "entrance" then
-			local raid = true
-			for _, entry in ipairs(item.data.names) do
-				raid = raid and entry[2] == "raid"
-			end
-			symbol.Icon:SetAtlas(raid and "raid" or "dungeon")
-			symbol:SetSize(ENTRANCE_SIZE, ENTRANCE_SIZE)
-		else
-			symbol.Icon:SetAtlas(FLIGHT_ATLAS[item.data.faction] or FLIGHT_ATLAS.AH)
-			symbol:SetSize(FLIGHT_SIZE, FLIGHT_SIZE)
-		end
-	end
-	PlaceSymbols()
-end
-
--- Data on first use (the map open with an option on); the flight masters
--- arrive a few frames later and are drawn then.
-local function RefreshSymbols()
-	local db = WorldMap.db
-	local lib = (db.entrances or db.flightPoints) and ns.QuestieDB.Get()
-	if lib then
-		if db.entrances and not entrances then
-			BuildEntrances(lib)
-		end
-		if db.flightPoints then
-			BuildFlights(lib, DrawSymbols)
-		end
-	end
-	DrawSymbols()
-end
-
-local function SetupSymbols()
-	if symbolLayer or not (WorldMapFrame and WorldMapFrame.GetCanvas) then
-		return
-	end
-	local canvas = WorldMapFrame:GetCanvas()
-	symbolLayer = CreateFrame("Frame", nil, canvas)
-	symbolLayer:SetAllPoints(canvas)
-	-- Between Blizzard's map layers and its pins, where its own entrance pins would be.
-	local levels = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
-	local level = levels and ns.Number(levels:GetFrameLevelStart("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE"))
-	if level then
-		symbolLayer:SetFrameLevel(level)
-	end
-	local hooks = {
-		OnMapChanged = ns.Measured("WorldMap: symbols", RefreshSymbols),
-		OnCanvasScaleChanged = PlaceSymbols,
-		OnCanvasSizeChanged = PlaceSymbols,
-	}
-	for method, fn in pairs(hooks) do
-		if type(WorldMapFrame[method]) == "function" then
-			hooksecurefunc(WorldMapFrame, method, fn)
-		end
-	end
-	WorldMapFrame:HookScript("OnShow", RefreshSymbols)
-end
-
--- /fp karte: how the data fit the open map (or the player's map).
 -- Blizzard's pin redraws on map changes, exploration and zoom layer
 -- changes; the extra parts follow right after.
 function WorldMap:Apply()
@@ -503,12 +225,11 @@ function WorldMap:Apply()
 	if pin then
 		Draw()
 	end
-	if (self.db.entrances or self.db.flightPoints) and WorldMapFrame then
-		SetupSymbols()
+	local db = self.db
+	if (db.entrances or db.flightPoints or db.inns or db.places) and WorldMapFrame then
+		ns.MapSymbols.Setup()
 	end
-	if symbolLayer then
-		RefreshSymbols()
-	end
+	ns.MapSymbols.Refresh()
 end
 
 function WorldMap:OnLogin()
@@ -521,12 +242,11 @@ function WorldMap:OnOptionChanged()
 	self:Apply()
 end
 
+-- /fp karte: how the data fit the open map (or the player's map).
 local function PrintSymbolStatus(mapID)
-	local counts = { entrance = 0, flight = 0 }
-	for _, item in ipairs(Collect(mapID, {})) do
-		counts[item.kind] = counts[item.kind] + 1
-	end
-	ns.PrintAlways(L.WORLDMAP_STATUS_SYMBOLS, counts.entrance, counts.flight, ns.InstanceBuild or "-")
+	local counts = ns.MapSymbols.Count(mapID)
+	ns.PrintAlways(L.WORLDMAP_STATUS_SYMBOLS, counts.entrance or 0, counts.flight or 0, counts.inn or 0, counts.place or 0,
+		counts.radar or 0, ns.InstanceBuild or "-")
 end
 
 function WorldMap:PrintStatus()
@@ -556,6 +276,8 @@ end
 WorldMap.options = {
 	{ key = "entrances", type = "toggle", name = L.WORLDMAP_ENTRANCES, desc = L.WORLDMAP_ENTRANCES_DESC },
 	{ key = "flightPoints", type = "toggle", name = L.WORLDMAP_FLIGHTS, desc = L.WORLDMAP_FLIGHTS_DESC },
+	{ key = "inns", type = "toggle", name = L.WORLDMAP_INNS, desc = L.WORLDMAP_INNS_DESC },
+	{ key = "places", type = "toggle", name = L.WORLDMAP_PLACES, desc = L.WORLDMAP_PLACES_DESC },
 }
 
 -- Without the map data there is nothing to reveal.

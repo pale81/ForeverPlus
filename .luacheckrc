@@ -2,7 +2,7 @@
 std = "lua51"
 max_line_length = false
 self = false
-exclude_files = { ".git/**" }
+exclude_files = { ".git/**", "tests/**", "tools/**" }
 ignore = {
 	"212/self", -- unused self in methods
 }

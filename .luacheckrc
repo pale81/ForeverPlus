@@ -34,6 +34,7 @@ read_globals = {
 	"PlayerSpellsUtil", "TalentMicroButton", "ExportUtil",
 	"GossipFrame",
 	"QuestFrame",
+	"C_Bank", "GetCurrentGuildBankTab", "GetGuildBankTabInfo", "GetGuildBankItemLink", "GetGuildBankItemInfo", "PickupGuildBankItem", "SplitGuildBankItem", "ClearCursor", "IsAltKeyDown",
 	"ItemTextFrame", "ItemTextFramePageBg", "ItemTextCurrentPage", "ItemTextScrollFrame", "ItemTextPrevPageButton", "ItemTextNextPageButton",
 	"ItemTextGetPage", "ItemTextHasNextPage", "ItemTextPrevPage", "ItemTextNextPage", "PREV", "NEXT",
 	"CreateFont", "QuestTitleFont", "QuestFramePortrait",

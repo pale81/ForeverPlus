@@ -130,6 +130,7 @@ local PAGES = {
 	{ title = L.ITEMS_TITLE,
 		{ "Items" },
 		{ "Auction", header = L.AUCTION_TITLE },
+		{ "Restock", header = L.RESTOCK_TITLE },
 		{ "Helpers", header = L.HELPERS_TITLE },
 		{ "QoL", keys = Keys("bagSlots") },
 	},

@@ -707,6 +707,11 @@ end
 -- Marks/unmarks junk with the configured mouse button (middle button by default).
 -- OnMouseUp also fires for buttons the item button is not registered to click with.
 local function OnItemMouseUp(button, mouseButton)
+	-- Alt + middle click marks for the restock list instead.
+	local restock = mouseButton == "MiddleButton" and IsAltKeyDown() and ns:GetModule("Restock")
+	if restock and restock:ClaimsAltMiddleClick() then
+		return
+	end
 	if mouseButton == Items.db.junkButton and button:IsMouseOver() then
 		ToggleJunk(button:GetBagID(), button:GetID())
 	end

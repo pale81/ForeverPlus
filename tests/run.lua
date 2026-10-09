@@ -1452,3 +1452,32 @@ end)()
 	assert(placed[3] == 6 and not book.shown, "book back to Blizzard's look")
 	print("book page OK")
 end)()
+;(function()
+	-- Restock: tops up a marked item to a full stack from the bank.
+	local r = ns:GetModule("Restock")
+	r.cdb.items = { [2589] = true }
+	local bags = { [0] = { [1] = { itemID = 2589, stackCount = 7 } }, [6] = { [3] = { itemID = 2589, stackCount = 30 } } }
+	C_Container.GetContainerNumSlots = function(bag) return bags[bag] and 4 or 0 end
+	C_Container.GetContainerItemInfo = function(bag, slot) return bags[bag] and bags[bag][slot] end
+	C_Container.GetContainerNumFreeSlots = function() return 3, 0 end
+	local calls = {}
+	C_Container.SplitContainerItem = function(bag, slot, n) calls[#calls + 1] = ("split %d %d %d"):format(bag, slot, n) end
+	C_Container.PickupContainerItem = function(bag, slot) calls[#calls + 1] = ("pickup %d %d"):format(bag, slot) end
+	C_Item.GetItemMaxStackSizeByID = function() return 20 end
+	C_Item.GetItemCount = function() return 7 end
+	C_Bank = { CanUseBank = function(t) return t == 0 end, FetchPurchasedBankTabIDs = function() return { 6 } end }
+	Enum.BankType = { Character = 0, Account = 2 }
+	GetCursorInfo = function() return nil end
+	local Step = uv(uv(r.Apply, "Start"), "Step")
+	local MoveOne = uv(Step, "MoveOne")
+	setuv(MoveOne, "atBank", true)
+	setuv(MoveOne, "run", { skip = {}, moved = {}, steps = 0 })
+	assert(MoveOne(), "one move")
+	print("  ", table.concat(calls, " | "))
+	assert(calls[1] == "split 6 3 13" and calls[2] == "pickup 0 1", "13 from the bank onto the stack of 7")
+	C_Item.GetItemCount = function() return 20 end
+	assert(not MoveOne(), "full stack: nothing left")
+	setuv(MoveOne, "run", nil)
+	setuv(MoveOne, "atBank", false)
+	print("restock OK")
+end)()

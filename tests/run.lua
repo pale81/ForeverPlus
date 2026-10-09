@@ -1518,7 +1518,8 @@ end)()
 	}
 	setuv(ns.QuestieDB.UiMapForArea, "areaToUiMap", nil)
 	ns.Instances = { [36] = "dungeon", [230] = "dungeon", [409] = "raid" }
-	ns.Places = { { 0, -9480, 63, 87, "Goldshire", "town" }, { 0, -9154, 364, 1519, "Stormwind", "city" }, { 1, 1, 1, 0, "Razor Hill", "town" } }
+	ns.Places = { { 0, -9480, 63, 87, "Goldshire", "town", 1429 }, { 0, -9154, 364, 1519, "Stormwind", "city", 1453 },
+		{ 1, 1, 1, 0, "Razor Hill", "town", 1411 } }
 	GetRealZoneText = function(id) return id == 36 and "Die Todesminen" or "" end
 	UnitFactionGroup = function() return "Alliance" end
 	CreateVector2D = function(x, y) return { x = x, y = y, GetXY = function(v) return v.x, v.y end } end
@@ -1536,12 +1537,12 @@ end)()
 	C_Map.GetMapChildrenInfo = function() return { { mapID = 1436 }, { mapID = 1427 }, { mapID = 1429 } } end
 	C_Map.GetMapRectOnMap = function(child) if child == 1436 then return 0.4, 0.5, 0.7, 0.8 end return 0.5, 0.6, 0.5, 0.6 end
 	C_Map.GetWorldPosFromMapPos = function() return 0, CreateVector2D(0, 0) end
+	-- Without a map the client answers with the continent (seen in the game: towns were missing).
 	C_Map.GetMapPosFromWorldPos = function(_, pos, override)
-		if pos.x == -9480 then return override or 1429, CreateVector2D(0.42, 0.66) end
-		if override == 1429 then return 1429, CreateVector2D(0.2, 0.2) end
+		if override == 1429 then return 1429, CreateVector2D(pos.x == -9480 and 0.42 or 0.2, pos.x == -9480 and 0.66 or 0.2) end
 		if override == 1415 then return 1415, CreateVector2D(0.45, 0.75) end
-		if override then return override, CreateVector2D(1.5, 1.5) end -- outside the map
-		return 1453, CreateVector2D(0.5, 0.5)
+		if override == 1453 then return 1453, CreateVector2D(0.5, 0.5) end
+		return override or 1415, CreateVector2D(1.5, 1.5) -- outside the map
 	end
 	C_Map.GetAreaInfo = function(id) return id == 87 and "Goldhain" or id == 1519 and "Sturmwind" or "" end
 	Enum.UIMapType = { Continent = 2 }
@@ -1553,9 +1554,9 @@ end)()
 	setuv(refresh, "entrances", nil)
 	setuv(uv(refresh, "BuildNpcs"), "npcs", nil)
 	for _, source in ipairs(uv(uv(S.Count, "Collect"), "sources")) do
-		local continent, place = uv(source, "Continent"), uv(source, "Place")
+		local continent, place = uv(source, "Continent"), uv(source, "PlacePosition")
 		if continent then setuv(continent, "continents", {}) end
-		if place then setuv(place, "places", {}) end
+		if place then setuv(place, "positions", {}) end
 	end
 	for k in pairs({ entrances = 1, flightPoints = 1, inns = 1, places = 1 }) do wm.db[k] = true end
 	wm:Apply()

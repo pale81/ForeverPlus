@@ -27,7 +27,7 @@ local npcs       -- { flights = { [uiMapID] = { … } }, inns = { … } }
 local npcsBuilding = false
 local rects = {}      -- "child:parent" -> { left, right, top, bottom } or false
 local continents = {} -- uiMapID -> continent (instance map) ID or false
-local places = {}     -- place -> { home = uiMapID, x, y } or false
+local positions = {}  -- uiMapID -> { [place] = { x, y } or false }
 
 local function Text(value)
 	if type(value) == "string" and not (issecretvalue and issecretvalue(value)) and value ~= "" then
@@ -201,14 +201,18 @@ local function BuildNpcs(lib, onDone)
 	end)
 end
 
--- Home map (the zone or city it lies in) and position there of a place
--- from Data/Places.lua.
-local function Place(place)
-	local cached = places[place]
+-- Position of a place from Data/Places.lua on a map (0–1), cached per map.
+local function PlacePosition(place, mapID)
+	local cache = positions[mapID]
+	if not cache then
+		cache = {}
+		positions[mapID] = cache
+	end
+	local cached = cache[place]
 	if cached == nil then
-		local uiMapID, x, y = WorldToMap(place[1], place[2], place[3])
-		cached = uiMapID and x and y and { home = uiMapID, x = x, y = y } or false
-		places[place] = cached
+		local _, x, y = WorldToMap(place[1], place[2], place[3], mapID)
+		cached = x and y and x > 0 and x < 1 and y > 0 and y < 1 and { x, y } or false
+		cache[place] = cached
 	end
 	return cached or nil
 end
@@ -279,26 +283,20 @@ Symbols.AddSource(function(mapID, add)
 	end
 end)
 
--- Towns on their own zone map, capitals on the zone and continent maps
+-- Towns on the map they belong to, capitals on the zone and continent maps
 -- around them (not on their own city map).
 Symbols.AddSource(function(mapID, add)
 	if not Options().places or not ns.Places then
 		return
 	end
 	local continent = Continent(mapID)
-	local onContinent = IsContinent(mapID)
 	for _, place in ipairs(ns.Places) do
-		local city = place[6] == "city"
-		local home = place[1] == continent and Place(place)
-		if home and (city and home.home ~= mapID or not city and not onContinent and home.home == mapID) then
-			local x, y = home.x, home.y
-			if home.home ~= mapID then
-				local _
-				_, x, y = WorldToMap(place[1], place[2], place[3], mapID)
-			end
-			if x and y and x > 0 and x < 1 and y > 0 and y < 1 then
-				add(x, y, { kind = "place", label = PlaceName(place), font = city and "GameFontNormalOutline" or "GameFontHighlightSmallOutline" })
-			end
+		local city, home = place[6] == "city", place[7]
+		local position = place[1] == continent and (city and home ~= mapID or not city and home == mapID)
+			and PlacePosition(place, mapID)
+		if position then
+			add(position[1], position[2], { kind = "place", label = PlaceName(place),
+				font = city and "GameFontNormalOutline" or "GameFontHighlightSmallOutline" })
 		end
 	end
 end)

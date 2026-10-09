@@ -905,23 +905,267 @@ local function MarkQuestLog()
 end
 
 ---------------------------------------------------------------------------
--- Quest and gossip window as plain parchment: Blizzard's frame, portrait,
--- background and close button are hidden; parchment, text, scroll bar and
--- buttons stay (Escape still closes).
+-- Quest and gossip window as a parchment page: Blizzard's frame, portrait,
+-- title bar, background, close button and scroll bars are hidden. One
+-- parchment with a thin rounded edge carries the NPC name, the text and the
+-- buttons as text links at the bottom; an arrow there shows that the text
+-- goes on (mouse wheel scrolls). Blizzard's buttons are only restyled and
+-- moved, their clicks stay Blizzard's. Escape still closes.
 ---------------------------------------------------------------------------
-local CHROME = { "NineSlice", "PortraitContainer", "Bg", "TopTileStreaks", "Inset" }
+local CHROME = { "NineSlice", "PortraitContainer", "Bg", "TopTileStreaks", "Inset", "TitleContainer", "Background" }
+local PAGE_LEFT, PAGE_TOP, PAGE_BOTTOM = 3, -22, 2
+local PARCHMENT_WIDTH = 299 -- Blizzard's parchment atlas, if it cannot be read
+local PARCHMENT_INSET = 3
+local PAGE_TEXT = { 0.18, 0.1, 0.04 }
+local EDGE_COLOR = { 0.3, 0.2, 0.09 }
+local LINK_SIZE = 15
+local LINK_PADDING = 12
+local ARROW_INTERVAL = 0.1
+
+local pages = {}    -- window -> page frame
+local restyled = {} -- Blizzard button -> original look and anchors
+local linkFonts
+
+local function LinkFont(name, r, g, b)
+	local font = CreateFont(name)
+	font:CopyFontObject(QuestTitleFont)
+	local face = font:GetFont()
+	font:SetFont(face, LINK_SIZE, "")
+	font:SetShadowOffset(0, 0)
+	font:SetTextColor(r, g, b)
+	return font
+end
+
+-- Dark colours only: light ones would get the general outline.
+local function LinkFonts()
+	if not linkFonts then
+		linkFonts = {
+			normal = LinkFont("ForeverPlusParchmentLink", unpack(PAGE_TEXT)),
+			highlight = LinkFont("ForeverPlusParchmentLinkHover", 0.55, 0.1, 0),
+			disabled = LinkFont("ForeverPlusParchmentLinkDisabled", 0.38, 0.3, 0.18),
+		}
+	end
+	return linkFonts
+end
+
+-- Parts of both windows: { frame, backgrounds, scroll areas, left and right buttons }.
+local function Windows()
+	local windows = {}
+	if QuestFrame then
+		windows[#windows + 1] = {
+			frame = QuestFrame,
+			hide = { QuestFramePortrait, QuestFrameRewardPanel and QuestFrameRewardPanel.Bg, QuestFrameProgressPanel and QuestFrameProgressPanel.Bg,
+				QuestFrameDetailPanel and QuestFrameDetailPanel.Bg, QuestFrameGreetingPanel and QuestFrameGreetingPanel.Bg },
+			scrolls = { QuestDetailScrollFrame, QuestProgressScrollFrame, QuestRewardScrollFrame, QuestGreetingScrollFrame },
+			left = { QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton },
+			right = { QuestFrameDeclineButton, QuestFrameGoodbyeButton, QuestFrameGreetingGoodbyeButton },
+		}
+	end
+	local greeting = GossipFrame and GossipFrame.GreetingPanel
+	if greeting then
+		windows[#windows + 1] = {
+			frame = GossipFrame,
+			hide = {},
+			scrolls = { greeting.ScrollBox },
+			bars = { greeting.ScrollBar },
+			left = {},
+			right = { greeting.GoodbyeButton },
+		}
+	end
+	return windows
+end
+
+-- Direction in which the visible text goes on: "down", "up" or nil.
+local function ScrollState(area)
+	if not area or not area:IsVisible() then
+		return nil
+	end
+	if area.GetVerticalScrollRange then
+		local range = ns.Number(area:GetVerticalScrollRange(), 0)
+		if range <= 1 then
+			return nil
+		end
+		return ns.Number(area:GetVerticalScroll(), 0) < range - 1 and "down" or "up"
+	end
+	if area.HasScrollableExtent and area:HasScrollableExtent() then
+		return ns.Number(area:GetScrollPercentage(), 0) < 0.99 and "down" or "up"
+	end
+end
+
+local function UpdateArrow(page)
+	local direction
+	for _, area in ipairs(page.window.scrolls) do
+		direction = direction or ScrollState(area)
+	end
+	if direction ~= page.direction then
+		page.direction = direction
+		page.Arrow:SetShown(direction ~= nil)
+		if direction then
+			page.Arrow:SetAtlas(direction == "down" and "minimal-scrollbar-arrow-bottom" or "minimal-scrollbar-arrow-top", true)
+		end
+	end
+end
+
+-- The NPC name may be a protected value; it is only handed on, never tested.
+local function UpdateName(page)
+	local title = page.window.frame.GetTitleText and page.window.frame:GetTitleText()
+	page.Name:SetText(title and title:GetText())
+end
+
+local function CreatePage(window)
+	local frame = window.frame
+	local page = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	page:SetUsingParentLevel(true)
+	local bg = QuestFrameDetailPanel and QuestFrameDetailPanel.Bg
+	local width = bg and ns.Number(bg:GetWidth(), 0) or 0
+	width = (width > 0 and width or PARCHMENT_WIDTH) + 2 * (PARCHMENT_INSET + 1)
+	page:SetPoint("TOPLEFT", frame, "TOPLEFT", PAGE_LEFT, PAGE_TOP)
+	page:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", PAGE_LEFT + width, PAGE_BOTTOM)
+	page:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
+	page:SetBackdropBorderColor(unpack(EDGE_COLOR))
+
+	local parchment = page:CreateTexture(nil, "BACKGROUND")
+	parchment:SetPoint("TOPLEFT", PARCHMENT_INSET, -PARCHMENT_INSET)
+	parchment:SetPoint("BOTTOMRIGHT", -PARCHMENT_INSET, PARCHMENT_INSET)
+	if not parchment:SetAtlas("QuestBG-Parchment") then
+		parchment:SetColorTexture(0.84, 0.74, 0.55)
+	end
+
+	local name = page:CreateFontString(nil, "ARTWORK")
+	local face, size = QuestTitleFont:GetFont()
+	name:SetFont(face, size, "")
+	name:SetTextColor(unpack(PAGE_TEXT))
+	name:SetPoint("TOP", 0, -12)
+	name:SetWidth(width - 40)
+	name:SetMaxLines(1)
+	page.Name = name
+
+	local divider = page:CreateTexture(nil, "ARTWORK")
+	divider:SetTexture("Interface\\QuestFrame\\UI-HorizontalBreak")
+	divider:SetSize(256, 32)
+	divider:SetPoint("TOP", 0, -22)
+
+	page.Arrow = page:CreateTexture(nil, "ARTWORK")
+	page.Arrow:SetPoint("BOTTOM", 0, 11)
+	page.Arrow:Hide()
+
+	page.window = window
+	local elapsed = 0
+	page:SetScript("OnUpdate", function(self, delta)
+		elapsed = elapsed + delta
+		if elapsed >= ARROW_INTERVAL then
+			elapsed = 0
+			UpdateArrow(self)
+		end
+	end)
+	page:SetScript("OnShow", UpdateName)
+	for _, method in ipairs({ "SetTitle", "SetTitleFormatted" }) do
+		if frame[method] then
+			hooksecurefunc(frame, method, function()
+				UpdateName(page)
+			end)
+		end
+	end
+	pages[frame] = page
+	return page
+end
+
+-- Blizzard button as a text link in a bottom corner of the page, or back.
+local function StyleButton(button, page, side, plain)
+	if not button then
+		return
+	end
+	local saved = restyled[button]
+	local highlight = button:GetHighlightTexture()
+	if plain then
+		if not saved then
+			saved = { width = button:GetWidth(), points = {},
+				normal = button:GetNormalFontObject(), highlight = button:GetHighlightFontObject(), disabled = button:GetDisabledFontObject() }
+			for i = 1, button:GetNumPoints() do
+				saved.points[i] = { button:GetPoint(i) }
+			end
+			restyled[button] = saved
+		end
+		local fonts = LinkFonts()
+		button:SetNormalFontObject(fonts.normal)
+		button:SetHighlightFontObject(fonts.highlight)
+		button:SetDisabledFontObject(fonts.disabled)
+		button:SetWidth(button:GetTextWidth() + LINK_PADDING)
+		button:ClearAllPoints()
+		if side == "left" then
+			button:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 8, 5)
+		else
+			button:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -8, 5)
+		end
+	elseif saved then
+		button:SetNormalFontObject(saved.normal)
+		button:SetHighlightFontObject(saved.highlight)
+		button:SetDisabledFontObject(saved.disabled)
+		button:SetWidth(saved.width)
+		button:ClearAllPoints()
+		for _, point in ipairs(saved.points) do
+			button:SetPoint(unpack(point))
+		end
+		restyled[button] = nil
+	else
+		return
+	end
+	for _, key in ipairs({ "Left", "Middle", "Right" }) do
+		if button[key] then
+			button[key]:SetAlpha(plain and 0 or 1)
+		end
+	end
+	if highlight then
+		highlight:SetAlpha(plain and 0 or 1)
+	end
+end
+
+-- Invisible and out of the mouse's way; scrolling keeps working through it.
+local function SetBarShown(bar, shown)
+	if not bar then
+		return
+	end
+	bar:SetAlpha(shown and 1 or 0)
+	local track = bar.Track
+	for _, part in ipairs({ track, track and track.Thumb, bar.Back, bar.Forward }) do
+		part:EnableMouse(shown)
+	end
+end
 
 function Quests:UpdateQuestParchment()
 	local plain = self.db.questParchment
-	for _, frame in ipairs({ QuestFrame, GossipFrame }) do
+	for _, window in ipairs(Windows()) do
+		local frame = window.frame
+		local page = pages[frame] or (plain and CreatePage(window))
 		for _, key in ipairs(CHROME) do
 			local region = frame[key]
 			if region and region.SetAlpha then
 				region:SetAlpha(plain and 0 or 1)
 			end
 		end
+		for _, region in pairs(window.hide) do
+			region:SetAlpha(plain and 0 or 1)
+		end
 		if frame.CloseButton then
 			frame.CloseButton:SetShown(not plain)
+		end
+		for _, area in ipairs(window.scrolls) do
+			SetBarShown(area.ScrollBar, not plain)
+		end
+		for _, bar in ipairs(window.bars or {}) do
+			SetBarShown(bar, not plain)
+		end
+		if page then
+			page:SetShown(plain)
+			for _, button in ipairs(window.left) do
+				StyleButton(button, page, "left", plain)
+			end
+			for _, button in ipairs(window.right) do
+				StyleButton(button, page, "right", plain)
+			end
+			if plain then
+				UpdateName(page)
+			end
 		end
 	end
 end

@@ -590,6 +590,27 @@ function Radar:PrintStatus()
 	local mapID = C_Map.GetBestMapForUnit("player")
 	local all = mapID and vendorsByMap[mapID]
 	ns.PrintAlways(L.RADAR_STATUS_MAP, mapID or 0, all and #all or 0, #(GetVendors(mapID) or {}))
+	-- Why recipes of the vendors here are shown or not.
+	local counts = { ok = 0, low = 0, known = 0, other = 0, loading = 0, foreign = 0 }
+	for _, vendor in ipairs(all or {}) do
+		local own = vendor.team == "N" or vendor.team == playerTeam
+		for _, itemID in ipairs(vendor.items) do
+			local status
+			if not own then
+				status = "foreign"
+			elseif not skills[recipes[itemID].skill] then
+				status = "other"
+			else
+				status = statusCache[itemID] or ScanRecipe(itemID)
+				statusCache[itemID] = status
+			end
+			status = status or "loading"
+			counts[status] = counts[status] + 1
+		end
+	end
+	ns.PrintAlways(L.RADAR_STATUS_RECIPES, counts.ok, counts.low, counts.known, counts.other, counts.loading, counts.foreign)
+	local db = self.db
+	ns.PrintAlways(L.RADAR_STATUS_OPTIONS, db.enabled and YES or NO, db.worldMap and YES or NO, db.minimap and YES or NO, db.showLowSkill and YES or NO)
 end
 
 function Radar:OnOptionChanged()

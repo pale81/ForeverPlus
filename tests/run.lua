@@ -96,6 +96,7 @@ for _, n in ipairs({ "ChatFrameMenuButton", "ChatFrameChannelButton", "QuickJoin
 	"QuestObjectiveTracker", "UIParent", "WorldMapFrame", "GameTooltip", "MainActionBar", "QuestInfoFrame", "MerchantFrame",
 	"ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
 ContainerFrameContainer = { ContainerFrames = {} }
+WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
 ActionBarButtonEventsFrame.frames = {}
 BuffFrame.auraFrames = { NewFrame("Aura") }
 BuffFrame.auraFrames[1].Icon = NewFrame("Icon")
@@ -126,6 +127,7 @@ GetCVar = function() return "1" end
 debugprofilestop = function() return os.clock() * 1000 end
 SetCVar = function() end
 ITEM_SPELL_KNOWN = "Already known"
+YES, NO = "Yes", "No"
 INVSLOT_MAINHAND, INVSLOT_OFFHAND, INVSLOT_RANGED = 16, 17, 18
 Settings = Mock("Settings"); Settings.VarType = { Boolean = "boolean", Number = "number", String = "string" }
 Settings.RegisterAddOnSetting = function(cat, var, key, tbl, t, name, def)
@@ -327,7 +329,7 @@ do
 	for _, list in pairs(vbm) do maps = maps + 1 total = total + #list end
 	print("radar vendors", maps, total, "ready", uv(gv, "indexReady"))
 end
-local P = ns.Print; ns.Print = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.Print = P
+local P = ns.PrintAlways; ns.PrintAlways = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.PrintAlways = P
 print("radar OK")
 -- Upgrade arrow logic (Shaman level 20, enhancement)
 local function upvalue(fn, name)
@@ -1240,4 +1242,122 @@ end)()
 	markLog()
 	assert(a.Text.r ~= nil and not b.Text.r, "color mark")
 	print("forever marks OK")
+end)()
+;(function()
+	-- World map: unexplored parts from the data, explored and mismatching maps skipped.
+	local wm = ns:GetModule("WorldMap")
+	local made = {}
+	local function NewTexture(layer, sub)
+		local t = { layer = layer, sub = sub, shown = true }
+		function t:SetSize(w, h) self.w, self.h = w, h end
+		function t:SetTexCoord(...) self.coord = { ... } end
+		function t:ClearAllPoints() end
+		function t:SetPoint(point, x, y) self.point, self.x, self.y = point, x, y end
+		function t:SetTexture(file, _, _, filter) self.file, self.filter = file, filter end
+		function t:SetVertexColor(r, g, b) self.r, self.g, self.b = r, g, b end
+		function t:SetAlpha(a) self.alpha = a end
+		function t:Show() self.shown = true end
+		function t:Hide() self.shown = false end
+		made[#made + 1] = t
+		return t
+	end
+	local layerIndex = 1
+	local map = { GetMapID = function() return 1429 end,
+		GetCanvasContainer = function() return { GetCurrentLayerIndex = function() return layerIndex end } end }
+	local pin = { GetMap = function() return map end, RefreshOverlays = function() end, RemoveAllData = function() end,
+		CreateTexture = function(_, _, layer, _, sub) return NewTexture(layer, sub) end }
+	WorldMapFrame.EnumeratePinsByTemplate = function(_, template)
+		assert(template == "MapExplorationPinTemplate")
+		local done
+		return function() if not done then done = true return pin end end
+	end
+	WorldMapFrame.GetMapID = function() return 1429 end
+	ns.MapOverlays, ns.MapOverlayBuild = { [15] = "300,200,10,20,1001,1002;100,100,400,5,2001;300,300,0,0,3001" }, "test"
+	local explored = { { fileDataIDs = { 2001 } } }
+	C_Map.GetMapArtID = function(id) return id == 1429 and 15 or nil end
+	C_Map.GetMapArtLayers = function() return { { tileWidth = 256, tileHeight = 256 } } end
+	C_MapExplorationInfo = { GetExploredMapTextures = function() return explored end }
+	local function shown()
+		local list = {}
+		for _, t in ipairs(made) do if t.shown then list[#list + 1] = t end end
+		return list
+	end
+	wm.db.reveal, wm.db.revealAlpha, wm.db.revealTint = true, 60, true
+	wm:Apply()
+	local list = shown()
+	-- 300 x 200 in two tiles; the explored part and the one with a missing tile are left out.
+	assert(#list == 2, "two tiles, got " .. #list)
+	local a, b = list[1], list[2]
+	assert(a.layer == "ARTWORK" and a.sub == -1, "below Blizzard's parts")
+	assert(a.file == 1001 and a.w == 256 and a.h == 200 and a.x == 10 and a.y == -20, "first tile")
+	assert(a.coord[2] == 1 and a.coord[4] == 200 / 256, "first tile coords")
+	assert(b.file == 1002 and b.w == 44 and b.x == 266 and b.coord[2] == 44 / 64, "edge tile")
+	assert(a.alpha == 0.6 and a.r == 0.75 and a.g == 1 and a.filter == "TRILINEAR", "faded and tinted")
+	wm.db.revealTint = false
+	wm:OnOptionChanged("revealTint", false)
+	assert(#shown() == 2 and shown()[1].r == 1 and #made == 2, "untinted, textures reused")
+	explored = { { fileDataIDs = { 2001 } }, { fileDataIDs = { 9999 } } }
+	wm:Apply()
+	assert(#shown() == 0, "unknown explored part: map left alone")
+	explored = {}
+	layerIndex = 2
+	wm:Apply()
+	assert(#shown() == 0, "other art layer")
+	layerIndex = 1
+	wm:Apply()
+	assert(#shown() == 3, "nothing explored: all complete parts")
+	wm.db.reveal = false
+	wm:OnOptionChanged("reveal", false)
+	assert(#shown() == 0, "switched off")
+	local printed = {}
+	local printAlways = ns.PrintAlways
+	ns.PrintAlways = function(msg, ...) printed[#printed + 1] = msg:format(...) end
+	wm:PrintStatus()
+	C_Map.GetMapArtID = function() return 99 end
+	wm:PrintStatus()
+	ns.PrintAlways = printAlways
+	for _, line in ipairs(printed) do print("  ", line) end
+	assert(#printed == 2 and printed[1]:find("1429") and printed[2]:find("test"), "status lines")
+	print("world map OK")
+end)()
+;(function()
+	-- Quest window as parchment page: buttons become text links in the page corners and come back.
+	local q = ns:GetModule("Quests")
+	local function Button(name)
+		local b = { alpha = {}, points = { { "BOTTOMLEFT", "QuestFrame", "BOTTOMLEFT", 6, 4 } }, width = 78, fonts = { "GameFontNormal", "GameFontHighlight", "GameFontDisable" } }
+		for _, key in ipairs({ "Left", "Middle", "Right" }) do
+			b[key] = { SetAlpha = function(_, a) b.alpha[key] = a end }
+		end
+		b.hl = { SetAlpha = function(_, a) b.alpha.hl = a end }
+		function b:GetHighlightTexture() return self.hl end
+		function b:GetNormalFontObject() return self.fonts[1] end
+		function b:GetHighlightFontObject() return self.fonts[2] end
+		function b:GetDisabledFontObject() return self.fonts[3] end
+		function b:SetNormalFontObject(f) self.fonts[1] = f end
+		function b:SetHighlightFontObject(f) self.fonts[2] = f end
+		function b:SetDisabledFontObject(f) self.fonts[3] = f end
+		function b:GetWidth() return self.width end
+		function b:SetWidth(w) self.width = w end
+		function b:GetTextWidth() return 50 end
+		function b:GetNumPoints() return #self.points end
+		function b:GetPoint(i) return unpack(self.points[i]) end
+		function b:ClearAllPoints() self.points = {} end
+		function b:SetPoint(...) self.points[#self.points + 1] = { ... } end
+		_G[name] = b
+		return b
+	end
+	local accept, decline = Button("QuestFrameAcceptButton"), Button("QuestFrameDeclineButton")
+	for _, n in ipairs({ "QuestFrameCompleteButton", "QuestFrameCompleteQuestButton", "QuestFrameGoodbyeButton", "QuestFrameGreetingGoodbyeButton" }) do Button(n) end
+	QuestFrame, GossipFrame = CreateFrame("Frame"), CreateFrame("Frame")
+	GossipFrame.GreetingPanel.GoodbyeButton = Button("GossipGoodbye")
+	q.db.questParchment = true
+	q:OnOptionChanged("questParchment", true)
+	assert(accept.points[1][1] == "BOTTOMLEFT" and accept.points[1][4] == 8 and decline.points[1][1] == "BOTTOMRIGHT", "links in the page corners")
+	assert(accept.width == 62 and accept.alpha.Left == 0 and accept.alpha.hl == 0 and accept.fonts[1] ~= "GameFontNormal", "text link look")
+	assert(GossipFrame.GreetingPanel.GoodbyeButton.points[1][1] == "BOTTOMRIGHT", "gossip goodbye as link")
+	q.db.questParchment = false
+	q:OnOptionChanged("questParchment", false)
+	assert(accept.points[1][2] == "QuestFrame" and accept.points[1][5] == 4 and accept.width == 78, "anchors back")
+	assert(accept.alpha.Left == 1 and accept.fonts[1] == "GameFontNormal" and accept.fonts[3] == "GameFontDisable", "look back")
+	print("quest parchment OK")
 end)()

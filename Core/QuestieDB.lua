@@ -34,6 +34,15 @@ local function EnsureLocale(lib)
 	end
 end
 
+-- QuestieDB draws its own notice on the screen in source mode (source code
+-- instead of a release package); ForeverPlus only mentions it in its README.
+local function HideModeIndicator(lib)
+	local indicator = lib.ModeIndicator
+	if type(indicator) == "table" and type(indicator.Hide) == "function" then
+		pcall(indicator.Hide)
+	end
+end
+
 -- The library, if QuestieDB is loaded and offers the functions used here.
 function QDB.Get()
 	local lib = _G.LibQuestieDB
@@ -41,9 +50,20 @@ function QDB.Get()
 		and HasFunctions(lib.Support, "Get") then
 		if not localeChecked then
 			EnsureLocale(lib)
+			HideModeIndicator(lib)
 		end
 		return lib
 	end
+end
+
+-- Quest name in the client's language where the client knows the quest,
+-- otherwise QuestieDB's name.
+function QDB.QuestName(lib, questID)
+	local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
+	if type(title) == "string" and not (issecretvalue and issecretvalue(title)) and title ~= "" then
+		return title
+	end
+	return lib and lib.Quest.Get(questID, "name")
 end
 
 -- Contract check of QuestieDB (true when the provider guarantees `version`).

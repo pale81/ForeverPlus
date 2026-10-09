@@ -34,10 +34,18 @@ end
 ---------------------------------------------------------------------------
 local itemCache = {} -- itemID -> lines ({ label, text }) or false
 
+-- Item names from the client (its language) where it knows them.
+local function ClientItemName(itemID)
+	local name = C_Item.GetItemNameByID(itemID)
+	if type(name) == "string" and not Secret(name) and name ~= "" then
+		return name
+	end
+end
+
 -- Distinct names of the given IDs, at most MAX_NAMES plus "(+n)".
 -- Names are read only until MAX_NAMES distinct ones are found (items such
 -- as cloth drop from hundreds of NPCs); the rest is counted by ID.
-local function NameList(entity, ids)
+local function NameList(entity, ids, clientName)
 	if not entity or type(ids) ~= "table" then
 		return nil
 	end
@@ -45,7 +53,7 @@ local function NameList(entity, ids)
 	local index = 0
 	while index < #ids and #names < MAX_NAMES do
 		index = index + 1
-		local name = entity.Get(ids[index], "name")
+		local name = clientName and clientName(ids[index]) or entity.Get(ids[index], "name")
 		if type(name) == "string" and name ~= "" and not seen[name] then
 			seen[name] = true
 			names[#names + 1] = name
@@ -81,11 +89,11 @@ local function ItemLines(itemID)
 	end
 	Add(L.QDB_DROPS, NameList(npc, item.Get(itemID, "npcDrops")))
 	Add(L.QDB_OBJECTS, NameList(object, item.Get(itemID, "objectDrops")))
-	Add(L.QDB_CONTAINERS, NameList(item, item.Get(itemID, "itemDrops")))
+	Add(L.QDB_CONTAINERS, NameList(item, item.Get(itemID, "itemDrops"), ClientItemName))
 	Add(L.QDB_VENDORS, NameList(npc, item.Get(itemID, "vendors")))
 	local quest = item.Get(itemID, "startQuest")
 	if type(quest) == "number" and quest > 0 then
-		Add(L.QDB_STARTS_QUEST, lib.Quest.Get(quest, "name"))
+		Add(L.QDB_STARTS_QUEST, ns.QuestieDB.QuestName(lib, quest))
 	end
 	itemCache[itemID] = #lines > 0 and lines or false
 	return itemCache[itemID]
@@ -224,12 +232,12 @@ local function OnUnitTooltip(tooltip, data)
 	local offers, turnIns = {}, {}
 	for _, questID in ipairs(npc.Get(npcID, "questStarts") or {}) do
 		if IsAvailable(lib, questID) then
-			offers[#offers + 1] = lib.Quest.Get(questID, "name") or tostring(questID)
+			offers[#offers + 1] = ns.QuestieDB.QuestName(lib, questID) or tostring(questID)
 		end
 	end
 	for _, questID in ipairs(npc.Get(npcID, "questEnds") or {}) do
 		if C_QuestLog.GetLogIndexForQuestID(questID) then
-			turnIns[#turnIns + 1] = lib.Quest.Get(questID, "name") or tostring(questID)
+			turnIns[#turnIns + 1] = ns.QuestieDB.QuestName(lib, questID) or tostring(questID)
 		end
 	end
 	if #offers + #turnIns > 0 then

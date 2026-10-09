@@ -1246,6 +1246,17 @@ end)()
 ;(function()
 	-- World map: unexplored parts from the data, explored and mismatching maps skipped.
 	local wm = ns:GetModule("WorldMap")
+	-- Shipped data: every part has the tiles its size needs (256 pixel tiles).
+	local parts = 0
+	for art, raw in pairs(ns.MapOverlays) do
+		for part in raw:gmatch("[^;]+") do
+			local n = {}
+			for number in part:gmatch("-?%d+") do n[#n + 1] = tonumber(number) end
+			assert(#n - 4 == math.ceil(n[1] / 256) * math.ceil(n[2] / 256), "tiles of a part in art " .. art)
+			parts = parts + 1
+		end
+	end
+	print("  map data", ns.MapOverlayBuild, parts, "parts")
 	local made = {}
 	local function NewTexture(layer, sub)
 		local t = { layer = layer, sub = sub, shown = true }
@@ -1273,7 +1284,7 @@ end)()
 	end
 	WorldMapFrame.GetMapID = function() return 1429 end
 	ns.MapOverlays, ns.MapOverlayBuild = { [15] = "300,200,10,20,1001,1002;100,100,400,5,2001;300,300,0,0,3001" }, "test"
-	local explored = { { fileDataIDs = { 2001 } } }
+	local explored = { { fileDataIDs = { 2001 } }, { fileDataIDs = {} } }
 	C_Map.GetMapArtID = function(id) return id == 1429 and 15 or nil end
 	C_Map.GetMapArtLayers = function() return { { tileWidth = 256, tileHeight = 256 } } end
 	C_MapExplorationInfo = { GetExploredMapTextures = function() return explored end }

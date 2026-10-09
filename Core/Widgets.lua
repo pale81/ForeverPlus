@@ -89,9 +89,9 @@ end
 -- the owner disappears. build() returns { title, items, empty, footer }.
 ---------------------------------------------------------------------------
 local POPUP_WIDTH, ROW_HEIGHT, MAX_ROWS, POPUP_PAD = 300, 22, 14, 8
-local popup
+local popups = {} -- frame name -> popup
 
-local function PopupRow(index)
+local function PopupRow(popup, index)
 	local row = popup.rows[index]
 	if row then
 		return row
@@ -136,7 +136,7 @@ local function PopupRow(index)
 	return row
 end
 
-local function PopupFooter(index)
+local function PopupFooter(popup, index)
 	local button = popup.footer[index]
 	if not button then
 		button = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
@@ -152,8 +152,8 @@ local function PopupFooter(index)
 	return button
 end
 
-local function CreatePopup()
-	popup = CreateFrame("Frame", "ForeverPlusPopupList", UIParent, "TooltipBackdropTemplate")
+local function CreatePopup(name)
+	local popup = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
 	popup:SetFrameStrata("FULLSCREEN_DIALOG")
 	popup:SetToplevel(true)
 	popup:SetClampedToScreen(true)
@@ -207,7 +207,7 @@ local function CreatePopup()
 		self.offset = math.max(0, math.min(self.offset, #items - visible))
 		for i = 1, math.max(visible, #self.rows) do
 			local item = i <= visible and items[i + self.offset]
-			local row = (item or self.rows[i]) and PopupRow(i)
+			local row = (item or self.rows[i]) and PopupRow(self, i)
 			if row then
 				row.item = item or nil
 				row:SetShown(item and true or false)
@@ -234,7 +234,7 @@ local function CreatePopup()
 			button:Hide()
 		end
 		for i, entry in ipairs(footer) do
-			local button = PopupFooter(i)
+			local button = PopupFooter(self, i)
 			button:SetText(entry.text)
 			button.action = entry.onClick
 			button:ClearAllPoints()
@@ -246,11 +246,21 @@ local function CreatePopup()
 		end
 		self:SetHeight(height)
 	end
+	-- Moved once (Alt + right-click unlocks, then drag), it opens there.
+	if ns.HookSavedWindow then
+		ns.HookSavedWindow(popup)
+	end
+	return popup
 end
 
-function ns.ShowPopupList(owner, build)
+-- key: own frame with its own saved position (e.g. "Loot"); without it the
+-- shared list frame is used.
+function ns.ShowPopupList(owner, build, key)
+	local name = key and ("ForeverPlusPopup" .. key) or "ForeverPlusPopupList"
+	local popup = popups[name]
 	if not popup then
-		CreatePopup()
+		popup = CreatePopup(name)
+		popups[name] = popup
 	end
 	if owner and popup:IsShown() and popup.owner == owner then
 		popup:Hide()
@@ -264,6 +274,9 @@ function ns.ShowPopupList(owner, build)
 		local x, y = GetCursorPosition()
 		local scale = UIParent:GetEffectiveScale()
 		popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+		if ns.ApplySavedWindow then
+			ns.ApplySavedWindow(popup)
+		end
 	end
 	popup:Refresh()
 	popup:Show()

@@ -594,3 +594,5 @@ L.WORLDMAP_STATUS_MISMATCH = "%d entdeckte Teile fehlen in den Daten; die Karte 
 L.WORLDMAP_STATUS_NO_DATA = "Karte %d (Kartenbild %d): keine Kartenteile in den Daten (Stand %s)."
 L.RADAR_STATUS_RECIPES = "Rezepte dieser Händler: %d lernbar, %d Fertigkeit zu niedrig, %d bekannt, %d anderer Beruf, %d noch nicht geladen, %d bei Händlern der anderen Fraktion."
 L.RADAR_STATUS_OPTIONS = "Optionen: Radar %s, Weltkarte %s, Minimap %s, auch bei zu niedriger Fertigkeit %s."
+L.INFO_CPU_COLUMNS = "Ø der letzten Bilder · höchster Wert · Bilder über 1 ms"
+L.INFO_CPU_LINE = "%.2f · %.1f ms · %d×"

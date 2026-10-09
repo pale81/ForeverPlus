@@ -180,22 +180,31 @@ local function ShowCpuTooltip(owner)
 		GameTooltip:Show()
 		return
 	end
-	local metric = Enum.AddOnProfilerMetric.RecentAverageTime
+	-- Average of the last frames, highest single frame and frames over 1 ms
+	-- since the start: averages hide short spikes.
+	local metrics = Enum.AddOnProfilerMetric
 	local list = {}
 	for i = 1, C_AddOns.GetNumAddOns() do
 		if C_AddOns.IsAddOnLoaded(i) then
 			local name, title = C_AddOns.GetAddOnInfo(i)
-			list[#list + 1] = { title = StripColors(title or name), ms = C_AddOnProfiler.GetAddOnMetric(name, metric) or 0 }
+			list[#list + 1] = {
+				title = StripColors(title or name),
+				ms = C_AddOnProfiler.GetAddOnMetric(name, metrics.RecentAverageTime) or 0,
+				peak = C_AddOnProfiler.GetAddOnMetric(name, metrics.PeakTime) or 0,
+				slow = C_AddOnProfiler.GetAddOnMetric(name, metrics.CountTimeOver1Ms) or 0,
+			}
 		end
 	end
 	table.sort(list, function(a, b)
-		return a.ms > b.ms
+		return a.peak > b.peak
 	end)
+	GameTooltip_AddNormalLine(GameTooltip, L.INFO_CPU_COLUMNS)
 	local total = 0
 	for _, addon in ipairs(list) do
 		total = total + addon.ms
-		local color = CpuColor(addon.ms)
-		GameTooltip:AddDoubleLine(addon.title, ("%.2f ms"):format(addon.ms), color.r, color.g, color.b, color.r, color.g, color.b)
+		local color = CpuColor(addon.peak)
+		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
+			color.r, color.g, color.b, color.r, color.g, color.b)
 	end
 	local color = CpuColor(total)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_TOTAL, ("%.2f ms"):format(total),

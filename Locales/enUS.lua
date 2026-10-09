@@ -595,3 +595,5 @@ L.WORLDMAP_STATUS_MISMATCH = "%d explored parts are missing from the data; the m
 L.WORLDMAP_STATUS_NO_DATA = "Map %d (map art %d): no map parts in the data (build %s)."
 L.RADAR_STATUS_RECIPES = "Recipes of these vendors: %d learnable, %d skill too low, %d known, %d other profession, %d not loaded yet, %d at vendors of the other faction."
 L.RADAR_STATUS_OPTIONS = "Options: radar %s, world map %s, minimap %s, also with skill too low %s."
+L.INFO_CPU_COLUMNS = "Ø of recent frames · highest · frames over 1 ms"
+L.INFO_CPU_LINE = "%.2f · %.1f ms · %d×"

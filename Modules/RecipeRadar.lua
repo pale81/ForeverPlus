@@ -301,7 +301,7 @@ local function AddRecipeSources(tooltip, data)
 		if i > TOOLTIP_MAX_QUESTS then
 			break
 		end
-		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(DB.Quest.Get(questID, "name") or questID), 1, 0.82, 0)
+		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(ns.QuestieDB.QuestName(DB, questID) or questID), 1, 0.82, 0)
 	end
 	if recipe.drops then
 		tooltip:AddLine(L.RADAR_SOURCE_DROP:format(#recipe.drops), 1, 0.82, 0)

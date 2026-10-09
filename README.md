@@ -30,7 +30,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Beute zusammenfassen: eigene Beute, selbst hergestellte Gegenstände und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet ein Popup am Mauszeiger mit Symbol, Anzahl und Herkunft (Shift-Klick verlinkt im Chat); Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
 | | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
-| | Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
+| | Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (Gegenstands- und Questnamen in der Sprache des Clients, soweit er sie kennt; annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
 | | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
@@ -70,7 +70,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Nach jedem Sortieren (auch mit Blizzards Knopf) liegen markierte Gegenstände direkt neben den grauen | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
-| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschieb- und sperrbar | ja |
+| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons (Durchschnitt der letzten Bilder, höchster Wert, Zahl der Bilder über 1 ms; grün/orange/rot nach dem höchsten Wert); verschieb- und sperrbar | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Gruppensuche | Dungeongruppen für 5 und 10 Spieler: Klassen der Gruppe (nach Rolle sortiert) und fehlende Rollen nach einstellbarer Aufstellung (5er: 1 Tank, 1 Heiler, 3 Schaden; 10er: einstellbar) | ja |
 | Quests | Questklänge (abschaltbar) bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
@@ -130,7 +130,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 - Gruppensuche: Rollen sind die in der Gruppe zugewiesenen Rollen; Mitglieder ohne Rolle werden gezählt, aber keiner Rolle zugerechnet. Eigene Ausschreibungen behalten Blizzards Anzeige (dort liegt der Knopf zum Austragen).
 - Interface-Fehler: optionaler Hinweisklang bei neuem Fehler (höchstens alle 5 s; Fehler von vor dem Laden lösen keinen Klang aus).
 - Porträt-Drache: gespiegelt mit `SetTexCoord(1, 0, 0, 1)` wie in BetterBlizzFrames (Forever-Version); die vorher verwendeten absoluten Atlas-Koordinaten zeigten nur Ausschnitte. Größen und Positionen nach BetterBlizzFrames, kein Code übernommen.
-- Große einmalige Durchläufe (Instanznamen aus 2500 Karten, QuestieDB-Questketten, Rezeptradar-Index) laufen in Scheiben von höchstens 2 ms pro Bild. Mittelklick oder Shift-Klick auf die FPS/MS-Anzeige misst ForeverPlus 30 Sekunden lang; das Ergebnis steht im Chat und im Tooltip der Anzeige. `/fp messen` misst danach alle Ereignisaufrufe sowie Taschen-, Tooltip-, Questlog- und Tracker-Aufrufe; ein zweites `/fp messen` zeigt die längsten Aufrufe. Einmalige Arbeit beim Laden (Initialisierung, Einstellungen, Login) wird immer gemessen, `/fp zeiten` zeigt den Stand ohne Neustart der Messung.
+- Große einmalige Durchläufe (Instanznamen aus 2500 Karten, QuestieDB-Questketten, Rezeptradar-Index) laufen in Scheiben von höchstens 0,8 ms pro Bild. Mittelklick oder Shift-Klick auf die FPS/MS-Anzeige misst ForeverPlus 30 Sekunden lang; das Ergebnis steht im Chat und im Tooltip der Anzeige. `/fp messen` misst danach alle Ereignisaufrufe sowie Taschen-, Tooltip-, Questlog- und Tracker-Aufrufe; ein zweites `/fp messen` zeigt die längsten Aufrufe. Einmalige Arbeit beim Laden (Initialisierung, Einstellungen, Login) wird immer gemessen, `/fp zeiten` zeigt den Stand ohne Neustart der Messung.
 - Chatfilter laufen über Blizzards Filterliste (`ChatFrameUtil.AddMessageEventFilter`), die Addon-Filter abgeschirmt aufruft und geschützte Nachrichten gar nicht erst übergibt; solche Nachrichten bleiben unverändert.
 - Kanalkürzel: Blizzards Chatcode verlangt die Kanalnummer vor dem Namen und vergleicht die Länge des Kanaltexts mit den beigetretenen Kanälen; die Nummer bleibt deshalb, und der Kurzname wird mit unsichtbaren `|r` auf die ursprüngliche Länge aufgefüllt.
 - Zeitstempelfarbe: der Farbcode steht im Zeitstempelformat (CVar `showTimestamps`). Blizzards Auswahlfeld unter Soziales enthält nur die ungefärbten Formate; eine neue Auswahl dort wird sofort wieder eingefärbt. Ausschalten stellt das ungefärbte Format her; wird ForeverPlus ohne Ausschalten entfernt, bleibt der Farbcode im Format.
@@ -145,6 +145,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 - Code: MIT (siehe `LICENSE`).
 - iSquidMod-Grafiken (`Media/iSquidMod`): Ganders & Imithat, Originalautor SAM – WML 1.0, siehe `Media/iSquidMod/LICENSE.txt`.
-- Quest-, NPC-, Gegenstands- und Rezeptdaten (Rezeptradar, Herkunft im Tooltip, Quests am NPC, Instanz-Vorquests; daraus auch die ID-Grenze der Forever-Quests): zur Laufzeit aus [QuestieDB](https://github.com/Questie/QuestieDB) (Questie-Team), im Paket enthalten.
+- Quest-, NPC-, Gegenstands- und Rezeptdaten (Rezeptradar, Herkunft im Tooltip, Quests am NPC, Instanz-Vorquests; daraus auch die ID-Grenze der Forever-Quests): zur Laufzeit aus [QuestieDB](https://github.com/Questie/QuestieDB) (Questie-Team), im Paket enthalten. Gedacht ist das Release-Paket `QuestieDB-Forever.zip` aus den QuestieDB-Releases. Der Quellcode (Git-Checkout) läuft im „Source Mode“: langsamer, ohne übersetzte Namen; dessen Hinweis am oberen Bildschirmrand blendet ForeverPlus aus.
 - Kartenteile der Weltkarte: Blizzards Spieldaten (`WorldMapOverlay`, `WorldMapOverlayTile`), bezogen über [wago.tools](https://wago.tools).
 - Ideen: oGlow (haste), Leatrix Plus, Leatrix Maps (unentdeckte Gebiete), BlizzMove, RecipeRadar, Questie/Quester/Plumber, ncHoverName, ExtraQuestButton.

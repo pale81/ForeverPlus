@@ -209,8 +209,9 @@ function ns.Measured(name, fn)
 end
 
 -- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
--- frame (default 2), then onDone. Used for large one-time scans.
-local SLICE_BUDGET = 2
+-- frame (default 0.8, below the 1 ms the game's addon profiler counts as
+-- slow), then onDone. Used for large one-time scans.
+local SLICE_BUDGET = 0.8
 
 function ns.RunSliced(name, count, fn, onDone, budget)
 	budget = budget or SLICE_BUDGET

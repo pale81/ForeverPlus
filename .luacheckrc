@@ -34,6 +34,8 @@ read_globals = {
 	"PlayerSpellsUtil", "TalentMicroButton", "ExportUtil",
 	"GossipFrame",
 	"QuestFrame",
+	"ItemTextFrame", "ItemTextFramePageBg", "ItemTextCurrentPage", "ItemTextScrollFrame", "ItemTextPrevPageButton", "ItemTextNextPageButton",
+	"ItemTextGetPage", "ItemTextHasNextPage", "ItemTextPrevPage", "ItemTextNextPage", "PREV", "NEXT",
 	"CreateFont", "QuestTitleFont", "QuestFramePortrait",
 	"QuestFrameDetailPanel", "QuestFrameProgressPanel", "QuestFrameRewardPanel", "QuestFrameGreetingPanel",
 	"QuestDetailScrollFrame", "QuestProgressScrollFrame", "QuestRewardScrollFrame", "QuestGreetingScrollFrame",

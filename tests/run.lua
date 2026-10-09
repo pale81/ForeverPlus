@@ -1396,7 +1396,7 @@ end)()
 	local q = ns:GetModule("Quests")
 	q.db.questParchment = true
 	q:UpdateQuestParchment()
-	local keys = uv(q.UpdateQuestParchment, "questKeys")
+	local keys = uv(ns.Parchment.Update, "questKeys")
 	assert(keys and keys.scripts.OnKeyDown, "key frame")
 	local propagate
 	keys.SetPropagateKeyboardInput = function(_, value) propagate = value end
@@ -1433,4 +1433,22 @@ end)()
 	q.db.questParchment = false
 	q:UpdateQuestParchment()
 	print("quest space key OK")
+end)()
+;(function()
+	-- Books as parchment page: own page links instead of Blizzard's buttons.
+	ItemTextFrame = CreateFrame("Frame")
+	ItemTextFrame.HandlePagingDisplay = function() end
+	local page, more = 2, false
+	ItemTextGetPage = function() return page end
+	ItemTextHasNextPage = function() return more end
+	local placed
+	ItemTextScrollFrame = CreateFrame("Frame")
+	ItemTextScrollFrame.SetPoint = function(_, point, _, _, x, y) placed = { point, x, y } end
+	ns.Parchment.Update(true)
+	local book = uv(ns.Parchment.Update, "pages")[ItemTextFrame]
+	assert(book and book.Prev.shown and not book.Next.shown, "page 2 of 2: back only")
+	assert(placed[1] == "BOTTOMLEFT" and placed[3] == 36, "book text leaves room for the links")
+	ns.Parchment.Update(false)
+	assert(placed[3] == 6 and not book.shown, "book back to Blizzard's look")
+	print("book page OK")
 end)()

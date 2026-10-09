@@ -75,8 +75,8 @@ local function LoadAreaMap()
 end
 
 local function AddVendorSpawns(npc, items)
-	local spawns = DB.Npc.spawns(npc)
-	local faction = DB.Npc.friendlyToFaction(npc)
+	local spawns = DB.Npc.Get(npc, "spawns")
+	local faction = DB.Npc.Get(npc, "friendlyToFaction")
 	if not spawns or not faction then
 		return -- hostile to both factions or no known position
 	end
@@ -95,21 +95,22 @@ local function AddVendorSpawns(npc, items)
 	end
 end
 
+local indexError -- first error while indexing, for /fp radar
+
 local function BuildIndex(onDone)
 	LoadAreaMap()
-	local ids = DB.Item.GetAllIds()
+	local ids = DB.Item.GetAllIds() or {}
 	local npcItems = {}
-	ns.RunSliced("RecipeRadar: recipes", #ids, function(i)
-		local id = ids[i]
-		if DB.Item.class(id) == RECIPE_CLASS then
-			local skill = RECIPE_SKILL[DB.Item.subClass(id)]
+	local function IndexItem(id)
+		if DB.Item.Get(id, "class") == RECIPE_CLASS then
+			local skill = RECIPE_SKILL[DB.Item.Get(id, "subClass")]
 			if skill then
-				local vendors = DB.Item.vendors(id)
+				local vendors = DB.Item.Get(id, "vendors")
 				recipes[id] = {
 					skill = skill,
 					vendors = vendors,
-					drops = DB.Item.npcDrops(id),
-					quests = DB.Item.questRewards(id),
+					drops = DB.Item.Get(id, "npcDrops"),
+					quests = DB.Item.Get(id, "questRewards"),
 				}
 				for _, npc in ipairs(vendors or {}) do
 					npcItems[npc] = npcItems[npc] or {}
@@ -117,13 +118,23 @@ local function BuildIndex(onDone)
 				end
 			end
 		end
+	end
+	-- One faulty entry must not stop the index.
+	ns.RunSliced("RecipeRadar: recipes", #ids, function(i)
+		local ok, message = pcall(IndexItem, ids[i])
+		if not ok and not indexError then
+			indexError = tostring(message)
+		end
 	end, function()
 		local npcs = {}
 		for npc in pairs(npcItems) do
 			npcs[#npcs + 1] = npc
 		end
 		ns.RunSliced("RecipeRadar: vendors", #npcs, function(i)
-			AddVendorSpawns(npcs[i], npcItems[npcs[i]])
+			local ok, message = pcall(AddVendorSpawns, npcs[i], npcItems[npcs[i]])
+			if not ok and not indexError then
+				indexError = tostring(message)
+			end
 		end, function()
 			indexReady = true
 			onDone()
@@ -221,15 +232,15 @@ end
 local function ShowVendorTooltip(owner, entry)
 	local vendor = entry.vendor
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-	GameTooltip_SetTitle(GameTooltip, DB.Npc.name(vendor.npc) or "?")
-	local subName = DB.Npc.subName(vendor.npc)
+	GameTooltip_SetTitle(GameTooltip, DB.Npc.Get(vendor.npc, "name") or "?")
+	local subName = DB.Npc.Get(vendor.npc, "subName")
 	if subName then
 		GameTooltip_AddNormalLine(GameTooltip, subName)
 	end
 	GameTooltip_AddNormalLine(GameTooltip, ("%.1f, %.1f"):format(vendor.x, vendor.y))
 	for _, recipe in ipairs(entry.recipes) do
 		local itemID, status = recipe[1], recipe[2]
-		local name = C_Item.GetItemNameByID(itemID) or DB.Item.name(itemID) or ("item:" .. itemID)
+		local name = C_Item.GetItemNameByID(itemID) or DB.Item.Get(itemID, "name") or ("item:" .. itemID)
 		local color = status == "ok" and GREEN_FONT_COLOR or ORANGE_FONT_COLOR
 		GameTooltip:AddLine(name, color.r, color.g, color.b)
 	end
@@ -244,7 +255,7 @@ local function SetWaypoint(mapID, vendor)
 	C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, vendor.x / 100, vendor.y / 100))
 	C_SuperTrack.SetSuperTrackedUserWaypoint(true)
 	if Radar.db.waypointMessage then
-		ns.Print(L.RADAR_WAYPOINT_SET, DB.Npc.name(vendor.npc) or "?")
+		ns.Print(L.RADAR_WAYPOINT_SET, DB.Npc.Get(vendor.npc, "name") or "?")
 	end
 end
 
@@ -256,7 +267,7 @@ end
 -- Recipe sources in item tooltips
 ---------------------------------------------------------------------------
 local function ZoneName(npc)
-	local spawns = DB.Npc.spawns(npc)
+	local spawns = DB.Npc.Get(npc, "spawns")
 	for areaID in pairs(spawns or {}) do
 		local info = areaToUiMap[areaID] and C_Map.GetMapInfo(areaToUiMap[areaID])
 		if info then
@@ -276,21 +287,21 @@ local function AddRecipeSources(tooltip, data)
 	end
 	local shown = 0
 	for _, npc in ipairs(recipe.vendors or {}) do
-		local team = DB.Npc.friendlyToFaction(npc)
+		local team = DB.Npc.Get(npc, "friendlyToFaction")
 		if team and (team == "AH" or team == playerTeam) then
 			shown = shown + 1
 			if shown > TOOLTIP_MAX_VENDORS then
 				tooltip:AddLine(L.RADAR_MORE_VENDORS, 0.7, 0.7, 0.7)
 				break
 			end
-			tooltip:AddDoubleLine(L.RADAR_SOURCE_VENDOR:format(DB.Npc.name(npc) or "?"), ZoneName(npc), 1, 0.82, 0, 0.8, 0.8, 0.8)
+			tooltip:AddDoubleLine(L.RADAR_SOURCE_VENDOR:format(DB.Npc.Get(npc, "name") or "?"), ZoneName(npc), 1, 0.82, 0, 0.8, 0.8, 0.8)
 		end
 	end
 	for i, questID in ipairs(recipe.quests or {}) do
 		if i > TOOLTIP_MAX_QUESTS then
 			break
 		end
-		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(DB.Quest.name(questID) or questID), 1, 0.82, 0)
+		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(DB.Quest.Get(questID, "name") or questID), 1, 0.82, 0)
 	end
 	if recipe.drops then
 		tooltip:AddLine(L.RADAR_SOURCE_DROP:format(#recipe.drops), 1, 0.82, 0)
@@ -517,24 +528,19 @@ function Radar:Apply()
 	Refresh()
 end
 
--- QuestieDB is an optional dependency (separate data addon).
+-- The quest data library with the entity reads used here.
 local function FindQuestieDB()
-	local lib = _G.LibQuestieDB
-	if type(lib) ~= "table" or not lib.RequireContract or not lib.Item or not lib.Npc then
-		return nil
+	local lib = ns.QuestieDB.Get()
+	if lib and type(lib.Item) == "table" and type(lib.Item.Get) == "function"
+		and type(lib.Npc) == "table" and type(lib.Npc.Get) == "function" then
+		return lib
 	end
-	local ok = lib.RequireContract(1)
-	return ok and (ns.QuestieDB.Get() or lib) or nil
 end
 
-function Radar:OnLogin()
-	playerTeam = UnitFactionGroup("player") == "Horde" and "H" or "A"
-	minimapHolder = CreateFrame("Frame", nil, Minimap)
-	minimapHolder:SetAllPoints()
-	minimapHolder:SetFrameLevel(Minimap:GetFrameLevel() + 4)
+local function Start()
 	DB = FindQuestieDB()
 	if not DB then
-		return
+		return false
 	end
 	UpdateSkills()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
@@ -543,8 +549,20 @@ function Radar:OnLogin()
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("RecipeRadar: tooltip", AddRecipeSources))
 	-- Index after the login burst; it only runs while the radar is enabled.
 	C_Timer.After(5, function()
-		self:Apply()
+		Radar:Apply()
 	end)
+	return true
+end
+
+function Radar:OnLogin()
+	playerTeam = UnitFactionGroup("player") == "Horde" and "H" or "A"
+	minimapHolder = CreateFrame("Frame", nil, Minimap)
+	minimapHolder:SetAllPoints()
+	minimapHolder:SetFrameLevel(Minimap:GetFrameLevel() + 4)
+	-- The data may still be loading at login: one more try a little later.
+	if not Start() then
+		C_Timer.After(10, Start)
+	end
 end
 
 -- /fp radar: state of the radar for troubleshooting.
@@ -561,6 +579,9 @@ function Radar:PrintStatus()
 		vendorCount = vendorCount + #list
 	end
 	ns.PrintAlways(L.RADAR_STATUS_INDEX, indexReady and L.RADAR_STATUS_READY or L.RADAR_STATUS_BUILDING, recipeCount, vendorCount)
+	if indexError then
+		ns.PrintAlways(L.RADAR_STATUS_ERROR, indexError)
+	end
 	local professions = {}
 	for skillLine, rank in pairs(skills) do
 		professions[#professions + 1] = ("%d (%d)"):format(skillLine, rank)
@@ -578,7 +599,7 @@ function Radar:OnOptionChanged()
 end
 
 Radar.options = {
-	{ type = "header", name = L.RADAR_TITLE, desc = L.RADAR_REQUIRES },
+	{ type = "header", name = L.RADAR_TITLE },
 	{ key = "enabled", type = "toggle", name = L.RADAR_ENABLE, desc = L.RADAR_ENABLE_DESC },
 	{ key = "worldMap", type = "toggle", name = L.RADAR_WORLDMAP, parent = "enabled" },
 	{ key = "minimap", type = "toggle", name = L.RADAR_MINIMAP, parent = "enabled" },

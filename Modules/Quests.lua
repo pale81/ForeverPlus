@@ -18,6 +18,8 @@ local Quests = ns:NewModule("Quests", {
 		instancePreQuests = true,
 		regionOnly = false,
 		questParchment = false,
+		foreverMark = true,
+		foreverMarkStyle = "ICON",
 	},
 	charDefaults = {
 		trackerTab = "world",
@@ -819,6 +821,90 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------
+-- Forever quests: quests added by Forever carry IDs far above the classic
+-- ones (classic data ends at 9665, Forever's new quests start at 76156).
+-- They get a star in front of the title or their own title colour, in the
+-- quest log and in the tracker. Blizzard rebuilds both lists itself; an
+-- option change shows with their next update (no forced refresh, which
+-- would run Blizzard's list code from addon code).
+---------------------------------------------------------------------------
+local FOREVER_FIRST_QUEST = 10000
+local FOREVER_COLOR = CreateColor(0.35, 0.8, 1)
+local FOREVER_ICON = "|A:auctionhouse-icon-favorite:12:12|a "
+
+local function IsForeverQuest(questID)
+	return type(questID) == "number" and questID >= FOREVER_FIRST_QUEST
+end
+
+local function MarkMode()
+	return Quests.db.foreverMark and Quests.db.foreverMarkStyle or nil
+end
+
+local function MarkText(fontString)
+	local text = fontString:GetText()
+	if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and not text:find(FOREVER_ICON, 1, true) then
+		fontString:SetText(FOREVER_ICON .. text)
+	end
+end
+
+local function RecolorBlock(block)
+	if MarkMode() == "COLOR" and IsForeverQuest(block.poiQuestID or block.id) and block.HeaderText then
+		block.HeaderText:SetTextColor(FOREVER_COLOR:GetRGB())
+	end
+end
+
+local hookedBlocks = {}
+
+local function MarkTracker()
+	local mode = MarkMode()
+	if not mode or not (QuestObjectiveTracker and QuestObjectiveTracker.EnumerateActiveBlocks) then
+		return
+	end
+	QuestObjectiveTracker:EnumerateActiveBlocks(function(block)
+		if block.HeaderText and IsForeverQuest(block.poiQuestID or block.id) then
+			if mode == "ICON" then
+				MarkText(block.HeaderText)
+			else
+				if not hookedBlocks[block] and block.UpdateHighlight then
+					hookedBlocks[block] = true
+					hooksecurefunc(block, "UpdateHighlight", RecolorBlock)
+				end
+				RecolorBlock(block)
+			end
+		end
+	end)
+end
+
+local hookedTitles = {}
+
+local function RecolorTitle(button)
+	if MarkMode() == "COLOR" and IsForeverQuest(button.questID) and button.Text then
+		button.Text:SetTextColor(FOREVER_COLOR:GetRGB())
+	end
+end
+
+local function MarkQuestLog()
+	local mode = MarkMode()
+	local pool = mode and QuestScrollFrame and QuestScrollFrame.titleFramePool
+	if not pool then
+		return
+	end
+	for button in pool:EnumerateActive() do
+		if button.Text and IsForeverQuest(button.questID) then
+			if mode == "ICON" then
+				MarkText(button.Text)
+			else
+				if not hookedTitles[button] then
+					hookedTitles[button] = true
+					button:HookScript("OnLeave", RecolorTitle)
+				end
+				RecolorTitle(button)
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Quest and gossip window as plain parchment: Blizzard's frame, portrait,
 -- background and close button are hidden; parchment, text, scroll bar and
 -- buttons stay (Escape still closes).
@@ -842,6 +928,14 @@ end
 
 function Quests:OnLogin()
 	self:UpdateQuestParchment()
+	if QuestLogQuests_Update then
+		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
+	end
+	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
+		if QuestObjectiveTracker and QuestObjectiveTracker.Update then
+			hooksecurefunc(QuestObjectiveTracker, "Update", ns.Measured("Quests: Forever marks (tracker)", MarkTracker))
+		end
+	end)
 	-- QuestieDB quest chains for pre-quests of instance quests, built in the
 	-- background a little after login.
 	C_Timer.After(5, function()
@@ -931,6 +1025,11 @@ Quests.options = {
 	{ key = "instanceTab", type = "toggle", name = L.QUESTS_INSTANCE_TAB, desc = L.QUESTS_INSTANCE_TAB_DESC },
 	{ key = "instancePreQuests", type = "toggle", name = L.QUESTS_INSTANCE_PREQUESTS, desc = L.QUESTS_INSTANCE_PREQUESTS_DESC, parent = "instanceTab" },
 	{ key = "regionOnly", type = "toggle", name = L.QUESTS_REGION_ONLY, desc = L.QUESTS_REGION_ONLY_DESC },
+	{ type = "header", name = L.QUESTS_FOREVER_HEADER },
+	{ key = "foreverMark", type = "toggle", name = L.QUESTS_FOREVER_MARK, desc = L.QUESTS_FOREVER_MARK_DESC },
+	{ key = "foreverMarkStyle", type = "dropdown", name = L.QUESTS_FOREVER_STYLE, parent = "foreverMark", values = {
+		{ "ICON", L.QUESTS_FOREVER_STYLE_ICON }, { "COLOR", L.QUESTS_FOREVER_STYLE_COLOR },
+	} },
 	{ type = "header", name = L.QUESTS_WINDOW },
 	{ key = "questParchment", type = "toggle", name = L.QUESTS_PARCHMENT, desc = L.QUESTS_PARCHMENT_DESC },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },

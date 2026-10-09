@@ -34,6 +34,7 @@ read_globals = {
 	"PlayerSpellsUtil", "TalentMicroButton", "ExportUtil",
 	"GossipFrame",
 	"QuestFrame",
+	"QuestScrollFrame", "QuestLogQuests_Update",
 	"HasAction", "GetActionInfo", "PlaceAction", "GetLootSlotType", "GetLootSlotLink", "SELECTED_CHAT_FRAME", "debugprofilestop", "NameUtil", "GetUIPanel", "UnitRace", "GameTooltip_AddColoredLine", "GameTooltip_AddHighlightLine", "GameTooltip_OnTooltipAddMoney",
 	"C_ClassTalents", "C_LFGList", "CreateAtlasMarkup", "TANK", "HEALER", "DAMAGER", "DPS_TEMPLATE", "ItemRefTooltip", "LFGBrowseSearchEntry_Update",
 	"LOOT_ITEM_SELF", "LOOT_ITEM_SELF_MULTIPLE", "YOU_LOOT_MONEY", "YOU_LOOT_MONEY_GUILD", "LOOT_MONEY_SPLIT", "LOOT_MONEY_SPLIT_GUILD",

@@ -621,64 +621,6 @@ GetCursorPosition = function() return 180, 100 end
 helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
 assert(bound == nil, "camera turn does not arm fishing")
 print("helpers OK")
--- Talent planner clicks
-local onClick = uv(uv(talents.OnLogin, "SetupPlanner") or function() end, "OnTalentClick")
-if onClick then
-	local plannerButtons = {}
-	PlayerSpellsFrame = { TalentsFrame = { GetConfigID = function() return 1 end, EnumerateAllTalentButtons = function() return pairs(plannerButtons) end } }
-	PlayerUtil = { GetCurrentSpecID = function() return 1 end }
-	C_Traits = { GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 0 } end }
-	IsShiftKeyDown = function() return false end
-	IsControlKeyDown = function() return false end
-	local btn = { GetNodeID = function() return 77 end, CanRefundRank = function() return false end }
-	plannerButtons[btn] = true
-	onClick(nil, btn, "RightButton"); onClick(nil, btn, "RightButton")
-	local plan = uv(onClick, "CurrentPlan")()
-	assert(plan[77] == 2, "planned 2 ranks")
-	IsShiftKeyDown = function() return true end
-	onClick(nil, btn, "RightButton")
-	assert(plan[77] == 1, "shift removes")
-	-- Tooltip shows the planned rank
-	plan[77] = 3
-	local lines = {}
-	GameTooltip = { GetOwner = function() return btn end, AppendInfo = function(_, getter, entryID, rank) lines[#lines + 1] = getter .. ":" .. entryID .. ":" .. rank end, Show = function() end }
-	GameTooltip_AddBlankLineToTooltip = function() end
-	GameTooltip_AddColoredLine = function(_, text) lines[#lines + 1] = text end
-	C_Traits.GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 1, activeEntry = { entryID = 500, rank = 1 } } end
-	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(btn)
-	print("  plan tooltip", table.concat(lines, " | "))
-	assert(lines[#lines] == "GetTraitEntry:500:3", "planned rank values")
-	-- Row rule and arrows: node 2 in row 2 needs 5 points, node 3 needs node 1 at full rank
-	local plan2 = uv(onClick, "CurrentPlan")()
-	for k in pairs(plan2) do plan2[k] = nil end
-	local defs = {
-		[1] = { ID = 1, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = { { targetNode = 3, type = Enum.TraitEdgeType.RequiredForAvailability } } },
-		[2] = { ID = 2, posY = 200, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {} },
-		[3] = { ID = 3, posY = 100, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {} },
-	}
-	C_Traits.GetNodeInfo = function(_, id) local d = defs[id] local c = {} for k, v in pairs(d) do c[k] = v end return c end
-	for k in pairs(plannerButtons) do plannerButtons[k] = nil end
-	local bs = {}
-	for id = 1, 3 do bs[id] = { GetNodeID = function() return id end, CanRefundRank = function() return false end, GetName = function() return "T" .. id end } plannerButtons[bs[id]] = true end
-	IsShiftKeyDown = function() return false end
-	local printed
-	local oldPrint = ns.Print
-	ns.Print = function(msg) printed = msg end
-	onClick(nil, bs[3], "RightButton")
-	assert(not plan2[3], "row 1 needs 5 points")
-	for _ = 1, 4 do onClick(nil, bs[1], "RightButton") end
-	onClick(nil, bs[3], "RightButton")
-	assert(not plan2[3], "needs node 1 at full rank / 5 points")
-	onClick(nil, bs[1], "RightButton")
-	onClick(nil, bs[3], "RightButton")
-	assert(plan2[3] == 1, "row 1 unlocked with 5 points and arrow source maxed")
-	IsShiftKeyDown = function() return true end
-	onClick(nil, bs[1], "RightButton")
-	assert(plan2[1] == 5, "removal blocked while node 3 depends on it")
-	ns.Print = oldPrint
-	print("  planner rules ok, last message:", printed)
-	print("planner OK")
-end
 print("ttd OK")
 -- Junk marks tell random suffixes apart
 local isJunk = uv(uv(items.LOOT_READY or items.OnLogin, "UpdateAllBags") or function() end, "x")
@@ -817,6 +759,7 @@ local function resetWeights() for i = 1, 200 do local n = debug.getupvalue(getW,
 local trees = { { groupID = 11, orderIndex = 0, displayName = "Elementar" }, { groupID = 12, orderIndex = 1, displayName = "Verstärkung" }, { groupID = 13, orderIndex = 2, displayName = "Wiederherstellung" } }
 local spent = { [11] = 0, [12] = 0, [13] = 0 }
 C_ClassTalents = { GetActiveConfigID = function() return 5 end }
+C_Traits = rawget(_G, "C_Traits") or {}
 C_Traits.GetConfigInfo = function() return { treeIDs = { 77 } } end
 C_Traits.GetGroupDisplayInfoByTreeID = function() return { trees[3], trees[1], trees[2] } end
 C_Traits.GetGroupCurrencyInfo = function(_, ids) local r = {} for _, id in ipairs(ids) do r[#r + 1] = { traitNodeGroupID = id, currencyInfos = { { spent = spent[id] } } } end return r end
@@ -1373,23 +1316,47 @@ end)()
 	print("quest parchment OK")
 end)()
 ;(function()
-	-- Early talent planning: a toggle that just closed the window does not reopen it.
-	local t = ns:GetModule("Talents")
-	t.db.enabled, t.db.planner, t.db.earlyPlanner = true, true, true
-	C_SpecializationInfo = { HasPlayerEarnedATalentPoint = function() return false end }
-	local hook = uv(t.OnLogin, "HookEarlyPlanning")
-	local toggle = uv(hook, "OpenEarlyAfterToggle")
-	local scheduled = 0
-	local after = C_Timer.After
-	C_Timer.After = function() scheduled = scheduled + 1 end
-	setuv(toggle, "closedAt", GetTime())
-	toggle()
-	assert(scheduled == 0, "closed by this toggle: stays closed")
-	setuv(toggle, "closedAt", nil)
-	toggle()
-	assert(scheduled == 1, "closed window: opens the view")
-	C_Timer.After = after
-	print("early planning toggle OK")
+	-- Talent planner: model from the trait tree, classic row and arrow rules.
+	local P = ns.TalentPlanner
+	PlayerUtil = { GetCurrentSpecID = function() return 1 end }
+	C_ClassTalents = { GetActiveConfigID = function() return nil end, InitializeViewLoadout = function() end, GetTraitTreeForSpec = function() return 5 end }
+	local defs = {
+		[1] = { posX = 0, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 11 }, visibleEdges = { { targetNode = 3, type = Enum.TraitEdgeType.RequiredForAvailability } } },
+		[2] = { posX = 600, posY = 0, maxRanks = 3, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 12 }, visibleEdges = {} },
+		[3] = { posX = 0, posY = 600, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, entryIDs = { 13 }, visibleEdges = {} },
+		[4] = { posX = 1800, posY = 1200, maxRanks = 1, ranksPurchased = 0, groupIDs = { 8 }, entryIDs = { 14 }, visibleEdges = {} },
+	}
+	C_Traits = {
+		GetTreeNodes = function() return { 1, 2, 3, 4 } end,
+		GetNodeInfo = function(_, id) return defs[id] end,
+		GetEntryInfo = function(_, entryID) return { definitionID = entryID } end,
+		GetDefinitionInfo = function(id) return { spellID = id } end,
+		GetGroupDisplayInfoByTreeID = function() return { { groupID = 9, displayName = "A", icon = 1 }, { groupID = 8, displayName = "B", icon = 2 } } end,
+	}
+	C_Spell.GetSpellName = function(id) return "S" .. id end
+	local model = P.BuildModel()
+	local n = model.nodes
+	assert(n[1].row == 0 and n[3].row == 1 and n[4].row == 2 and n[2].column == 1 and n[4].column == 0, "rows and columns")
+	assert(#model.groups == 2 and model.groups[1].name == "A", "trees in Blizzard's order")
+	local plan = {}
+	assert(not P.Add(model, plan, n[3]), "row 2 needs 5 points")
+	for _ = 1, 4 do P.Add(model, plan, n[1]) end
+	P.Add(model, plan, n[2])
+	assert(P.Spent(model, plan) == 5 and P.AddProblem(model, plan, n[3]):find("S11"), "arrow needs its source at full rank")
+	assert(not P.Add(model, plan, n[1]) == false, "fifth rank")
+	assert(P.Add(model, plan, n[3]) and plan[3] == 1, "unlocked")
+	local ok, why = P.Remove(model, plan, n[1])
+	assert(not ok and why, "source rank needed below")
+	plan[2] = nil
+	assert(P.AddProblem(model, plan, n[4]), "other tree needs its own points")
+	assert(P.Remove(model, plan, n[3]) and not plan[3], "take back")
+	-- The window builds from the same model.
+	UISpecialFrames = UISpecialFrames or {}
+	P.Show()
+	assert(ForeverPlusTalentPlanner and ForeverPlusTalentPlanner:IsShown(), "planner window shown")
+	P.Toggle()
+	assert(not ForeverPlusTalentPlanner:IsShown(), "toggle closes")
+	print("talent planner OK")
 end)()
 ;(function()
 	-- Space in the quest window: accept, continue or complete without Blizzard's dialogs.

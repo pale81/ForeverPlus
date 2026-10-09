@@ -29,6 +29,7 @@ Modules\Minimap.lua
 Data\MapOverlays.lua
 Modules\WorldMap.lua
 Modules\Items.lua
+Modules\Restock.lua
 Modules\Auction.lua
 Modules\Helpers.lua
 Modules\QoL.lua

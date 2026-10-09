@@ -119,12 +119,13 @@ local function Keys(...)
 	return set
 end
 
-local MOUSEOVER_KEYS = Keys("mouseover", "mouseoverMicro", "mouseoverTracker", "mouseoverBags", "mouseoverMainBar",
+local MOUSEOVER_BAR_KEYS = Keys("mouseover", "mouseoverCombat", "mouseoverMicro", "mouseoverTracker", "mouseoverBags", "mouseoverMainBar",
 	"mouseoverBar2", "mouseoverBar3", "mouseoverBar4", "mouseoverBar5", "mouseoverBar6", "mouseoverBar7", "mouseoverBar8",
 	"mouseoverStance", "mouseoverPet")
+local MOUSEOVER_FRAME_KEYS = Keys("mouseoverXP", "mouseoverRep", "mouseoverPlayer", "mouseoverTarget", "mouseoverMinimap")
 
 local PAGES = {
-	{ title = L.CHAT_TITLE, { "Chat" }, { "Loot", header = L.LOOT_TITLE } },
+	{ title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE } },
 	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "QuestieInfo", header = L.QDB_TITLE } },
 	{ title = L.ITEMS_TITLE,
 		{ "Items" },
@@ -134,8 +135,13 @@ local PAGES = {
 	},
 	{ title = L.QUESTS_TITLE, { "Quests" } },
 	{ title = L.GROUPFINDER_TITLE, { "GroupFinder" } },
+	{ title = L.PAGE_MOUSEOVER,
+		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_BAR_KEYS },
+		{ "QoL", header = L.QOL_MOUSEOVER_FRAMES_HEADER, keys = MOUSEOVER_FRAME_KEYS },
+		{ "XPBar", header = L.XP_TITLE, keys = Keys("textMode") },
+		{ "Chat", header = L.CHAT_TITLE, keys = Keys("tabFade") },
+	},
 	{ title = L.PAGE_BARS,
-		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_KEYS },
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },
 		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff") },
@@ -155,7 +161,7 @@ local PAGES = {
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},
-	{ title = L.XP_TITLE, { "XPBar" } },
+	{ title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") } },
 	{ title = L.VISUALS_TITLE,
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
@@ -182,6 +188,8 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		local include
 		if entry.keys then
 			include = opt.key and entry.keys[opt.key]
+		elseif entry.exclude and opt.key and entry.exclude[opt.key] then
+			include = false -- shown on another page
 		else
 			-- A header repeating the page or section title is left out.
 			include = not (opt.type == "header" and (opt.name == pageTitle or opt.name == entry.header))

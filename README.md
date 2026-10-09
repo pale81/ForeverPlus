@@ -36,12 +36,14 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Beim Lehrer: neben dem Tooltip eines Rezepts die ausgerüsteten Gegenstände des passenden Platzes (wie der Vergleich in der Tasche, eigene Vergleichs-Tooltips) | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
+| | Aufspüren-Menü: Zaubersymbole (z. B. Schatzsucher) auf die sichtbare Größe der übrigen Symbole verkleinert | ja |
 | Weltkarte | Eigene Koordinatenanzeige (Mauszeiger, Spieler) fester Größe unten links, verschieb-, skalier- und sperrbar (Position relativ zur Karte); Blizzards Anzeige wird ausgeblendet | ja |
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
 | | Beutel-Knopf beim Händler verkauft nach denselben Regeln (behaltene graue Gegenstände bleiben), Tooltip mit Anzahl und Wert | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen als Popup direkt am Einstellungsknopf, Klick entfernt einzeln (`/fp schrott`); Gegenstände mit Zufallssuffix („des Affen“, „des Frostschutzes“) werden einzeln markiert | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |
+| | Neuer besserer Gegenstand in den Taschen (Beute, Questbelohnung, Kauf; gleiche Wertung wie der Pfeil): Pergament-Fenster mit Symbol, ersetztem Teil und Wertung, „Anlegen“ oder „Nicht jetzt“; mehrere nacheinander, im Kampf ausgeblendet | ja |
 | | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nur wenn er weniger wert ist als die Beute im offenen Beutefenster (Questgegenstände gehen vor), nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
@@ -51,6 +53,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
 | Komfort | Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste nur bei Mouseover (jede Leiste einzeln wählbar, Aktionsleisten standardmäßig aus) | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
+| | Namensplaketten außerhalb des Kampfes transparent (Standard 70 %, einstellbar), im Kampf voll sichtbar | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
@@ -59,6 +62,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
+| | Taschen beim Öffnen mit Blizzards Aufräumfunktion sortieren (höchstens alle 3 s, nicht im Kampf/beim Schrottverkauf) | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschieb- und sperrbar | ja |
@@ -85,7 +89,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Bereits bekannte Rezepte in Taschen und beim Händler ausgegraut | ja |
 | Rezeptradar | Händler mit unbekannten Rezepten deiner Berufe auf Welt- und/oder Minimap; Klick setzt Wegpunkt (Daten: QuestieDB, Forever-Datensatz) | ja |
 | | Rezeptquellen im Tooltip: Händler + Zone, Quests, Anzahl droppender Gegner | ja |
-| Fenster | Anfangs gesperrt; Alt + Rechtsklick entsperrt, dann verschiebt Alt + Ziehen jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert; Position/Größe je Element gespeichert | ja |
+| Fenster | Anfangs gesperrt; Alt + Rechtsklick entsperrt, dann verschiebt Alt + Ziehen jedes Fenster und jede ForeverPlus-Anzeige, Strg + Mausrad skaliert; Position/Größe je Element gespeichert, als Abstand zur nächsten Ecke, Kante oder Mitte (bei Minimap-Anzeigen zur Minimap), damit Auflösung und UI-Skalierung nichts verschieben | ja |
 | | Mehrere Fenster gleichzeitig offen (z. B. Taschen + Charakter + Händler); nicht verschobene Fenster reihen sich rechts neben Blizzards Fenster (z. B. Zauberbuch) | ja |
 
 ## Technik / CPU

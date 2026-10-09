@@ -118,12 +118,48 @@ local function FindTarget(region)
 	end
 end
 
+-- Saved points: the offset to the nearest corner, edge or centre of the
+-- frame it belongs to, so another resolution or UI scale does not shift it.
+-- Older entries without a point were saved from the bottom left corner.
+local function SetSavedPoint(frame, relativeTo, data)
+	local point = data.point or "TOPLEFT"
+	frame:SetPoint(point, relativeTo, data.point or "BOTTOMLEFT", data.x, data.y)
+end
+
+local function PointPosition(region, point)
+	local x = point:find("LEFT") and region:GetLeft() or point:find("RIGHT") and region:GetRight() or select(1, region:GetCenter())
+	local y = point:find("TOP") and region:GetTop() or point:find("BOTTOM") and region:GetBottom() or select(2, region:GetCenter())
+	return x, y
+end
+
+-- Point and offset (in the frame's own units) for the frame's current place.
+local function NearestPoint(frame, relativeTo)
+	local left, right = relativeTo:GetLeft(), relativeTo:GetRight()
+	local bottom, top = relativeTo:GetBottom(), relativeTo:GetTop()
+	local centerX, centerY = frame:GetCenter()
+	if not (left and right and bottom and top and centerX and centerY) then
+		return
+	end
+	local scale = frame:GetEffectiveScale() / relativeTo:GetEffectiveScale()
+	centerX, centerY = centerX * scale, centerY * scale
+	local width, height = right - left, top - bottom
+	local horizontal = centerX < left + width / 3 and "LEFT" or centerX > right - width / 3 and "RIGHT" or ""
+	local vertical = centerY > top - height / 3 and "TOP" or centerY < bottom + height / 3 and "BOTTOM" or ""
+	local point = vertical .. horizontal
+	if point == "" then
+		point = "CENTER"
+	end
+	local frameX, frameY = PointPosition(frame, point)
+	local relativeX, relativeY = PointPosition(relativeTo, point)
+	return point, frameX - relativeX / scale, frameY - relativeY / scale
+end
+
 local function ApplyDisplay(entry)
 	local frame, data = entry.frame, saved[entry.key]
 	frame:SetScale(data and data.scale or 1)
 	frame:ClearAllPoints()
 	if data and data.x then
-		frame:SetPoint("TOPLEFT", entry.relativeTo, "BOTTOMLEFT", data.x, data.y)
+		SetSavedPoint(frame, entry.relativeTo, data)
 	else
 		entry.placeDefault(frame)
 	end
@@ -147,8 +183,10 @@ local function Apply(frame)
 	if data.scale then
 		frame:SetScale(data.scale)
 	end
-	frame:ClearAllPoints()
-	frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", data.x, data.y)
+	if data.x then
+		frame:ClearAllPoints()
+		SetSavedPoint(frame, UIParent, data)
+	end
 end
 
 local function HookWindow(frame)
@@ -160,19 +198,14 @@ local function HookWindow(frame)
 end
 
 local function Save(frame, key)
-	local left, top = frame:GetLeft(), frame:GetTop()
-	if not left or not top then
+	-- Displays keep their offset to the frame they belong to (e.g. the map).
+	local entry = displayOf[frame]
+	local point, x, y = NearestPoint(frame, entry and entry.relativeTo or UIParent)
+	if not point then
 		return
 	end
-	local entry = displayOf[frame]
-	if entry then
-		-- Displays keep their offset to the frame they belong to (e.g. the map).
-		local relativeTo = entry.relativeTo
-		local factor = relativeTo:GetEffectiveScale() / frame:GetEffectiveScale()
-		left, top = left - (relativeTo:GetLeft() or 0) * factor, top - (relativeTo:GetBottom() or 0) * factor
-	end
 	local data = saved[key] or {}
-	data.x, data.y = left, top
+	data.point, data.x, data.y = point, x, y
 	data.scale = data.scale or (frame:GetScale() ~= 1 and frame:GetScale() or nil)
 	saved[key] = data
 	if entry then
@@ -411,6 +444,14 @@ local function Migrate()
 	saved["D:MinimapCoords"], saved["D:Performance"], saved.WorldMapCoords = nil, nil, nil
 	-- Blizzard's world map panel was replaced by an own display.
 	saved["M:WorldMapCoords"] = nil
+	-- Minimap displays were saved relative to the screen; they belong to the
+	-- minimap now and start at their default place once.
+	for _, key in ipairs({ "M:Performance", "M:MinimapCoords" }) do
+		local data = saved[key]
+		if data and data.x and not data.point then
+			data.x, data.y = nil, nil
+		end
+	end
 end
 
 function Mover:OnInitialize()

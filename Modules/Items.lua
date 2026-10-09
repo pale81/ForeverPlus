@@ -9,11 +9,13 @@ local Items = ns:NewModule("Items", {
 	defaults = {
 		autoSell = true,
 		sellButton = true,
+		autoSort = false,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
 		upgradeArrow = true,
 		upgradeScore = false,
+		upgradePopup = true,
 		fastLoot = true,
 		sellMessage = true,
 		repairMessage = true,
@@ -425,6 +427,200 @@ local function AddScoreLine(tooltip)
 end
 
 ---------------------------------------------------------------------------
+-- Upgrade popup: a new item in the bags (loot, quest reward, purchase) that
+-- is better than the equipped one is offered for equipping, one at a time.
+---------------------------------------------------------------------------
+local offered = {}      -- item GUID or link -> true once checked
+local upgradeQueue = {} -- { link, score, equippedScore, invSlot }
+local upgradeFrame
+local bagsSeen = false  -- the first scan after login only records the items
+
+local PARCHMENT_TEXT = { 0.18, 0.1, 0.04 }
+
+-- Equipped slot the item would replace: the weaker of two (rings, trinkets).
+local function TargetSlot(link)
+	local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
+	if not slots then
+		return nil
+	end
+	local target, lowest = slots[1], nil
+	for _, invSlot in ipairs(slots) do
+		local value = EquippedScore(invSlot)
+		if value and (not lowest or value < lowest) then
+			target, lowest = invSlot, value
+		end
+	end
+	return target
+end
+
+local ShowNextUpgrade
+
+local function CreateUpgradeFrame()
+	local frame = CreateFrame("Frame", "ForeverPlusUpgradeFrame", UIParent)
+	frame:SetSize(360, 172)
+	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
+	frame:SetFrameStrata("DIALOG")
+	frame:EnableMouse(true)
+	frame:SetClampedToScreen(true)
+	frame:Hide()
+
+	local background = frame:CreateTexture(nil, "BACKGROUND")
+	background:SetPoint("TOPLEFT", 8, -8)
+	background:SetPoint("BOTTOMRIGHT", -8, 8)
+	if not background:SetAtlas("QuestBG-Parchment") then
+		background:SetColorTexture(0.84, 0.74, 0.55)
+	end
+	frame.Border = CreateFrame("Frame", nil, frame, "DialogBorderNoCenterTemplate")
+
+	local title = frame:CreateFontString(nil, "ARTWORK", "QuestTitleFont")
+	title:SetPoint("TOP", 0, -22)
+	title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
+	title:SetTextColor(unpack(PARCHMENT_TEXT))
+
+	local icon = CreateFrame("Button", nil, frame, "ItemButtonTemplate")
+	icon:SetPoint("TOPLEFT", 26, -50)
+	icon:SetScript("OnEnter", function(self)
+		local entry = upgradeQueue[1]
+		if entry then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetHyperlink(entry.link)
+			GameTooltip:Show()
+		end
+	end)
+	icon:SetScript("OnLeave", GameTooltip_Hide)
+	frame.Icon = icon
+
+	local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -2)
+	name:SetPoint("RIGHT", -26, 0)
+	name:SetJustifyH("LEFT")
+	name:SetShadowOffset(0, 0)
+	frame.Name = name
+
+	local replaces = frame:CreateFontString(nil, "ARTWORK", "QuestFont")
+	replaces:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -4)
+	replaces:SetPoint("RIGHT", -26, 0)
+	replaces:SetJustifyH("LEFT")
+	replaces:SetTextColor(unpack(PARCHMENT_TEXT))
+	frame.Replaces = replaces
+
+	local score = frame:CreateFontString(nil, "ARTWORK", "QuestFont")
+	score:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
+	score:SetPoint("RIGHT", -26, 0)
+	score:SetJustifyH("LEFT")
+	score:SetTextColor(unpack(PARCHMENT_TEXT))
+	frame.Score = score
+
+	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	equip:SetSize(110, 24)
+	equip:SetPoint("BOTTOMRIGHT", -24, 20)
+	equip:SetText(L.ITEMS_UPGRADE_POPUP_EQUIP)
+	equip:SetScript("OnClick", function()
+		local entry = table.remove(upgradeQueue, 1)
+		-- Only if the item is still in the bags (sorting may have moved it).
+		if entry and not InCombatLockdown() and C_Item.GetItemCount(entry.link) > 0 then
+			C_Item.EquipItemByName(entry.link, TargetSlot(entry.link))
+		end
+		ShowNextUpgrade()
+	end)
+
+	local later = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	later:SetSize(110, 24)
+	later:SetPoint("RIGHT", equip, "LEFT", -8, 0)
+	later:SetText(L.ITEMS_UPGRADE_POPUP_LATER)
+	later:SetScript("OnClick", function()
+		table.remove(upgradeQueue, 1)
+		ShowNextUpgrade()
+	end)
+
+	local fade = frame:CreateAnimationGroup()
+	local alpha = fade:CreateAnimation("Alpha")
+	alpha:SetFromAlpha(0)
+	alpha:SetToAlpha(1)
+	alpha:SetDuration(0.2)
+	frame:SetScript("OnShow", function()
+		fade:Play()
+	end)
+	-- Escape closes it; the offers stay declined for this session. Hiding
+	-- for combat keeps them.
+	frame:SetScript("OnHide", function(self)
+		if not self.combatHide then
+			wipe(upgradeQueue)
+		end
+		self.combatHide = nil
+	end)
+	tinsert(UISpecialFrames, frame:GetName())
+	return frame
+end
+
+function ShowNextUpgrade()
+	local entry = upgradeQueue[1]
+	if not entry or InCombatLockdown() or not Items.db.upgradePopup then
+		if upgradeFrame and not entry then
+			upgradeFrame:Hide()
+		end
+		return
+	end
+	upgradeFrame = upgradeFrame or CreateUpgradeFrame()
+	local frame = upgradeFrame
+	local itemName, _, quality, _, _, _, _, _, _, texture = C_Item.GetItemInfo(entry.link)
+	SetItemButtonTexture(frame.Icon, texture)
+	SetItemButtonQuality(frame.Icon, quality, entry.link)
+	local color = quality and ITEM_QUALITY_COLORS[quality]
+	frame.Name:SetText(itemName or entry.link)
+	if color then
+		frame.Name:SetTextColor(color.r, color.g, color.b)
+	end
+	local equipped = entry.invSlot and GetInventoryItemLink("player", entry.invSlot)
+	local equippedName = equipped and C_Item.GetItemInfo(equipped)
+	frame.Replaces:SetText(equippedName and L.ITEMS_UPGRADE_POPUP_REPLACES:format(equippedName) or L.ITEMS_UPGRADE_POPUP_EMPTY)
+	local gain = entry.equippedScore > 0 and (entry.score / entry.equippedScore - 1) * 100
+	frame.Score:SetText(gain and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.equippedScore, entry.score, gain)
+		or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score))
+	frame:Show()
+end
+
+local function ItemKey(bag, slot, link)
+	local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
+	local guid = C_Item.DoesItemExist(location) and C_Item.GetItemGUID(location)
+	return guid or link
+end
+
+-- New items in the bags: checked once each; data still loading is retried
+-- on the next bag update.
+local function ScanNewItems()
+	local record = not bagsSeen
+	bagsSeen = true
+	local added = false
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			local link = info and info.hyperlink
+			if link and C_NewItems.IsNewItem(bag, slot) and C_Item.IsEquippableItem(link) then
+				local key = ItemKey(bag, slot, link)
+				if not offered[key] then
+					local score, equippedScore = CompareScores(link)
+					if record or score == false then
+						offered[key] = true
+					elseif score ~= nil then
+						offered[key] = true
+						if score > equippedScore + 0.01 and CanUse(bag, slot) then
+							upgradeQueue[#upgradeQueue + 1] = {
+								link = link, score = score, equippedScore = equippedScore, invSlot = TargetSlot(link),
+							}
+							added = true
+						end
+					end
+				end
+			end
+		end
+	end
+	if added and not (upgradeFrame and upgradeFrame:IsShown()) then
+		ShowNextUpgrade()
+	end
+end
+
+---------------------------------------------------------------------------
 -- Bag button decoration
 ---------------------------------------------------------------------------
 local function UpdateButton(button)
@@ -780,6 +976,34 @@ end
 function Items:MERCHANT_CLOSED()
 	merchantOpen = false
 	StopSelling()
+end
+
+---------------------------------------------------------------------------
+-- Bags: sorted by the game's own cleanup when they open
+---------------------------------------------------------------------------
+local SORT_PAUSE = 3 -- seconds between automatic sorts
+local lastSort, sortQueued = 0, false
+
+local function SortOnOpen()
+	sortQueued = false
+	-- Not while selling, in combat or with an item on the cursor.
+	if not Items.db.autoSort or InCombatLockdown() or sellTicker or GetCursorInfo() then
+		return
+	end
+	local now = GetTime()
+	if now - lastSort < SORT_PAUSE then
+		return
+	end
+	lastSort = now
+	C_Container.SortBags()
+end
+
+-- Opening all bags opens each frame; one sort after the last of them.
+local function QueueSort()
+	if Items.db.autoSort and not sortQueued then
+		sortQueued = true
+		C_Timer.After(0, SortOnOpen)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1139,6 +1363,21 @@ function Items:Refresh()
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
 	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
+	self:ToggleEvent("BAG_UPDATE_DELAYED", db.upgradePopup, ns.Measured("Items: upgrade popup", ScanNewItems))
+	-- Equipping is not possible in combat: hidden meanwhile, shown again after.
+	self:ToggleEvent("PLAYER_REGEN_DISABLED", db.upgradePopup, function()
+		if upgradeFrame and upgradeFrame:IsShown() then
+			upgradeFrame.combatHide = true
+			upgradeFrame:Hide()
+		end
+	end)
+	self:ToggleEvent("PLAYER_REGEN_ENABLED", db.upgradePopup, ShowNextUpgrade)
+	if not db.upgradePopup then
+		wipe(upgradeQueue)
+		if upgradeFrame then
+			upgradeFrame:Hide()
+		end
+	end
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
 		wipe(upgradeCache)
 		UpdateAllBags()
@@ -1166,6 +1405,8 @@ end
 function Items:OnLogin()
 	HookContainerFrames()
 	HookRollFrames()
+	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
+	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	self:Refresh()
@@ -1195,10 +1436,13 @@ Items.options = {
 	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
 		Items:ShowJunkMenu(button)
 	end },
+	{ type = "header", name = L.ITEMS_BAGS },
+	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
 	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
+	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },

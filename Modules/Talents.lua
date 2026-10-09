@@ -695,6 +695,8 @@ local function EmptyLoadout(specID)
 	return stream:GetExportString()
 end
 
+local earlyViewShown = false
+
 local function CanPlanEarly()
 	return Talents.db.enabled and Talents.db.planner and Talents.db.earlyPlanner
 		and not C_SpecializationInfo.HasPlayerEarnedATalentPoint()
@@ -714,13 +716,28 @@ function ns.OpenTalentPlanning()
 		ns.Print(L.TALENTS_EARLY_FAILED)
 		return
 	end
-	PlayerSpellsUtil.InspectLoadout(("%d:%d:%s"):format(specID, PLAN_MAX_LEVEL, loadout))
+	local link = ("%d:%d:%s"):format(specID, PLAN_MAX_LEVEL, loadout)
+	PlayerSpellsUtil.InspectLoadout(link)
+	-- On the very first opening the tree came up misplaced and without icons;
+	-- the view is loaded once more as soon as the window stands.
+	if not earlyViewShown then
+		earlyViewShown = true
+		C_Timer.After(0, function()
+			if not InCombatLockdown() and PlayerSpellsFrame and PlayerSpellsFrame:IsShown() and PlayerSpellsFrame:IsInspecting() then
+				PlayerSpellsUtil.InspectLoadout(link)
+			end
+		end)
+	end
 end
 
--- The talent key binding and the (disabled) micro button open the view.
+-- The talent key binding and the (disabled) micro button open the view and
+-- close it again.
 local earlyQueued = false
+local closedAt -- GetTime() of the last closing of the talent window
+
 local function OpenEarlyAfterToggle()
-	if earlyQueued or not CanPlanEarly() then
+	-- Blizzard's toggle has just closed the window: leave it closed.
+	if earlyQueued or not CanPlanEarly() or closedAt == GetTime() then
 		return
 	end
 	earlyQueued = true
@@ -742,10 +759,23 @@ local function HookEarlyPlanning()
 	if TalentMicroButton then
 		TalentMicroButton:HookScript("OnMouseUp", function(button, mouseButton)
 			if mouseButton == "LeftButton" and not button:IsEnabled() and button:IsMouseOver() then
-				OpenEarlyAfterToggle()
+				if PlayerSpellsFrame and PlayerSpellsFrame:IsShown() then
+					if not InCombatLockdown() then
+						HideUIPanel(PlayerSpellsFrame)
+					end
+				else
+					OpenEarlyAfterToggle()
+				end
 			end
 		end)
 	end
+	ns.OnAddOnLoaded("Blizzard_PlayerSpells", function()
+		if PlayerSpellsFrame then
+			PlayerSpellsFrame:HookScript("OnHide", function()
+				closedAt = GetTime()
+			end)
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------

@@ -491,7 +491,7 @@ local function CreateUpgradeFrame()
 	title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
 	title:SetTextColor(unpack(PARCHMENT_TEXT))
 
-	local icon = CreateFrame("Button", nil, frame, "ItemButtonTemplate")
+	local icon = CreateFrame("ItemButton", nil, frame)
 	icon:SetPoint("TOPLEFT", 26, -50)
 	icon:SetScript("OnEnter", function(self)
 		local entry = upgradeQueue[1]

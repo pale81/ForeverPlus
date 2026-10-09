@@ -84,7 +84,7 @@ local playerClass
 local reminders = {}
 local classDB
 
-local bar, placeholder, wheelHandler
+local bar, placeholder, wheelHandler, events
 local buttons = {}
 local updatePending, thresholdTimer
 
@@ -256,10 +256,20 @@ local function IsEnabled(reminder)
 	return value
 end
 
--- Returns shown (bool), seconds until it should be re-checked and whether
--- the buff is only about to expire (not missing yet).
+-- Not enough mana, rage or energy for the spell right now.
+local function LacksPower(spellID)
+	local _, noPower = C_Spell.IsSpellUsable(spellID)
+	if issecretvalue and issecretvalue(noPower) then
+		return false
+	end
+	return noPower and true or false
+end
+
+-- Returns shown (bool), seconds until it should be re-checked, whether the
+-- buff is only about to expire (not missing yet) and whether it waits for
+-- power to cast it.
 local function Evaluate(reminder, threshold)
-	local remaining
+	local remaining, spellID
 	if reminder.weapon then
 		if reminder.slot and not HasWeapon(reminder.slot) then
 			return false
@@ -268,23 +278,24 @@ local function Evaluate(reminder, threshold)
 			return false
 		end
 		remaining = WeaponEnchantTime(reminder.weapon)
+		spellID = reminder.cast and PickSpell(reminder)
 	else
-		local spellID = PickSpell(reminder)
+		spellID = PickSpell(reminder)
 		if not spellID then
 			return false
 		end
 		remaining = FindAura(reminder.auras)
 	end
-	if not remaining then
-		return true
-	end
 	if remaining == 0 then
 		return false
 	end
-	if remaining <= threshold then
-		return true, nil, true
+	if remaining and remaining > threshold then
+		return false, remaining - threshold
 	end
-	return false, remaining - threshold
+	if spellID and LacksPower(spellID) then
+		return false, nil, nil, true
+	end
+	return true, nil, remaining ~= nil
 end
 
 local function Update()
@@ -298,14 +309,15 @@ local function Update()
 	end
 
 	local count = 0
-	local nextCheck
+	local nextCheck, waitingForPower
 	-- In rest areas (inns, cities) only when wanted.
 	local resting = IsResting() and not Buffs.db.restingZones
 	if Buffs.db.enabled and not resting and not UnitIsDeadOrGhost("player") then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck, expiring = Evaluate(reminder, threshold)
+				local missing, recheck, expiring, noPower = Evaluate(reminder, threshold)
+				waitingForPower = waitingForPower or noPower
 				if missing then
 					local button = buttons[count + 1] or CreateButton(count + 1)
 					if SetupButton(button, reminder) then
@@ -339,6 +351,13 @@ local function Update()
 	if Buffs.db.wheelCast and count > 0 then
 		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELUP", buttons[1]:GetName())
 		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttons[1]:GetName())
+	end
+
+	-- Power changes matter only while a reminder waits for power.
+	if waitingForPower then
+		events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+	else
+		events:UnregisterEvent("UNIT_POWER_UPDATE")
 	end
 
 	if nextCheck then
@@ -384,7 +403,7 @@ local function CreateBar()
 		Update()
 	end)
 
-	local events = CreateFrame("Frame")
+	events = CreateFrame("Frame")
 	events:RegisterUnitEvent("UNIT_AURA", "player")
 	events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")

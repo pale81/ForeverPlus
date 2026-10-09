@@ -39,7 +39,6 @@ L.ITEMS_AUTOREPAIR_DESC = "Repariert alle Gegenstände bei Händlern, die repari
 L.ITEMS_REPAIR_GUILD = "Gildenbank verwenden"
 L.ITEMS_REPAIR_GUILD_DESC = "Repariert mit Gildenbankgold, wenn erlaubt, sonst mit eigenem Gold."
 L.ITEMS_CLEAR_JUNK = "Alle Markierungen entfernen"
-L.ITEMS_CLEAR_JUNK_DESC = "Entfernt alle Schrottmarkierungen."
 L.ITEMS_DISPLAY = "Anzeige"
 L.ITEMS_QUEST_REWARD = "Wertvollste Belohnung"
 L.ITEMS_QUEST_REWARD_DESC = "Markiert die Belohnung mit dem höchsten Verkaufswert mit einer Münze."

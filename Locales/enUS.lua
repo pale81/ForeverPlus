@@ -40,7 +40,6 @@ L.ITEMS_AUTOREPAIR_DESC = "Repairs all items when visiting a merchant who can re
 L.ITEMS_REPAIR_GUILD = "Use guild bank funds"
 L.ITEMS_REPAIR_GUILD_DESC = "Repairs with guild bank money when allowed, otherwise with your own money."
 L.ITEMS_CLEAR_JUNK = "Remove all markings"
-L.ITEMS_CLEAR_JUNK_DESC = "Removes all junk markings."
 L.ITEMS_DISPLAY = "Display"
 L.ITEMS_QUEST_REWARD = "Most valuable reward"
 L.ITEMS_QUEST_REWARD_DESC = "Marks the quest reward choice with the highest sell value with a coin."

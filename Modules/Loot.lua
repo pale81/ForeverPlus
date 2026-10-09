@@ -31,22 +31,7 @@ end
 ---------------------------------------------------------------------------
 -- Message patterns built from Blizzard's own format strings
 ---------------------------------------------------------------------------
--- "%s", "%d" and positional "%1$s" become captures; order[i] is the format
--- argument of capture i.
-local function FormatToPattern(format, anchored)
-	local order, count = {}, 0
-	local marked = format:gsub("%%(%d*)%$?([sd])", function(index, kind)
-		count = count + 1
-		order[count] = tonumber(index) or count
-		return kind == "d" and "\001" or "\002"
-	end)
-	marked = marked:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
-	marked = marked:gsub("\001", "(%%d+)"):gsub("\002", "(.-)")
-	if anchored then
-		marked = "^" .. marked .. "$"
-	end
-	return { pattern = marked, order = order }
-end
+local FormatToPattern = ns.FormatToPattern
 
 local function Patterns(...)
 	local list = {}
@@ -384,7 +369,7 @@ local function ShowSummary(id)
 		end
 		local title = ("%s  " .. GREY):format(L.LOOT_TITLE, ("%s - %s"):format(date("%H:%M", record.started), date("%H:%M", record.ended)))
 		return { title = title, items = items, width = POPUP_WIDTH }
-	end)
+	end, "Loot")
 end
 
 ---------------------------------------------------------------------------

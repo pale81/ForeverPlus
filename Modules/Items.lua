@@ -10,6 +10,7 @@ local Items = ns:NewModule("Items", {
 		autoSell = true,
 		sellButton = true,
 		autoSort = false,
+		sortMarkedJunk = true,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
@@ -26,6 +27,11 @@ local Items = ns:NewModule("Items", {
 		junkButton = "MiddleButton",
 		junk = {},
 		keep = {}, -- grey items the player unmarked: never sold
+		junkPerCharacter = false,
+	},
+	charDefaults = {
+		junk = {},
+		keep = {},
 	},
 })
 
@@ -67,12 +73,20 @@ local function JunkKey(info)
 	return info.itemID, true
 end
 
+-- Marked and kept items: for the account or, as an option, per character.
+local function JunkLists()
+	local db = Items.db.junkPerCharacter and Items.cdb or Items.db
+	return db.junk, db.keep
+end
+
 local function IsMarked(info)
-	return info.itemID and Items.db.junk[(JunkKey(info))] and true or false
+	local junk = JunkLists()
+	return info.itemID and junk[(JunkKey(info))] and true or false
 end
 
 local function IsKept(info)
-	return info.itemID and Items.db.keep[(JunkKey(info))] and true or false
+	local _, keep = JunkLists()
+	return info.itemID and keep[(JunkKey(info))] and true or false
 end
 
 -- Grey items count as junk unless kept; other items only when marked.
@@ -674,8 +688,9 @@ local function ToggleJunk(bag, slot)
 		return
 	end
 	-- Grey items are junk by default: toggling stores an exception instead.
-	local list = info.quality == Enum.ItemQuality.Poor and Items.db.keep or Items.db.junk
-	local isGrey = list == Items.db.keep
+	local junk, keep = JunkLists()
+	local list = info.quality == Enum.ItemQuality.Poor and keep or junk
+	local isGrey = list == keep
 	local key, value = JunkKey(info)
 	if list[key] then
 		list[key] = nil
@@ -684,7 +699,7 @@ local function ToggleJunk(bag, slot)
 	end
 	Report("markMessage", IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
 	if isGrey then
-		Items.db.junk[key] = nil
+		junk[key] = nil
 	end
 	UpdateAllBags()
 end
@@ -776,23 +791,24 @@ end
 function Items:ShowJunkMenu(owner)
 	ns.ShowPopupList(owner, function()
 		local items = {}
+		local junk, keep = JunkLists()
 		-- A grey item taken off the junk list would still be sold as grey;
 		-- it moves to the kept list instead.
-		local marked = AddJunkItems(items, self.db.junk, function(key, value)
+		local marked = AddJunkItems(items, junk, function(key, value)
 			if C_Item.GetItemQualityByID(KeyItemID(key)) == Enum.ItemQuality.Poor then
-				self.db.keep[key] = value
+				keep[key] = value
 			end
 			UpdateAllBags()
 		end)
-		if next(self.db.keep) then
+		if next(keep) then
 			items[#items + 1] = { text = L.ITEMS_JUNK_KEPT }
 		end
-		local kept = AddJunkItems(items, self.db.keep, UpdateAllBags)
+		local kept = AddJunkItems(items, keep, UpdateAllBags)
 		local footer
 		if marked + kept > 0 then
 			footer = { { text = L.ITEMS_CLEAR_JUNK, onClick = function()
-				wipe(self.db.junk)
-				wipe(self.db.keep)
+				wipe(junk)
+				wipe(keep)
 				UpdateAllBags()
 			end } }
 		end
@@ -996,6 +1012,157 @@ local function SortOnOpen()
 	end
 	lastSort = now
 	C_Container.SortBags()
+end
+
+-- After any sort (own or Blizzard's button) marked junk joins the grey
+-- items, which the game's cleanup puts together. Waits until the bags are
+-- quiet, then moves one item at a time.
+local SORT_QUIET = 0.7  -- seconds without bag updates: the sort is done
+local SORT_TIMEOUT = 10
+local MOVE_INTERVAL = 0.1
+local placing -- state while waiting for the sort or moving items
+
+-- Slots that take part in the cleanup, in bag order.
+local function SortedSlots()
+	local slots = {}
+	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+		local disabled
+		if bag == BACKPACK_CONTAINER then
+			disabled = C_Container.GetBackpackAutosortDisabled and C_Container.GetBackpackAutosortDisabled()
+		else
+			disabled = C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.DisableAutoSort)
+		end
+		local _, family = C_Container.GetContainerNumFreeSlots(bag)
+		if not disabled and (family or 0) == 0 then
+			for slot = 1, C_Container.GetContainerNumSlots(bag) do
+				slots[#slots + 1] = { bag, slot }
+			end
+		end
+	end
+	return slots
+end
+
+local function AnyLocked(slots)
+	for _, position in ipairs(slots) do
+		local info = C_Container.GetContainerItemInfo(position[1], position[2])
+		if info and info.isLocked then
+			return true
+		end
+	end
+	return false
+end
+
+-- Moves (from, to) that put the marked items right next to the grey ones:
+-- before them when the greys lie at the end, after them when at the start.
+local function PlanJunkMoves(slots)
+	local isGrey, isMarked = {}, {}
+	local firstGrey, lastGrey, markedCount = nil, nil, 0
+	for index, position in ipairs(slots) do
+		local info = C_Container.GetContainerItemInfo(position[1], position[2])
+		if info and info.quality == Enum.ItemQuality.Poor then
+			isGrey[index] = true
+			firstGrey = firstGrey or index
+			lastGrey = index
+		elseif info and IsMarked(info) then
+			isMarked[index] = true
+			markedCount = markedCount + 1
+		end
+	end
+	if markedCount == 0 then
+		return {}
+	end
+	local block = {}
+	if firstGrey and firstGrey == 1 and lastGrey < #slots then
+		for index = lastGrey + 1, math.min(#slots, lastGrey + markedCount) do
+			block[#block + 1] = index
+		end
+	else
+		local stop = (firstGrey or #slots + 1) - 1
+		for index = stop, math.max(1, stop - markedCount + 1), -1 do
+			block[#block + 1] = index
+		end
+	end
+	local inBlock = {}
+	for _, index in ipairs(block) do
+		inBlock[index] = true
+	end
+	-- Marked items outside the block, farthest first.
+	local outside = {}
+	for index in pairs(isMarked) do
+		if not inBlock[index] then
+			outside[#outside + 1] = index
+		end
+	end
+	local reference = block[1] or 1
+	table.sort(outside, function(a, b)
+		return math.abs(a - reference) > math.abs(b - reference)
+	end)
+	local moves = {}
+	for _, index in ipairs(block) do
+		if not isMarked[index] and not isGrey[index] then
+			local from = table.remove(outside)
+			if not from then
+				break
+			end
+			moves[#moves + 1] = { slots[from], slots[index] }
+		end
+	end
+	return moves
+end
+
+local function StopPlacing()
+	if placing and placing.ticker then
+		placing.ticker:Cancel()
+	end
+	placing = nil
+end
+
+local function PlacingStep()
+	local state = placing
+	if not state or InCombatLockdown() or GetCursorInfo() then
+		StopPlacing()
+		return
+	end
+	local now = GetTime()
+	if now - state.started > SORT_TIMEOUT then
+		StopPlacing()
+		return
+	end
+	if not state.moves then
+		-- Waiting for the sort to finish.
+		if now - state.lastUpdate < SORT_QUIET or AnyLocked(state.slots) then
+			return
+		end
+		state.moves = PlanJunkMoves(state.slots)
+		state.next = 1
+	end
+	local move = state.moves[state.next]
+	if not move then
+		StopPlacing()
+		return
+	end
+	if AnyLocked({ move[1], move[2] }) then
+		return
+	end
+	C_Container.PickupContainerItem(move[1][1], move[1][2])
+	C_Container.PickupContainerItem(move[2][1], move[2][2])
+	ClearCursor()
+	state.next = state.next + 1
+end
+
+local function OnSortStarted()
+	if not Items.db.sortMarkedJunk or InCombatLockdown() then
+		return
+	end
+	StopPlacing()
+	placing = { started = GetTime(), lastUpdate = GetTime(), slots = SortedSlots() }
+	placing.ticker = C_Timer.NewTicker(MOVE_INTERVAL, PlacingStep)
+end
+
+function Items:BAG_UPDATE()
+	if placing and not placing.moves then
+		placing.lastUpdate = GetTime()
+	end
 end
 
 -- Opening all bags opens each frame; one sort after the last of them.
@@ -1363,6 +1530,7 @@ function Items:Refresh()
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
 	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
+	self:ToggleEvent("BAG_UPDATE", db.sortMarkedJunk)
 	self:ToggleEvent("BAG_UPDATE_DELAYED", db.upgradePopup, ns.Measured("Items: upgrade popup", ScanNewItems))
 	-- Equipping is not possible in combat: hidden meanwhile, shown again after.
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", db.upgradePopup, function()
@@ -1405,6 +1573,9 @@ end
 function Items:OnLogin()
 	HookContainerFrames()
 	HookRollFrames()
+	if C_Container.SortBags then
+		hooksecurefunc(C_Container, "SortBags", OnSortStarted)
+	end
 	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
 	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
@@ -1412,7 +1583,13 @@ function Items:OnLogin()
 	self:Refresh()
 end
 
-function Items:OnOptionChanged()
+function Items:OnOptionChanged(key)
+	-- A character list starts as a copy of the account list.
+	if key == "junkPerCharacter" and self.db.junkPerCharacter
+		and next(self.cdb.junk) == nil and next(self.cdb.keep) == nil then
+		self.cdb.junk = CopyTable(self.db.junk)
+		self.cdb.keep = CopyTable(self.db.keep)
+	end
 	self:Refresh()
 	UpdateAllBags()
 	if QuestInfoFrame:IsVisible() then
@@ -1433,11 +1610,13 @@ Items.options = {
 		{ "None", L.ITEMS_MOUSE_NONE },
 	} },
 	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
+	{ key = "junkPerCharacter", type = "toggle", name = L.ITEMS_JUNK_PER_CHAR, desc = L.ITEMS_JUNK_PER_CHAR_DESC },
 	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
 		Items:ShowJunkMenu(button)
 	end },
 	{ type = "header", name = L.ITEMS_BAGS },
 	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
+	{ key = "sortMarkedJunk", type = "toggle", name = L.ITEMS_SORT_JUNK, desc = L.ITEMS_SORT_JUNK_DESC },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

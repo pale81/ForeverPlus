@@ -653,6 +653,21 @@ function ns:ApplyDisplay(entry)
 	ApplyDisplay(entry)
 end
 
+-- Frames created later (e.g. popups): saved positions apply on every show.
+function ns.HookSavedWindow(frame)
+	HookWindow(frame)
+end
+
+-- Applies a saved position now; true if there is one.
+function ns.ApplySavedWindow(frame)
+	local data = saved[frame:GetName()]
+	if data and data.x then
+		Apply(frame)
+		return true
+	end
+	return false
+end
+
 function ns:HasSavedPosition(entry)
 	local data = saved[entry.key]
 	return data and data.x ~= nil

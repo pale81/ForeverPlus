@@ -6,7 +6,7 @@ Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und ble
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Minimap & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient und ist anfangs gesperrt: **Alt + Rechtsklick** entsperrt/sperrt einzeln, dann verschiebt **Alt + Ziehen** und **Strg + Mausrad** skaliert. Gesperrte Fenster lassen das Mausrad in Ruhe (Kamera-Zoom, Aktionsleisten-Blättern); „Zurücksetzen“ sperrt alles wieder. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.
-`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars, `/fp mausrad` prüft eine Minute lang, wer das Mausrad bekommt (auch Elemente ohne Mausfokus), wie Shift + Mausrad belegt ist und ob Blizzards Blätter-Befehl läuft, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
+`/rl` lädt das Interface neu, `/fp fehler` öffnet die Fehlerliste, `/fp schrott` die Schrottmarkierungen, `/fp radar` zeigt den Zustand des Rezeptradars, `/fp talente` öffnet den Talentbaum (vor Stufe 10 zum Planen), `/fp mausrad` prüft eine Minute lang, wer das Mausrad bekommt (auch Elemente ohne Mausfokus), wie Shift + Mausrad belegt ist und ob Blizzards Blätter-Befehl läuft, `/fp kopieren` die letzten 50 Chatzeilen zum Kopieren, `/fp messen` und `/fp zeiten` die Laufzeitmessung, `/fp hilfe` alle Befehle.
 
 ## Funktionen
 
@@ -25,8 +25,10 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Chat der letzten Sitzung behalten (je Fenster einstellbare Zeilenzahl, geschützte Nachrichten ausgenommen) | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
+| | Wiederkehrende Meldungen zusammenfassen: Fertigkeitsanstiege und Rufänderungen erscheinen nach einer Wartezeit (Standard 30 s) als eine Zeile mit letztem Wert bzw. Summe und Anzahl („… auf 11 erhöht (×8)“) | ja |
 | | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
 | | Beute zusammenfassen: eigene Beute, selbst hergestellte Gegenstände und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet ein Popup am Mauszeiger mit Symbol, Anzahl und Herkunft (Shift-Klick verlinkt im Chat); Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile | ja |
+| | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Mit QuestieDB: Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
 | | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
@@ -41,6 +43,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Gegenstände | Schrott verkaufen, reparieren (optional aus der Gildenbank) | ja |
 | | Beutel-Knopf beim Händler verkauft nach denselben Regeln (behaltene graue Gegenstände bleiben), Tooltip mit Anzahl und Wert | ja |
 | | Mittelklick (Maustaste 3/4/5 wählbar) oder frei belegbare Taste (Tastaturbelegung → AddOns) markiert/entmarkiert als Schrott (gelbe Münze), wird mitverkauft; alles, was verkauft wird, trägt die Münze; graue Gegenstände lassen sich so vom Verkauf ausnehmen; Liste aller Markierungen als Popup direkt am Einstellungsknopf, Klick entfernt einzeln (`/fp schrott`); Gegenstände mit Zufallssuffix („des Affen“, „des Frostschutzes“) werden einzeln markiert | ja |
+| | Schrottliste wahlweise je Charakter (beim ersten Einschalten wird die gemeinsame Liste übernommen) | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |
 | | Neuer besserer Gegenstand in den Taschen (Beute, Questbelohnung, Kauf; gleiche Wertung wie der Pfeil): Pergament-Fenster mit Symbol, ersetztem Teil und Wertung, „Anlegen“ oder „Nicht jetzt“; mehrere nacheinander, im Kampf ausgeblendet | ja |
@@ -63,16 +66,19 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | | Taschen beim Öffnen mit Blizzards Aufräumfunktion sortieren (höchstens alle 3 s, nicht im Kampf/beim Schrottverkauf) | ja |
+| | Nach jedem Sortieren (auch mit Blizzards Knopf) liegen markierte Gegenstände direkt neben den grauen | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons grün/orange/rot; verschieb- und sperrbar | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Gruppensuche | Dungeongruppen für 5 und 10 Spieler: Klassen der Gruppe (nach Rolle sortiert) und fehlende Rollen nach einstellbarer Aufstellung (5er: 1 Tank, 1 Heiler, 3 Schaden; 10er: einstellbar) | ja |
 | Quests | Questklänge (abschaltbar) bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
+| | Quest- und Gesprächsfenster nur als Pergament (ohne Rahmen, Porträt, Hintergrund, Schließen-Knopf) | – |
 | | Extra-Knopf für den Questgegenstand der nächsten Quest (in Reichweite), Bearbeitungsmodus, Tastenbelegung | ja |
 | Flugzeiten | Jeder Flug wird gemessen und je Strecke gespeichert; Dauer im Tooltip der Flugkarte, Restzeit-Leiste während des Flugs (verschieb- und sperrbar) | ja |
 | Erfahrung & Ruf | Zahlen immer oder nur bei Mouseover (Standard: Mouseover); EP- und Rufleiste: Prozent, Zahl und Prozent, Rest bis Stufe/Rufstufe, alles (EP inkl. Erholung, Quest-EP); EP abgabebereiter Quests (nur Quests mit Zielen, alle erfüllt) als dunkler Balkenteil | ja |
 | Talente | „Zauber beim Lehrer“ (erlernte grau; künftige Zauber aus der beim Lehrerbesuch gespeicherten Liste; das Symbol funkelt, solange es Neues zu lernen gibt, bis zum nächsten Öffnen); Builds speichern, exportieren, importieren, übernehmen (Blizzard-Loadout-Format); Talentplaner: Rechtsklick plant einen Rang (blau, blauer Zähler über dem Talent), Shift + Rechtsklick nimmt ihn zurück, bis Stufe 60; Regeln wie im Spiel: je Reihe 5 Punkte in den Reihen darüber im selben Baum, Talente hinter einem Pfeil erst mit voll ausgebautem Ausgangstalent, „Plan übernehmen“; der Tooltip eines geplanten Talents zeigt die Werte des geplanten Rangs | ja |
+| | Vor dem ersten Talentpunkt öffnen Talenttaste, Talentsymbol oder `/fp talente` den Talentbaum in Blizzards Ansichtsmodus (leerer Build, Stufe 60) zum Planen | ja |
 | Anprobe | Knöpfe „Ausziehen“/„Wieder anziehen“; Klick auf einen Eintrag der Vorlagenliste blendet das Teil aus/ein | – |
 | Buff-Erinnerung | Klickbare Aktionstasten für fehlende Klassen-Buffs, Richtung rechts/links/oben/unten, Größe, Vorwarnzeit, leuchtet wie Blizzards Zauberhinweise, bald ablaufende Buffs blass (Deckkraft einstellbar), Zauberwahl je Gruppe (Rüstung, Aspekt, Segen, Aura, Gift …), optional Buffen per Mausrad (Kamera-Zoom solange aus, Shift + Mausrad blättert weiter), in Ruhezonen standardmäßig aus; Talent-Buffs erscheinen, sobald gelernt; verschiebbar im Bearbeitungsmodus | ja |
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“; runde Knöpfe (Berufe) behalten Blizzards runden Ring | – |

@@ -9,6 +9,7 @@ local Talents = ns:NewModule("Talents", {
 	defaults = {
 		enabled = true,
 		planner = true,
+		earlyPlanner = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
@@ -638,7 +639,8 @@ end
 function ApplyPlan()
 	local frame = TalentsFrame()
 	local configID = frame and frame:GetConfigID()
-	if InCombatLockdown() or not configID then
+	local viewing = frame and frame.IsInspecting and frame:IsInspecting()
+	if InCombatLockdown() or not configID or viewing then
 		ns.Print(L.TALENTS_ERROR_FRAME)
 		return
 	end
@@ -664,6 +666,85 @@ local function SetupPlanner(frame)
 	end
 	for _, event in ipairs({ "TRAIT_CONFIG_UPDATED", "TRAIT_NODE_CHANGED", "TRAIT_TREE_CURRENCY_INFO_UPDATED" }) do
 		Talents:RegisterEvent(event, QueuePlanUpdate)
+	end
+end
+
+---------------------------------------------------------------------------
+-- Before the first talent point the talent window stays closed. For planning
+-- it opens with an empty build at level 60 in Blizzard's view mode (the one
+-- used for talent build links).
+---------------------------------------------------------------------------
+local HEADER_VERSION_BITS, SPEC_BITS, HASH_BYTES = 8, 16, 16
+
+-- Loadout string without any points (Blizzard's format, tree hash zero).
+local function EmptyLoadout(specID)
+	local treeID = C_ClassTalents.GetTraitTreeForSpec(specID)
+	local nodes = treeID and C_Traits.GetTreeNodes(treeID)
+	if not nodes or #nodes == 0 then
+		return nil
+	end
+	local stream = ExportUtil.MakeExportDataStream()
+	stream:AddValue(HEADER_VERSION_BITS, C_Traits.GetLoadoutSerializationVersion())
+	stream:AddValue(SPEC_BITS, specID)
+	for _ = 1, HASH_BYTES do
+		stream:AddValue(8, 0)
+	end
+	for _ = 1, #nodes do
+		stream:AddValue(1, 0)
+	end
+	return stream:GetExportString()
+end
+
+local function CanPlanEarly()
+	return Talents.db.enabled and Talents.db.planner and Talents.db.earlyPlanner
+		and not C_SpecializationInfo.HasPlayerEarnedATalentPoint()
+end
+
+function ns.OpenTalentPlanning()
+	if InCombatLockdown() then
+		return
+	end
+	if C_SpecializationInfo.HasPlayerEarnedATalentPoint() then
+		PlayerSpellsUtil.ToggleClassTalentFrame()
+		return
+	end
+	local specID = PlayerUtil.GetCurrentSpecID()
+	local loadout = specID and EmptyLoadout(specID)
+	if not loadout then
+		ns.Print(L.TALENTS_EARLY_FAILED)
+		return
+	end
+	PlayerSpellsUtil.InspectLoadout(("%d:%d:%s"):format(specID, PLAN_MAX_LEVEL, loadout))
+end
+
+-- The talent key binding and the (disabled) micro button open the view.
+local earlyQueued = false
+local function OpenEarlyAfterToggle()
+	if earlyQueued or not CanPlanEarly() then
+		return
+	end
+	earlyQueued = true
+	C_Timer.After(0, function()
+		earlyQueued = false
+		if not (PlayerSpellsFrame and PlayerSpellsFrame:IsShown()) then
+			ns.OpenTalentPlanning()
+		end
+	end)
+end
+
+local function HookEarlyPlanning()
+	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentFrame then
+		hooksecurefunc(PlayerSpellsUtil, "ToggleClassTalentFrame", OpenEarlyAfterToggle)
+	end
+	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentOrSpecFrame then
+		hooksecurefunc(PlayerSpellsUtil, "ToggleClassTalentOrSpecFrame", OpenEarlyAfterToggle)
+	end
+	if TalentMicroButton then
+		TalentMicroButton:HookScript("OnMouseUp", function(button, mouseButton)
+			if mouseButton == "LeftButton" and not button:IsEnabled() and button:IsMouseOver() then
+				OpenEarlyAfterToggle()
+			end
+		end)
 	end
 end
 
@@ -733,6 +814,7 @@ function Talents:OnLogin()
 			end
 		end
 	end)
+	HookEarlyPlanning()
 	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
 	self:RegisterEvent("TRAINER_SHOW", function()
 		C_Timer.After(0.3, function()
@@ -751,4 +833,5 @@ end
 Talents.options = {
 	{ key = "enabled", type = "toggle", name = L.TALENTS_ENABLE, desc = L.TALENTS_ENABLE_DESC },
 	{ key = "planner", type = "toggle", name = L.TALENTS_PLANNER, desc = L.TALENTS_PLANNER_DESC },
+	{ key = "earlyPlanner", type = "toggle", name = L.TALENTS_EARLY, desc = L.TALENTS_EARLY_DESC, parent = "planner" },
 }

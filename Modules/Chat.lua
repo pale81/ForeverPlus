@@ -23,6 +23,8 @@ local Chat = ns:NewModule("Chat", {
 		chatLog = true,
 		chatLogLines = 200,
 		copyButton = true,
+		repeatSummary = true,
+		repeatDelay = 30,
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -431,6 +433,123 @@ local function SetFilter(events, enabled, filter)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Repeated messages: skill-ups and reputation changes are held back and
+-- shown as one line once no new one came for a while ("... increased to 11
+-- (x8)"; reputation amounts are added up).
+---------------------------------------------------------------------------
+local REPEAT_KINDS = {
+	{ event = "CHAT_MSG_SKILL", group = "SKILL", format = SKILL_RANK_UP },
+	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_INCREASED, sum = true },
+	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_DECREASED, sum = true },
+}
+local REPEAT_EVENTS = { "CHAT_MSG_SKILL", "CHAT_MSG_COMBAT_FACTION_CHANGE" }
+local repeatPending = {} -- kind index .. name -> { kind, name, value, count, frames, timer }
+
+for _, kind in ipairs(REPEAT_KINDS) do
+	if type(kind.format) == "string" then
+		kind.match = ns.FormatToPattern(kind.format, true)
+		-- Format argument of the number (the other one is the name).
+		local position = 0
+		for index, placeholder in kind.format:gmatch("%%(%d*)%$?([sd])") do
+			position = position + 1
+			if placeholder == "d" then
+				kind.numberArg = tonumber(index) or position
+			end
+		end
+	end
+end
+
+-- Name and number of a message in the order of the format arguments.
+local function ParseRepeat(kind, text)
+	local captures = { text:match(kind.match.pattern) }
+	if not captures[1] then
+		return nil
+	end
+	local args = {}
+	for i, value in ipairs(captures) do
+		args[kind.match.order[i]] = value
+	end
+	local number = tonumber(args[kind.numberArg])
+	local name = args[kind.numberArg == 2 and 1 or 2]
+	if number and name then
+		return name, number
+	end
+end
+
+local function FormatRepeat(entry)
+	local kind = entry.kind
+	local args = {}
+	args[kind.numberArg] = entry.value
+	args[kind.numberArg == 2 and 1 or 2] = entry.name
+	local text = kind.format:format(args[1], args[2])
+	if entry.count > 1 then
+		text = text .. L.CHAT_REPEAT_COUNT:format(entry.count)
+	end
+	return text
+end
+
+local function FlushRepeat(key)
+	local entry = repeatPending[key]
+	repeatPending[key] = nil
+	if not entry then
+		return
+	end
+	local info = ChatTypeInfo[entry.kind.group]
+	local text = FormatRepeat(entry)
+	for chatFrame in pairs(entry.frames) do
+		if info then
+			chatFrame:AddMessage(text, info.r, info.g, info.b, info.id)
+		else
+			chatFrame:AddMessage(text)
+		end
+	end
+end
+
+local function RepeatFilter(chatFrame, event, text)
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
+		return false
+	end
+	for index, kind in ipairs(REPEAT_KINDS) do
+		if kind.event == event and kind.match and kind.numberArg then
+			local name, number = ParseRepeat(kind, text)
+			if name then
+				local key = index .. ":" .. name
+				local entry = repeatPending[key]
+				if not entry then
+					entry = { kind = kind, name = name, value = 0, count = 0, frames = {} }
+					repeatPending[key] = entry
+				end
+				-- The filter runs once per chat window showing the message.
+				local now = GetTime()
+				if entry.lastText ~= text or entry.lastTime ~= now then
+					entry.count = entry.count + 1
+					entry.value = kind.sum and entry.value + number or number
+					entry.lastText, entry.lastTime = text, now
+				end
+				entry.frames[chatFrame] = true
+				if entry.timer then
+					entry.timer:Cancel()
+				end
+				entry.timer = C_Timer.NewTimer(Chat.db.repeatDelay, function()
+					FlushRepeat(key)
+				end)
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function Chat:UpdateRepeatSummary()
+	SetFilter(REPEAT_EVENTS, self.db.repeatSummary, RepeatFilter)
+	if not self.db.repeatSummary then
+		for key in pairs(repeatPending) do
+			FlushRepeat(key)
+		end
+	end
+end
+
 local COLORS = { "GREY", "ORANGE", "YELLOW", "BLUE", "GREEN", "RED", "WHITE" }
 local COLOR_CODES = {
 	GREY = "a0a0a0", ORANGE = "ff8000", YELLOW = "ffd100", BLUE = "40c0ff",
@@ -703,6 +822,7 @@ function Chat:OnLogin()
 	end
 	StyleAll()
 	self:UpdateButtons()
+	self:UpdateRepeatSummary()
 	hooksecurefunc("FCF_FadeInChatFrame", function(chatFrame)
 		SetTabsShown(chatFrame, true)
 		SetCopyShown(chatFrame, true)
@@ -741,7 +861,9 @@ function Chat:OnLogin()
 end
 
 function Chat:OnOptionChanged(key, value)
-	if key == "keywordAlert" or key == "keywordHighlight" then
+	if key == "repeatSummary" then
+		self:UpdateRepeatSummary()
+	elseif key == "keywordAlert" or key == "keywordHighlight" then
 		self:UpdateKeywordAlert()
 	elseif key == "channelShort" then
 		self:UpdateChannelNames()
@@ -787,6 +909,11 @@ Chat.options = {
 	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },
 	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },
 	{ key = "timestampColorValue", type = "dropdown", name = L.CHAT_COLOR, parent = "timestampColor", values = ColorValues },
+	{ key = "repeatSummary", type = "toggle", name = L.CHAT_REPEAT, desc = L.CHAT_REPEAT_DESC },
+	{ key = "repeatDelay", type = "slider", name = L.CHAT_REPEAT_DELAY, desc = L.CHAT_REPEAT_DELAY_DESC, parent = "repeatSummary", min = 5, max = 120, step = 5,
+		format = function(value)
+			return ("%d s"):format(value)
+		end },
 	{ type = "header", name = L.CHAT_KEYWORD_HEADER },
 	{ key = "keywordAlert", type = "toggle", name = L.CHAT_KEYWORD_ALERT, desc = L.CHAT_KEYWORD_ALERT_DESC },
 	{ type = "button", name = L.CHAT_KEYWORDS, text = L.CHAT_KEYWORDS_EDIT, func = function()

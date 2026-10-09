@@ -100,6 +100,26 @@ function ns.IsQuestReady(questID, logIndex)
 end
 
 ---------------------------------------------------------------------------
+-- Lua pattern from one of Blizzard's format strings ("%s", "%d", "%1$s"):
+-- each placeholder becomes a capture; order[i] is the format argument of
+-- capture i.
+---------------------------------------------------------------------------
+function ns.FormatToPattern(format, anchored)
+	local order, count = {}, 0
+	local marked = format:gsub("%%(%d*)%$?([sd])", function(index, kind)
+		count = count + 1
+		order[count] = tonumber(index) or count
+		return kind == "d" and "\001" or "\002"
+	end)
+	marked = marked:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+	marked = marked:gsub("\001", "(%%d+)"):gsub("\002", "(.-)")
+	if anchored then
+		marked = "^" .. marked .. "$"
+	end
+	return { pattern = marked, order = order }
+end
+
+---------------------------------------------------------------------------
 -- Event dispatcher: one frame, events only registered while someone listens.
 ---------------------------------------------------------------------------
 local eventFrame = CreateFrame("Frame")
@@ -486,6 +506,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns.PrintAlways(ns.L.SLASH_HELP)
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
+	elseif msg == "talente" or msg == "talents" then
+		ns.OpenTalentPlanning()
 	elseif msg == "mausrad" or msg == "wheel" then
 		ns.StartWheelCheck()
 	elseif msg == "junk" or msg == "schrott" then

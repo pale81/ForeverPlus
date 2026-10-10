@@ -266,6 +266,11 @@ function Transports.Clear()
 	state = {}
 end
 
+ns.AddDataSection(function()
+	local rides = ns.db.transportRides
+	return rides and #rides > 0 and Transports.ExportText(rides) or nil
+end, Transports.Clear)
+
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------

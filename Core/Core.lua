@@ -89,6 +89,15 @@ function ns.Number(value, fallback)
 	return value
 end
 
+-- What modules record for later updates (rides, book finds, innkeepers, loot):
+-- ns.AddDataSection(text, clear) with text() returning the lines to export or
+-- nil, and clear() removing the recording. /fp daten export and löschen use them.
+ns.dataSections = {}
+
+function ns.AddDataSection(text, clear)
+	ns.dataSections[#ns.dataSections + 1] = { text = text, clear = clear }
+end
+
 -- Quest with objectives that are all fulfilled. The API also reports quests
 -- without objectives (breadcrumbs, "talk to …") as complete; they are not.
 function ns.IsQuestReady(questID, logIndex)

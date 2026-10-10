@@ -131,7 +131,28 @@ local function ObservedQuests()
 	return count
 end
 
--- /fp daten [an|aus|löschen], /fp datenbank
+-- Everything modules recorded, as one text.
+function Capture.ExportText()
+	local parts = {}
+	for _, section in ipairs(ns.dataSections) do
+		local text = section.text()
+		if text then
+			parts[#parts + 1] = text
+		end
+	end
+	return #parts > 0 and table.concat(parts, "\n\n") or nil
+end
+
+function Capture.Export()
+	local text = Capture.ExportText()
+	if not text then
+		ns.PrintAlways(L.DATA_EXPORT_NONE)
+		return
+	end
+	ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, function() end, L.DATA_EXPORT_HINT)
+end
+
+-- /fp daten [an|aus|export|löschen], /fp datenbank
 function Capture.Command(msg)
 	if msg == "daten an" or msg == "data on" then
 		Settings.SetValue("ForeverPlus_DataCapture_enabled", true)
@@ -140,10 +161,12 @@ function Capture.Command(msg)
 		Settings.SetValue("ForeverPlus_DataCapture_enabled", false)
 		ns.PrintAlways(L.DATA_OFF)
 	elseif msg == "daten export" or msg == "data export" then
-		ns:GetModule("Transports").Export()
+		Capture.Export()
 	elseif msg == "daten löschen" or msg == "data clear" then
 		Capture.Clear()
-		ns:GetModule("Transports").Clear()
+		for _, section in ipairs(ns.dataSections) do
+			section.clear()
+		end
 		ns.PrintAlways(L.DATA_CLEARED)
 	elseif msg == "datenbank" or msg == "database" then
 		local meta = ns.BundledDatabase and ns.BundledDatabase.meta or {}

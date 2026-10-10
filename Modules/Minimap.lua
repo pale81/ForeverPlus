@@ -9,6 +9,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 	defaults = {
 		worldMapCoords = true,
 		trackingIcons = true,
+		trackingEntries = true,
 	},
 })
 
@@ -171,10 +172,30 @@ local function AddIconInitializers(description)
 	end
 end
 
+-- Entries of ForeverPlus functions in the tracking menu: ns.AddTrackingEntry(fn)
+-- with fn(rootDescription) adding its checkbox or submenu.
+local trackingEntries = {}
+
+function ns.AddTrackingEntry(fn)
+	trackingEntries[#trackingEntries + 1] = fn
+end
+
+local function AddForeverPlusEntries(rootDescription)
+	if not MinimapCoords.db.trackingEntries or #trackingEntries == 0 then
+		return
+	end
+	rootDescription:CreateDivider()
+	rootDescription:CreateTitle("ForeverPlus")
+	for _, fn in ipairs(trackingEntries) do
+		fn(rootDescription)
+	end
+end
+
 function MinimapCoords:OnLogin()
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
 			AddIconInitializers(rootDescription)
+			AddForeverPlusEntries(rootDescription)
 		end)
 	end
 	-- Small frame around the text: movable and lockable like a window.
@@ -222,4 +243,5 @@ end
 MinimapCoords.options = {
 	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
+	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
 }

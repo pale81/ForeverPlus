@@ -971,6 +971,30 @@ do
 	assert(ns.ExtraInfoShown(), "option on: shown with Shift")
 	tt.db.shiftInfo = false
 end
+-- Tracking menu entries
+do
+	local mm = ns:GetModule("Minimap")
+	local add = uv(mm.OnLogin, "AddForeverPlusEntries")
+	local radar = ns:GetModule("RecipeRadar")
+	local created, titles, checkboxes = 0, 0, {}
+	local root = { CreateDivider = function() created = created + 1 end, CreateTitle = function() titles = titles + 1 end,
+		CreateCheckbox = function(_, name, isOn, set) checkboxes[#checkboxes + 1] = { name = name, isOn = isOn, set = set } end }
+	mm.db.trackingEntries = false
+	add(root); assert(#checkboxes == 0, "option off: no entries")
+	mm.db.trackingEntries = true
+	radar.db.enabled, radar.db.minimap = true, true
+	local values = {}
+	Settings.SetValue = function(var, value) values[var] = value end
+	add(root)
+	assert(titles == 1 and #checkboxes >= 1, "radar entry added under a title") -- the harness runs OnLogin more than once
+	checkboxes = { checkboxes[#checkboxes] }
+	assert(checkboxes[1].isOn() == true, "on while the radar is shown on the minimap")
+	checkboxes[1].set()
+	assert(values.ForeverPlus_RecipeRadar_minimap == false, "click switches the minimap pins off")
+	radar.db.minimap = false
+	checkboxes[1].set()
+	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_minimap == true, "click switches them on")
+end
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

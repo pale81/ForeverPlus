@@ -542,6 +542,18 @@ local function Start()
 end
 
 function Radar:OnLogin()
+	-- Recipe vendors in the minimap tracking menu.
+	ns.AddTrackingEntry(function(root)
+		root:CreateCheckbox(L.RADAR_TRACKING, function()
+			return Radar.db.enabled and Radar.db.minimap
+		end, function()
+			local on = not (Radar.db.enabled and Radar.db.minimap)
+			if on then
+				Settings.SetValue("ForeverPlus_RecipeRadar_enabled", true)
+			end
+			Settings.SetValue("ForeverPlus_RecipeRadar_minimap", on)
+		end)
+	end)
 	playerTeam = UnitFactionGroup("player") == "Horde" and "H" or "A"
 	minimapHolder = CreateFrame("Frame", nil, Minimap)
 	minimapHolder:SetAllPoints()

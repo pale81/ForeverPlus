@@ -100,7 +100,7 @@ local function ItemLines(itemID)
 end
 
 local function OnItemTooltip(tooltip, data)
-	if not Info.db.itemSources or tooltip:IsForbidden() or ns.IsShoppingTooltip(tooltip) then
+	if not Info.db.itemSources or tooltip:IsForbidden() or ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
 		return
 	end
 	local itemID = data and data.id
@@ -220,7 +220,7 @@ local function AddQuestLines(tooltip, label, quests)
 end
 
 local function OnUnitTooltip(tooltip, data)
-	if not Info.db.npcQuests or tooltip:IsForbidden() or tooltip ~= GameTooltip then
+	if not Info.db.npcQuests or tooltip:IsForbidden() or tooltip ~= GameTooltip or not ns.ExtraInfoShown() then
 		return
 	end
 	local npcID = NpcID(data and data.guid)

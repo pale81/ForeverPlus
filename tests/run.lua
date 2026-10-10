@@ -937,6 +937,18 @@ do
 	fill("DELETE_ITEM"); assert(box.text == nil, "simple delete has no text")
 	fill("DELETE_GOOD_ITEM"); assert(box.text == "DELETE", "word entered")
 end
+-- Extra tooltip info only with Shift
+do
+	local tt = ns:GetModule("Tooltip")
+	tt.db.shiftInfo = false
+	IsShiftKeyDown = function() return false end
+	assert(ns.ExtraInfoShown(), "option off: always")
+	tt.db.shiftInfo = true
+	assert(not ns.ExtraInfoShown(), "option on: hidden without Shift")
+	IsShiftKeyDown = function() return true end
+	assert(ns.ExtraInfoShown(), "option on: shown with Shift")
+	tt.db.shiftInfo = false
+end
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

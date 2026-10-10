@@ -672,3 +672,7 @@ L.LOCK_SOUND_DESC = "Spielt einen kurzen Klick, wenn ein Fenster oder eine Anzei
 L.MINIMAP_TRACKING_ENTRIES = "ForeverPlus im Verfolgungsmenü"
 L.MINIMAP_TRACKING_ENTRIES_DESC = "Hängt eigene Einträge (z. B. Rezepthändler) unten in das Verfolgungsmenü der Minimap."
 L.RADAR_TRACKING = "Rezepthändler"
+L.FLIGHT_POPUP = "Zielübersicht an der Flugkarte"
+L.FLIGHT_POPUP_DESC = "Zeigt beim Überfahren eines Flugpunkts alle Ziele von hier mit Preis und gemessener Flugzeit neben der Karte."
+L.FLIGHT_POPUP_TITLE = "Flüge ab %s"
+L.FLIGHT_POPUP_MORE = "… und %d weitere"

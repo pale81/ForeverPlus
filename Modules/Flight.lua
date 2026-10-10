@@ -9,6 +9,7 @@ local Flight = ns:NewModule("Flight", {
 	order = 5.3,
 	defaults = {
 		enabled = true,
+		routePopup = true,
 		times = {}, -- "From -> To" -> seconds
 	},
 })
@@ -53,6 +54,123 @@ local function AddTimeLine(index)
 		GameTooltip:AddLine(L.FLIGHT_UNKNOWN, 0.6, 0.6, 0.6)
 	end
 	GameTooltip:Show()
+end
+
+---------------------------------------------------------------------------
+-- Popup next to the taxi map: every destination from here with price and
+-- time, in the look of the quest preview. The hovered one is highlighted.
+---------------------------------------------------------------------------
+local POPUP_ROWS = 20
+local COLUMN_NAME, COLUMN_COST, COLUMN_TIME = 170, 90, 44
+local ROW_HEIGHT = 14
+local popup
+
+-- Reachable destinations from the current node: { name, cost, time, hovered }
+-- sorted by price, then name; at most `limit` entries (hovered one always in).
+local function Destinations(hoveredIndex, limit)
+	local list = {}
+	for index = 1, NumTaxiNodes() do
+		if TaxiNodeGetType(index) == "REACHABLE" then
+			list[#list + 1] = {
+				name = TaxiNodeName(index), cost = ns.Number(TaxiNodeCost(index), 0),
+				time = KnownTime(index), hovered = index == hoveredIndex,
+			}
+		end
+	end
+	table.sort(list, function(a, b)
+		if a.cost ~= b.cost then
+			return a.cost < b.cost
+		end
+		return a.name < b.name
+	end)
+	local hidden = 0
+	if #list > limit then
+		hidden = #list - limit
+		for i = #list, limit + 1, -1 do
+			if list[i].hovered and limit > 0 then
+				list[limit], list[i] = list[i], list[limit]
+			end
+			list[i] = nil
+		end
+	end
+	return list, hidden
+end
+
+local function PopupRow(index)
+	local row = popup.rows[index]
+	if not row then
+		row = {}
+		local pad = ns.PANEL_PADDING
+		row.name = popup:CreateFontString(nil, "OVERLAY", "GameTooltipText")
+		row.cost = popup:CreateFontString(nil, "OVERLAY", "GameTooltipText")
+		row.time = popup:CreateFontString(nil, "OVERLAY", "GameTooltipText")
+		local y = -(pad + 24 + (index - 1) * ROW_HEIGHT)
+		row.name:SetPoint("TOPLEFT", pad, y)
+		row.name:SetSize(COLUMN_NAME, ROW_HEIGHT)
+		row.name:SetJustifyH("LEFT")
+		row.cost:SetPoint("TOPLEFT", pad + COLUMN_NAME, y)
+		row.cost:SetSize(COLUMN_COST, ROW_HEIGHT)
+		row.cost:SetJustifyH("RIGHT")
+		row.time:SetPoint("TOPLEFT", pad + COLUMN_NAME + COLUMN_COST, y)
+		row.time:SetSize(COLUMN_TIME, ROW_HEIGHT)
+		row.time:SetJustifyH("RIGHT")
+		popup.rows[index] = row
+	end
+	return row
+end
+
+local function ShowRoutes(hoveredIndex)
+	if not Flight.db.routePopup then
+		return
+	end
+	local anchor = FlightMapFrame or TaxiFrame
+	if not anchor or not anchor:IsShown() then
+		return
+	end
+	if not popup then
+		popup = ns.CreatePanel("ForeverPlusFlightPopup", { strata = "TOOLTIP", escape = false })
+		popup:EnableMouse(false)
+		popup.rows = {}
+	end
+	local list, hidden = Destinations(hoveredIndex, POPUP_ROWS)
+	if #list == 0 then
+		popup:Hide()
+		return
+	end
+	local pad = ns.PANEL_PADDING
+	popup.Title:SetText(L.FLIGHT_POPUP_TITLE:format(CurrentNode() or "?"))
+	for index, entry in ipairs(list) do
+		local row = PopupRow(index)
+		local color = entry.hovered and HIGHLIGHT_FONT_COLOR or NORMAL_FONT_COLOR
+		row.name:SetText(entry.name)
+		row.name:SetTextColor(color:GetRGB())
+		row.cost:SetText(entry.cost > 0 and GetMoneyString(entry.cost, true) or "")
+		row.time:SetText(entry.time and FormatTime(entry.time) or "–")
+		row.time:SetTextColor((entry.time and HIGHLIGHT_FONT_COLOR or GRAY_FONT_COLOR):GetRGB())
+		row.name:Show(); row.cost:Show(); row.time:Show()
+	end
+	for index = #list + 1, #popup.rows do
+		local row = popup.rows[index]
+		row.name:Hide(); row.cost:Hide(); row.time:Hide()
+	end
+	local rows = #list
+	if hidden > 0 then
+		local row = PopupRow(rows + 1)
+		row.name:SetText(L.FLIGHT_POPUP_MORE:format(hidden))
+		row.name:SetTextColor(GRAY_FONT_COLOR:GetRGB())
+		row.name:Show(); row.cost:Hide(); row.time:Hide()
+		rows = rows + 1
+	end
+	popup:SetSize(COLUMN_NAME + COLUMN_COST + COLUMN_TIME + 2 * pad, 24 + rows * ROW_HEIGHT + 2 * pad)
+	popup:ClearAllPoints()
+	popup:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 4, 0)
+	popup:Show()
+end
+
+local function HideRoutes()
+	if popup then
+		popup:Hide()
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -179,27 +297,41 @@ function Flight:OnLogin()
 	if TaxiNodeOnButtonEnter then
 		hooksecurefunc("TaxiNodeOnButtonEnter", function(button)
 			AddTimeLine(button:GetID())
+			ShowRoutes(button:GetID())
 		end)
+	end
+	if TaxiNodeOnButtonLeave then
+		hooksecurefunc("TaxiNodeOnButtonLeave", HideRoutes)
 	end
 	ns.OnAddOnLoaded("Blizzard_FlightMap", function()
 		if FlightMap_FlightPointPinMixin and FlightMap_FlightPointPinMixin.OnMouseEnter then
 			hooksecurefunc(FlightMap_FlightPointPinMixin, "OnMouseEnter", function(pin)
-				AddTimeLine(pin.taxiNodeData and pin.taxiNodeData.slotIndex)
+				local index = pin.taxiNodeData and pin.taxiNodeData.slotIndex
+				AddTimeLine(index)
+				ShowRoutes(index)
 			end)
+			if FlightMap_FlightPointPinMixin.OnMouseLeave then
+				hooksecurefunc(FlightMap_FlightPointPinMixin, "OnMouseLeave", HideRoutes)
+			end
 		end
 	end)
 	self:RegisterEvent("PLAYER_CONTROL_LOST")
 	self:RegisterEvent("PLAYER_CONTROL_GAINED")
+	self:RegisterEvent("TAXIMAP_CLOSED", HideRoutes)
 end
 
 function Flight:OnOptionChanged()
 	if bar and not self.db.enabled then
 		bar:Hide()
 	end
+	if not self.db.routePopup then
+		HideRoutes()
+	end
 end
 
 Flight.options = {
 	{ key = "enabled", type = "toggle", name = L.FLIGHT_ENABLE, desc = L.FLIGHT_ENABLE_DESC },
+	{ key = "routePopup", type = "toggle", name = L.FLIGHT_POPUP, desc = L.FLIGHT_POPUP_DESC },
 	{ type = "button", name = L.FLIGHT_RESET, text = L.RESET, desc = L.FLIGHT_RESET_DESC, func = function()
 		wipe(Flight.db.times)
 	end },

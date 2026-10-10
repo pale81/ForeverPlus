@@ -995,6 +995,29 @@ do
 	checkboxes[1].set()
 	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_minimap == true, "click switches them on")
 end
+-- Flight popup: destinations by price, hovered one kept when the list is cut
+do
+	local flight = ns:GetModule("Flight")
+	local nodes = {
+		{ "Hier", "CURRENT", 0 }, { "Zeta", "REACHABLE", 300 }, { "Alpha", "REACHABLE", 300 }, { "Nah", "REACHABLE", 50 },
+		{ "Fern", "REACHABLE", 900 }, { "Gesperrt", "UNREACHABLE", 0 },
+	}
+	NumTaxiNodes = function() return #nodes end
+	TaxiNodeGetType = function(i) return nodes[i][2] end
+	TaxiNodeName = function(i) return nodes[i][1] end
+	TaxiNodeCost = function(i) return nodes[i][3] end
+	flight.db.times["Hier -> Nah"] = 95
+	local destinations = uv(uv(flight.OnLogin, "ShowRoutes"), "Destinations")
+	local list, hidden = destinations(4, 10)
+	assert(#list == 4 and hidden == 0, "four reachable destinations")
+	assert(list[1].name == "Nah" and list[1].time == 95 and list[1].hovered, "cheapest first, time known, hovered")
+	assert(list[2].name == "Alpha" and list[3].name == "Zeta" and list[4].name == "Fern", "price, then name")
+	list, hidden = destinations(5, 2)
+	assert(#list == 2 and hidden == 2, "cut to two, two hidden")
+	local kept = false
+	for _, entry in ipairs(list) do kept = kept or entry.name == "Fern" end
+	assert(kept, "the hovered destination stays in the cut list")
+end
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

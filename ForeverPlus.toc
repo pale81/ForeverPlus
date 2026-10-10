@@ -3,7 +3,7 @@
 ## Notes: Improves the original WoW Forever interface while staying faithful to it.
 ## Notes-deDE: Verbessert das originale WoW-Forever-Interface und bleibt dabei originalgetreu.
 ## Author: EphemeraCore
-## Version: 1.0.0
+## Version: 1.0.1
 ## Category: User Interface
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
 ## AddonCompartmentFunc: ForeverPlus_OnAddonCompartmentClick

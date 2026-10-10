@@ -30,7 +30,7 @@ read_globals = {
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",
 	"C_TradeSkillUI", "EQUIPPED", "GetScreenWidth",
-	"C_Secrets", "GetBindingAction", "YES", "NO",
+	"C_Secrets", "C_AuctionHouse", "GetBindingAction", "YES", "NO",
 	"EnumerateFrames",
 	"GetCursorInfo",
 	"Menu",

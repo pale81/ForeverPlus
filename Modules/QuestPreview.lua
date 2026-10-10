@@ -208,8 +208,12 @@ local function Build(questID)
 			if target then
 				AddTarget(lib, model.maps, target)
 			end
+			local observations = ns:GetModule("Observations")
 			if PointCount(model.maps) == before then
-				AddCells(model.maps, ns:GetModule("Observations").ObjectivePoints(questID, total))
+				AddCells(model.maps, observations.TargetPoints(questID, kind, seen[kind]))
+			end
+			if PointCount(model.maps) == before then
+				AddCells(model.maps, observations.ObjectivePoints(questID, total))
 			end
 		end
 	end

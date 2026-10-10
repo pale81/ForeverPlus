@@ -2194,6 +2194,22 @@ end)()
 	assert(text:find('{ 8931, "Gastwirtin Heather", { 11, 12 }, { 13 }, { { 1436, 50.0, 50.0, 2 } } },', 1, true), "NPC export line")
 	assert(text:find("{ 700, 1, { { 1436, 50.0, 50.0, 1 } } },", 1, true), "objective export line")
 	assert(text:find("{ 6, { { 1436, 50.0, 50.0, 2 } } },", 1, true), "creature export line")
+	-- quest targets: a creature objective leads to the places where that creature was seen
+	local quest, targets
+	for q, list in pairs(ns.QuestData.targets) do
+		for _, t in ipairs(list) do
+			if t[1] == "m" and #O.CreaturePoints(t[2]) > 0 then quest, targets = q, t break end
+		end
+		if quest then break end
+	end
+	assert(quest, "a shipped quest with a creature that has positions")
+	local ordinal = 0
+	for _, t in ipairs(ns.QuestData.targets[quest]) do
+		if t[1] == "m" then ordinal = ordinal + 1 end
+		if t == targets then break end
+	end
+	assert(#O.TargetPoints(quest, "monster", ordinal) > 0, "creature objective: points of the creature")
+	assert(#O.TargetPoints(quest, "monster", 99) == 0 and #O.TargetPoints(0, "monster", 1) == 0, "no target, no points")
 	ns.db.npcQuests, ns.db.objectivePoints, ns.db.creaturePoints = {}, {}, {}
 	O.npcCount, O.objectiveCount, O.creatureCount = 0, 0, 0
 	print("observations OK")

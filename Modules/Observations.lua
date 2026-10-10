@@ -244,6 +244,61 @@ function Observations.Takers(questID)
 	return result
 end
 
+-- Where a creature was seen dying (shipped) or looted (own): { { map, x, y }, … }.
+function Observations.CreaturePoints(npcID)
+	local points = {}
+	for _, point in ipairs(ns.QuestData and ns.QuestData.creatures and ns.QuestData.creatures[npcID] or {}) do
+		points[#points + 1] = point
+	end
+	for _, cell in ipairs(ns.db.creaturePoints[npcID] or {}) do
+		points[#points + 1] = cell
+	end
+	return points
+end
+
+local TARGET_CODE = { monster = "m", item = "i", object = "o" }
+local MAX_DROP_SOURCES = 5
+
+-- Points of the `ordinal`-th objective of a kind ("monster", "item", "object")
+-- of a quest: its creature, the creatures an item drops from, or its object.
+function Observations.TargetPoints(questID, kind, ordinal)
+	local code = TARGET_CODE[kind]
+	local list = code and ns.QuestData and ns.QuestData.targets and ns.QuestData.targets[questID]
+	if not list then
+		return {}
+	end
+	local target
+	for _, entry in ipairs(list) do
+		if entry[1] == code then
+			ordinal = ordinal - 1
+			if ordinal == 0 then
+				target = entry[2]
+				break
+			end
+		end
+	end
+	if not target then
+		return {}
+	end
+	if code == "m" then
+		return Observations.CreaturePoints(target)
+	elseif code == "o" then
+		return ns.QuestData.objects and ns.QuestData.objects[target] or {}
+	end
+	local points = {}
+	local sources = ns:GetModule("LootSources").Sources(target)
+	for i = 1, math.min(MAX_DROP_SOURCES, #sources) do
+		local kindName, id = sources[i].key:match("^(%a+):(%d+)$")
+		id = tonumber(id)
+		local found = kindName == "npc" and Observations.CreaturePoints(id)
+			or kindName == "object" and ns.QuestData.objects and ns.QuestData.objects[id] or {}
+		for _, point in ipairs(found) do
+			points[#points + 1] = point
+		end
+	end
+	return points
+end
+
 -- Points where objective `index` of a quest was advanced: { { map, x, y }, … }.
 function Observations.ObjectivePoints(questID, index)
 	local points = {}

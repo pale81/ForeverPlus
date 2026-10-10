@@ -40,6 +40,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Zusatzinfos (Stapelgröße, Stückpreis, Herkunft, Rezeptquellen, Quests am NPC) wahlweise nur mit gedrückter Shift-Taste; der offene Tooltip baut sich beim Drücken und Loslassen neu auf | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
+| | Verfolgungsmenü der Minimap: eigene Einträge unten unter „ForeverPlus“ (derzeit „Rezepthändler“; neue Funktionen für die Minimap melden sich über `ns.AddTrackingEntry` an); Einstellung „ForeverPlus im Verfolgungsmenü“ | ja |
 | | Aufspüren-Menü: Zaubersymbole (z. B. Schatzsucher) auf die sichtbare Größe der übrigen Symbole verkleinert | ja |
 | Weltkarte | Unentdeckte Gebiete durchscheinend (Deckkraft einstellbar, Standard 60 %), optional leicht grün getönt; Kartenteile aus den Spieldaten, Karten mit abweichenden Daten bleiben unverändert; `/fp karte` prüft die offene Karte | ja |
 | | Symbole für Instanzeingänge (Dungeons, Schlachtzüge) und Flugmeister der eigenen Fraktion und neutrale auf Gebiets- und Kontinentkarten, Gasthäuser auf Gebiets- und Stadtkarten, Namen der Orte (Gebietskarten) und Hauptstädte (Gebiets- und Kontinentkarten); alles einzeln abschaltbar, Namen per Mouseover | ja |

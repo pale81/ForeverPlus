@@ -387,7 +387,11 @@ local function UpdateCastWatch()
 	local enabled = Visuals.db.castsLeft
 	if enabled and not castWatcher then
 		castWatcher = CreateFrame("Frame")
-		castWatcher:SetScript("OnEvent", function(_, event)
+		castWatcher:SetScript("OnEvent", function(_, event, _, powerType)
+			-- Only mana decides how many casts are left.
+			if event == "UNIT_POWER_UPDATE" and (issecretvalue(powerType) or powerType ~= "MANA") then
+				return
+			end
 			if event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
 				wipe(manaCosts)
 			end
@@ -572,9 +576,6 @@ local function HookParchmentWindows()
 		end
 		local function Strip()
 			StripDarkOutlines(book)
-		end
-		if book.OnPagedSpellsUpdate then
-			hooksecurefunc(book, "OnPagedSpellsUpdate", Strip)
 		end
 		book:HookScript("OnShow", Strip)
 		-- Entries made from here on carry the hook (the mixin is copied into each).
@@ -784,7 +785,7 @@ Visuals.options = {
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
 	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
-	{ type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
+	{ key = "buffExceptions", type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
 		Visuals:ShowBuffExceptions(button)
 	end },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },

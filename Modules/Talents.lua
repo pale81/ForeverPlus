@@ -172,6 +172,10 @@ local function UpdateSpellsGlow()
 	if not spellsButton then
 		return
 	end
+	if not Talents.db.enabled then
+		spellsButton.Alert:SetShown(false)
+		return
+	end
 	local seen = Talents.cdb.seenSpells
 	local new = false
 	for _, key in ipairs(LearnableSpells()) do
@@ -294,7 +298,8 @@ end
 -- Stages the build in the talent tree; Blizzard's apply button commits it.
 local function ApplyBuild(build)
 	local frame = TalentsFrame()
-	if InCombatLockdown() or not frame or not frame:GetConfigID() then
+	-- The inactive specialization tab is locked.
+	if InCombatLockdown() or not frame or not frame:GetConfigID() or (frame.IsLocked and frame:IsLocked()) then
 		ns.Print(L.TALENTS_ERROR_FRAME)
 		return
 	end
@@ -639,7 +644,9 @@ end
 -- them as pending until they are confirmed with its button.
 function ApplyPlan()
 	local configID = C_ClassTalents.GetActiveConfigID()
-	if InCombatLockdown() or not configID or not C_SpecializationInfo.HasPlayerEarnedATalentPoint() then
+	local frame = TalentsFrame()
+	if InCombatLockdown() or not configID or not C_SpecializationInfo.HasPlayerEarnedATalentPoint()
+		or (frame and frame.IsLocked and frame:IsLocked()) then
 		ns.Print(L.TALENTS_ERROR_FRAME)
 		return
 	end

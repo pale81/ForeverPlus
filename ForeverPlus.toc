@@ -33,6 +33,7 @@ Data\Instances.lua
 Data\Places.lua
 Data\Transports.lua
 Data\Library.lua
+Data\Radar.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua

@@ -2055,4 +2055,26 @@ end)()
 	assert(P.entrances[36] and P.entrances[36][2] == "w", "Deadmines entrance from the game table")
 	print("points OK")
 end)()
+-- Innkeepers
+;(function()
+	local I = ns:GetModule("Innkeepers")
+	assert(I.NpcID("Creature-0-4379-0-27-8931-00001F5C36") == 8931, "NPC ID from the GUID")
+	assert(I.NpcID("Player-4379-00112233") == nil and I.NpcID(nil) == nil, "only creatures")
+	UnitGUID = function() return "Creature-0-4379-0-27-8931-00001F5C36" end
+	UnitName = function() return "Gastwirtin Heather" end
+	UnitFactionGroup = function() return "Alliance" end
+	C_Map.GetBestMapForUnit = function() return 1436 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5293, 0.5374 end } end
+	ns.db.innkeepers = {}
+	I.Record()
+	local inn = ns.db.innkeepers[8931]
+	assert(inn and inn[1] == "Gastwirtin Heather" and inn[2] == 1436 and inn[3] == 52.9 and inn[4] == 53.7 and inn[5] == "A", "innkeeper remembered")
+	UnitFactionGroup = function() return "Horde" end
+	I.Record()
+	assert(ns.db.innkeepers[8931][5] == "N", "bound by both factions: neutral")
+	local text = I.ExportText(ns.db.innkeepers)
+	assert(text:find('{ 8931, 1436, 52.9, 53.7, "N", "Gastwirtin Heather" },', 1, true), "export line")
+	ns.db.innkeepers = {}
+	print("innkeepers OK")
+end)()
 dofile("bundled.lua")

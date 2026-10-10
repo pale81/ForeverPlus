@@ -185,7 +185,7 @@ local function AddNpc(list, lib, npc, id, faction)
 			entries = {}
 			list[uiMapID] = entries
 		end
-		entries[#entries + 1] = { x = points[1][1], y = points[1][2], name = Text(npc.Get(id, "name")),
+		entries[#entries + 1] = { id = id, x = points[1][1], y = points[1][2], name = Text(npc.Get(id, "name")),
 			title = Text(npc.Get(id, "subName")), faction = faction }
 	end
 end
@@ -444,12 +444,31 @@ Symbols.AddSource(function(mapID, add)
 end)
 
 -- Inns only on zone and city maps (on continents they would cover the towns).
+-- Besides QuestieDB's: the shipped list (Data/Inns.lua) and the inns the player
+-- bound his hearthstone at (Modules/Innkeepers.lua), unless QuestieDB has them.
 Symbols.AddSource(function(mapID, add)
 	if not (Options().inns and npcs) or IsContinent(mapID) then
 		return
 	end
+	local known = {}
 	for _, inn in ipairs(npcs.inns[mapID] or {}) do
+		known[inn.id or 0] = true
 		add(inn.x / 100, inn.y / 100, { kind = "inn", atlas = "innkeeper", size = INN_SIZE, data = inn, fallback = L.WORLDMAP_INN, tooltip = NpcTooltip })
+	end
+	local faction = UnitFactionGroup("player")
+	local letter = faction == "Alliance" and "A" or faction == "Horde" and "H" or nil
+	local function AddKnown(id, map, x, y, team, name)
+		if map == mapID and not known[id] and (team == "N" or team == letter) then
+			known[id] = true
+			add(x / 100, y / 100, { kind = "inn", atlas = "innkeeper", size = INN_SIZE, fallback = L.WORLDMAP_INN, tooltip = NpcTooltip,
+				data = { id = id, x = x, y = y, name = name, faction = team == "N" and "AH" or team } })
+		end
+	end
+	for id, inn in pairs(ns.db.innkeepers or {}) do
+		AddKnown(id, inn[2], inn[3], inn[4], inn[5], inn[1])
+	end
+	for _, inn in ipairs(ns.InnData or {}) do
+		AddKnown(inn[1], inn[2], inn[3], inn[4], inn[5], inn[6])
 	end
 end)
 

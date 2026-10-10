@@ -523,6 +523,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("DataCapture").Command(msg)
 	elseif msg:find("^bücher") or msg:find("^books") then
 		ns:GetModule("Library").Command(msg)
+	elseif msg:find("^gasthäuser") or msg:find("^inns") then
+		ns:GetModule("Innkeepers").Command(msg)
 	else
 		ns:OpenSettings()
 	end

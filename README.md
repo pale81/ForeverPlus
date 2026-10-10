@@ -77,7 +77,6 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
 | | Taschen beim Öffnen mit Blizzards Aufräumfunktion sortieren (höchstens alle 3 s, nicht im Kampf/beim Schrottverkauf) | ja |
-| | Nach jedem Sortieren (auch mit Blizzards Knopf) liegen markierte Gegenstände direkt neben den grauen | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
 | | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons (seit dem Laden gemessen: Durchschnitt der letzten 60 Bilder, höchster Wert, Zahl der Bilder über 1 ms; die Messung läuft pro Bild, solange die Anzeige eingeschaltet ist; grün/orange/rot nach dem höchsten Wert); verschieb- und sperrbar | ja |

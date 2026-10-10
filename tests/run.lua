@@ -918,6 +918,25 @@ applyEdges(edgeFrame)
 assert(edgeFrame.clamp[3] == 60, "off: Blizzard's values")
 chatM.db.chatEdges, chatM.db.hideButtons = true, true
 end
+-- Bind prompts and delete text
+do
+	local items = ns:GetModule("Items")
+	local equipped, confirmed = nil, false
+	EquipPendingItem = function(slot) equipped = slot end
+	ConfirmBindOnUse = function() confirmed = true end
+	items:USE_BIND_CONFIRM()
+	assert(confirmed, "use bind confirmed")
+	local fill = uv(items.OnLogin, "FillDeleteText")
+	local box = { SetText = function(self, t) self.text = t end }
+	local dialog = { GetEditBox = function() return box end }
+	StaticPopup_FindVisible = function() return dialog end
+	DELETE_ITEM_CONFIRM_STRING = "DELETE"
+	items.db.deleteText = false
+	fill("DELETE_GOOD_ITEM"); assert(box.text == nil, "off: nothing typed")
+	items.db.deleteText = true
+	fill("DELETE_ITEM"); assert(box.text == nil, "simple delete has no text")
+	fill("DELETE_GOOD_ITEM"); assert(box.text == "DELETE", "word entered")
+end
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"DELETE_ITEM_CONFIRM_STRING", "EquipPendingItem", "ConfirmBindOnUse", "StaticPopup_FindVisible",
 	"COMBATLOG", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",
 	"geterrorhandler",
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",

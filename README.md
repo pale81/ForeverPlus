@@ -56,6 +56,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nur wenn er weniger wert ist als die Beute im offenen Beutefenster (Questgegenstände gehen vor), nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
+| | Bindungsabfrage beim Anlegen oder Benutzen bestätigen (Equip-/Benutzen-Abfragen, auch „handelbar“); Löschen wertvoller Gegenstände: das verlangte Wort wird eingetragen, den Klick auf „Ja“ macht der Spieler (Löschen ist für Addons gesperrt) | ja |
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
 | Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |

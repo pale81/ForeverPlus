@@ -2235,4 +2235,16 @@ end)()
 	O.npcCount, O.objectiveCount, O.creatureCount = 0, 0, 0
 	print("observations OK")
 end)()
+-- Gathering tracking reminder
+;(function()
+	local B = ns:GetModule("Buffs")
+	local active = false
+	C_Minimap = { GetNumTrackingTypes = function() return 3 end,
+		GetTrackingInfo = function(i) return { active = active and i == 2, spellID = i == 2 and 2383 or 1000 + i } end }
+	assert(B.TrackingActive({ 2383, 2580 }) == false, "nothing tracked")
+	active = true
+	assert(B.TrackingActive({ 2383, 2580 }) == true, "Find Herbs tracked")
+	assert(B.TrackingActive({ 2580 }) == false, "another ability is not the tracked one")
+	print("tracking reminder OK")
+end)()
 dofile("bundled.lua")

@@ -240,6 +240,18 @@ local function UpdateHealthMask(frame)
 	end
 end
 
+-- Class colour of a player unit (r, g, b) when the class colours of the tooltip are on.
+local function PlayerClassColor(unit)
+	if not Tooltip.db.classColors or Secret(UnitIsPlayer(unit)) or not UnitIsPlayer(unit) then
+		return
+	end
+	local _, classFile = UnitClass(unit)
+	local color = classFile and not Secret(classFile) and C_ClassColor.GetClassColor(classFile)
+	if color then
+		return color:GetRGB()
+	end
+end
+
 local function Layout(frame)
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
 	-- First name and surname, as Blizzard's own unit display does.
@@ -249,9 +261,14 @@ local function Layout(frame)
 			name = full
 		end
 	end
-	local ok, r, g, b = pcall(GameTooltip_UnitColor, "mouseover")
-	if not ok then
-		r, g, b = NORMAL_FONT_COLOR:GetRGB()
+	-- Players in the colour of the tooltip: their class colour when that is on.
+	local r, g, b = PlayerClassColor("mouseover")
+	if not r then
+		local ok
+		ok, r, g, b = pcall(GameTooltip_UnitColor, "mouseover")
+		if not ok then
+			r, g, b = NORMAL_FONT_COLOR:GetRGB()
+		end
 	end
 	frame.Name:SetText(name)
 	frame.Name:SetTextColor(r, g, b)

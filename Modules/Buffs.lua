@@ -73,6 +73,11 @@ local REMINDERS = {
 	},
 }
 
+-- For every class: the gathering tracking abilities (when learned), shown while none of them is active.
+local COMMON_REMINDERS = {
+	{ key = "tracking", tracking = true, auras = { 2383, 2580 }, cast = { 2383, 2580 } },
+}
+
 local POISONS = {
 	{ "instant", { 8928, 8927, 8926, 6950, 6949, 6947 } },
 	{ "deadly", { 20844, 8985, 8984, 2893, 2892 } },
@@ -117,6 +122,22 @@ local function FindAura(spellIDs)
 		end
 	end
 end
+
+-- True while one of the tracking spells is active in the minimap tracking list.
+local function TrackingActive(spellIDs)
+	for index = 1, C_Minimap.GetNumTrackingTypes() do
+		local info = C_Minimap.GetTrackingInfo(index)
+		if info and info.active and info.spellID then
+			for _, spellID in ipairs(spellIDs) do
+				if info.spellID == spellID then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+Buffs.TrackingActive = TrackingActive
 
 local function WeaponEnchantTime(weapon)
 	local enchants = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[weapon])
@@ -280,6 +301,12 @@ local function Evaluate(reminder, threshold)
 		end
 		remaining = WeaponEnchantTime(reminder.weapon)
 		spellID = reminder.cast and PickSpell(reminder)
+	elseif reminder.tracking then
+		-- Tracking has no timer: missing while none of the abilities is switched on.
+		if not PickSpell(reminder) or TrackingActive(reminder.cast) or FindAura(reminder.auras) then
+			return false
+		end
+		return true
 	else
 		spellID = PickSpell(reminder)
 		if not spellID then
@@ -419,6 +446,9 @@ local function CreateBar()
 	events:RegisterEvent("PLAYER_UNGHOST")
 	events:RegisterEvent("PLAYER_ALIVE")
 	events:RegisterEvent("PLAYER_UPDATE_RESTING")
+	if C_EventUtils.IsEventValid("MINIMAP_UPDATE_TRACKING") then
+		events:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+	end
 	-- Flights start and end with the loss and return of control.
 	events:RegisterEvent("PLAYER_CONTROL_LOST")
 	events:RegisterEvent("PLAYER_CONTROL_GAINED")
@@ -430,7 +460,13 @@ end
 
 function Buffs:OnInitialize()
 	playerClass = select(2, UnitClass("player"))
-	reminders = REMINDERS[playerClass] or {}
+	reminders = {}
+	for _, reminder in ipairs(REMINDERS[playerClass] or {}) do
+		reminders[#reminders + 1] = reminder
+	end
+	for _, reminder in ipairs(COMMON_REMINDERS) do
+		reminders[#reminders + 1] = reminder
+	end
 	self.db.classes[playerClass] = self.db.classes[playerClass] or {}
 	classDB = self.db.classes[playerClass]
 end

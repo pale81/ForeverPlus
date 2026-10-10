@@ -787,3 +787,4 @@ L.OBS_RECORD_DESC = "Merkt sich, welche Quests ein NPC anbietet und abnimmt, wo 
 L.OBS_EXPORT_NPCS = "-- ForeverPlus NPCs: { NPC, Name, { angebotene Quests }, { abgenommene Quests }, { { Karte, x, y, Anzahl } } },"
 L.OBS_EXPORT_OBJECTIVES = "-- ForeverPlus Questziele: { Quest, Ziel, { { Karte, x, y, Anzahl } } },"
 L.OBS_EXPORT_CREATURES = "-- ForeverPlus Kreaturen: { NPC, { { Karte, x, y, Anzahl } } },"
+L.BUFFS_tracking = "Berufssuche (Kräuter, Erz)"

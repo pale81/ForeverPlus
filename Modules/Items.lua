@@ -104,6 +104,14 @@ local function IsJunk(info)
 	return IsJunkItem(info)
 end
 
+-- Bags flagged "ignore for junk selling" in Blizzard's bag menu.
+local function BagExcludesJunk(bag)
+	if bag == BACKPACK_CONTAINER then
+		return C_Container.GetBackpackSellJunkDisabled()
+	end
+	return C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.ExcludeJunkSell)
+end
+
 ---------------------------------------------------------------------------
 -- Upgrade arrows
 ---------------------------------------------------------------------------
@@ -615,7 +623,7 @@ local function UpdateButton(button)
 
 	if button.JunkIcon then
 		-- Coin on everything that will be sold: grey items (unless kept) and marked items.
-		local show = info and not info.hasNoValue and IsJunkItem(info)
+		local show = info and not info.hasNoValue and IsJunkItem(info) and not BagExcludesJunk(bag)
 		button.JunkIcon:SetShown(show and true or false)
 	end
 
@@ -693,7 +701,8 @@ end
 function ForeverPlus_ToggleJunkUnderMouse()
 	local frame = GetMouseFoci()[1]
 	while frame and not frame:IsForbidden() do
-		if frame.GetBagID and frame.GetID then
+		-- Item buttons only (bag windows have GetBagID too).
+		if frame.JunkIcon and frame.GetBagID then
 			local bag = frame:GetBagID()
 			if bag then
 				ToggleJunk(bag, frame:GetID())
@@ -840,7 +849,7 @@ local function SellBatch()
 	end
 	local sold = 0
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+		for slot = 1, BagExcludesJunk(bag) and 0 or C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			if IsJunk(info) then
 				local price = select(11, C_Item.GetItemInfo(info.itemID))
@@ -897,7 +906,7 @@ end
 local function JunkValue()
 	local count, value = 0, 0
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+		for slot = 1, BagExcludesJunk(bag) and 0 or C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			if IsJunk(info) then
 				local price = select(11, C_Item.GetItemInfo(info.itemID))
@@ -916,7 +925,8 @@ end
 local sellButton
 
 local function UpdateSellButton()
-	if not sellButton or not sellButton:IsShown() then
+	-- MerchantFrame updates on every bag change, also with the window closed.
+	if not sellButton or not sellButton:IsVisible() then
 		return
 	end
 	local count = JunkValue()
@@ -1297,7 +1307,9 @@ local function CreateDestroyDialog()
 	frame.Accept:SetScript("OnClick", function()
 		local entry = frame.entry
 		frame:Hide()
-		if entry and not InCombatLockdown() then
+		-- Only if that slot still holds the offered item (the bags may have changed).
+		local info = entry and C_Container.GetContainerItemInfo(entry.bag, entry.slot)
+		if info and info.hyperlink == entry.link and not InCombatLockdown() then
 			ClearCursor()
 			C_Container.PickupContainerItem(entry.bag, entry.slot)
 		end
@@ -1485,7 +1497,7 @@ function Items:Refresh()
 	if sellButton then
 		sellButton:SetShown(db.sellButton)
 		if not db.sellButton and MerchantFrame:IsShown() then
-			MerchantFrame_Update()
+			sellButton:GetParent().Icon:SetDesaturated(C_MerchantFrame.GetNumJunkItems() == 0)
 		end
 	end
 	self:ToggleEvent("MERCHANT_SHOW", merchant)
@@ -1518,14 +1530,15 @@ function Items:Refresh()
 			upgradeFrame:Hide()
 		end
 	end
-	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.upgradeArrow, function()
+	local weighs = db.upgradeArrow or db.upgradePopup or db.upgradeScore
+	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", weighs, function()
 		wipe(upgradeCache)
 		UpdateAllBags()
 	end)
 	-- Level, specialization and talent changes alter the stat weights.
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
 		if C_EventUtils.IsEventValid(event) then
-			self:ToggleEvent(event, db.upgradeArrow, function()
+			self:ToggleEvent(event, weighs, function()
 				weights = nil
 				wipe(upgradeCache)
 				UpdateAllBags()

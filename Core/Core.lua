@@ -177,19 +177,24 @@ local function OwnerName(owner)
 	return type(owner) == "table" and owner.name or tostring(owner)
 end
 
+-- An error in one listener goes to the error handler; the others still run.
+local function ErrorHandler(message)
+	return geterrorhandler()(message)
+end
+
 eventFrame:SetScript("OnEvent", function(_, event, ...)
 	local set = listeners[event]
 	if set then
 		if ns.measuring then
 			for owner, fn in pairs(set) do
 				local start = debugprofilestop()
-				fn(owner, event, ...)
+				xpcall(fn, ErrorHandler, owner, event, ...)
 				ns.RecordTiming(OwnerName(owner) .. ": " .. event, debugprofilestop() - start)
 			end
 			return
 		end
 		for owner, fn in pairs(set) do
-			fn(owner, event, ...)
+			xpcall(fn, ErrorHandler, owner, event, ...)
 		end
 	end
 end)
@@ -219,8 +224,9 @@ function ns.RunSliced(name, count, fn, onDone, budget)
 	C_Timer.NewTicker(0, function(ticker)
 		local start = debugprofilestop()
 		while index <= count do
-			fn(index)
-			index = index + 1
+			local current = index
+			index = index + 1 -- before the call: an error must not repeat the same entry every frame
+			fn(current)
 			if debugprofilestop() - start >= budget then
 				ns.RecordTiming(name, debugprofilestop() - start)
 				return
@@ -388,7 +394,7 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 		local queue = regenQueue
 		regenQueue = {}
 		for i = 1, #queue do
-			queue[i]()
+			xpcall(queue[i], ErrorHandler)
 		end
 	end
 end)

@@ -76,8 +76,15 @@ local function SortMembers(a, b)
 	return a.class < b.class
 end
 
+local seen = setmetatable({}, { __mode = "k" }) -- every list entry that was built, also with the option off
+
 local function UpdateEntry(entry)
+	seen[entry] = true
 	local info = GroupFinder.db.composition and entry.resultID and C_LFGList.GetSearchResultInfo(entry.resultID)
+	-- Results can be protected while chat messaging is locked down.
+	if info and (issecretvalue(info.numMembers) or issecretvalue(info.hasSelf)) then
+		info = nil
+	end
 	local expected = info and not info.hasSelf and info.numMembers > 1 and Expected(GroupSize(info.activityIDs))
 	if not expected then
 		Hide(entry)
@@ -87,7 +94,8 @@ local function UpdateEntry(entry)
 	local members, counts = {}, { TANK = 0, HEALER = 0, DAMAGER = 0 }
 	for i = 1, info.numMembers do
 		local member = C_LFGList.GetSearchResultPlayerInfo(entry.resultID, i)
-		if member and member.classFilename then
+		if member and member.classFilename and not issecretvalue(member.classFilename)
+			and not issecretvalue(member.assignedRole) then
 			local role = member.assignedRole
 			if counts[role] then
 				counts[role] = counts[role] + 1
@@ -132,7 +140,7 @@ local function UpdateEntry(entry)
 end
 
 local function RefreshAll()
-	for entry in pairs(displays) do
+	for entry in pairs(seen) do
 		if entry:IsShown() then
 			UpdateEntry(entry)
 		end

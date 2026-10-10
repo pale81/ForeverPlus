@@ -391,6 +391,50 @@ end
 ---------------------------------------------------------------------------
 -- Switching
 ---------------------------------------------------------------------------
+local function UpdateWindow(window, plain)
+	local frame = window.frame
+	local page = pages[frame] or (plain and CreatePage(window))
+	for _, key in ipairs(CHROME) do
+		local region = frame[key]
+		if region and region.SetAlpha then
+			region:SetAlpha(plain and 0 or 1)
+		end
+	end
+	for _, region in pairs(window.hide) do
+		region:SetAlpha(plain and 0 or 1)
+	end
+	for _, button in ipairs(window.noMouse or {}) do
+		button:EnableMouse(not plain)
+	end
+	if frame.CloseButton then
+		frame.CloseButton:SetShown(not plain)
+	end
+	for _, area in ipairs(window.scrolls) do
+		SetBarShown(area.ScrollBar, not plain)
+	end
+	for _, bar in ipairs(window.bars or {}) do
+		SetBarShown(bar, not plain)
+	end
+	if window.book and page then
+		PlaceBookText()
+		if plain then
+			UpdatePaging(page)
+		end
+	end
+	if page then
+		page:SetShown(plain)
+		for _, button in ipairs(window.left) do
+			StyleButton(button, page, "left", plain)
+		end
+		for _, button in ipairs(window.right) do
+			StyleButton(button, page, "right", plain)
+		end
+		if plain then
+			UpdateName(page)
+		end
+	end
+end
+
 function Parchment.Update(plain)
 	enabled = plain and true or false
 	if QuestFrame and (plain or questKeys) and not InCombatLockdown() then
@@ -398,48 +442,19 @@ function Parchment.Update(plain)
 			CreateQuestKeys()
 		end
 		questKeys:SetShown(plain)
+	elseif plain and QuestFrame and not questKeys then
+		-- Switched on in combat: the key handling is created afterwards.
+		ns.RunOutOfCombat(function()
+			if enabled and not questKeys then
+				CreateQuestKeys()
+				questKeys:SetShown(true)
+			end
+		end)
 	end
 	for _, window in ipairs(Windows()) do
-		local frame = window.frame
-		local page = pages[frame] or (plain and CreatePage(window))
-		for _, key in ipairs(CHROME) do
-			local region = frame[key]
-			if region and region.SetAlpha then
-				region:SetAlpha(plain and 0 or 1)
-			end
-		end
-		for _, region in pairs(window.hide) do
-			region:SetAlpha(plain and 0 or 1)
-		end
-		for _, button in ipairs(window.noMouse or {}) do
-			button:EnableMouse(not plain)
-		end
-		if frame.CloseButton then
-			frame.CloseButton:SetShown(not plain)
-		end
-		for _, area in ipairs(window.scrolls) do
-			SetBarShown(area.ScrollBar, not plain)
-		end
-		for _, bar in ipairs(window.bars or {}) do
-			SetBarShown(bar, not plain)
-		end
-		if window.book and page then
-			PlaceBookText()
-			if plain then
-				UpdatePaging(page)
-			end
-		end
-		if page then
-			page:SetShown(plain)
-			for _, button in ipairs(window.left) do
-				StyleButton(button, page, "left", plain)
-			end
-			for _, button in ipairs(window.right) do
-				StyleButton(button, page, "right", plain)
-			end
-			if plain then
-				UpdateName(page)
-			end
+		-- Windows ForeverPlus never touched stay as Blizzard made them.
+		if plain or pages[window.frame] then
+			UpdateWindow(window, plain)
 		end
 	end
 end

@@ -49,9 +49,12 @@ end
 -- Marks in the bags
 ---------------------------------------------------------------------------
 local function UpdateButton(button)
+	local icon = icons[button]
+	if not Restock.db.enabled and not icon then
+		return
+	end
 	local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
 	local show = Restock.db.enabled and info and info.itemID and Restock.cdb.items[info.itemID] and true or false
-	local icon = icons[button]
 	if show and not icon then
 		icon = button:CreateTexture(nil, "OVERLAY", nil, 2)
 		icon:SetTexture(ICON)
@@ -188,6 +191,8 @@ local function FindInGuild(itemID)
 	end
 end
 
+local warnedFull = {}
+
 local function Finish()
 	if not run then
 		return
@@ -211,12 +216,17 @@ local function MoveOne()
 		local need = maxStack - BagCount(itemID)
 		if need > 0 and not run.skip[itemID] then
 			local source = atBank and FindInBank(itemID) or atGuild and FindInGuild(itemID)
-			if source then
+			if not source then
+				run.skip[itemID] = true -- not in the bank: no rescan every step
+			else
 				local amount = math.min(need, source.count)
 				local bag, slot = FindTarget(itemID, amount, maxStack)
 				if not bag then
 					run.skip[itemID] = true
-					ns.Print(L.RESTOCK_BAGS_FULL, C_Item.GetItemNameByID(itemID) or itemID)
+					if not warnedFull[itemID] then
+						warnedFull[itemID] = true -- once per session, not with every bank change
+						ns.Print(L.RESTOCK_BAGS_FULL, C_Item.GetItemNameByID(itemID) or itemID)
+					end
 				else
 					if source.tab then
 						if amount == source.count then
@@ -319,6 +329,10 @@ end
 
 function Restock:Apply()
 	local enabled = self.db.enabled
+	if not enabled then
+		atBank, atGuild = false, false
+		Finish()
+	end
 	self:ToggleEvent("BANKFRAME_OPENED", enabled, function()
 		atBank = true
 		Start()

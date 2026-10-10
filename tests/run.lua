@@ -2138,6 +2138,57 @@ end)()
 	C:Apply()
 	print("companion OK")
 end)()
+-- Auction house: profit filter
+;(function()
+	local A = ns:GetModule("Auction")
+	local F = A.Filter
+	local prices = { [9001] = 100, [9002] = 50, [9003] = 0 }
+	C_Item.GetItemInfo = function(id) return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, prices[id] end
+	local requested = {}
+	C_Item.RequestLoadItemDataByID = function(id) requested[#requested + 1] = id end
+	local full, more = false, 0
+	C_AuctionHouse = { HasFullBrowseResults = function() return full end, RequestMoreBrowseResults = function() more = more + 1 end }
+	A.db.vendorBuyFilter = true
+	local function row(id, price, quantity) return { itemKey = { itemID = id }, minPrice = price, totalQuantity = quantity or 5 } end
+	assert(F.Profitable(row(9001, 99)) and not F.Profitable(row(9001, 100)) and not F.Profitable(row(9001, 101)), "vendor price must be above the buy price")
+	assert(not F.Profitable(row(9003, 1)), "no merchant value, no profit")
+	assert(not F.Profitable(row(9002, 10, 0)) and not F.Profitable({ isVirtualEntry = true }), "empty and virtual rows are left out")
+	assert(not F.Profitable(row(9004, 1)) and requested[1] == 9004, "an unknown merchant price is requested")
+	-- the view onto a list, growing with the pages
+	local provider
+	local scrollEnd = 0
+	local frame = { browseResults = { row(9001, 10), row(9001, 500), row(9002, 20) }, IsShown = function() return true end,
+		ItemList = { getNumEntries = function() return 0 end, searchStartedFunc = function() return true end,
+			ScrollBox = { GetDataIndexEnd = function() return scrollEnd end },
+			SetDataProvider = function(_, started, entry, count, hasFull) provider = { started = started, entry = entry, count = count, hasFull = hasFull } end,
+			RefreshScrollFrame = function() end } }
+	F.Provider(frame, true)
+	assert(provider.count() == 2 and provider.entry(1) == frame.browseResults[1] and provider.entry(2) == frame.browseResults[3], "only profitable rows")
+	frame.browseResults[#frame.browseResults + 1] = row(9001, 1)
+	assert(provider.count() == 3, "added rows are judged on the way")
+	frame.browseResults = { row(9001, 500) }
+	assert(provider.count() == 0, "a new result table starts a new view")
+	assert(provider.hasFull() == false, "searching while pages are missing")
+	-- paging: asks while the view is short, one request per answer
+	more = 0
+	F.Page(frame)
+	F.Page(frame)
+	assert(more == 1, "one request until new rows arrive")
+	frame.browseResults[#frame.browseResults + 1] = row(9001, 500)
+	F.Page(frame)
+	assert(more == 2, "next page after new rows")
+	full = true
+	F.Page(frame)
+	assert(more == 2 and provider.hasFull() == true, "nothing more to ask for when the list is complete")
+	full = false
+	-- filter off: Blizzard's provider comes back
+	local restored
+	frame.ItemList.SetDataProvider = function(_, a, b, c, d) restored = { a, b, c, d } end
+	F.Provider(frame, false)
+	assert(restored and restored[3] and restored[3]() == 0, "original provider restored")
+	A.db.vendorBuyFilter = false
+	print("auction filter OK")
+end)()
 -- Loot sources
 ;(function()
 	local S = ns:GetModule("LootSources")
@@ -2163,6 +2214,20 @@ end)()
 	assert(text:find('{ "npc:777", "Test Wolf", 2, { [100] = 2, [101] = 1 } },', 1, true), "export line")
 	ns.db.lootSources = {}
 	S.count, S.merged = 0, nil
+	-- names: unknown ones get the number, learned ones the client name
+	local savedNames, savedGUID, savedUnitName = ns.LootData.names, UnitGUID, UnitName
+	ns.LootData.names = { ["npc:8931"] = "?", ["npc:5"] = "Wolf" }
+	ns.db.lootNames, S.nameCount = {}, 0
+	assert(S.SourceName("npc:8931") == "Kreatur 8931" or S.SourceName("npc:8931") == "Creature 8931", "unknown name shows the number")
+	assert(S.SourceName("npc:5") == "Wolf", "shipped name")
+	UnitGUID, UnitName = function() return "Creature-0-4379-0-27-8931-00001F5C36" end, function() return "Zottel" end
+	S.LearnName("mouseover")
+	assert(S.SourceName("npc:8931") == "Zottel", "learned name replaces the number")
+	UnitGUID = function() return "Creature-0-4379-0-27-999-00001F5C36" end
+	S.LearnName("mouseover")
+	assert(ns.db.lootNames["npc:999"] == nil, "units without a loot source are not stored")
+	UnitGUID, UnitName, ns.LootData.names = savedGUID, savedUnitName, savedNames
+	ns.db.lootNames, S.nameCount = {}, 0
 	-- /fp daten export collects every recording
 	ns.db.innkeepers = { [1] = { "Wirt", 1436, 10, 20, "A" } }
 	local DC = ns:GetModule("DataCapture")

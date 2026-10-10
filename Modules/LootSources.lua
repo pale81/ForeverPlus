@@ -102,6 +102,36 @@ function LootSources.Record(guid, key, items, name)
 	LootSources.merged = nil
 end
 
+local MAX_NAMES = 2000  -- learned names
+
+-- Learns the name of a unit in the client language when its source is not
+-- named yet or only by the shipped (English) name. Cheap: a lookup per event.
+local function LearnName(unit)
+	local key = LootSources.SourceKey(UnitGUID(unit))
+	if not key or ns.db.lootNames[key] or ns.db.lootSources[key] and ns.db.lootSources[key].name then
+		return
+	end
+	local names = ns.LootData and ns.LootData.names
+	local known = names and names[key]
+	if not known and not ns.db.lootSources[key] and not key:find("^npc:") then
+		return
+	end
+	local name = UnitName(unit)
+	if type(name) ~= "string" or name == "" or (issecretvalue and issecretvalue(name)) then
+		return
+	end
+	if LootSources.nameCount < MAX_NAMES and (known or ns.db.lootSources[key]) then
+		ns.db.lootNames[key] = name
+		LootSources.nameCount = LootSources.nameCount + 1
+	end
+end
+
+LootSources.LearnName = LearnName
+
+local function OnUnitChanged(_, unit)
+	LearnName(type(unit) == "string" and unit or "target")
+end
+
 local function OnLootOpened()
 	if not GetLootSourceInfo or IsFishingLoot() then
 		return
@@ -112,10 +142,12 @@ local function OnLootOpened()
 		return
 	end
 	local name
-	if UnitGUID("target") == guid then
-		name = UnitName("target")
-		if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) then
-			name = nil
+	for _, unit in ipairs({ "target", "mouseover" }) do
+		if not name and UnitGUID(unit) == guid then
+			name = UnitName(unit)
+			if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) then
+				name = nil
+			end
 		end
 	end
 	LootSources.Record(guid, key, items, name)
@@ -188,13 +220,24 @@ end
 
 local function SourceName(key)
 	local own = ns.db.lootSources[key]
-	local name = own and own.name or ns.LootData and ns.LootData.names and ns.LootData.names[key]
+	local name = own and own.name or ns.db.lootNames[key]
+	local kind, id = key:match("^(%a+):(%d+)$")
+	if not name and kind == "npc" then
+		local npc = ns:GetModule("Observations").Npc(tonumber(id))
+		name = npc and npc.name
+	end
+	if not name and kind == "item" then
+		name = C_Item.GetItemNameByID(tonumber(id))
+	end
+	name = name or ns.LootData and ns.LootData.names and ns.LootData.names[key]
 	if name and name ~= "?" then
 		return name
 	end
-	local kind, id = key:match("^(%a+):(%d+)$")
-	return kind == "npc" and L.LOOTSRC_NPC:format(id) or kind == "object" and L.LOOTSRC_OBJECT:format(id) or key
+	return kind == "npc" and L.LOOTSRC_NPC:format(id) or kind == "object" and L.LOOTSRC_OBJECT:format(id)
+		or kind == "item" and L.LOOTSRC_ITEM:format(id) or key
 end
+
+LootSources.SourceName = SourceName
 
 -- A section of the extra block of item tooltips: a heading and the best sources.
 ns.AddItemSection(20, function(data)
@@ -249,6 +292,8 @@ ns.AddDataSection(function()
 	return next(ns.db.lootSources) ~= nil and LootSources.ExportText(ns.db.lootSources) or nil
 end, function()
 	ns.db.lootSources = {}
+	ns.db.lootNames = {}
+	LootSources.nameCount = 0
 	LootSources.count = 0
 	LootSources.merged = nil
 end)
@@ -258,10 +303,18 @@ end)
 ---------------------------------------------------------------------------
 function LootSources:Apply()
 	self:ToggleEvent("LOOT_OPENED", self.db.record, OnLootOpened)
+	self:ToggleEvent("PLAYER_TARGET_CHANGED", self.db.record, OnUnitChanged)
+	self:ToggleEvent("UPDATE_MOUSEOVER_UNIT", self.db.record, OnUnitChanged)
 end
 
 function LootSources:OnInitialize()
 	ns.db.lootSources = ns.db.lootSources or {}
+	ns.db.lootNames = ns.db.lootNames or {}
+	local names = 0
+	for _ in pairs(ns.db.lootNames) do
+		names = names + 1
+	end
+	self.nameCount = names
 	local count = 0
 	for _ in pairs(ns.db.lootSources) do
 		count = count + 1

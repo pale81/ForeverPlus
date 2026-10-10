@@ -1,6 +1,8 @@
 -- Auction house: warns when an auction price per unit is not above the
--- merchant's price. Only reads Blizzard's data and adds own regions, so the
--- restricted buy and post functions stay untainted.
+-- merchant's price, filters the buy list for offers below the merchant's
+-- price and sets start tab and duration. Reads Blizzard's data and adds own
+-- regions; only the filter swaps the buy list's data provider, and only while
+-- it is switched on.
 local _, ns = ...
 local L = ns.L
 
@@ -10,6 +12,7 @@ local Auction = ns:NewModule("Auction", {
 	defaults = {
 		vendorWarning = true,
 		vendorProfit = false,
+		vendorBuyFilter = false,
 		duration24 = true,
 		startTab = "buy",
 	},
@@ -142,6 +145,183 @@ local function OnBuyoutCell(cell, rowData)
 end
 
 ---------------------------------------------------------------------------
+-- Profit filter: the buy list shows only items whose cheapest offer costs
+-- less than a merchant pays (buy at the auction, sell to the merchant; the
+-- 5 % auction cut does not apply to a merchant sale). Blizzard's list keeps
+-- its own results; only its data provider is swapped for a view onto them.
+-- The view grows with the pages that arrive and asks for more pages while it
+-- holds less than a screenful or the list is scrolled to its end.
+---------------------------------------------------------------------------
+local FILTER_WANTED = 30      -- profitable rows to collect before paging stops by itself
+local FILTER_AUTO_PAGES = 40  -- pages requested by itself per search
+local FILTER_NEAR_END = 8     -- rows before the end of the view that ask for more
+local FILTER_RETRY = 2        -- seconds until a request without an answer is repeated
+
+local filter = {
+	list = {},         -- profitable rows in the order of Blizzard's list
+	source = nil,      -- Blizzard's results table the view was built from
+	scanned = 0,       -- rows of the source already judged
+	requests = 0,      -- pages requested by itself for this search
+	requestedAt = -1,  -- row count at the last request
+	requestTime = 0,
+	capped = false,    -- no further pages are requested by itself
+	missing = {},      -- items whose merchant price was not known yet
+}
+local originalProvider
+
+local function Profitable(rowData)
+	if rowData.isVirtualEntry or rowData.totalQuantity == 0 then
+		return false
+	end
+	local price = rowData.minPrice
+	if type(price) ~= "number" or price <= 0 then
+		return false
+	end
+	local itemID = ItemIDOf(rowData)
+	local vendor = VendorPrice(itemID)
+	if not vendor then
+		if itemID and not filter.missing[itemID] then
+			filter.missing[itemID] = true
+			C_Item.RequestLoadItemDataByID(itemID)
+		end
+		return false
+	end
+	return vendor > price
+end
+
+local function ResetFilter()
+	filter.list, filter.scanned = {}, 0
+	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
+end
+
+-- Judges the rows that arrived since the last call.
+local function SyncFilter(browseFrame)
+	local rows = browseFrame.browseResults
+	if type(rows) ~= "table" then
+		return
+	end
+	if rows ~= filter.source or #rows < filter.scanned then
+		-- a new search or a new sort order
+		filter.source = rows
+		ResetFilter()
+	end
+	for i = filter.scanned + 1, #rows do
+		if Profitable(rows[i]) then
+			filter.list[#filter.list + 1] = rows[i]
+		end
+	end
+	filter.scanned = #rows
+end
+
+local function SetFilterProvider(browseFrame, on)
+	local itemList = browseFrame and browseFrame.ItemList
+	if not itemList or not itemList.SetDataProvider or not itemList.getNumEntries then
+		return
+	end
+	if on then
+		if not originalProvider then
+			originalProvider = {
+				itemList.searchStartedFunc, itemList.getEntry, itemList.getNumEntries, itemList.hasFullResultsFunc,
+			}
+		end
+		itemList:SetDataProvider(originalProvider[1],
+			function(index)
+				SyncFilter(browseFrame)
+				return filter.list[index]
+			end,
+			function()
+				SyncFilter(browseFrame)
+				return #filter.list
+			end,
+			-- with no profitable row yet the list shows "searching" until the search is complete or given up
+			function()
+				return filter.capped or C_AuctionHouse.HasFullBrowseResults()
+			end)
+	elseif originalProvider then
+		itemList:SetDataProvider(unpack(originalProvider, 1, 4))
+	end
+end
+
+-- Asks for the next page when the view is short or scrolled to its end.
+local function PageFilter(browseFrame)
+	if not Auction.db.vendorBuyFilter or not browseFrame:IsShown() or C_AuctionHouse.HasFullBrowseResults() then
+		return
+	end
+	SyncFilter(browseFrame)
+	local itemList = browseFrame.ItemList
+	local shown = itemList and itemList.ScrollBox and itemList.ScrollBox.GetDataIndexEnd and itemList.ScrollBox:GetDataIndexEnd() or 0
+	local atEnd = #filter.list > 0 and shown >= #filter.list - FILTER_NEAR_END
+	local short = #filter.list < FILTER_WANTED
+	if not (short or atEnd) then
+		return
+	end
+	if short and not atEnd and filter.requests >= FILTER_AUTO_PAGES then
+		if not filter.capped then
+			filter.capped = true
+			itemList:RefreshScrollFrame()
+		end
+		return
+	end
+	-- one request at a time: wait for new rows, repeat after a while
+	local count = #browseFrame.browseResults
+	if count == filter.requestedAt and GetTime() - filter.requestTime < FILTER_RETRY then
+		return
+	end
+	filter.requestedAt, filter.requestTime = count, GetTime()
+	filter.requests = filter.requests + 1
+	C_AuctionHouse.RequestMoreBrowseResults()
+end
+
+local function ApplyBuyFilter()
+	local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
+	if not browseFrame then
+		return
+	end
+	local on = Auction.db.vendorBuyFilter
+	filter.source = nil
+	ResetFilter()
+	SetFilterProvider(browseFrame, on)
+	Auction:ToggleEvent("GET_ITEM_INFO_RECEIVED", on, function(_, itemID)
+		-- a merchant price arrived: judge the rows again, in the same order
+		if filter.missing[itemID] and not filter.rescan then
+			filter.missing[itemID] = nil
+			filter.rescan = true
+			C_Timer.After(0.3, function()
+				filter.rescan = nil
+				ApplyBuyFilter()
+			end)
+		end
+	end)
+	if browseFrame.ItemList and browseFrame.ItemList.RefreshScrollFrame then
+		browseFrame.ItemList:RefreshScrollFrame()
+	end
+	if on then
+		PageFilter(browseFrame)
+	end
+end
+
+Auction.Filter = { Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter, Apply = ApplyBuyFilter }
+
+local function HookBuyFilter()
+	local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
+	if not browseFrame or not browseFrame.UpdateBrowseResults then
+		return
+	end
+	-- Instance hooks: the frame was built from the mixins before this ran.
+	hooksecurefunc(browseFrame, "UpdateBrowseResults", function(frame)
+		PageFilter(frame)
+	end)
+	if browseFrame.ItemList and browseFrame.ItemList.CallRefreshCallback then
+		hooksecurefunc(browseFrame.ItemList, "CallRefreshCallback", function()
+			PageFilter(browseFrame)
+		end)
+	end
+	if Auction.db.vendorBuyFilter then
+		ApplyBuyFilter()
+	end
+end
+
+---------------------------------------------------------------------------
 -- Sell frames: warning text above the post button
 ---------------------------------------------------------------------------
 local sellWarnings = {}
@@ -255,6 +435,14 @@ end
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
 	self:ApplyDuration()
+	-- The filter's switch in Blizzard's search filter menu.
+	if Menu and Menu.ModifyMenu then
+		Menu.ModifyMenu("MENU_AUCTION_HOUSE_SEARCH_FILTER", function(_, rootDescription)
+			rootDescription:CreateDivider()
+			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_VENDOR_BUY_FILTER, "Auction", "vendorBuyFilter",
+				L.AUCTION_VENDOR_BUY_FILTER_DESC)
+		end)
+	end
 	ns.OnAddOnLoaded("Blizzard_AuctionHouseUI", function()
 		-- Cells are created from these mixins after the addon loaded.
 		local hooks = {
@@ -269,6 +457,7 @@ function Auction:OnLogin()
 			end
 		end
 		if AuctionHouseFrame then
+			HookBuyFilter()
 			HookSellFrames()
 			hooksecurefunc(AuctionHouseFrame, "OnShow", ApplyStartTab)
 		end
@@ -280,12 +469,15 @@ function Auction:OnOptionChanged(key)
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
+	elseif key == "vendorBuyFilter" then
+		ApplyBuyFilter()
 	end
 end
 
 Auction.options = {
 	{ key = "vendorWarning", type = "toggle", name = L.AUCTION_VENDOR_WARNING, desc = L.AUCTION_VENDOR_WARNING_DESC },
 	{ key = "vendorProfit", type = "toggle", name = L.AUCTION_VENDOR_PROFIT_OPTION, desc = L.AUCTION_VENDOR_PROFIT_DESC, new = true },
+	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {
 		{ "buy", L.AUCTION_TAB_BUY },

@@ -2088,4 +2088,32 @@ end)()
 	ns.db.innkeepers = {}
 	print("innkeepers OK")
 end)()
+-- Companion
+;(function()
+	local C = ns:GetModule("Companion")
+	local dead, combat, resting = false, false, false
+	UnitIsDeadOrGhost = function() return dead end
+	UnitAffectingCombat = function() return combat end
+	IsResting = function() return resting end
+	assert(C.State() == "idle", "idle")
+	resting = true
+	assert(C.State() == "rest", "resting")
+	combat = true
+	assert(C.State() == "combat", "combat beats resting")
+	dead = true
+	assert(C.State() == "dead", "dead beats everything")
+	dead, combat, resting = false, false, false
+	C.db.enabled = true
+	C:Apply()
+	local after, pending = C_Timer.After, nil
+	C_Timer.After = function(_, fn) pending = fn end
+	C.React("levelUp")
+	assert(C.State() == "levelUp", "a reaction shows until it ends")
+	pending()
+	assert(C.State() == "idle", "back to idle afterwards")
+	C_Timer.After = after
+	C.db.enabled = false
+	C:Apply()
+	print("companion OK")
+end)()
 dofile("bundled.lua")

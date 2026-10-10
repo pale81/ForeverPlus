@@ -21,7 +21,7 @@ globals = {
 }
 
 read_globals = {
-	"GetUnitSpeed", "IsFalling", "C_DamageMeter", "C_GossipInfo",
+	"GetUnitSpeed", "IsFalling", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat",
 	"GetServerTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",
 	"DELETE_ITEM_CONFIRM_STRING", "EquipPendingItem", "ConfirmBindOnUse", "StaticPopup_FindVisible",

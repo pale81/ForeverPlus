@@ -2150,4 +2150,52 @@ end)()
 	ns.db.innkeepers = {}
 	print("loot sources OK")
 end)()
+-- Observations
+;(function()
+	local O = ns:GetModule("Observations")
+	-- cells merge close points
+	local cells = {}
+	O.AddCell(cells, 1436, 50.0, 50.0)
+	O.AddCell(cells, 1436, 50.5, 50.4)
+	O.AddCell(cells, 1436, 60.0, 50.0)
+	assert(#cells == 2 and cells[1][4] == 2, "close points merge into one cell")
+	-- NPC quests from the gossip window
+	ns.db.npcQuests, ns.db.objectivePoints, ns.db.creaturePoints = {}, {}, {}
+	O.npcCount, O.objectiveCount, O.creatureCount = 0, 0, 0
+	UnitGUID = function() return "Creature-0-4379-0-27-8931-00001F5C36" end
+	UnitName = function() return "Gastwirtin Heather" end
+	C_Map.GetBestMapForUnit = function() return 1436 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+	C_GossipInfo = { GetAvailableQuests = function() return { { questID = 11 }, { questID = 12 } } end,
+		GetActiveQuests = function() return { { questID = 13, isComplete = true }, { questID = 14, isComplete = false } } end }
+	ns:GetModule("Observations").RecordNpc(O.NpcID(UnitGUID("npc")), "offers", { 11, 12 })
+	ns:GetModule("Observations").RecordNpc(8931, "takes", { 13 })
+	local npc = O.Npc(8931)
+	assert(npc and npc.offers[11] and npc.offers[12] and npc.takes[13] and not npc.takes[14] and npc.name == "Gastwirtin Heather", "NPC quests remembered")
+	assert(#O.Takers(13) == 1 and O.Takers(13)[1].id == 8931, "who takes a quest back")
+	-- shipped recordings are part of the lookup
+	local shipped, row = next(ns.QuestData.npcs)
+	assert(O.Npc(shipped).name == row[1], "shipped NPC")
+	-- objective counts going up record where the player stood
+	local count = 0
+	C_QuestLog.GetQuestObjectives = function() return { { numFulfilled = count, finished = false } } end
+	O.OnObjectiveUpdate(700)
+	count = 3
+	O.OnObjectiveUpdate(700)
+	local points = O.ObjectivePoints(700, 1)
+	assert(#points == 1 and points[1][1] == 1436 and points[1][2] == 50 and points[1][3] == 50, "objective point recorded")
+	O.OnObjectiveUpdate(700)
+	assert(#O.ObjectivePoints(700, 1) == 1 and ns.db.objectivePoints[700][1][1][4] == 1, "no change, no new point")
+	O.db.record = true
+	O.Creature(6)
+	O.Creature(6)
+	assert(ns.db.creaturePoints[6][1][4] == 2, "creature cell counted twice")
+	local text = O.ExportText()
+	assert(text:find('{ 8931, "Gastwirtin Heather", { 11, 12 }, { 13 }, { { 1436, 50.0, 50.0, 2 } } },', 1, true), "NPC export line")
+	assert(text:find("{ 700, 1, { { 1436, 50.0, 50.0, 1 } } },", 1, true), "objective export line")
+	assert(text:find("{ 6, { { 1436, 50.0, 50.0, 2 } } },", 1, true), "creature export line")
+	ns.db.npcQuests, ns.db.objectivePoints, ns.db.creaturePoints = {}, {}, {}
+	O.npcCount, O.objectiveCount, O.creatureCount = 0, 0, 0
+	print("observations OK")
+end)()
 dofile("bundled.lua")

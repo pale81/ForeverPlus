@@ -100,6 +100,26 @@ local function AddBundledPoints(_, questID, field, into)
 	return added
 end
 
+local function PointCount(maps)
+	local count = 0
+	for _, list in pairs(maps) do
+		count = count + #list
+	end
+	return count
+end
+
+-- Recorded points (Modules/Observations.lua) of an objective or of the NPCs that take the quest back.
+local function AddCells(into, cells)
+	local added = false
+	for _, cell in ipairs(cells) do
+		local list = into[cell[1]] or {}
+		into[cell[1]] = list
+		list[#list + 1] = { cell[2], cell[3] }
+		added = true
+	end
+	return added
+end
+
 local function First(list, count)
 	local result = {}
 	for i = 1, math.min(#(list or {}), count) do
@@ -184,8 +204,12 @@ local function Build(questID)
 			open = open + 1
 			local list = targets[kind]
 			local target = list and list[seen[kind]]
+			local before = PointCount(model.maps)
 			if target then
 				AddTarget(lib, model.maps, target)
+			end
+			if PointCount(model.maps) == before then
+				AddCells(model.maps, ns:GetModule("Observations").ObjectivePoints(questID, total))
 			end
 		end
 	end
@@ -200,6 +224,13 @@ local function Build(questID)
 			AddTarget(lib, model.maps, { npcs = npcs, objects = First(finishedBy[2], MAX_TURNIN_POINTS) })
 			local npc = npcs[1]
 			model.turnInName = npc and Text(lib.Npc.Get(npc, "name"))
+		end
+		if next(model.maps) == nil then
+			for _, taker in ipairs(ns:GetModule("Observations").Takers(questID)) do
+				if AddCells(model.maps, taker.cells) then
+					model.turnInName = model.turnInName or Text(taker.name)
+				end
+			end
 		end
 		if next(model.maps) == nil then
 			model.pointFallback = AddBundledPoints(lib, questID, "turnInPoint", model.maps)

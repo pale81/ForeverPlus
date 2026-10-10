@@ -18,6 +18,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorUnusable = true,
 		colorActiveBuff = true,
 		castsLeft = false,
+		auraActionFrame = true,
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerDragon = "none",
@@ -55,31 +56,93 @@ end
 ---------------------------------------------------------------------------
 -- Player buffs get the action button frame and rounded icon corners
 ---------------------------------------------------------------------------
-local framedAuras = {}
+local framedAuras = setmetatable({}, { __mode = "k" })
+local framedAuraContainers = setmetatable({}, { __mode = "k" })
+
+local function SetAuraActionFrame(aura, icon, iconOwner)
+	local state = framedAuras[aura]
+	if not state then
+		state = { icon = icon, borders = {}, applied = false }
+		framedAuras[aura] = state
+	end
+	-- Blizzard adds a colored border for debuffs and an extra normal texture;
+	-- leave the icon and countdown/count regions alone so the action-bar frame
+	-- is the only frame around the image.
+	for _, owner in ipairs({ aura, iconOwner }) do
+		for _, key in ipairs({ "Border", "DebuffBorder", "NormalTexture", "normalTexture" }) do
+			local region = owner[key]
+			if region and region.SetAlpha and state.borders[region] == nil then
+				local alpha = region.GetAlpha and region:GetAlpha()
+				state.borders[region] = alpha == nil and 1 or alpha
+			end
+		end
+	end
+	if Visuals.db.auraActionFrame then
+		for region in pairs(state.borders) do region:SetAlpha(0) end
+		if not state.applied then
+			ns.ApplyActionFrame(aura, icon, ICON_FRAME_STYLE, 7)
+			state.applied = true
+		end
+		ns.SetActionFrameEnabled(aura, true)
+	else
+		for region, alpha in pairs(state.borders) do region:SetAlpha(alpha) end
+		if state.applied then ns.SetActionFrameEnabled(aura, false) end
+	end
+end
 
 local function FrameAuraButton(aura)
-	if not aura.Icon or framedAuras[aura] or aura:IsForbidden() then
+	if not aura or (aura.IsForbidden and aura:IsForbidden()) then
 		return
 	end
-	framedAuras[aura] = true
-	ns.ApplyActionFrame(aura, aura.Icon, ICON_FRAME_STYLE)
+	local iconOwner = aura.Icon or aura.icon
+	local icon = iconOwner
+	if icon and type(icon.AddMaskTexture) ~= "function" then
+		icon = icon.Icon or icon.Texture or icon.texture
+	end
+	if not icon or type(icon.AddMaskTexture) ~= "function" then return end
+	SetAuraActionFrame(aura, icon, iconOwner)
+end
+
+local function FrameAuraButtons(container)
+	if not container then return end
+	for _, aura in ipairs(container.auraFrames or {}) do
+		FrameAuraButton(aura)
+	end
+	-- Classic aura buttons may be named globals rather than stored in
+	-- auraFrames; also catches buttons created after the initial login pass.
+	for _, prefix in ipairs({ "BuffButton", "DebuffButton" }) do
+		for index = 1, ns.Number(prefix == "BuffButton" and BUFF_MAX_DISPLAY or DEBUFF_MAX_DISPLAY, 40) do
+			FrameAuraButton(_G[prefix .. index])
+		end
+	end
+	for aura in pairs(framedAuras) do
+		if aura.GetParent and aura:GetParent() == container then
+			FrameAuraButton(aura)
+			ns.SizeActionFrame(aura, ICON_FRAME_STYLE)
+		end
+	end
 end
 
 local function ResizeAuraFrames()
 	for aura in pairs(framedAuras) do
+		FrameAuraButton(aura)
 		ns.SizeActionFrame(aura, ICON_FRAME_STYLE)
 	end
 end
 
 local function FrameBuffs()
-	if not BuffFrame or not BuffFrame.auraFrames then
-		return
+	for _, container in pairs({ BuffFrame, DebuffFrame }) do
+		if container then
+			FrameAuraButtons(container)
+			if type(container.UpdateSize) == "function" and not framedAuraContainers[container] then
+				framedAuraContainers[container] = true
+				hooksecurefunc(container, "UpdateSize", function()
+					FrameAuraButtons(container)
+					ResizeAuraFrames()
+				end)
+			end
+		end
 	end
-	for _, aura in ipairs(BuffFrame.auraFrames) do
-		FrameAuraButton(aura)
-	end
-	-- Edit Mode can change the icon size.
-	hooksecurefunc(BuffFrame, "UpdateSize", ResizeAuraFrames)
 end
 
 ---------------------------------------------------------------------------
@@ -204,22 +267,56 @@ local activeAuras = {}
 local selfBuffCache = {}
 local desaturated = setmetatable({}, { __mode = "k" })
 
+-- Weapon imbues are self-buffs too, but the client does not classify every
+-- rank of them through C_Spell.IsSelfBuff.
+local WEAPON_ENCHANT_SPELLS = {
+	[8017] = true, -- Rockbiter Weapon
+	[8024] = true, -- Flametongue Weapon
+	[8033] = true, -- Frostbrand Weapon
+	[8232] = true, -- Windfury Weapon
+	[51730] = true, -- Earthliving Weapon
+}
+
 local function IsSelfBuff(spellID)
 	local cached = selfBuffCache[spellID]
 	if cached == nil then
-		cached = C_Spell.IsSelfBuff and C_Spell.IsSelfBuff(spellID) and true or false
+		cached = WEAPON_ENCHANT_SPELLS[spellID] or (C_Spell.IsSelfBuff and C_Spell.IsSelfBuff(spellID)) and true or false
 		selfBuffCache[spellID] = cached
 	end
 	return cached
 end
 
+local function ActiveAuraForItem(itemID)
+	local spellName = C_Item.GetItemSpell(itemID)
+	if spellName and activeAuras[spellName] then
+		return spellName
+	end
+	-- Poison, oil and stone item names can match the applied aura even when
+	-- the item's use spell is only named "Apply Poison" or similar.
+	local itemName = C_Item.GetItemInfo(itemID)
+	if itemName and activeAuras[itemName] then
+		return itemName
+	end
+end
+
 local function IsActiveSelfBuff(action)
 	local actionType, id = GetActionInfo(action)
-	if actionType ~= "spell" or type(id) ~= "number" or not IsSelfBuff(id) then
+	if type(id) ~= "number" then
 		return false
 	end
-	local name = C_Spell.GetSpellName(id)
-	return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+	if actionType == "spell" then
+		if not IsSelfBuff(id) then
+			return false
+		end
+		local name = C_Spell.GetSpellName(id)
+		return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+	elseif actionType == "item" then
+		-- Weapon oils, poisons and similar consumables are items on the bar;
+		-- their active effect is exposed as a helpful player aura.
+		local name = ActiveAuraForItem(id)
+		return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+	end
+	return false
 end
 
 -- Self buffs on the action bars, for the exception menu (by name, sorted).
@@ -230,6 +327,12 @@ local function SelfBuffsOnBars()
 		local actionType, id = GetActionInfo(slot)
 		if actionType == "spell" and type(id) == "number" and IsSelfBuff(id) then
 			local name = C_Spell.GetSpellName(id)
+			if name and not seen[name] then
+				seen[name] = true
+				names[#names + 1] = name
+			end
+		elseif actionType == "item" and type(id) == "number" then
+			local name = ActiveAuraForItem(id)
 			if name and not seen[name] then
 				seen[name] = true
 				names[#names + 1] = name
@@ -477,11 +580,14 @@ local function UpdateAuraWatch()
 	if auraWatcher then
 		if enabled then
 			auraWatcher:RegisterUnitEvent("UNIT_AURA", "player")
+			auraWatcher:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 			UpdateActiveAuras()
 		else
 			auraWatcher:UnregisterEvent("UNIT_AURA")
+			auraWatcher:UnregisterEvent("UNIT_INVENTORY_CHANGED")
 			auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
 			wipe(activeAuras)
+			RecolorAll()
 		end
 	end
 end
@@ -739,6 +845,8 @@ end
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
+	elseif key == "auraActionFrame" then
+		FrameBuffs()
 	elseif key == "playerDragon" or key == "dragonScale" then
 		ApplyPlayerDragon()
 	elseif key == "castsLeft" then
@@ -779,6 +887,7 @@ Visuals.options = {
 	{ type = "header", name = L.VISUALS_SQUID_HEADER, desc = L.VISUALS_SQUID_CREDIT },
 	{ key = "squid", type = "dropdown", name = L.VISUALS_SQUID, desc = L.VISUALS_SQUID_CREDIT, values = SquidValues },
 	{ type = "header", name = L.VISUALS_ACTION_HEADER },
+	{ key = "auraActionFrame", type = "toggle", name = L.VISUALS_AURA_ACTION_FRAME, desc = L.VISUALS_AURA_ACTION_FRAME_DESC, new = true },
 	{ key = "actionColors", type = "toggle", name = L.VISUALS_ACTION_COLORS, desc = L.VISUALS_ACTION_COLORS_DESC },
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },

@@ -56,9 +56,10 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 	if elapsedSinceCheck >= CHECK_INTERVAL then
 		elapsedSinceCheck = 0
 		-- Edit Mode and (optionally) combat show everything.
-		local shown = ns:IsEditModeActive() or (QoL.db.mouseoverCombat and InCombatLockdown())
+		local forcedShown = ns:IsEditModeActive() or (QoL.db.mouseoverCombat and InCombatLockdown())
 		for frame, state in pairs(fadeTargets) do
-			local target = (shown or frame:IsMouseOver()) and 1 or 0
+			local hoverFrame = state.hoverFrame or frame
+			local target = (forcedShown or hoverFrame:IsMouseOver()) and state.shownAlpha or 0
 			if target ~= state.target then
 				state.target = target
 				fading = true
@@ -75,30 +76,64 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 	local step = elapsed * FADE_SPEED
 	for frame, state in pairs(fadeTargets) do
 		local alpha = frame:GetAlpha()
-		if alpha ~= state.target then
-			if state.target > alpha then
-				alpha = min(state.target, alpha + step)
+		local target = state.target
+		if alpha ~= target then
+			if target > alpha then
+				alpha = min(target, alpha + step)
 			else
-				alpha = max(state.target, alpha - step)
+				alpha = max(target, alpha - step)
 			end
 			frame:SetAlpha(alpha)
-			fading = fading or alpha ~= state.target
+			fading = fading or alpha ~= target
 		end
 	end
 end)
 
-local function SetFaded(frame, enabled)
+local function SetFaded(frame, enabled, hoverFrame)
 	if not frame then
 		return
 	end
 	if enabled then
-		fadeTargets[frame] = fadeTargets[frame] or { target = 0 }
+		local state = fadeTargets[frame]
+		if not state then
+			-- The visible opacity is the frame's own (Edit Mode); a frame that is
+			-- faded out right now (alpha 0) counts as fully visible.
+			local own = ns.Number(frame:GetAlpha(), 1)
+			state = { target = 0, shownAlpha = own > 0.05 and own or 1 }
+			fadeTargets[frame] = state
+		end
+		state.hoverFrame = hoverFrame
 		fading = true
 	elseif fadeTargets[frame] then
+		local state = fadeTargets[frame]
 		fadeTargets[frame] = nil
-		frame:SetAlpha(1)
+		frame:SetAlpha(state.shownAlpha or 1)
 	end
 	driver:SetShown(next(fadeTargets) ~= nil)
+end
+
+-- A few minimap pin overlays ignore their parent alpha, so fading Minimap
+-- alone leaves those icons visible. Track only frames that opt out of alpha
+-- inheritance and drive them from the minimap's own mouseover state.
+local function UpdateIndependentMinimapOverlays(enabled)
+	local visited = {}
+	local function Scan(parent)
+		if not parent or visited[parent] then
+			return
+		end
+		if parent.IsForbidden and parent:IsForbidden() then
+			return
+		end
+		visited[parent] = true
+		for _, child in ipairs({ parent:GetChildren() }) do
+			if (not child.IsForbidden or not child:IsForbidden()) and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha() then
+				SetFaded(child, enabled, Minimap)
+			end
+			Scan(child)
+		end
+	end
+	Scan(MinimapCluster)
+	Scan(Minimap)
 end
 
 -- Action bars 2–8 in Blizzard's numbering.
@@ -121,7 +156,13 @@ function QoL:UpdateMouseover()
 	SetFaded(PlayerFrame, db.mouseover and db.mouseoverPlayer)
 	SetFaded(TargetFrame, db.mouseover and db.mouseoverTarget)
 	SetFaded(FocusFrame, db.mouseover and db.mouseoverTarget)
-	SetFaded(MinimapCluster, db.mouseover and db.mouseoverMinimap)
+	local fadeMinimap = db.mouseover and db.mouseoverMinimap
+	SetFaded(MinimapCluster, fadeMinimap)
+	-- Some minimap overlays ignore their parent's alpha and otherwise remain
+	-- visible when the cluster fades (notably the map backdrop and minimap).
+	SetFaded(Minimap, fadeMinimap)
+	SetFaded(MinimapBackdrop, fadeMinimap)
+	UpdateIndependentMinimapOverlays(fadeMinimap)
 end
 
 ---------------------------------------------------------------------------
@@ -429,6 +470,7 @@ function QoL:OnLogin()
 	-- Addons create their minimap buttons during their own login handling.
 	local function ScanMinimapButtons()
 		self:UpdateMinimapButtons()
+		self:UpdateMouseover()
 	end
 	self:RegisterEvent("ADDON_LOADED", ScanMinimapButtons)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()

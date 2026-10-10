@@ -2117,4 +2117,37 @@ end)()
 	C:Apply()
 	print("companion OK")
 end)()
+-- Loot sources
+;(function()
+	local S = ns:GetModule("LootSources")
+	assert(S.SourceKey("Creature-0-4379-0-27-8931-00001F5C36") == "npc:8931", "corpse key")
+	assert(S.SourceKey("GameObject-0-4379-0-27-2061-00001F5C36") == "object:2061", "node key")
+	assert(S.SourceKey("Item-4379-0-400000001") == nil and S.SourceKey(nil) == nil, "containers and nothing are left out")
+	ns.db.lootSources = {}
+	S.count, S.merged = 0, nil
+	S.Record("g1", "npc:777", { 100, 101 }, "Test Wolf")
+	S.Record("g2", "npc:777", { 100 }, nil)
+	local e = ns.db.lootSources["npc:777"]
+	assert(e.windows == 2 and e.items[100] == 2 and e.items[101] == 1 and e.name == "Test Wolf", "windows and drops counted")
+	local sources = S.Sources(100)
+	assert(#sources >= 1 and sources[1].key == "npc:777" and sources[1].drops == 2 and sources[1].windows == 2, "own data in the lookup")
+	-- shipped data and own windows add up
+	local key, row
+	for item, rows in pairs(ns.LootData.items) do key, row = item, rows[1] break end
+	S.Record("g3", row[1], { key }, nil)
+	local merged
+	for _, s in ipairs(S.Sources(key)) do if s.key == row[1] then merged = s end end
+	assert(merged and merged.drops == row[2] + 1 and merged.windows == row[3] + 1, "shipped and own windows add up")
+	local text = S.ExportText(ns.db.lootSources)
+	assert(text:find('{ "npc:777", "Test Wolf", 2, { [100] = 2, [101] = 1 } },', 1, true), "export line")
+	ns.db.lootSources = {}
+	S.count, S.merged = 0, nil
+	-- /fp daten export collects every recording
+	ns.db.innkeepers = { [1] = { "Wirt", 1436, 10, 20, "A" } }
+	local DC = ns:GetModule("DataCapture")
+	local all = DC.ExportText()
+	assert(all and all:find('{ 1, 1436, 10.0, 20.0, "A", "Wirt" },', 1, true), "combined export holds the innkeepers")
+	ns.db.innkeepers = {}
+	print("loot sources OK")
+end)()
 dofile("bundled.lua")

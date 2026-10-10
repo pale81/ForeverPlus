@@ -165,6 +165,12 @@ function Library.Export()
 		L.LIBRARY_EXPORT_HINT)
 end
 
+ns.AddDataSection(function()
+	return next(ns.db.libraryFinds) ~= nil and Library.ExportText(ns.db.libraryFinds) or nil
+end, function()
+	ns.db.libraryFinds = {}
+end)
+
 -- /fp bücher [export|zurück]
 function Library.Command(msg)
 	if msg:find("export", 1, true) then

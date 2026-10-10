@@ -94,6 +94,12 @@ function Innkeepers.Export()
 		L.INNS_EXPORT_HINT)
 end
 
+ns.AddDataSection(function()
+	return next(ns.db.innkeepers) ~= nil and Innkeepers.ExportText(ns.db.innkeepers) or nil
+end, function()
+	ns.db.innkeepers = {}
+end)
+
 -- /fp gasthäuser [export|löschen]
 function Innkeepers.Command(msg)
 	if msg:find("export", 1, true) then

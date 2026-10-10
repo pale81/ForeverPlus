@@ -324,6 +324,8 @@ local function HasFishingPole()
 	return classID == Enum.ItemClass.Weapon and subClassID == (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Fishingpole or 20)
 end
 
+ns.HasFishingPole = HasFishingPole
+
 local function ClearFishBinding()
 	if not bindingSet then
 		return

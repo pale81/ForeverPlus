@@ -146,7 +146,7 @@ local PAGES = {
 	{ title = L.PAGE_BARS,
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },
 		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
-		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft") },
+		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft", "buffExceptions") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
 	},
 	{ title = L.PAGE_COMBAT,

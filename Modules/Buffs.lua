@@ -303,6 +303,10 @@ local function Update()
 	if InCombatLockdown() or not bar then
 		return
 	end
+	-- Secret auras read as missing: no reminders where addons cannot see the auras.
+	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
+		return
+	end
 	if thresholdTimer then
 		thresholdTimer:Cancel()
 		thresholdTimer = nil

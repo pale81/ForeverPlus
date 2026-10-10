@@ -62,6 +62,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
 			if target ~= state.target then
 				state.target = target
 				fading = true
+			elseif ns.Number(frame:GetAlpha(), target) ~= target then
+				fading = true -- Blizzard set its own alpha (e.g. status bars fade in on login)
 			end
 		end
 	end
@@ -177,7 +179,7 @@ end
 ---------------------------------------------------------------------------
 local function OnCombatStart()
 	inCombat = true
-	if QoL.db.nameplatesCombat then
+	if QoL.db.nameplatesCombat and not InCombatLockdown() then
 		SetCVar(NAMEPLATE_CVAR, "1")
 	end
 	if QoL.db.nameplatesFade then

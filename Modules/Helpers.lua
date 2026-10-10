@@ -134,7 +134,15 @@ end
 local overlay, hovered
 
 local function HideOverlay()
-	if overlay and overlay:IsShown() and not InCombatLockdown() then
+	if InCombatLockdown() then
+		ns.RunOutOfCombat(function()
+			if not (hovered and IsAltKeyDown()) then
+				HideOverlay()
+			end
+		end)
+		return
+	end
+	if overlay and overlay:IsShown() then
 		overlay:ClearAllPoints()
 		overlay:Hide()
 	end
@@ -317,10 +325,15 @@ local function HasFishingPole()
 end
 
 local function ClearFishBinding()
-	if bindingSet and not InCombatLockdown() then
-		ClearOverrideBindings(fishButton)
-		bindingSet = false
+	if not bindingSet then
+		return
 	end
+	if InCombatLockdown() then
+		ns.RunOutOfCombat(ClearFishBinding) -- the binding must not stay after the fight
+		return
+	end
+	ClearOverrideBindings(fishButton)
+	bindingSet = false
 end
 
 local function CreateFishButton()

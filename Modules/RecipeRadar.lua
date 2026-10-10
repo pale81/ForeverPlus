@@ -147,12 +147,26 @@ local function UpdateSkills()
 	end
 end
 
+local failedItems = {} -- items the client could not load (not in this client's data): never wait for them
+
+-- Item data arrives later: scan again then.
+local function OnItemInfo(_, _, itemID, success)
+	if success == false and itemID then
+		failedItems[itemID] = true
+	end
+	wipe(statusCache)
+	Radar:RequestRefresh()
+end
+
 local function IsRed(color)
 	return color and color.r > 0.99 and color.g < 0.2 and color.b < 0.2
 end
 
 -- Reads "already known" and "skill too low" from the item's tooltip data.
 local function ScanRecipe(itemID)
+	if failedItems[itemID] then
+		return nil
+	end
 	if not C_Item.IsItemDataCachedByID(itemID) then
 		C_Item.RequestLoadItemDataByID(itemID)
 		waitingForItems = true
@@ -326,11 +340,16 @@ ns.MapSymbols.AddSource(function(mapID, add)
 		add(entry.vendor.x / 100, entry.vendor.y / 100, { kind = "radar", texture = PinIcon(entry), size = WORLD_MAP_PIN_SIZE,
 			round = true, data = entry, mapID = mapID, tooltip = WorldMapTooltip, click = WorldMapClick })
 	end
+	-- Browsing to another zone can find recipes whose data is not loaded yet.
+	if waitingForItems then
+		Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", true, OnItemInfo)
+	end
 end)
 
 local function RefreshWorldMap()
 	ns.MapSymbols.Refresh()
 end
+
 
 ---------------------------------------------------------------------------
 -- Minimap
@@ -440,10 +459,7 @@ local function Refresh()
 	waitingForItems = false
 	RefreshMinimap()
 	RefreshWorldMap()
-	Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", waitingForItems, function()
-		wipe(statusCache)
-		Radar:RequestRefresh()
-	end)
+	Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", waitingForItems, OnItemInfo)
 end
 
 function Radar:RequestRefresh()
@@ -490,6 +506,9 @@ function Radar:Apply()
 	}
 	for event, handler in pairs(events) do
 		self:ToggleEvent(event, enabled, handler)
+	end
+	if enabled then
+		UpdateSkills() -- a skill event before the registration above is lost
 	end
 	if enabled and not indexReady and not self.indexing then
 		self.indexing = true

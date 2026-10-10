@@ -340,6 +340,9 @@ end
 
 local function Setup(frame, symbol)
 	frame.symbol = symbol
+	-- Like Blizzard's pins: hovering a symbol still counts as hovering the map
+	-- (coordinates, zone highlight).
+	frame.owningMap = WorldMapFrame
 	if symbol.label then
 		frame.Icon:Hide()
 		frame.Label:SetFontObject(symbol.font)

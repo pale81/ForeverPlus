@@ -96,7 +96,9 @@ local function Apply(entry)
 		return
 	end
 	-- Flags stay untouched (outline from the appearance module).
-	if not entry.font:SetFont(face, size, flags or "") then
+	-- Font:SetFont has no documented result; an unusable file (e.g. a removed
+	-- SharedMedia font) raises an error, then the original face stays.
+	if not pcall(entry.font.SetFont, entry.font, face, size, flags or "") then
 		entry.font:SetFont(entry.face, size, flags or "")
 	end
 end
@@ -111,7 +113,7 @@ local function ApplyChatWindows()
 		local frame = _G[name]
 		local currentFace, size, flags = frame:GetFont()
 		if currentFace and currentFace ~= face then
-			frame:SetFont(face, size, flags or "")
+			pcall(frame.SetFont, frame, face, size, flags or "")
 		end
 	end
 end

@@ -126,12 +126,15 @@ end
 local pending -- route chosen on the taxi map, flight not started yet
 
 local function OnTakeTaxi(index)
+	if not Flight.db.enabled then
+		return
+	end
 	local from, to = CurrentNode(), TaxiNodeName(index)
 	pending = { route = RouteKey(from, to), destination = to }
 end
 
 function Flight:PLAYER_CONTROL_LOST()
-	if not pending then
+	if not pending or not self.db.enabled then
 		return
 	end
 	C_Timer.After(0.5, function()

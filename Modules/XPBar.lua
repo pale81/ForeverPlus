@@ -120,6 +120,11 @@ local scanPending = false
 local function ScanQuestXP()
 	scanPending = false
 	local total = 0
+	if not XPBar.db.questXP then
+		questXP = 0 -- no scan of the quest log while the option is off
+		UpdateBars()
+		return
+	end
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
 		if info and not info.isHeader and info.questID and ns.IsQuestReady(info.questID, index) then
@@ -182,6 +187,8 @@ end
 function XPBar:OnOptionChanged(key)
 	if key == "textMode" then
 		self:ApplyTextSetting()
+	elseif key == "questXP" then
+		QueueScan()
 	end
 	UpdateBars()
 	for bar in pairs(expBars) do

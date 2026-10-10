@@ -143,7 +143,7 @@ end)
 -- Export
 ---------------------------------------------------------------------------
 function Library.ExportText(finds)
-	local lines = { L.LIBRARY_EXPORT_HEADER }
+	local lines = { ns.ExportTag("books"), L.LIBRARY_EXPORT_HEADER }
 	local ids = {}
 	for id in pairs(finds) do
 		ids[#ids + 1] = id

@@ -203,7 +203,7 @@ read_globals = {
 	"GetInventoryItemCount",
 	"GetInventoryItemID",
 	"GetInventoryItemLink",
-	"GetLocale",
+	"GetLocale", "GetBuildInfo",
 	"GetLootSlotInfo",
 	"GetMoney",
 	"GetMoneyString",

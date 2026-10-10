@@ -2271,6 +2271,7 @@ end)()
 	local DC = ns:GetModule("DataCapture")
 	local all = DC.ExportText()
 	assert(all and all:find('{ 1, 1436, 10.0, 20.0, "A", "Wirt" },', 1, true), "combined export holds the innkeepers")
+	assert(all:find("^%-%- @fp%-export 1 build=") and all:find("-- @fp inns", 1, true) and all:find("issues/new", 1, true), "export header and section tag")
 	ns.db.innkeepers = {}
 	print("loot sources OK")
 end)()

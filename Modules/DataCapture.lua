@@ -12,6 +12,9 @@ local Capture = ns:NewModule("DataCapture", {
 
 local MAX_QUESTS, MAX_SNAPSHOTS = 200, 20
 
+-- Where players send their export to (an issue form of the project).
+ns.SUBMIT_URL = "https://github.com/pale81/ForeverPlus/issues/new?template=data.yml"
+
 local function IsVisibleString(value)
 	return type(value) == "string" and value ~= "" and not (issecretvalue and issecretvalue(value))
 end
@@ -140,7 +143,14 @@ function Capture.ExportText()
 			parts[#parts + 1] = text
 		end
 	end
-	return #parts > 0 and table.concat(parts, "\n\n") or nil
+	if #parts == 0 then
+		return nil
+	end
+	-- The header says where the text goes and which client it comes from (the
+	-- tool that merges submissions needs the language: names are taken from English ones only).
+	local build = select(2, GetBuildInfo())
+	local header = ("-- @fp-export 1 build=%s locale=%s\n%s"):format(tostring(build), GetLocale(), L.DATA_SUBMIT_LINE:format(ns.SUBMIT_URL))
+	return header .. "\n\n" .. table.concat(parts, "\n\n")
 end
 
 function Capture.Export()

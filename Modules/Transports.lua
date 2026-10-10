@@ -242,7 +242,7 @@ end)
 -- Export: the recordings as text
 ---------------------------------------------------------------------------
 function Transports.ExportText(rides)
-	local lines = { L.TRANSPORTS_EXPORT_HEADER }
+	local lines = { ns.ExportTag("rides"), L.TRANSPORTS_EXPORT_HEADER }
 	for _, ride in ipairs(rides) do
 		lines[#lines + 1] = ("{ %d, %.4f, %.4f, %d, %.4f, %.4f, %d },"):format(
 			ride[1], Round(ride[2]), Round(ride[3]), ride[4], Round(ride[5]), Round(ride[6]), ride[7])

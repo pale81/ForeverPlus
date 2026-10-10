@@ -72,7 +72,7 @@ Innkeepers.Record = Record
 Innkeepers.OnGossipShow = OnGossipShow
 
 function Innkeepers.ExportText(list)
-	local lines = { L.INNS_EXPORT_HEADER }
+	local lines = { ns.ExportTag("inns"), L.INNS_EXPORT_HEADER }
 	local ids = {}
 	for id in pairs(list) do
 		ids[#ids + 1] = id

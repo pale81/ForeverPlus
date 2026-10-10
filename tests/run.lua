@@ -2210,6 +2210,27 @@ end)()
 	end
 	assert(#O.TargetPoints(quest, "monster", ordinal) > 0, "creature objective: points of the creature")
 	assert(#O.TargetPoints(quest, "monster", 99) == 0 and #O.TargetPoints(0, "monster", 1) == 0, "no target, no points")
+	-- quest requirements: level, side, race and the quest before
+	local info = ns:GetModule("QuestieInfo")
+	local savedRequirements = ns.QuestData.requirements
+	ns.QuestData.requirements = {
+		[9001] = { 20, 0, {} }, [9002] = { 1, "H", {} }, [9003] = { 1, { 3, 4 }, {} }, [9004] = { 1, 0, { 9005, 9006 } },
+	}
+	C_QuestLog.IsQuestFlaggedCompleted = function(id) return id == 9006 end
+	C_QuestLog.GetLogIndexForQuestID = function() return nil end
+	UnitLevel = function() return 19 end
+	UnitFactionGroup = function() return "Alliance" end
+	UnitRace = function() return "Zwerg", "Dwarf", 3 end
+	assert(not info.OwnAvailable(9001), "level too low")
+	UnitLevel = function() return 20 end
+	assert(info.OwnAvailable(9001), "level reached")
+	assert(not info.OwnAvailable(9002), "Horde quest for an Alliance player")
+	assert(info.OwnAvailable(9003), "race in the list")
+	UnitRace = function() return "Mensch", "Human", 1 end
+	assert(not info.OwnAvailable(9003), "race not in the list")
+	assert(info.OwnAvailable(9004), "one quest before it is done")
+	assert(not info.OwnAvailable(9006), "done quests are not offered")
+	ns.QuestData.requirements = savedRequirements
 	ns.db.npcQuests, ns.db.objectivePoints, ns.db.creaturePoints = {}, {}, {}
 	O.npcCount, O.objectiveCount, O.creatureCount = 0, 0, 0
 	print("observations OK")

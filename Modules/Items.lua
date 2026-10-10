@@ -23,6 +23,8 @@ local Items = ns:NewModule("Items", {
 		markMessage = true,
 		destroyPrompt = true,
 		autoBind = false,
+		autoEquipBind = false,
+		deleteText = false,
 		rollCounts = true,
 		junkButton = "MiddleButton",
 		junk = {},
@@ -1395,6 +1397,34 @@ function Items:CONFIRM_LOOT_ROLL(_, rollID, rollType)
 	HidePopup("CONFIRM_LOOT_ROLL")
 end
 
+-- Equipping or using an item that binds.
+local function EquipBound(self, _, slot)
+	EquipPendingItem(slot)
+	HidePopup("EQUIP_BIND")
+	HidePopup("EQUIP_BIND_REFUNDABLE")
+	HidePopup("EQUIP_BIND_TRADEABLE")
+end
+
+function Items:USE_BIND_CONFIRM()
+	ConfirmBindOnUse()
+	HidePopup("USE_BIND")
+end
+
+-- Deleting valuable items asks to type the word; the text is entered, the
+-- confirming click stays with the player (deleting is closed to addons).
+local DELETE_POPUPS = { DELETE_GOOD_ITEM = true, DELETE_GOOD_QUEST_ITEM = true }
+
+local function FillDeleteText(which)
+	if not DELETE_POPUPS[which] or not Items.db.deleteText then
+		return
+	end
+	local dialog = StaticPopup_FindVisible(which)
+	local editBox = dialog and dialog:GetEditBox()
+	if editBox and DELETE_ITEM_CONFIRM_STRING then
+		editBox:SetText(DELETE_ITEM_CONFIRM_STRING)
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Group loot: number of need/greed/pass choices on the buttons, names on hover
 ---------------------------------------------------------------------------
@@ -1511,6 +1541,10 @@ function Items:Refresh()
 		SetCVar("autoLootDefault", "1")
 	end
 	self:ToggleEvent("UI_ERROR_MESSAGE", db.destroyPrompt)
+	self:ToggleEvent("EQUIP_BIND_CONFIRM", db.autoEquipBind, EquipBound)
+	self:ToggleEvent("EQUIP_BIND_TRADEABLE_CONFIRM", db.autoEquipBind, EquipBound)
+	self:ToggleEvent("EQUIP_BIND_REFUNDABLE_CONFIRM", db.autoEquipBind, EquipBound)
+	self:ToggleEvent("USE_BIND_CONFIRM", db.autoEquipBind)
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
 	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
@@ -1557,6 +1591,7 @@ end
 
 function Items:OnLogin()
 	HookContainerFrames()
+	hooksecurefunc("StaticPopup_Show", FillDeleteText)
 	HookRollFrames()
 	if C_Container.SortBags then
 		hooksecurefunc(C_Container, "SortBags", OnSortStarted)
@@ -1611,6 +1646,8 @@ Items.options = {
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },
 	{ key = "autoBind", type = "toggle", name = L.ITEMS_AUTOBIND, desc = L.ITEMS_AUTOBIND_DESC },
+	{ key = "autoEquipBind", type = "toggle", name = L.ITEMS_AUTOEQUIPBIND, desc = L.ITEMS_AUTOEQUIPBIND_DESC },
+	{ key = "deleteText", type = "toggle", name = L.ITEMS_DELETETEXT, desc = L.ITEMS_DELETETEXT_DESC },
 	{ key = "rollCounts", type = "toggle", name = L.ITEMS_ROLL_COUNTS, desc = L.ITEMS_ROLL_COUNTS_DESC },
 
 }

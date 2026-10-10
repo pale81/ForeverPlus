@@ -119,6 +119,10 @@ local function OnLootOpened()
 		end
 	end
 	LootSources.Record(guid, key, items, name)
+	local npcID = tonumber(key:match("^npc:(%d+)$"))
+	if npcID then
+		ns:GetModule("Observations").Creature(npcID)
+	end
 end
 
 ---------------------------------------------------------------------------

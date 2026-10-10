@@ -219,11 +219,45 @@ local function AddQuestLines(tooltip, label, quests)
 	end
 end
 
+-- Quest lines from the recordings (shipped and the player's own) of an NPC.
+local function OwnQuestLines(tooltip, npcID)
+	local known = ns:GetModule("Observations").Npc(npcID)
+	if not known or (next(known.offers) == nil and next(known.takes) == nil) then
+		return false
+	end
+	local lib = ns.QuestieDB.Get()
+	local function Name(questID)
+		return ns.QuestieDB.QuestName(lib, questID) or tostring(questID)
+	end
+	local offers, turnIns = {}, {}
+	for questID in pairs(known.offers) do
+		if not Completed(questID) and not C_QuestLog.GetLogIndexForQuestID(questID) then
+			offers[#offers + 1] = Name(questID)
+		end
+	end
+	for questID in pairs(known.takes) do
+		if C_QuestLog.GetLogIndexForQuestID(questID) then
+			turnIns[#turnIns + 1] = Name(questID)
+		end
+	end
+	table.sort(offers)
+	table.sort(turnIns)
+	if #offers + #turnIns > 0 then
+		AddQuestLines(tooltip, L.QDB_QUEST_OFFER, offers)
+		AddQuestLines(tooltip, L.QDB_QUEST_TURNIN, turnIns)
+		tooltip:Show()
+	end
+	return true
+end
+
 local function OnUnitTooltip(tooltip, data)
 	if not Info.db.npcQuests or tooltip:IsForbidden() or tooltip ~= GameTooltip or not ns.ExtraInfoShown() then
 		return
 	end
 	local npcID = NpcID(data and data.guid)
+	if npcID and OwnQuestLines(tooltip, npcID) then
+		return
+	end
 	local lib = npcID and ns.QuestieDB.Get()
 	local npc = Entity(lib, "Npc")
 	if not npc or not npc.Exists(npcID) then

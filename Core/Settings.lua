@@ -245,7 +245,7 @@ local MOUSEOVER_FRAME_KEYS = Keys("mouseoverXP", "mouseoverRep", "mouseoverPlaye
 
 local PAGES = {
 	{ title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE } },
-	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
+	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "Observations", header = L.OBS_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
 	{ title = L.ITEMS_TITLE,
 		{ "Items" },
 		{ "Auction", header = L.AUCTION_TITLE },

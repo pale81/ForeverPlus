@@ -36,6 +36,7 @@ Data\Library.lua
 Data\Radar.lua
 Data\RadarEG.lua
 Data\LootEG.lua
+Data\QuestsEG.lua
 Data\Points.lua
 Data\Inns.lua
 Modules\WorldMap.lua
@@ -56,6 +57,7 @@ Modules\Library.lua
 Modules\Innkeepers.lua
 Modules\Companion.lua
 Modules\LootSources.lua
+Modules\Observations.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
 Modules\Errors.lua

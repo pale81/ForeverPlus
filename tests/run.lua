@@ -346,6 +346,7 @@ do
 	-- bundled data: Heldan Galesong (4307) sells in Darkshore, for the Alliance only
 	local bundledVendors = radar.bundledVendors
 	assert(bundledVendors[4307] and bundledVendors[4307].team == "A" and bundledVendors[4307].name == "Heldan Galesong", "bundled vendor")
+	assert(radar.bundledVendors[3005] and radar.bundledVendors[3005].team == "H", "vendor from the Efficient Games data")
 	local found
 	for _, v in ipairs(vbm[1439] or {}) do if v.npc == 4307 then found = v end end
 	assert(found and found.x == 37 and found.y == 56.4 and #found.items == 4, "bundled vendor on the Darkshore map")

@@ -673,3 +673,7 @@ L.LOCK_SOUND_DESC = "Plays a short click when a window or display is unlocked or
 L.MINIMAP_TRACKING_ENTRIES = "ForeverPlus in the tracking menu"
 L.MINIMAP_TRACKING_ENTRIES_DESC = "Adds own entries (e.g. recipe vendors) at the bottom of the minimap tracking menu."
 L.RADAR_TRACKING = "Recipe vendors"
+L.FLIGHT_POPUP = "Destination overview on the flight map"
+L.FLIGHT_POPUP_DESC = "Shows every destination from here with price and measured flight time next to the map while hovering a flight point."
+L.FLIGHT_POPUP_TITLE = "Flights from %s"
+L.FLIGHT_POPUP_MORE = "… and %d more"

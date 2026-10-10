@@ -59,7 +59,7 @@ read_globals = {
 	"SELL_PRICE",
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",
 	"IsControlKeyDown",
-	"NumTaxiNodes", "TaxiNodeGetType", "TaxiNodeName", "TaxiNodeOnButtonEnter", "FlightMap_FlightPointPinMixin", "UnitHealth", "UnitGUID",
+	"NumTaxiNodes", "TaxiNodeCost", "TaxiNodeOnButtonLeave", "FlightMapFrame", "TaxiFrame", "TaxiNodeGetType", "TaxiNodeName", "TaxiNodeOnButtonEnter", "FlightMap_FlightPointPinMixin", "UnitHealth", "UnitGUID",
 	"LOCKED", "IsMounted", "SetItemButtonDesaturated", "MERCHANT_ITEMS_PER_PAGE", "GetMerchantItemLink",
 	"MerchantFrame_UpdateMerchantInfo", "ITEM_SPELL_KNOWN", "ClearOverrideBindings", "SetOverrideBindingClick", "NUM_BAG_SLOTS",
 	"GetNumLanguages", "GetLanguageByIndex", "FCFTab_UpdateAlpha", "QuestInfo_Display",

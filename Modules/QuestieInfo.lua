@@ -219,6 +219,39 @@ local function AddQuestLines(tooltip, label, quests)
 	end
 end
 
+-- Available by the shipped quest requirements (Data/QuestsEG.lua): not done,
+-- not in the log, level, side or race, and one of the quests before it done.
+-- Class and reputation are not checked.
+function Info.OwnAvailable(questID)
+	if Completed(questID) or C_QuestLog.GetLogIndexForQuestID(questID) then
+		return false
+	end
+	local row = ns.QuestData and ns.QuestData.requirements and ns.QuestData.requirements[questID]
+	if not row then
+		return true
+	end
+	if row[1] > UnitLevel("player") then
+		return false
+	end
+	local races = row[2]
+	if races == "A" or races == "H" then
+		local faction = UnitFactionGroup("player")
+		if (races == "A") ~= (faction == "Alliance") then
+			return false
+		end
+	elseif type(races) == "table" then
+		local _, _, raceID = UnitRace("player")
+		local allowed = false
+		for _, id in ipairs(races) do
+			allowed = allowed or id == raceID
+		end
+		if not allowed then
+			return false
+		end
+	end
+	return #row[3] == 0 or AnyCompleted(row[3])
+end
+
 -- Quest lines from the recordings (shipped and the player's own) of an NPC.
 local function OwnQuestLines(tooltip, npcID)
 	local known = ns:GetModule("Observations").Npc(npcID)
@@ -231,7 +264,7 @@ local function OwnQuestLines(tooltip, npcID)
 	end
 	local offers, turnIns = {}, {}
 	for questID in pairs(known.offers) do
-		if not Completed(questID) and not C_QuestLog.GetLogIndexForQuestID(questID) then
+		if Info.OwnAvailable(questID) then
 			offers[#offers + 1] = Name(questID)
 		end
 	end

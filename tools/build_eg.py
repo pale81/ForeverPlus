@@ -168,6 +168,18 @@ def build_loot(base, builds):
     print('%d sources, %d items' % (len(used), len(items)))
 
 CELL = 1.5  # percent of a map: closer points are one
+ALLIANCE_MASK = 0x55155555b1354c4d  # the masks of the quests for one side (bit = race ID - 1)
+HORDE_MASK = 0xaa2aaaaa4e0ab3b2
+
+
+def race_text(mask):
+    if mask == 0xffffffffffffffff:
+        return '0'
+    if mask == ALLIANCE_MASK:
+        return '"A"'
+    if mask == HORDE_MASK:
+        return '"H"'
+    return '{ %s }' % ', '.join(str(i + 1) for i in range(64) if mask >> i & 1)
 
 
 def cluster(points, limit):
@@ -188,11 +200,17 @@ def cluster(points, limit):
 
 def build_quests(base, builds):
     npcs, objectives, targets, creatures, objects = {}, {}, {}, {}, {}
+    levels, races, before = {}, {}, {}
     for build in builds:
         path = os.path.join(base, build, 'quests.enUS.json')
         if os.path.exists(path):
             with open(path, encoding='utf-8') as f:
                 for quest, row in json.load(f).get('quests', {}).items():
+                    levels[int(quest)] = row.get('minLevel') or 0
+                    mask = int(row.get('raceMask') or 'ffffffffffffffff', 16)
+                    races[int(quest)] = race_text(mask)
+                    if row.get('nextQuestId'):
+                        before.setdefault(int(row['nextQuestId']), set()).add(int(quest))
                     kinds = {'monster': 'm', 'item': 'i', 'gameObject': 'o'}
                     list_ = [(kinds[o['type']], o.get('objectId')) for o in sorted(row.get('objectives') or [], key=lambda o: o.get('storageIndex', 0))
                              if o.get('type') in kinds and o.get('objectId')]
@@ -230,6 +248,7 @@ def build_quests(base, builds):
         '-- (https://github.com/JIVESCORP/eg-link-output-wowf, CC BY 4.0).',
         '-- npcs[npc] = { name, map, x, y, { quests offered }, { quests taken back } }',
         '-- objectives[quest][objective] = { { map, x, y }, ... }: where the count went up',
+        '-- requirements[quest] = { minimum level, races (0: all, "A" Alliance, "H" Horde, or { race IDs }), { quests of which one must be done } }',
         '-- targets[quest] = { { "m" creature | "i" item | "o" object, id }, ... } in the order of the objectives',
         '-- creatures[npc] / objects[object] = { { map, x, y }, ... }: where one died / stood',
         'local _, ns = ...',
@@ -258,6 +277,10 @@ def build_quests(base, builds):
         for index in sorted(byQuest[quest]):
             parts.append('[%d] = { %s }' % (index, ', '.join('{ %d, %.1f, %.1f }' % (c[0], c[1], c[2]) for c in byQuest[quest][index])))
         lines.append('\t\t[%d] = { %s },' % (quest, ', '.join(parts)))
+    lines += ['\t},', '\trequirements = {']
+    for quest in sorted(levels):
+        if levels[quest] > 1 or races.get(quest, '0') != '0' or before.get(quest):
+            lines.append('\t\t[%d] = { %d, %s, { %s } },' % (quest, levels[quest], races.get(quest, '0'), ', '.join(str(q) for q in sorted(before.get(quest, ())))))
     lines += ['\t},', '\ttargets = {']
     for quest in sorted(targets):
         lines.append('\t\t[%d] = { %s },' % (quest, ', '.join('{ "%s", %d }' % t for t in targets[quest])))

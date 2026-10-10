@@ -52,6 +52,7 @@ Modules\DataCapture.lua
 Modules\Transports.lua
 Modules\Library.lua
 Modules\Innkeepers.lua
+Modules\Companion.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
 Modules\Errors.lua

@@ -788,3 +788,4 @@ L.OBS_RECORD_DESC = "Remembers which quests an NPC offers and takes back, where 
 L.OBS_EXPORT_NPCS = "-- ForeverPlus NPCs: { NPC, name, { quests offered }, { quests taken }, { { map, x, y, count } } },"
 L.OBS_EXPORT_OBJECTIVES = "-- ForeverPlus quest objectives: { quest, objective, { { map, x, y, count } } },"
 L.OBS_EXPORT_CREATURES = "-- ForeverPlus creatures: { NPC, { { map, x, y, count } } },"
+L.BUFFS_tracking = "Gathering tracking (herbs, ore)"

@@ -14,7 +14,7 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
-local QUEST_DARKEN = 0.5
+local QUEST_DARKEN = 0.75 -- the quest part is a little darker than the bar, still easy to see
 local SCAN_DELAY = 0.3
 
 local expBars = {}

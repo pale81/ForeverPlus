@@ -144,6 +144,7 @@ end
 -- Collecting
 ---------------------------------------------------------------------------
 local summaries, nextID = {}, 1
+local stats = { seen = 0, parsed = 0, hidden = 0 }
 local batch, flushTimer
 local frames = { LOOT = {}, MONEY = {} }
 
@@ -245,6 +246,7 @@ local function Touch()
 end
 
 function Loot:CHAT_MSG_LOOT(_, text)
+	stats.seen = stats.seen + 1
 	if not Accessible(text) then
 		return
 	end
@@ -252,6 +254,7 @@ function Loot:CHAT_MSG_LOOT(_, text)
 	if not link then
 		return
 	end
+	stats.parsed = stats.parsed + 1
 	Touch()
 	local entry = batch.items[link]
 	if not entry then
@@ -309,6 +312,7 @@ end
 local function LootFilter(chatFrame, _, text)
 	if type(text) == "string" and ParseItem(text) then
 		frames.LOOT[chatFrame] = true
+		stats.hidden = stats.hidden + 1
 		return true
 	end
 	return false
@@ -431,6 +435,11 @@ function Loot:OnLogin()
 		end
 	end, self)
 	self:Update()
+end
+
+-- /fp beute: whether the summary is on and what it has seen since the login.
+function Loot:PrintStatus()
+	ns.PrintAlways(L.LOOT_STATUS, self.db.summary and YES or NO, stats.seen, stats.parsed, stats.hidden, batch and batch.count or 0)
 end
 
 function Loot:OnOptionChanged(key)

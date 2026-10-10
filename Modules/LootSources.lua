@@ -128,8 +128,12 @@ end
 
 LootSources.LearnName = LearnName
 
-local function OnUnitChanged(_, unit)
-	LearnName(type(unit) == "string" and unit or "target")
+local function OnTargetChanged()
+	LearnName("target")
+end
+
+local function OnMouseoverChanged()
+	LearnName("mouseover")
 end
 
 local function OnLootOpened()
@@ -303,8 +307,8 @@ end)
 ---------------------------------------------------------------------------
 function LootSources:Apply()
 	self:ToggleEvent("LOOT_OPENED", self.db.record, OnLootOpened)
-	self:ToggleEvent("PLAYER_TARGET_CHANGED", self.db.record, OnUnitChanged)
-	self:ToggleEvent("UPDATE_MOUSEOVER_UNIT", self.db.record, OnUnitChanged)
+	self:ToggleEvent("PLAYER_TARGET_CHANGED", self.db.record, OnTargetChanged)
+	self:ToggleEvent("UPDATE_MOUSEOVER_UNIT", self.db.record, OnMouseoverChanged)
 end
 
 function LootSources:OnInitialize()

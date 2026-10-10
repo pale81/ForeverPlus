@@ -110,7 +110,7 @@ local run -- { ticker, steps, wait = { bag, slot }, skip = { [itemID] = true }, 
 local function IsReagent(info)
 	local restock = ns:GetModule("Restock")
 	-- Items on the restock list belong in the bags.
-	if restock and restock.db and restock.db.enabled and restock.cdb.items[info.itemID] then
+	if restock and restock.db and restock.db.enabled and restock.cdb.items[info.itemID] == true then
 		return false
 	end
 	return select(17, C_Item.GetItemInfo(info.hyperlink or info.itemID)) == true

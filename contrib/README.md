@@ -6,7 +6,11 @@ ein neuer Export ersetzt den alten, weil das Addon immer alles bisher Aufgezeich
 Einsenden: im Spiel `/fp daten export`, Text kopieren, im Formular „Daten einsenden“ des Projekts einfügen
 (Link in der ersten Zeile des Exports).
 
-Einrechnen (der Text aus dem Issue kommt nach Durchsicht als `contrib/<GitHub-Name>.txt` ins Projekt):
+Ein Workflow (`.github/workflows/data.yml`) legt aus jedem Beitrag einen Pull Request mit `contrib/<GitHub-Name>.txt` an
+(Voraussetzung: in den Einstellungen des Projekts unter Actions → General „Allow GitHub Actions to create and approve pull
+requests“ einschalten). Zusammengeführt wird nach Durchsicht.
+
+Einrechnen:
 
 ```
 python3 -I tools/contrib.py                       # was in den Dateien steht

@@ -1,0 +1,61 @@
+name: Daten einsenden
+# Ein Issue aus dem Formular "Daten einsenden" wird als Datei contrib/<Name>.txt in einen
+# Pull Request übernommen. Zusammengeführt wird er nach Durchsicht; tools/build_eg.py rechnet die Daten ein.
+on:
+  issues:
+    types: [opened, edited]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  import:
+    if: contains(github.event.issue.body, '@fp-export')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const login = issue.user.login.replace(/[^A-Za-z0-9_-]/g, '');
+            const fence = /```(?:text)?\r?\n([\s\S]*?)\r?\n```/.exec(issue.body || '');
+            const text = (fence ? fence[1] : '').replace(/\r\n/g, '\n');
+            const fail = async (message) => {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: issue.number, body: message });
+            };
+            if (!login || !/^-- @fp-export \d+/m.test(text)) {
+              return fail('Der Text beginnt nicht mit "-- @fp-export". Bitte den Export unverändert aus dem Spiel einfügen.');
+            }
+            if (text.length > 400000) {
+              return fail('Der Text ist zu groß (mehr als 400 000 Zeichen).');
+            }
+            const path = `contrib/${login}.txt`;
+            const branch = `daten/${login}`;
+            const main = await github.rest.repos.get(context.repo);
+            const base = (await github.rest.git.getRef({ ...context.repo, ref: `heads/${main.data.default_branch}` })).data.object.sha;
+            try {
+              await github.rest.git.createRef({ ...context.repo, ref: `refs/heads/${branch}`, sha: base });
+            } catch (e) {
+              await github.rest.git.updateRef({ ...context.repo, ref: `heads/${branch}`, sha: base, force: true });
+            }
+            let sha;
+            try {
+              sha = (await github.rest.repos.getContent({ ...context.repo, path, ref: branch })).data.sha;
+            } catch (e) { /* new file */ }
+            await github.rest.repos.createOrUpdateFileContents({
+              ...context.repo, path, branch, sha,
+              message: `Daten von ${login}`,
+              content: Buffer.from(text + '\n', 'utf8').toString('base64'),
+            });
+            const open = await github.rest.pulls.list({ ...context.repo, head: `${context.repo.owner}:${branch}`, state: 'open' });
+            let url;
+            if (open.data.length) {
+              url = open.data[0].html_url;
+            } else {
+              const pr = await github.rest.pulls.create({
+                ...context.repo, head: branch, base: main.data.default_branch,
+                title: `Daten von ${login}`, body: `Eingesandt in #${issue.number}. Prüfen mit \`python3 -I tools/contrib.py\`.`,
+              });
+              url = pr.data.html_url;
+            }
+            await fail(`Danke! Der Beitrag liegt zur Durchsicht in ${url}.`);

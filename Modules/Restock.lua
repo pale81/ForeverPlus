@@ -1,8 +1,10 @@
 -- Restock list: Alt + middle click on a bag item marks it (small bag symbol
--- at the bottom left). At the bank, marked items are topped up to a full
--- stack from the bank; at the guild bank from the tab on display, as far as
--- the withdrawal rights allow. One move at a time, each waits until the
--- client has confirmed the previous one.
+-- at the bottom left, with an arrow down). At the bank, marked items are
+-- topped up to a full stack from the bank; at the guild bank from the tab on
+-- display, as far as the withdrawal rights allow. A second click turns the
+-- mark around (arrow up): such an item is put from the bags into the bank
+-- instead; a third click removes the mark. One move at a time, each waits
+-- until the client has confirmed the previous one.
 local _, ns = ...
 local L = ns.L
 
@@ -14,7 +16,7 @@ local Restock = ns:NewModule("Restock", {
 		message = true,
 	},
 	charDefaults = {
-		items = {}, -- itemID -> true
+		items = {}, -- itemID -> true (from the bank into the bags) or "bank" (from the bags into the bank)
 	},
 })
 
@@ -26,7 +28,13 @@ local GUILD_SLOTS = 98 -- slots per guild bank tab
 local GUILD_DELAY = 0.5 -- the tab contents arrive after switching tabs
 local NORMAL_BAGS_LAST = 4 -- the reagent bag (5) takes only reagents
 
+local TO_BANK = "bank"
+local ARROW = { [true] = "NPE_ArrowDown", [TO_BANK] = "NPE_ArrowUp" }
+local ARROW_COLOR = { [true] = { 0.3, 1, 0.3 }, [TO_BANK] = { 1, 0.6, 0.15 } }
+local ARROW_SIZE = 11
+
 local icons = {}  -- bag button -> texture
+local arrows = {} -- bag button -> arrow texture
 local hooked = {}
 local run         -- { ticker, steps, moved = { itemID -> count }, wait = { bag, slot }, skip = { itemID -> true } }
 local atBank, atGuild = false, false
@@ -54,16 +62,27 @@ local function UpdateButton(button)
 		return
 	end
 	local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
-	local show = Restock.db.enabled and info and info.itemID and Restock.cdb.items[info.itemID] and true or false
+	local mode = Restock.db.enabled and info and info.itemID and Restock.cdb.items[info.itemID] or nil
+	local show = mode and true or false
 	if show and not icon then
 		icon = button:CreateTexture(nil, "OVERLAY", nil, 2)
 		icon:SetTexture(ICON)
 		icon:SetSize(ICON_SIZE, ICON_SIZE)
 		icon:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 2)
 		icons[button] = icon
+		local arrow = button:CreateTexture(nil, "OVERLAY", nil, 3)
+		arrow:SetSize(ARROW_SIZE, ARROW_SIZE)
+		arrow:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", -2, 0)
+		arrows[button] = arrow
 	end
 	if icon then
 		icon:SetShown(show)
+		local arrow = arrows[button]
+		arrow:SetShown(show)
+		if show then
+			arrow:SetAtlas(ARROW[mode])
+			arrow:SetVertexColor(unpack(ARROW_COLOR[mode]))
+		end
 	end
 end
 
@@ -91,12 +110,14 @@ local function Toggle(bag, slot)
 		return
 	end
 	local list = Restock.cdb.items
-	if list[info.itemID] then
+	local mode = list[info.itemID]
+	if mode == TO_BANK then
 		list[info.itemID] = nil
 		Report(L.RESTOCK_UNMARKED, info.hyperlink)
-	elseif MaxStack(info.itemID) <= 1 then
-		ns.Print(L.RESTOCK_NOT_STACKABLE, info.hyperlink)
-		return
+	elseif mode or MaxStack(info.itemID) <= 1 then
+		-- second click (or an item that does not stack: no topping up): the other way round
+		list[info.itemID] = TO_BANK
+		Report(L.RESTOCK_MARKED_BANK, info.hyperlink)
 	else
 		list[info.itemID] = true
 		Report(L.RESTOCK_MARKED, info.hyperlink)
@@ -150,9 +171,9 @@ local function FindTarget(itemID, amount, maxStack)
 	end
 end
 
-local function BankBags()
+local function BankBags(characterOnly)
 	local bags = {}
-	for _, bankType in ipairs({ Enum.BankType.Character, Enum.BankType.Account }) do
+	for _, bankType in ipairs(characterOnly and { Enum.BankType.Character } or { Enum.BankType.Character, Enum.BankType.Account }) do
 		if C_Bank.CanUseBank(bankType) then
 			for _, bag in ipairs(C_Bank.FetchPurchasedBankTabIDs(bankType) or {}) do
 				bags[#bags + 1] = bag
@@ -191,6 +212,38 @@ local function FindInGuild(itemID)
 	end
 end
 
+-- Slot in the bank that takes `count` of the item: a stack with room, else an empty slot.
+local function FindBankTarget(itemID, count, maxStack)
+	local free
+	for _, bag in ipairs(BankBags(true)) do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info then
+				if info.itemID == itemID and not info.isLocked and maxStack - info.stackCount >= count then
+					return bag, slot
+				end
+			elseif not free then
+				free = { bag, slot }
+			end
+		end
+	end
+	if free then
+		return free[1], free[2]
+	end
+end
+
+-- A stack of the item in the bags.
+local function FindInBags(itemID)
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info and info.itemID == itemID and not info.isLocked then
+				return bag, slot, info.stackCount
+			end
+		end
+	end
+end
+
 local warnedFull = {}
 
 local function Finish()
@@ -198,23 +251,52 @@ local function Finish()
 		return
 	end
 	run.ticker:Cancel()
-	local parts = {}
-	for itemID, count in pairs(run.moved) do
-		parts[#parts + 1] = ("%s +%d"):format(C_Item.GetItemNameByID(itemID) or ("item:" .. itemID), count)
-	end
-	if #parts > 0 then
-		table.sort(parts)
-		Report(L.RESTOCK_DONE, table.concat(parts, ", "))
+	for _, kind in ipairs({ "moved", "stored" }) do
+		local parts = {}
+		for itemID, count in pairs(run[kind]) do
+			parts[#parts + 1] = ("%s %d"):format(C_Item.GetItemNameByID(itemID) or ("item:" .. itemID), count)
+		end
+		if #parts > 0 then
+			table.sort(parts)
+			Report(kind == "moved" and L.RESTOCK_DONE or L.RESTOCK_STORED, table.concat(parts, ", "))
+		end
 	end
 	run = nil
 end
 
 -- One move per call; nil when nothing is left to do.
 local function MoveOne()
-	for itemID in pairs(Restock.cdb.items) do
+	for itemID, mode in pairs(Restock.cdb.items) do
 		local maxStack = MaxStack(itemID)
 		local need = maxStack - BagCount(itemID)
-		if need > 0 and not run.skip[itemID] then
+		if mode == TO_BANK then
+			if atBank and not run.skip[itemID] then
+				local bag, slot, count = FindInBags(itemID)
+				if not bag then
+					run.skip[itemID] = true
+				else
+					local bankBag, bankSlot = FindBankTarget(itemID, count, maxStack)
+					if not bankBag then
+						run.skip[itemID] = true
+						if not warnedFull[itemID] then
+							warnedFull[itemID] = true
+							ns.Print(L.RESTOCK_BANK_FULL, C_Item.GetItemNameByID(itemID) or itemID)
+						end
+					else
+						C_Container.PickupContainerItem(bag, slot)
+						C_Container.PickupContainerItem(bankBag, bankSlot)
+						if GetCursorInfo() then
+							ClearCursor()
+							run.skip[itemID] = true
+						else
+							run.stored[itemID] = (run.stored[itemID] or 0) + count
+							run.wait = { bankBag, bankSlot }
+						end
+						return true
+					end
+				end
+			end
+		elseif need > 0 and not run.skip[itemID] then
 			local source = atBank and FindInBank(itemID) or atGuild and FindInGuild(itemID)
 			if not source then
 				run.skip[itemID] = true -- not in the bank: no rescan every step
@@ -283,7 +365,7 @@ local function Start()
 	if run or not Restock.db.enabled or InCombatLockdown() or not next(Restock.cdb.items) then
 		return
 	end
-	run = { steps = 0, moved = {}, skip = {} }
+	run = { steps = 0, moved = {}, stored = {}, skip = {} }
 	run.ticker = C_Timer.NewTicker(STEP_INTERVAL, Step)
 end
 
@@ -306,10 +388,10 @@ end
 function Restock:ShowList(owner)
 	ns.ShowPopupList(owner, function()
 		local items = {}
-		for itemID in pairs(self.cdb.items) do
+		for itemID, mode in pairs(self.cdb.items) do
 			items[#items + 1] = {
 				icon = C_Item.GetItemIconByID(itemID),
-				text = C_Item.GetItemNameByID(itemID) or ("item:" .. itemID),
+				text = (mode == TO_BANK and L.RESTOCK_LIST_TO_BANK or L.RESTOCK_LIST_FROM_BANK):format(C_Item.GetItemNameByID(itemID) or ("item:" .. itemID)),
 				onClick = function()
 					self.cdb.items[itemID] = nil
 					UpdateAllButtons()

@@ -17,6 +17,8 @@ local Quests = ns:NewModule("Quests", {
 		instanceTab = true,
 		instancePreQuests = true,
 		regionOnly = false,
+		readyOnly = false,
+		readyButton = true,
 		trackerPreview = true,
 		questParchment = false,
 		foreverMark = true,
@@ -105,7 +107,7 @@ local function ScanQuests()
 	elseif progressed then
 		Play(Quests.db.progressSound)
 	end
-	if (completed or progressed) and Quests.db.trackerSort == "progress" then
+	if (completed or progressed) and (Quests.db.trackerSort == "progress" or Quests.db.readyOnly) then
 		Quests:QueueTrackerSort()
 	end
 	Quests:RefreshNameplates()
@@ -523,7 +525,7 @@ end
 -- Something to manage at all; otherwise Blizzard's tracker stays untouched.
 local function IsManaging()
 	local db = Quests.db
-	return db.trackerSort ~= "default" or db.classFirst or db.instanceTab or db.regionOnly
+	return db.trackerSort ~= "default" or db.classFirst or db.instanceTab or db.regionOnly or db.readyOnly
 end
 
 local function WantedList(facts)
@@ -573,8 +575,11 @@ local function EffectiveTab()
 	return tab == "instance" and "instance" or "world"
 end
 
-local function Passes(questID, fact, tab)
+local function Passes(questID, fact, tab, everything)
 	local db = Quests.db
+	if db.readyOnly and not everything and not fact.ready then
+		return false
+	end
 	if db.instanceTab then
 		if (tab == "instance") ~= fact.instance then
 			return false
@@ -592,10 +597,20 @@ local function DesiredWatches(facts)
 	local classFirst = Quests.db.classFirst
 	local list = {}
 	local tab = Quests.db.instanceTab and EffectiveTab()
-	for questID in pairs(WantedList(facts)) do
+	local wanted = WantedList(facts)
+	for questID in pairs(wanted) do
 		local fact = facts[questID]
 		if fact and Passes(questID, fact, tab) then
 			list[#list + 1] = questID
+		end
+	end
+	-- Nothing ready: show everything, an empty tracker would hide its header and the buttons.
+	if #list == 0 and Quests.db.readyOnly then
+		for questID in pairs(wanted) do
+			local fact = facts[questID]
+			if fact and Passes(questID, fact, tab, true) then
+				list[#list + 1] = questID
+			end
 		end
 	end
 	table.sort(list, function(a, b)
@@ -752,7 +767,17 @@ end
 ---------------------------------------------------------------------------
 -- Tabs on the tracker header: world quests | instance quests
 ---------------------------------------------------------------------------
-local tabs
+local tabs, readyButton
+
+local function UpdateReadyButton()
+	if not readyButton then
+		return
+	end
+	readyButton:SetShown(Quests.db.readyButton)
+	local on = Quests.db.readyOnly
+	readyButton.Icon:SetDesaturated(not on)
+	readyButton.Icon:SetVertexColor((on and NORMAL_FONT_COLOR or GRAY_FONT_COLOR):GetRGB())
+end
 
 function UpdateTabs()
 	if not tabs then
@@ -837,9 +862,29 @@ local function CreateSortButton()
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 
+	-- Only quests that are ready to be turned in; the same setting as in the options.
+	readyButton = CreateFrame("Button", nil, header)
+	readyButton:SetSize(16, 16)
+	readyButton:SetPoint("RIGHT", button, "LEFT", -2, 0)
+	readyButton.Icon = readyButton:CreateTexture(nil, "ARTWORK")
+	readyButton.Icon:SetAllPoints()
+	readyButton.Icon:SetAtlas("common-icon-checkmark")
+	readyButton:SetHighlightAtlas("ui-questtrackerbutton-yellow-highlight", "ADD")
+	readyButton:SetScript("OnClick", function()
+		Settings.SetValue("ForeverPlus_Quests_readyOnly", not Quests.db.readyOnly)
+	end)
+	readyButton:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip_SetTitle(GameTooltip, L.QUESTS_READY_ONLY)
+		GameTooltip_AddNormalLine(GameTooltip, Quests.db.readyOnly and L.QUESTS_READY_ON or L.QUESTS_READY_OFF)
+		GameTooltip:Show()
+	end)
+	readyButton:SetScript("OnLeave", GameTooltip_Hide)
+
 	tabs = { world = CreateTab(header, "world"), instance = CreateTab(header, "instance") }
-	tabs.instance:SetPoint("RIGHT", button, "LEFT", -4, 0)
+	tabs.instance:SetPoint("RIGHT", readyButton, "LEFT", -4, 0)
 	tabs.world:SetPoint("RIGHT", tabs.instance, "LEFT", -2, 0)
+	UpdateReadyButton()
 	UpdateTabs()
 end
 
@@ -1018,6 +1063,11 @@ function Quests:OnOptionChanged(key, value)
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
+	elseif key == "readyButton" then
+		UpdateReadyButton()
+	elseif key == "readyOnly" then
+		UpdateReadyButton()
+		self:UpdateTrackerSort(true)
 	elseif key == "trackerSort" or key == "classFirst" or key == "instanceTab" or key == "regionOnly" or key == "instancePreQuests" then
 		if self.db.instanceTab and self.db.instancePreQuests then
 			ns.QuestieDB.BuildChains(QueueSort)
@@ -1054,6 +1104,8 @@ Quests.options = {
 	{ key = "instanceTab", type = "toggle", name = L.QUESTS_INSTANCE_TAB, desc = L.QUESTS_INSTANCE_TAB_DESC },
 	{ key = "instancePreQuests", type = "toggle", name = L.QUESTS_INSTANCE_PREQUESTS, desc = L.QUESTS_INSTANCE_PREQUESTS_DESC, parent = "instanceTab" },
 	{ key = "regionOnly", type = "toggle", name = L.QUESTS_REGION_ONLY, desc = L.QUESTS_REGION_ONLY_DESC },
+	{ key = "readyOnly", type = "toggle", name = L.QUESTS_READY_ONLY, desc = L.QUESTS_READY_ONLY_DESC },
+	{ key = "readyButton", type = "toggle", name = L.QUESTS_READY_BUTTON, desc = L.QUESTS_READY_BUTTON_DESC },
 	{ key = "trackerPreview", type = "toggle", name = L.QUESTS_TRACKER_PREVIEW, desc = L.QUESTS_TRACKER_PREVIEW_DESC },
 	{ type = "header", name = L.QUESTS_FOREVER_HEADER },
 	{ key = "foreverMark", type = "toggle", name = L.QUESTS_FOREVER_MARK, desc = L.QUESTS_FOREVER_MARK_DESC },

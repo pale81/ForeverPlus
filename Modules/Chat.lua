@@ -7,6 +7,7 @@ local Chat = ns:NewModule("Chat", {
 	order = 1,
 	defaults = {
 		hideButtons = true,
+		chatEdges = true,
 		transparent = true,
 		languageClick = true,
 		languageMessage = true,
@@ -149,6 +150,25 @@ local function StyleTab(tab)
 	end
 end
 
+local EDITBOX_ROOM = 60 -- screen space above the chat needed for the tabs and the input line
+local editBoxHooked = {}
+
+-- Above the tabs (the tab dock is 26px high on top of the background); below
+-- the chat when it sits at the top of the screen.
+local function PlaceEditBox(chatFrame)
+	local editBox = chatFrame.editBox
+	local anchor = chatFrame.Background or chatFrame
+	local top, screenTop = anchor:GetTop(), UIParent:GetTop()
+	editBox:ClearAllPoints()
+	if Chat.db.chatEdges and top and screenTop and screenTop - top < EDITBOX_ROOM then
+		editBox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -5, -2)
+		editBox:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 5, -2)
+	else
+		editBox:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -5, 22)
+		editBox:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 5, 22)
+	end
+end
+
 local function StyleEditBox(chatFrame)
 	local editBox = chatFrame.editBox
 	if not editBox then
@@ -165,12 +185,51 @@ local function StyleEditBox(chatFrame)
 	editBox.focusMid:SetAlpha(0)
 	editBox.focusRight:SetAlpha(0)
 
-	-- Move above the tabs (the tab dock is 26px high on top of the background).
-	local anchor = chatFrame.Background or chatFrame
-	editBox:ClearAllPoints()
-	editBox:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -5, 22)
-	editBox:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 5, 22)
+	PlaceEditBox(chatFrame)
+	if not editBoxHooked[editBox] then
+		editBoxHooked[editBox] = true
+		editBox:HookScript("OnShow", function()
+			PlaceEditBox(chatFrame)
+		end)
+	end
+end
 
+---------------------------------------------------------------------------
+-- Edges: Edit Mode keeps the whole selection (buttons on the left, tabs on
+-- top, margins all round) on screen, so the chat cannot reach the corners.
+-- Left, right and bottom may now touch the screen edge; the top keeps room
+-- for the tabs.
+---------------------------------------------------------------------------
+local TAB_ROOM = 30
+local edgeHooked = {}
+
+local function ApplyEdges(chatFrame)
+	if not Chat.db.chatEdges or not chatFrame:GetLeft() then
+		return
+	end
+	local left, _, top = chatFrame:GetClampRectInsets()
+	-- The button column only stays in the clamp while it is shown.
+	chatFrame:SetClampRectInsets(Chat.db.hideButtons and 0 or left, 0, math.min(top, TAB_ROOM), 0)
+end
+
+local function HookEdges(chatFrame)
+	if not edgeHooked[chatFrame] and chatFrame.UpdateClampOffsets then
+		edgeHooked[chatFrame] = true
+		hooksecurefunc(chatFrame, "UpdateClampOffsets", ApplyEdges)
+	end
+	ApplyEdges(chatFrame)
+end
+
+local function UpdateEdges()
+	for chatFrame in pairs(edgeHooked) do
+		-- Blizzard's own values first, then ours on top.
+		if chatFrame.UpdateClampOffsets then
+			chatFrame:UpdateClampOffsets()
+		end
+		if chatFrame.editBox then
+			PlaceEditBox(chatFrame)
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -416,6 +475,7 @@ local function StyleChatFrame(chatFrame)
 	StyleTab(_G[chatFrame:GetName() .. "Tab"])
 	HookTab(_G[chatFrame:GetName() .. "Tab"])
 	StyleEditBox(chatFrame)
+	HookEdges(chatFrame)
 	EnableWheel(chatFrame)
 	HookHistory(chatFrame.editBox)
 	HookLog(chatFrame)
@@ -921,6 +981,9 @@ function Chat:OnOptionChanged(key, value)
 		UpdateHistoryMode()
 	elseif key == "hideButtons" then
 		self:UpdateButtons()
+		UpdateEdges()
+	elseif key == "chatEdges" then
+		UpdateEdges()
 	elseif key == "tabFade" then
 		self:UpdateTabFade()
 	elseif key == "transparent" then
@@ -940,6 +1003,7 @@ end
 
 Chat.options = {
 	{ key = "hideButtons", type = "toggle", name = L.CHAT_HIDE_BUTTONS, desc = L.CHAT_HIDE_BUTTONS_DESC },
+	{ key = "chatEdges", type = "toggle", name = L.CHAT_EDGES, desc = L.CHAT_EDGES_DESC },
 	{ key = "tabFade", type = "toggle", name = L.CHAT_TAB_FADE, desc = L.CHAT_TAB_FADE_DESC },
 	{ key = "languageClick", type = "toggle", name = L.CHAT_LANGUAGE_CLICK, desc = L.CHAT_LANGUAGE_CLICK_DESC },
 	{ key = "languageMessage", type = "toggle", name = L.MESSAGE_IN_CHAT, desc = L.MESSAGE_DESC, parent = "languageClick" },

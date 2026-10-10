@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"geterrorhandler",
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",
 	"C_TradeSkillUI", "EQUIPPED", "GetScreenWidth",

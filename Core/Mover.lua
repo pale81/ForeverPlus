@@ -67,6 +67,10 @@ local function FindWindow(region)
 		if not frame.GetParent then
 			return
 		end
+		-- Edit Mode systems and managed frames (their container is the top level window).
+		if frame.system or frame.isManagedFrame or frame.fpEditFrame then
+			return
+		end
 		local parent = frame:GetParent()
 		if not parent or parent == UIParent then
 			break
@@ -78,10 +82,6 @@ local function FindWindow(region)
 	end
 	local name = frame:GetName()
 	if not name or blocked[name] or IsChatFrame(name) then
-		return
-	end
-	-- Edit Mode systems (action bars, unit frames, minimap, …) are positioned by Edit Mode.
-	if frame.system or frame.isManagedFrame or frame.fpEditFrame then
 		return
 	end
 	if InCombatLockdown() and frame:IsProtected() then
@@ -294,7 +294,12 @@ local function UpdateAllWindowWheels()
 	end
 end
 
+local altToggled -- the global handler toggled on this right-click already
+
 function Mover:GLOBAL_MOUSE_DOWN(_, button)
+	if button == "RightButton" then
+		altToggled = false
+	end
 	if moving then
 		return
 	end
@@ -315,7 +320,11 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 		end
 	end
 	if button == "RightButton" then
-		ToggleLock(key)
+		-- Alt + right-click only; a plain right-click on a window stays Blizzard's.
+		if IsAltKeyDown() then
+			altToggled = true
+			ToggleLock(key)
+		end
 	elseif button == "LeftButton" and not IsLocked(key) then
 		StartMoving(frame, key)
 	end
@@ -575,7 +584,7 @@ function Mover:OnLogin()
 			HookWindow(frame)
 		end
 	end
-	FreeWindows()
+	ns.RunOutOfCombat(FreeWindows)
 	-- Load-on-demand windows appear later.
 	self:RegisterEvent("ADDON_LOADED", function()
 		ns.RunOutOfCombat(FreeWindows)
@@ -635,7 +644,7 @@ function ns:RegisterDisplay(frame, key, placeDefault, relativeTo)
 	frame:SetScript("OnDragStop", StopMoving)
 	frame:HookScript("OnMouseUp", function(_, mouseButton)
 		-- Alt + right-click is handled by the global mouse handler.
-		if mouseButton == "RightButton" and Mover.db.enabled and not IsAltKeyDown() then
+		if mouseButton == "RightButton" and Mover.db.enabled and not IsAltKeyDown() and not altToggled then
 			ToggleLock(entry.key)
 		end
 	end)

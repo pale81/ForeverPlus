@@ -50,7 +50,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Schrottliste wahlweise je Charakter (beim ersten Einschalten wird die gemeinsame Liste übernommen) | ja |
 | | Wertvollste Questbelohnung mit der Schrott-Münze hervorheben | ja |
 | | Grüner Pfeil nur bei echter Verbesserung für Klasse und Talentbaum: beste Rüstungsart der Klasse (Kette/Platte ab Stufe 40), höherer gewichteter Wert als das schwächste getragene Teil des Platzes (Wertgewichte je Talentbaum, aus der Spielmechanik abgeleitet), verwendbar; keine Berufswerkzeuge; Pfeil oben rechts (die Schrott-Münze bleibt oben links); optional Wertung im Tooltip | ja |
-| | Neuer besserer Gegenstand in den Taschen (Beute, Questbelohnung, Kauf; gleiche Wertung wie der Pfeil): Pergament-Fenster mit Symbol, ersetztem Teil und Wertung, „Anlegen“ oder „Nicht jetzt“; mehrere nacheinander, im Kampf ausgeblendet | ja |
+| | Neuer besserer Gegenstand in den Taschen (Beute, Questbelohnung, Kauf; gleiche Wertung wie der Pfeil): Fenster mit Symbol, ersetztem Teil und Wertung, „Anlegen“ oder „Nicht jetzt“; mehrere nacheinander, im Kampf ausgeblendet | ja |
 | | Schnelles Plündern (schaltet automatisches Plündern mit ein) | ja |
 | | Chatmeldungen: je Funktion abschaltbar (Verkauf, Reparatur, Markierung, Wegpunkt, Sperren); Hauptseite: alle Meldungen stumm | ja |
 | | Taschen voll: billigste graue Gegenstand (Händlerwert) wird angezeigt, nur wenn er weniger wert ist als die Beute im offenen Beutefenster (Questgegenstände gehen vor), nach Bestätigung aufgenommen; Vernichten über Blizzards eigene Abfrage | ja |
@@ -106,7 +106,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 ## Technik / CPU
 
-- Nur offizielle API des Forever-Clients (geprüft gegen den Blizzard-UI-Quellcode, Branch `forever`, Build 1.60.1.70205).
+- Nur offizielle API des Forever-Clients (geprüft gegen den Blizzard-UI-Quellcode, Branch `forever`, Build 1.60.1.70291).
 - Ausschließlich `hooksecurefunc`/`HookScript`, `TooltipDataProcessor`, Settings-API, `EventRegistry` (Bearbeitungsmodus) – keine Ersetzung von Blizzard-Funktionen.
 - Ereignisse werden nur registriert, solange eine Funktion aktiv ist. Dauerhafte `OnUpdate`-Schleifen gibt es nur für das Mouseover-Ausblenden (Prüfung alle 0,1 s, Überblendung nur während des Übergangs). Koordinaten und Minimap-Pins aktualisieren nur während der Bewegung, der Skalierungs-Fänger nur bei gedrückter Strg-Taste.
 - Lua-Fehler werden aus Blizzards eigenem `ScriptErrorsFrame` gelesen (kein eigener Error-Handler); das Popup wird über die CVar `scriptErrors` unterdrückt und beim Deaktivieren wiederhergestellt.

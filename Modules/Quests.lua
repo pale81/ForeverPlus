@@ -299,6 +299,13 @@ local function CreateItemButton()
 end
 
 function Quests:UpdateItemTicker()
+	-- The button is a protected frame.
+	if InCombatLockdown() then
+		ns.RunOutOfCombat(function()
+			Quests:UpdateItemTicker()
+		end)
+		return
+	end
 	if self.db.itemButton then
 		if not itemButton then
 			CreateItemButton()
@@ -325,12 +332,11 @@ end
 local SORT_DELAY = 1
 local DISTANCE_INTERVAL = 10
 local VERIFY_DELAY = 0.5
-local OWN_CHANGE_TIME = 1.5 -- watch list events after our own re-adding are ignored
 local SORT_MODES = { "default", "level", "zone", "distance", "name", "progress" }
 local INSTANCE_TAGS = { [81] = true, [62] = true, [85] = true, [88] = true, [89] = true }
 local MAX_WATCHES = Constants and Constants.QuestWatchConsts and Constants.QuestWatchConsts.MAX_QUEST_WATCHES or 25
 local sortPending, sortTicker
-local ownChangeUntil = 0
+local writing = false -- our own re-adding; its watch list events are synchronous and ignored
 local managing = false
 local forced = {} -- tracked by the player in this zone despite the region filter
 -- Whether a new watch lands at the top; found out from the result.
@@ -489,16 +495,28 @@ local function SameOrder(a, b, reversed)
 end
 
 local function WriteWatches(current, sorted)
-	ownChangeUntil = GetTime() + OWN_CHANGE_TIME
-	for _, questID in ipairs(current) do
-		C_QuestLog.RemoveQuestWatch(questID)
+	-- Removing the watch of the super tracked quest also ends its navigation.
+	local superTracked = C_SuperTrack.GetSuperTrackedQuestID()
+	writing = true
+	local ok, err = pcall(function()
+		for _, questID in ipairs(current) do
+			C_QuestLog.RemoveQuestWatch(questID)
+		end
+		local first, last, step = 1, #sorted, 1
+		if addsOnTop then
+			first, last, step = #sorted, 1, -1
+		end
+		for i = first, last, step do
+			C_QuestLog.AddQuestWatch(sorted[i])
+		end
+	end)
+	writing = false
+	if not ok then
+		error(err, 0)
 	end
-	local first, last, step = 1, #sorted, 1
-	if addsOnTop then
-		first, last, step = #sorted, 1, -1
-	end
-	for i = first, last, step do
-		C_QuestLog.AddQuestWatch(sorted[i])
+	if superTracked and superTracked ~= 0 and C_QuestLog.GetQuestWatchType(superTracked) ~= nil
+		and C_SuperTrack.GetSuperTrackedQuestID() ~= superTracked then
+		C_SuperTrack.SetSuperTrackedQuestID(superTracked)
 	end
 end
 
@@ -519,7 +537,7 @@ local function WantedList(facts)
 	-- Quests no longer in the log are forgotten (only once the log is loaded).
 	if next(facts) then
 		for questID in pairs(cdb.watched) do
-			if not facts[questID] then
+			if not facts[questID] and not C_QuestLog.IsOnQuest(questID) then
 				cdb.watched[questID] = nil
 			end
 		end
@@ -615,6 +633,7 @@ local UpdateTabs
 function SortTracker()
 	sortPending = false
 	if InCombatLockdown() then
+		ns.RunOutOfCombat(QueueSort) -- the tracker is not touched in combat; sort afterwards
 		return
 	end
 	if UpdateTabs then
@@ -648,7 +667,7 @@ end
 
 -- Player's own tracking changes are remembered; ours are ignored.
 local function OnWatchListChanged(_, _, questID, added)
-	if GetTime() < ownChangeUntil then
+	if writing then
 		return
 	end
 	if questID and IsManaging() then
@@ -690,7 +709,9 @@ local function RestoreWatches()
 	local facts = QuestFacts()
 	local list = {}
 	for questID in pairs(WantedList(facts)) do
-		list[#list + 1] = questID
+		if facts[questID] then
+			list[#list + 1] = questID
+		end
 	end
 	table.sort(list, function(a, b)
 		return facts[a].index < facts[b].index
@@ -715,8 +736,12 @@ function Quests:UpdateTrackerSort(switched)
 		end
 		QueueSort()
 	elseif managing and switched then
-		RestoreWatches()
-		self.cdb.watched = nil
+		ns.RunOutOfCombat(function()
+			if not IsManaging() then
+				RestoreWatches()
+				Quests.cdb.watched = nil
+			end
+		end)
 	end
 	managing = now
 	if UpdateTabs then

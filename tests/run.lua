@@ -68,6 +68,12 @@ hooksecurefunc = function(a, b, c)
 	if type(a) == "string" then assert(type(_G[a]) ~= "nil", "hooksecurefunc missing global " .. a) end
 end
 securecallfunction = function(fn, ...) return fn(...) end
+local plainXpcall = xpcall
+xpcall = function(fn, handler, ...) -- the game's xpcall passes arguments on
+	local args, n = { ... }, select("#", ...)
+	return plainXpcall(function() return fn(unpack(args, 1, n)) end, handler)
+end
+geterrorhandler = function() return function(e) io.stderr:write("ERROR: " .. tostring(e) .. "\n" .. debug.traceback() .. "\n") os.exit(1) end end
 local function NewFont(name, size)
 	local f = { face = "Fonts\\FRIZQT__.TTF", size = size, flags = "" }
 	function f:GetFont() return self.face, self.size, self.flags end
@@ -146,9 +152,9 @@ select = select
 Constants = { ChatFrameConstants = { MaxChatWindows = 10 } }
 DEFAULT_CHATFRAME_ALPHA = 0.25
 BACKPACK_CONTAINER, NUM_BAG_SLOTS, NUM_TOTAL_EQUIPPED_BAG_SLOTS = 0, 4, 5
-C_Container = { GetContainerNumFreeSlots = function() return 3, 0 end, GetContainerNumSlots = function() return 16 end, GetContainerItemInfo = function() return nil end, UseContainerItem = function() end, GetContainerItemLink = function() end, SortBags = function() end, GetBagSlotFlag = function() return false end, GetBackpackAutosortDisabled = function() return false end, PickupContainerItem = function() end }
+C_Container = { GetContainerNumFreeSlots = function() return 3, 0 end, GetContainerNumSlots = function() return 16 end, GetContainerItemInfo = function() return nil end, UseContainerItem = function() end, GetContainerItemLink = function() end, SortBags = function() end, GetBagSlotFlag = function() return false end, GetBackpackSellJunkDisabled = function() return false end, GetBackpackAutosortDisabled = function() return false end, PickupContainerItem = function() end }
 GetQuestLogSpecialItemInfo = function() end
-C_QuestLog = { GetNumQuestWatches = function() return 0 end, GetInfo = function() return nil end, IsComplete = function() return false end, GetNumQuestLogEntries = function() return 9, 7 end, GetMaxNumQuestsCanAccept = function() return 25 end }
+C_QuestLog = { GetQuestWatchType = function() return nil end, IsOnQuest = function() return false end, GetNumQuestWatches = function() return 0 end, GetInfo = function() return nil end, IsComplete = function() return false end, GetNumQuestLogEntries = function() return 9, 7 end, GetMaxNumQuestsCanAccept = function() return 25 end }
 TRACKER_HEADER_QUESTS = "Quests"
 C_Spell = { GetSpellName = function(id) return "Spell"..id end, GetSpellTexture = function() return 1 end }
 C_SpellBook = { IsSpellKnown = function() return true end, FindSpellBookSlotForSpell = function() return 1 end }

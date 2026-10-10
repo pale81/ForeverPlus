@@ -39,12 +39,25 @@ local function Learnable()
 	return list, total
 end
 
+-- Pet trainers charge training points, not money.
+local function IsPetTrainer()
+	return C_Trainer and C_Trainer.GetTrainerType and Enum.TrainerType
+		and C_Trainer.GetTrainerType() == Enum.TrainerType.Pet
+end
+
 local function UpdateTrainButton()
 	if not trainButton then
 		return
 	end
+	if not Services.db.trainAll or IsPetTrainer() then
+		trainButton:Hide()
+		return
+	end
+	if not ClassTrainerFrame:IsVisible() then
+		return
+	end
 	local list, total = Learnable()
-	trainButton:SetShown(Services.db.trainAll)
+	trainButton:Show()
 	trainButton:SetEnabled(#list > 0)
 	trainButton.Cost:SetText(#list > 0 and L.SERVICES_TRAIN_COST:format(GetMoneyString(total, true)) or "")
 	trainButton.Cost:SetTextColor((total > GetMoney() and RED_FONT_COLOR or HIGHLIGHT_FONT_COLOR):GetRGB())
@@ -53,6 +66,9 @@ end
 -- From the last entry to the first, so learning one does not move the
 -- ones still to come; stops where the money runs out.
 local function TrainAll()
+	if IsPetTrainer() then
+		return
+	end
 	local money = GetMoney()
 	local list = Learnable()
 	for i = #list, 1, -1 do
@@ -136,6 +152,9 @@ local function Finish()
 		if run.moved > 0 then
 			ns.Print(L.SERVICES_DEPOSITED, run.moved)
 		end
+		if run.full then
+			ns.Print(L.SERVICES_BANK_FULL)
+		end
 		run = nil
 	end
 end
@@ -149,8 +168,10 @@ local function DepositOne()
 				local maxStack = ns.Number(C_Item.GetItemMaxStackSizeByID(info.itemID), 1)
 				local targetBag, targetSlot, room = FindBankSlot(info.itemID, maxStack)
 				if not targetBag then
-					ns.Print(L.SERVICES_BANK_FULL)
-					return nil
+					-- No room for this one; others may still stack onto partial stacks.
+					run.skip[info.itemID] = true
+					run.full = true
+					return true
 				end
 				if room < info.stackCount then
 					C_Container.SplitContainerItem(bag, slot, room)

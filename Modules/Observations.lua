@@ -339,6 +339,7 @@ function Observations.ExportText()
 	for id in pairs(ns.db.npcQuests) do npcs[#npcs + 1] = id end
 	table.sort(npcs)
 	if #npcs > 0 then
+		lines[#lines + 1] = ns.ExportTag("npcs")
 		lines[#lines + 1] = L.OBS_EXPORT_NPCS
 		for _, id in ipairs(npcs) do
 			local entry = ns.db.npcQuests[id]
@@ -349,6 +350,7 @@ function Observations.ExportText()
 	for id in pairs(ns.db.objectivePoints) do quests[#quests + 1] = id end
 	table.sort(quests)
 	if #quests > 0 then
+		lines[#lines + 1] = ns.ExportTag("objectives")
 		lines[#lines + 1] = L.OBS_EXPORT_OBJECTIVES
 		for _, id in ipairs(quests) do
 			local indices = {}
@@ -363,6 +365,7 @@ function Observations.ExportText()
 	for id in pairs(ns.db.creaturePoints) do creatures[#creatures + 1] = id end
 	table.sort(creatures)
 	if #creatures > 0 then
+		lines[#lines + 1] = ns.ExportTag("creatures")
 		lines[#lines + 1] = L.OBS_EXPORT_CREATURES
 		for _, id in ipairs(creatures) do
 			lines[#lines + 1] = ("{ %d, { %s } },"):format(id, CellText(ns.db.creaturePoints[id]))

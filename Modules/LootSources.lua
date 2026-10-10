@@ -266,7 +266,7 @@ end)
 -- Export
 ---------------------------------------------------------------------------
 function LootSources.ExportText(sources)
-	local lines = { L.LOOTSRC_EXPORT_HEADER }
+	local lines = { ns.ExportTag("loot"), L.LOOTSRC_EXPORT_HEADER }
 	local keys = {}
 	for key in pairs(sources) do
 		keys[#keys + 1] = key

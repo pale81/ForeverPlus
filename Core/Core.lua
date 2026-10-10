@@ -94,6 +94,12 @@ end
 -- nil, and clear() removing the recording. /fp daten export and löschen use them.
 ns.dataSections = {}
 
+-- The first line of every exported section: a tag that does not depend on the
+-- game language, so tools/contrib.py can tell the sections apart.
+function ns.ExportTag(id)
+	return "-- @fp " .. id
+end
+
 function ns.AddDataSection(text, clear)
 	ns.dataSections[#ns.dataSections + 1] = { text = text, clear = clear }
 end

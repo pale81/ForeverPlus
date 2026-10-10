@@ -1,5 +1,7 @@
 -- Tooltip lines from QuestieDB (optional data addon): where an item comes from
--- and which quests an NPC offers or takes back.
+-- (everything except the drops, which Modules/LootSources.lua shows when it has
+-- data) and which quests an NPC offers or takes back where the shipped
+-- recordings have none (Modules/Observations.lua).
 local _, ns = ...
 local L = ns.L
 
@@ -117,10 +119,19 @@ local function OnItemTooltip(tooltip, data)
 	if not lines then
 		return
 	end
+	-- The loot sources (Modules/LootSources.lua) show where it drops, with shares.
+	local loot = ns:GetModule("LootSources")
+	local dropsCovered = loot.db.tooltip and #loot.Sources(itemID) > 0
+	local shown = false
 	for _, line in ipairs(lines) do
-		tooltip:AddLine(("%s %s"):format(SOURCE_COLOR:format(line[1]), line[2]), 1, 1, 1, true)
+		if not (dropsCovered and line[1] == L.QDB_DROPS) then
+			tooltip:AddLine(("%s %s"):format(SOURCE_COLOR:format(line[1]), line[2]), 1, 1, 1, true)
+			shown = true
+		end
 	end
-	tooltip:Show()
+	if shown then
+		tooltip:Show()
+	end
 end
 
 ---------------------------------------------------------------------------

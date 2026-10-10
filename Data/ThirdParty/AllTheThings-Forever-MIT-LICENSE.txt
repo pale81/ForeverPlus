@@ -1,4 +1,4 @@
-Data/Radar.lua (recipe vendors, their positions and recipes) and the hand-in quest IDs in Data/Library.lua are generated or
+Data/Radar.lua (recipe vendors, their positions and recipes), Data/Points.lua (flight points, some instance entrances) and the hand-in quest IDs in Data/Library.lua are generated or
 taken from the Forever data of AllTheThings (https://github.com/ATTWoWAddon/AllTheThings), which is distributed under the license
 below.
 

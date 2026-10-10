@@ -1714,10 +1714,10 @@ end)()
 	draw()
 	list = active()
 	count = kinds(list)
-	assert(count.entrance == 2 and count.flight == 1 and not count.inn and count.place == 1, "continent: zones' symbols, the capital, no inns")
+	assert(count.entrance == 2 and count.flight == 2 and not count.inn and count.place == 1, "continent: zones' symbols, the capital, no inns")
 	for _, symbol in ipairs(list) do
 		if symbol.kind == "place" then assert(symbol.label == "Sturmwind" and symbol.x == 0.45, "capital on the continent") end
-		if symbol.kind == "flight" then assert(math.abs(symbol.x - (0.4 + 0.566 * 0.1)) < 1e-9, "zone rect on continent") end
+		if symbol.kind == "flight" and symbol.data.name == "Thor" then assert(math.abs(symbol.x - (0.4 + 0.566 * 0.1)) < 1e-9, "zone rect on continent") end
 		if symbol.kind == "entrance" and #symbol.data.names == 2 then
 			local k = {}
 			for _, entry in ipairs(symbol.data.names) do k[entry[2]] = true end
@@ -1732,7 +1732,7 @@ end)()
 	assert(labels.Goldhain and labels.Sturmwind and labels.Sturmwind.x == 0.2, "town and capital names on the zone map")
 	mapID = 1453
 	draw()
-	assert(#active() == 0, "no capital name on its own city map")
+	assert(kinds(active()).place == nil, "no capital name on its own city map")
 	wm.db.flightPoints, wm.db.inns, wm.db.places = false, false, false
 	wm:OnOptionChanged("flightPoints", false)
 	mapID = 1436
@@ -2035,5 +2035,24 @@ end
 	C_QuestLog.IsQuestFlaggedCompleted = function() return false end
 	Lib.cdb.owned[handedIn[1]] = nil
 	print("library OK")
+end)()
+-- Shipped flight points and instance entrances
+;(function()
+	local P = assert(ns.Points, "Data/Points.lua loaded")
+	local listed = {}
+	assert(loadfile(root .. "/Data/Instances.lua"))("ForeverPlus", listed)
+	local n, factions = 0, {}
+	for node, f in pairs(P.flights) do
+		n = n + 1
+		factions[f[5]] = true
+		assert(type(f[1]) == "string" and f[2] > 1000 and f[3] > 0 and f[3] < 100 and f[4] > 0 and f[4] < 100, "flight " .. node)
+	end
+	assert(n >= 60 and factions.A and factions.H, "flight points of both factions: " .. n)
+	for id, row in pairs(P.entrances) do
+		assert(listed.Instances[id], "entrance of a listed instance " .. id)
+		assert(row[2] == "w" or row[2] == "m", "entrance kind " .. id)
+	end
+	assert(P.entrances[36] and P.entrances[36][2] == "w", "Deadmines entrance from the game table")
+	print("points OK")
 end)()
 dofile("bundled.lua")

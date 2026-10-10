@@ -34,6 +34,7 @@ Data\Places.lua
 Data\Transports.lua
 Data\Library.lua
 Data\Radar.lua
+Data\Points.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua

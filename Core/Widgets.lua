@@ -489,3 +489,24 @@ function ns.ApplyActionFrame(owner, icon, style, subLevel)
 	ns.SizeActionFrame(owner)
 	return actionFrames[owner]
 end
+
+-- Lets an optional visual style be switched off again without discarding the
+-- reusable art or leaving its rounded mask on the icon.
+function ns.SetActionFrameEnabled(owner, enabled)
+	local art = actionFrames[owner]
+	if not art then return end
+	if enabled then
+		if not art.masked then
+			art.masked = true
+			art.icon:AddMaskTexture(art.mask)
+		end
+		ns.SizeActionFrame(owner)
+		art.frame:Show()
+	else
+		if art.masked then
+			art.icon:RemoveMaskTexture(art.mask)
+			art.masked = false
+		end
+		art.frame:Hide()
+	end
+end

@@ -27,7 +27,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
 | | Wiederkehrende Meldungen zusammenfassen: Fertigkeitsanstiege und Rufänderungen erscheinen nach einer Wartezeit (Standard 30 s) als eine Zeile mit letztem Wert bzw. Summe und Anzahl („… auf 11 erhöht (×8)“) | ja |
-| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse | ja |
+| | Schlagwort-Alarm: Klang (wählbar) bei eigenen Schlagwörtern als ganzes Wort („it“ meldet nicht „invite“); Schlagwörter optional farbig; Liste je Charakter, vorbelegt mit Name und Klasse; direkt im Rechtsklickmenü des Chatreiters ein-/ausschaltbar | ja |
 | | Beute zusammenfassen: eigene Beute, selbst hergestellte Gegenstände und eigenes Geld als je eine anklickbare Zeile nach einer Pause (einstellbar); Klick öffnet ein Popup am Mauszeiger mit Symbol, Anzahl und Herkunft (Shift-Klick verlinkt im Chat); Gegenstände ab gewählter Qualität zusätzlich direkt in der Zeile; Beute und Geld optional in einer Zeile | ja |
 | | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
@@ -41,6 +41,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
 | | Verfolgungsmenü der Minimap: eigene Einträge unten unter „ForeverPlus“ (derzeit „Rezepthändler“; neue Funktionen für die Minimap melden sich über `ns.AddTrackingEntry` an); Einstellung „ForeverPlus im Verfolgungsmenü“ | ja |
+| | Lagerfeuer von dir und deiner Gruppe (Basis, Geselle, Experte) als Symbol mit Restzeit und Besitzer auf der Minimap (Erkennung über den Zauber; Zauber-IDs aus den Spieldaten bestätigt, im Spiel ungeprüft) | ja |
 | | Aufspüren-Menü: Zaubersymbole (z. B. Schatzsucher) auf die sichtbare Größe der übrigen Symbole verkleinert | ja |
 | Weltkarte | Unentdeckte Gebiete durchscheinend (Deckkraft einstellbar, Standard 60 %), optional leicht grün getönt; Kartenteile aus den Spieldaten, Karten mit abweichenden Daten bleiben unverändert; `/fp karte` prüft die offene Karte | ja |
 | | Symbole für Instanzeingänge (Dungeons, Schlachtzüge) und Flugmeister der eigenen Fraktion und neutrale auf Gebiets- und Kontinentkarten, Gasthäuser auf Gebiets- und Stadtkarten, Namen der Orte (Gebietskarten) und Hauptstädte (Gebiets- und Kontinentkarten); alles einzeln abschaltbar, Namen per Mouseover | ja |
@@ -60,7 +61,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Seelengebunden beim Aufheben automatisch bestätigen (Plündern und Würfeln) | ja |
 | | Bindungsabfrage beim Anlegen oder Benutzen bestätigen (Equip-/Benutzen-Abfragen, auch „handelbar“); Löschen wertvoller Gegenstände: das verlangte Wort wird eingetragen, den Klick auf „Ja“ macht der Spieler (Löschen ist für Addons gesperrt) | ja |
 | | Würfelfenster: Anzahl Bedarf/Gier/Passen auf den Knöpfen, Namen beim Überfahren | ja |
-| Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen | ja |
+| Auktionshaus | Warnsymbol bei Auktionen mit Stückpreis ≤ Händlerpreis, Warnung beim Einstellen (nach Abzug der 5 % Gebühr); optional Händlergewinn im Tooltip und beim Einstellen; Starttab wählbar (Kaufen, Verkaufen, Auktionen) | ja |
 | | Laufzeit 24 Std. je Sitzung vorgewählt (über Blizzards eigene Einstellung) | ja |
 | Komfort | Eigene Seite „Mouseover“: Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste, Statusleisten (Erfahrung, Ruf), Spieler-, Ziel- und Fokusfenster, Minimap nur bei Mouseover (jedes Element einzeln wählbar; Aktionsleisten und Fenster standardmäßig aus), optional im Kampf immer sichtbar; dort auch EP-/Rufzahlen bei Mouseover und die ausblendenden Chatreiter | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
@@ -79,7 +80,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Nach jedem Sortieren (auch mit Blizzards Knopf) liegen markierte Gegenstände direkt neben den grauen | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |
-| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons (Durchschnitt der letzten Bilder, höchster Wert, Zahl der Bilder über 1 ms; grün/orange/rot nach dem höchsten Wert); verschieb- und sperrbar | ja |
+| | FPS/MS unten in der Minimap (Zahlen in Klassenfarbe); Mouseover: CPU-Zeit aller Addons (seit dem Laden gemessen: Durchschnitt der letzten 60 Bilder, höchster Wert, Zahl der Bilder über 1 ms; die Messung läuft pro Bild, solange die Anzeige eingeschaltet ist; grün/orange/rot nach dem höchsten Wert); verschieb- und sperrbar | ja |
 | | Blizzard-Koordinaten unter der Minimap einmalig ausgeschaltet (wieder einschaltbar in den WoW-Optionen) | – |
 | Gruppensuche | Dungeongruppen für 5 und 10 Spieler: Klassen der Gruppe (nach Rolle sortiert) und fehlende Rollen nach einstellbarer Aufstellung (5er: 1 Tank, 1 Heiler, 3 Schaden; 10er: einstellbar) | ja |
 | Quests | Questklänge (abschaltbar) bei Questfortschritt und erledigter Quest (Peon „Arbeit abgeschlossen“ bzw. „Bereit zur Arbeit“ u. a.), Questsymbol mit Fortschritt an Namensplaketten | ja |
@@ -95,9 +96,10 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau, aktive Selbstbuffs (Siegel, Aspekte, Rüstungen, Schilde) entsättigt, je Zauber abschaltbar (einzeln); optional verbleibende Zauber mit dem aktuellen Mana als kleine blaue Zahl | ja |
 | | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel; am Porträt ausgerichtet, Größe einstellbar | ja |
-| | Buff-Symbole, Questgegenstände im Questtracker und Questbelohnungen mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
+| | Buff- und Debuff-Symbole (optional), Questgegenstände im Questtracker und Questbelohnungen mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher, Zauberbuch – bleibt ohne) | – |
+| Einstellungen | Neue Optionen, Abschnitte und Seiten tragen drei Ansichten lang die Marke „NEU“; die Einstellungssuche findet auch Beschreibungen und Schlüsselwörter | – |
 | | Eigene Popups und Fenster (Listen, Text- und Eingabefenster, Fehlerliste, Upgrade-Hinweis, „Taschen voll“, Questvorschau) einheitlich im Stil der Questvorschau: Tooltip-Hintergrund und -Rahmen, Titel oben links, kleines X zum Schließen, Esc schließt | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
 | Helfer | Alt: verarbeitbare Taschengegenstände leuchten (lila Entzaubern, gelb Schlossknacken), Alt + Rechtsklick führt es aus | ja |

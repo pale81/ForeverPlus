@@ -14,6 +14,7 @@ local Info = ns:NewModule("Info", {
 })
 
 local PERF_INTERVAL = 1
+local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
 local CPU_LOW, CPU_HIGH = 1, 5 -- ms per frame: green below, red from
 
@@ -123,6 +124,63 @@ end
 -- FPS / latency inside the minimap, addon CPU usage on mouseover
 ---------------------------------------------------------------------------
 local perfFrame, perfTicker
+local lastCpuTooltipUpdate = 0
+local profilerSampler
+local sampledAddons = {}
+local sessionMetrics = {}
+
+local function TrackAddon(name)
+	if name and not sessionMetrics[name] then
+		sampledAddons[#sampledAddons + 1] = name
+		sessionMetrics[name] = {
+			peak = 0, slow = 0, average = 0,
+			recent = {}, recentIndex = 1, recentCount = 0, recentTotal = 0,
+		}
+	end
+end
+
+local function SampleAddonMetrics()
+	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
+		return
+	end
+	local lastTime = Enum.AddOnProfilerMetric.LastTime
+	for _, name in ipairs(sampledAddons) do
+		local elapsed = C_AddOnProfiler.GetAddOnMetric(name, lastTime) or 0
+		local entry = sessionMetrics[name]
+		local index = entry.recentIndex
+		if entry.recentCount == 60 then
+			entry.recentTotal = entry.recentTotal - entry.recent[index]
+		else
+			entry.recentCount = entry.recentCount + 1
+		end
+		entry.recent[index] = elapsed
+		entry.recentTotal = entry.recentTotal + elapsed
+		entry.average = entry.recentTotal / entry.recentCount
+		entry.recentIndex = index % 60 + 1
+		if elapsed > entry.peak then
+			entry.peak = elapsed
+		end
+		if elapsed > 1 then
+			entry.slow = entry.slow + 1
+		end
+	end
+end
+
+local function SetupProfilerSampler(enabled)
+	if not profilerSampler then
+		profilerSampler = CreateFrame("Frame")
+		profilerSampler:RegisterEvent("ADDON_LOADED")
+		profilerSampler:SetScript("OnEvent", function(_, _, name)
+			TrackAddon(name)
+		end)
+		for i = 1, C_AddOns.GetNumAddOns() do
+			if C_AddOns.IsAddOnLoaded(i) then
+				TrackAddon(C_AddOns.GetAddOnInfo(i))
+			end
+		end
+	end
+	profilerSampler:SetScript("OnUpdate", enabled and SampleAddonMetrics or nil)
+end
 
 local function CpuColor(ms)
 	if ms < CPU_LOW then
@@ -173,6 +231,7 @@ local function StartMeasure()
 end
 
 local function ShowCpuTooltip(owner)
+	lastCpuTooltipUpdate = GetTime()
 	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
 	GameTooltip_SetTitle(GameTooltip, L.INFO_CPU_TITLE)
 	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
@@ -180,18 +239,16 @@ local function ShowCpuTooltip(owner)
 		GameTooltip:Show()
 		return
 	end
-	-- Average of the last frames, highest single frame and frames over 1 ms
-	-- since the start: averages hide short spikes.
-	local metrics = Enum.AddOnProfilerMetric
+	-- Sample LastTime locally so all three values start fresh after /reload.
 	local list = {}
 	for i = 1, C_AddOns.GetNumAddOns() do
 		if C_AddOns.IsAddOnLoaded(i) then
 			local name, title = C_AddOns.GetAddOnInfo(i)
 			list[#list + 1] = {
 				title = StripColors(title or name),
-				ms = C_AddOnProfiler.GetAddOnMetric(name, metrics.RecentAverageTime) or 0,
-				peak = C_AddOnProfiler.GetAddOnMetric(name, metrics.PeakTime) or 0,
-				slow = C_AddOnProfiler.GetAddOnMetric(name, metrics.CountTimeOver1Ms) or 0,
+				ms = sessionMetrics[name] and sessionMetrics[name].average or 0,
+				peak = sessionMetrics[name] and sessionMetrics[name].peak or 0,
+				slow = sessionMetrics[name] and sessionMetrics[name].slow or 0,
 			}
 		end
 	end
@@ -223,7 +280,7 @@ local function UpdatePerformance()
 		label:WrapTextInColorCode("FPS"), color:WrapTextInColorCode(("%d"):format(GetFramerate())),
 		label:WrapTextInColorCode("MS"), color:WrapTextInColorCode(("%d"):format(max(latencyHome, latencyWorld))))
 	perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
-	if GameTooltip:GetOwner() == perfFrame then
+	if GameTooltip:GetOwner() == perfFrame and GetTime() - lastCpuTooltipUpdate >= CPU_TOOLTIP_INTERVAL then
 		ShowCpuTooltip(perfFrame)
 	end
 end
@@ -256,12 +313,14 @@ end
 
 function Info:UpdatePerformance()
 	if self.db.performance then
+		SetupProfilerSampler(true)
 		perfFrame = perfFrame or CreatePerfFrame()
 		self:UpdateFont()
 		perfFrame:Show()
 		perfTicker = perfTicker or C_Timer.NewTicker(PERF_INTERVAL, UpdatePerformance)
 		UpdatePerformance()
 	elseif perfFrame then
+		SetupProfilerSampler(false)
 		perfFrame:Hide()
 		if perfTicker then
 			perfTicker:Cancel()

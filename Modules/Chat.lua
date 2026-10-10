@@ -907,6 +907,22 @@ function Chat:EditKeywords()
 	end, L.CHAT_KEYWORDS_HINT)
 end
 
+local function AddKeywordAlertMenuItem(_, rootDescription)
+	rootDescription:CreateDivider()
+	rootDescription:CreateCheckbox(L.CHAT_KEYWORD_MENU, function()
+		return Chat.db.keywordAlert
+	end, function()
+		Chat.db.keywordAlert = not Chat.db.keywordAlert
+		Chat:UpdateKeywordAlert()
+	end)
+end
+
+local function RegisterKeywordAlertMenuItem()
+	if Menu and type(Menu.ModifyMenu) == "function" then
+		Menu.ModifyMenu("MENU_FCF_TAB", AddKeywordAlertMenuItem)
+	end
+end
+
 function Chat:OnLogin()
 	-- The saved lines come first, then this session's lines are recorded.
 	if self.db.chatLog then
@@ -915,6 +931,7 @@ function Chat:OnLogin()
 		wipe(self.cdb.chatLog)
 	end
 	StyleAll()
+	RegisterKeywordAlertMenuItem()
 	self:UpdateButtons()
 	self:UpdateRepeatSummary()
 	hooksecurefunc("FCF_FadeInChatFrame", function(chatFrame)

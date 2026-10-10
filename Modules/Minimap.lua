@@ -10,8 +10,149 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		worldMapCoords = true,
 		trackingIcons = true,
 		trackingEntries = true,
+		campfires = false,
 	},
 })
+
+-- WoW Forever reports campfire placement through its item-effect spell casts,
+-- but does not expose a list of nearby world objects to addons. Track exact
+-- positions when the player or a group member places one.
+local CAMPFIRE_SPELLS = {
+	[1307227] = 15 * 60, -- Basic Campfire
+	[1307252] = 15 * 60, -- Journeyman Campfire
+	[1307237] = 15 * 60, -- Expert Campfire
+}
+local campfires, campfireHolder = {}, nil
+local CAMPFIRE_ICON = [[Interface\Icons\INV_Misc_BBQFire_01]]
+
+local function IsGroupUnit(unit)
+	if type(unit) ~= "string" then
+		return false
+	end
+	return unit == "player" or unit:match("^party%d+$") ~= nil or unit:match("^raid%d+$") ~= nil
+end
+
+local function AddCampfire(unit, duration)
+	local mapID = C_Map.GetBestMapForUnit(unit)
+	local playerMapID = C_Map.GetBestMapForUnit("player")
+	if not mapID or mapID ~= playerMapID then
+		return
+	end
+	local position = C_Map.GetPlayerMapPosition(mapID, unit)
+	if not position then
+		return
+	end
+	local x, y = position:GetXY()
+	local name, realm = UnitName(unit)
+	local fire = {
+		mapID = mapID,
+		x = x,
+		y = y,
+		owner = realm and realm ~= "" and (name .. " - " .. realm) or name,
+		expires = GetTime() + duration,
+	}
+	local pin = CreateFrame("Button", nil, campfireHolder)
+	pin:SetSize(26, 28)
+	pin.Icon = pin:CreateTexture(nil, "ARTWORK")
+	pin.Icon:SetSize(18, 18)
+	pin.Icon:SetPoint("TOP", pin, "TOP")
+	pin.Icon:SetTexture(CAMPFIRE_ICON)
+	pin.Timer = pin:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	pin.Timer:SetPoint("TOP", pin.Icon, "BOTTOM", 0, 1)
+	pin.Timer:SetJustifyH("CENTER")
+	pin.Timer:SetTextColor(1, 0.85, 0.3)
+	pin.Timer:SetShadowOffset(1, -1)
+	pin:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip_SetTitle(GameTooltip, L.MINIMAP_CAMPFIRE)
+		GameTooltip:AddLine(L.MINIMAP_CAMPFIRE_OWNER:format(fire.owner), 1, 1, 1)
+		GameTooltip:AddLine(L.MINIMAP_CAMPFIRE_REMAINING:format(pin.Timer:GetText()), 1, 0.85, 0.3)
+		GameTooltip:Show()
+	end)
+	pin:SetScript("OnLeave", GameTooltip_Hide)
+	fire.pin = pin
+	campfires[#campfires + 1] = fire
+	return fire
+end
+
+local function FormatRemaining(seconds)
+	seconds = math.max(0, math.ceil(seconds))
+	return ("%d:%02d"):format(floor(seconds / 60), seconds % 60)
+end
+
+local function PositionCampfires()
+	if not campfireHolder or not MinimapCoords.db.campfires then
+		if campfireHolder then
+			campfireHolder:SetScript("OnUpdate", nil)
+			for _, fire in ipairs(campfires) do fire.pin:Hide() end
+		end
+		return
+	end
+	local currentMapID = C_Map.GetBestMapForUnit("player")
+	local position = currentMapID and C_Map.GetPlayerMapPosition(currentMapID, "player")
+	local width, height
+	if currentMapID then
+		width, height = C_Map.GetMapWorldSize(currentMapID)
+	end
+	local radius = C_Minimap.GetViewRadius()
+	if not position or not width or width == 0 or not height or height == 0 or not radius or radius == 0 then
+		for _, fire in ipairs(campfires) do fire.pin:Hide() end
+		return
+	end
+	local px, py = position:GetXY()
+	local halfWidth, halfHeight = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
+	local facing = GetCVarBool("rotateMinimap") and GetPlayerFacing() or 0
+	local sin, cos = math.sin(facing), math.cos(facing)
+	local now = GetTime()
+	for index = #campfires, 1, -1 do
+		local fire = campfires[index]
+		if fire.expires <= now then
+			fire.pin:Hide()
+			table.remove(campfires, index)
+		elseif fire.mapID == currentMapID then
+			local sx = (fire.x - px) * width
+			local sy = (py - fire.y) * height
+			if facing ~= 0 then
+				sx, sy = sx * cos + sy * sin, -sx * sin + sy * cos
+			end
+			local distance = math.sqrt(sx * sx + sy * sy)
+			local onEdge = distance > radius
+			if onEdge then
+				sx, sy = sx * radius / distance, sy * radius / distance
+			end
+			fire.pin:ClearAllPoints()
+			fire.pin:SetPoint("CENTER", Minimap, "CENTER", sx / radius * halfWidth, sy / radius * halfHeight)
+			fire.pin:SetAlpha(onEdge and 0.6 or 1)
+			fire.pin.Timer:SetText(FormatRemaining(fire.expires - now))
+			fire.pin:Show()
+		else
+			fire.pin:Hide()
+		end
+	end
+	if #campfires == 0 then
+		campfireHolder:SetScript("OnUpdate", nil)
+	elseif not campfireHolder:GetScript("OnUpdate") then
+		campfireHolder:SetScript("OnUpdate", function(_, elapsed)
+			MinimapCoords.campfireElapsed = (MinimapCoords.campfireElapsed or 0) + elapsed
+			if MinimapCoords.campfireElapsed >= 0.2 then
+				MinimapCoords.campfireElapsed = 0
+				PositionCampfires()
+			end
+		end)
+	end
+end
+
+function MinimapCoords:UNIT_SPELLCAST_SUCCEEDED(_, unit, _, spellID)
+	if type(spellID) ~= "number" or issecretvalue(spellID) then
+		return
+	end
+	local duration = CAMPFIRE_SPELLS[spellID]
+	if not self.db.campfires or not IsGroupUnit(unit) or not duration then
+		return
+	end
+	AddCampfire(unit, duration)
+	PositionCampfires()
+end
 
 local UPDATE_INTERVAL = 0.2
 local text, ticker, lastX, lastY
@@ -192,6 +333,10 @@ local function AddForeverPlusEntries(rootDescription)
 end
 
 function MinimapCoords:OnLogin()
+	campfireHolder = CreateFrame("Frame", nil, Minimap)
+	campfireHolder:SetAllPoints()
+	campfireHolder:SetFrameLevel(Minimap:GetFrameLevel() + 6)
+	self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
 			AddIconInitializers(rootDescription)
@@ -236,12 +381,18 @@ function MinimapCoords:OnLogin()
 	Update()
 end
 
-function MinimapCoords:OnOptionChanged()
-	self:UpdateWorldMapCoords()
+function MinimapCoords:OnOptionChanged(key)
+	if key == "campfires" then
+		self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
+		PositionCampfires()
+	else
+		self:UpdateWorldMapCoords()
+	end
 end
 
 MinimapCoords.options = {
 	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
+	{ key = "campfires", type = "toggle", name = L.MINIMAP_CAMPFIRES, desc = L.MINIMAP_CAMPFIRES_DESC, new = true },
 }

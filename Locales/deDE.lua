@@ -745,7 +745,7 @@ L.LIBRARY_EXPORT_HINT = "Mit Strg+C kopieren und weitergeben, damit die Lage der
 
 L.INNS_TITLE = "Gasthäuser"
 L.INNS_RECORD = "Gastwirte merken"
-L.INNS_RECORD_DESC = "Merkt sich den Gastwirt und deine Position, wenn du dort deinen Ruhestein bindest (nur lokal, nichts wird gesendet). Die Gasthaus-Symbole der Weltkarte zeigen sie mit an; /fp gasthäuser export gibt sie als Text zum Weitergeben aus, damit sie in ein Update kommen."
+L.INNS_RECORD_DESC = "Merkt sich den Gastwirt und deine Position, sobald er dir anbietet, den Ruhestein zu binden (Gesprächsfenster oder Bindung; nur lokal, nichts wird gesendet). Die Gasthaus-Symbole der Weltkarte zeigen sie mit an; /fp gasthäuser export gibt sie als Text zum Weitergeben aus, damit sie in ein Update kommen."
 L.INNS_STATUS = "Gasthäuser: %d Gastwirte gemerkt. /fp gasthäuser export zeigt sie als Text, /fp gasthäuser löschen entfernt sie."
 L.INNS_CLEARED = "Gemerkte Gastwirte gelöscht."
 L.INNS_EXPORT_HEADER = "-- ForeverPlus Gasthäuser: { NPC, Karte, x, y, Fraktion, Name }"

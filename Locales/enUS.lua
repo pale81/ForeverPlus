@@ -746,7 +746,7 @@ L.LIBRARY_EXPORT_HINT = "Copy with Ctrl+C and pass it on so the book positions c
 
 L.INNS_TITLE = "Inns"
 L.INNS_RECORD = "Remember innkeepers"
-L.INNS_RECORD_DESC = "Remembers the innkeeper and your position when you bind your hearthstone there (stored locally only, nothing is sent). The inn symbols on the world map show them too; /fp inns export shows them as text to pass on so they ship with an update."
+L.INNS_RECORD_DESC = "Remembers the innkeeper and your position as soon as he offers to bind your hearthstone (gossip window or binding; stored locally only, nothing is sent). The inn symbols on the world map show them too; /fp inns export shows them as text to pass on so they ship with an update."
 L.INNS_STATUS = "Inns: %d innkeepers remembered. /fp inns export shows them as text, /fp inns clear removes them."
 L.INNS_CLEARED = "Remembered innkeepers deleted."
 L.INNS_EXPORT_HEADER = "-- ForeverPlus inns: { NPC, map, x, y, team, name }"

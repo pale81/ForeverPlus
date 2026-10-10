@@ -2071,7 +2071,18 @@ end)()
 	assert(inn and inn[1] == "Gastwirtin Heather" and inn[2] == 1436 and inn[3] == 52.9 and inn[4] == 53.7 and inn[5] == "A", "innkeeper remembered")
 	UnitFactionGroup = function() return "Horde" end
 	I.Record()
-	assert(ns.db.innkeepers[8931][5] == "N", "bound by both factions: neutral")
+	assert(ns.db.innkeepers[8931][5] == "N" and ns.db.innkeepers[8931][3] == 52.9, "met by both factions: neutral, first position kept")
+	-- the gossip window with the binder option records without binding
+	ns.db.innkeepers = {}
+	UnitFactionGroup = function() return "Alliance" end
+	C_GossipInfo = { GetOptions = function() return { { icon = 132060 } } end }
+	I.OnGossipShow()
+	assert(next(ns.db.innkeepers) == nil, "a vendor option is no innkeeper")
+	C_GossipInfo = { GetOptions = function() return { { icon = 132060 }, { icon = 132052 } } end }
+	I.OnGossipShow()
+	assert(ns.db.innkeepers[8931] and ns.db.innkeepers[8931][5] == "A", "binder option recorded")
+	UnitFactionGroup = function() return "Horde" end
+	I.Record()
 	local text = I.ExportText(ns.db.innkeepers)
 	assert(text:find('{ 8931, 1436, 52.9, 53.7, "N", "Gastwirtin Heather" },', 1, true), "export line")
 	ns.db.innkeepers = {}

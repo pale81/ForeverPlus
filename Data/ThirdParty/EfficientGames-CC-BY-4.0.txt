@@ -1,7 +1,7 @@
-Data/Inns.lua is generated from open data of Efficient Games (https://efficient.games), recorded by players of World of Warcraft: Forever
+Data/Inns.lua and Data/RadarEG.lua are generated from open data of Efficient Games (https://efficient.games), recorded by players of World of Warcraft: Forever
 with the EG Link addon and published at https://github.com/JIVESCORP/eg-link-output-wowf.
 
 Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
-The data was reduced to the innkeepers (position and name) and converted to a Lua table.
+The data was reduced to the innkeepers and to vendors with recipes (position, name, items) and converted to Lua tables.
 
 Game content in these datasets, such as names, is the property of Blizzard Entertainment.

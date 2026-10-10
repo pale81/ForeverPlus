@@ -68,6 +68,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |
 | | Questtracker: Klassenquests immer oben; Reiter „Welt“/„Instanz“ für Dungeon- und Schlachtzugsquests (wechselt beim Betreten einer Instanz); optional nur Quests der aktuellen Region | ja |
+| | Questtracker: Filter „Nur Quests zur Abgabe“ (alle Ziele erfüllt): Häkchen in der Kopfzeile des Trackers schaltet ihn um, dieselbe Einstellung steht in den Optionen; gibt es keine abgabebereite Quest, bleibt alles sichtbar; die anderen Quests bleiben vorgemerkt | ja |
 | | Questtracker: Maus über einem Questtitel zeigt eine Kartenvorschau mit den offenen Zielen (rote Punkte: Gegner, Gegenstandsquellen, Orte) oder dem Abgabe-NPC, dazu Ziele, weitere Gebiete und die eigene Position (Daten: QuestieDB) | ja |
 | | Fehlerfenster unterdrückt, Fehler gesammelt; Tag/Nacht-Anzeige der Minimap ist der Knopf, leuchtet bei neuen Fehlern; Liste neueste zuerst; Detailfenster mit Vor/Zurück und Kopier-Symbol; Rechtsklick löscht alle Fehler, Shift-Klick lädt das Interface neu | ja |
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |

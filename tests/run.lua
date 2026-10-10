@@ -557,6 +557,20 @@ assert(table.concat(watches, ",") == "14,12,11", "region filter keeps class ques
 q.db.regionOnly, q.db.instanceTab, q.db.classFirst = false, false, false
 q.db.trackerSort = "zone"; sort()
 q.db.trackerSort = "progress"; sort()
+-- Only quests ready to turn in (everything when none is)
+do
+	local readyID = 12
+	local realReady = ns.IsQuestReady
+	ns.IsQuestReady = function(id) return id == readyID end
+	q.cdb.watched = nil
+	q.db.trackerSort = "default"; q.db.readyOnly = true; sort()
+	assert(table.concat(watches, ",") == "12", "only the ready quest stays tracked")
+	readyID = nil; sort()
+	table.sort(watches)
+	assert(table.concat(watches, ",") == "11,12,14,15,16", "nothing ready: all shown again")
+	q.db.readyOnly = false; sort()
+	ns.IsQuestReady = realReady
+end
 print("sort OK")
 -- Reputation text
 local repText = uv(uv(xp.OnLogin, "HookBars"), "UpdateRepText")

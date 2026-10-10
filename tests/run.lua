@@ -2017,6 +2017,16 @@ end
 	local text = Lib.ExportText(ns.db.libraryFinds)
 	assert(text:find("{ " .. id .. ", 1455, 75.7, 10.5 },", 1, true), "export line")
 	Lib.cdb.owned[id], ns.db.libraryFinds[id] = nil, nil
+	-- a book handed in before (its quest is done) counts without ever being in the bags
+	inBags = false
+	local handedIn
+	for _, b in ipairs(ns.LibraryBooks) do if b[6] then handedIn = b break end end
+	assert(handedIn, "hand-in quests known")
+	C_QuestLog.IsQuestFlaggedCompleted = function(quest) return quest == handedIn[6] end
+	Lib.Scan()
+	assert(Lib.cdb.owned[handedIn[1]] and not ns.db.libraryFinds[handedIn[1]], "quest done: collected, no find recorded")
+	C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+	Lib.cdb.owned[handedIn[1]] = nil
 	print("library OK")
 end)()
 dofile("bundled.lua")

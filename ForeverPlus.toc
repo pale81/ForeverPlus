@@ -35,6 +35,7 @@ Data\Transports.lua
 Data\Library.lua
 Data\Radar.lua
 Data\Points.lua
+Data\Inns.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua
@@ -50,6 +51,7 @@ Modules\QuestPreview.lua
 Modules\DataCapture.lua
 Modules\Transports.lua
 Modules\Library.lua
+Modules\Innkeepers.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
 Modules\Errors.lua

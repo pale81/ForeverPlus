@@ -37,6 +37,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Stapelgröße bei stapelbaren Gegenständen | ja |
 | | Beim Lehrer: neben dem Tooltip eines Rezepts die ausgerüsteten Gegenstände des passenden Platzes (wie der Vergleich in der Tasche, eigene Vergleichs-Tooltips) | ja |
+| | Zusatzinfos (Stapelgröße, Stückpreis, Herkunft, Rezeptquellen, Quests am NPC) wahlweise nur mit gedrückter Shift-Taste; der offene Tooltip baut sich beim Drücken und Loslassen neu auf | ja |
 | | Scharfer Rahmen (1 Pixel, leicht abgerundete Ecken) in Qualitätsfarbe bei Gegenständen | ja |
 | Minimap | Koordinaten (größer, Outline, Klassenfarbe) oben unter dem Norddreieck; verschieb- und sperrbar | – |
 | | Aufspüren-Menü: Zaubersymbole (z. B. Schatzsucher) auf die sichtbare Größe der übrigen Symbole verkleinert | ja |

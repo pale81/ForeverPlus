@@ -286,7 +286,7 @@ local function ZoneName(npc)
 end
 
 local function AddRecipeSources(tooltip, data)
-	if not (indexReady and Radar.db.enabled and Radar.db.tooltipSources) or tooltip:IsForbidden() then
+	if not (indexReady and Radar.db.enabled and Radar.db.tooltipSources) or tooltip:IsForbidden() or not ns.ExtraInfoShown() then
 		return
 	end
 	local recipe = data and data.id and recipes[data.id]

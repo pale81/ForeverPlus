@@ -6,6 +6,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	title = L.TOOLTIP_TITLE,
 	order = 2,
 	defaults = {
+		shiftInfo = false,
 		unitPrice = true,
 		stackSize = true,
 		trainerCompare = true,
@@ -100,6 +101,11 @@ local function AppendToSellLine(tooltip, suffix)
 	return false
 end
 
+-- Extra lines (stack size, unit price, sources, quests) can be limited to Shift.
+function ns.ExtraInfoShown()
+	return not Tooltip.db.shiftInfo or IsShiftKeyDown()
+end
+
 -- Comparison tooltips next to an item tooltip.
 function ns.IsShoppingTooltip(tooltip)
 	return tooltip == ShoppingTooltip1 or tooltip == ShoppingTooltip2
@@ -113,7 +119,7 @@ local function OnTooltipAddMoney(tooltip)
 end
 
 local function AddUnitPrice(tooltip, data)
-	if not Tooltip.db.unitPrice or ns.IsShoppingTooltip(tooltip) then
+	if not Tooltip.db.unitPrice or ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
 		return
 	end
 	local info = tooltip.GetPrimaryTooltipInfo and tooltip:GetPrimaryTooltipInfo()
@@ -378,7 +384,7 @@ end
 
 -- Maximum stack size of stackable items.
 local function AddStackSize(tooltip, data)
-	if not Tooltip.db.stackSize or ns.IsShoppingTooltip(tooltip) then
+	if not Tooltip.db.stackSize or ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
 		return
 	end
 	local itemID = data and data.id
@@ -500,8 +506,22 @@ local function ShowTrainerCompare(tooltip, index)
 	end
 end
 
+-- Pressing or releasing Shift rebuilds the open tooltip.
+local function OnShiftChanged(_, _, key)
+	if (key == "LSHIFT" or key == "RSHIFT") and GameTooltip:IsShown() and not GameTooltip:IsForbidden() then
+		GameTooltip:RefreshData()
+	end
+end
+
 function Tooltip:OnLogin()
 	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
+	self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
+end
+
+function Tooltip:OnOptionChanged(key)
+	if key == "shiftInfo" then
+		self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
+	end
 end
 
 function Tooltip:OnInitialize()
@@ -530,6 +550,7 @@ Tooltip.options = {
 	{ key = "hoverFullName", type = "toggle", name = L.TOOLTIP_HOVER_FULL_NAME, desc = L.TOOLTIP_HOVER_FULL_NAME_DESC, parent = "hoverName" },
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
+	{ key = "shiftInfo", type = "toggle", name = L.TOOLTIP_SHIFT_INFO, desc = L.TOOLTIP_SHIFT_INFO_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
 	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },

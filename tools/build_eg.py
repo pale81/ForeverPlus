@@ -187,8 +187,29 @@ def cluster(points, limit):
 
 
 def build_quests(base, builds):
-    npcs, objectives = {}, {}
+    npcs, objectives, targets, creatures, objects = {}, {}, {}, {}, {}
     for build in builds:
+        path = os.path.join(base, build, 'quests.enUS.json')
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                for quest, row in json.load(f).get('quests', {}).items():
+                    kinds = {'monster': 'm', 'item': 'i', 'gameObject': 'o'}
+                    list_ = [(kinds[o['type']], o.get('objectId')) for o in sorted(row.get('objectives') or [], key=lambda o: o.get('storageIndex', 0))
+                             if o.get('type') in kinds and o.get('objectId')]
+                    if list_:
+                        targets[int(quest)] = list_
+        path = os.path.join(base, build, 'creatures.json')
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                for npc, row in json.load(f).get('creatures', {}).items():
+                    creatures.setdefault(int(npc), []).extend(row.get('positions') or [])
+        path = os.path.join(base, build, 'npcs.json')
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+                for group in ('objects', 'approached'):
+                    for obj, row in data.get(group, {}).items():
+                        objects.setdefault(int(obj), []).extend(row.get('positions') or [])
         path = os.path.join(base, build, 'npcs.json')
         if os.path.exists(path):
             with open(path, encoding='utf-8') as f:
@@ -209,6 +230,8 @@ def build_quests(base, builds):
         '-- (https://github.com/JIVESCORP/eg-link-output-wowf, CC BY 4.0).',
         '-- npcs[npc] = { name, map, x, y, { quests offered }, { quests taken back } }',
         '-- objectives[quest][objective] = { { map, x, y }, ... }: where the count went up',
+        '-- targets[quest] = { { "m" creature | "i" item | "o" object, id }, ... } in the order of the objectives',
+        '-- creatures[npc] / objects[object] = { { map, x, y }, ... }: where one died / stood',
         'local _, ns = ...',
         '',
         'ns.QuestData = {',
@@ -235,6 +258,15 @@ def build_quests(base, builds):
         for index in sorted(byQuest[quest]):
             parts.append('[%d] = { %s }' % (index, ', '.join('{ %d, %.1f, %.1f }' % (c[0], c[1], c[2]) for c in byQuest[quest][index])))
         lines.append('\t\t[%d] = { %s },' % (quest, ', '.join(parts)))
+    lines += ['\t},', '\ttargets = {']
+    for quest in sorted(targets):
+        lines.append('\t\t[%d] = { %s },' % (quest, ', '.join('{ "%s", %d }' % t for t in targets[quest])))
+    for name, table in (('creatures', creatures), ('objects', objects)):
+        lines += ['\t},', '\t%s = {' % name]
+        for id in sorted(table):
+            cells = cluster(table[id], 6)
+            if cells:
+                lines.append('\t\t[%d] = { %s },' % (id, ', '.join('{ %d, %.1f, %.1f }' % (c[0], c[1], c[2]) for c in cells)))
     lines += ['\t},', '}', '']
     with open(os.path.join(ROOT, 'Data', 'QuestsEG.lua'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))

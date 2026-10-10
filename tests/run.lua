@@ -129,6 +129,7 @@ Enum = Mock("Enum"); Enum.ItemArmorSubclass = { Cloth = 1, Leather = 2, Mail = 3
 GetProfessions = function() return 1, 2 end
 GetProfessionInfo = function(i) return "Prof", 1, 150, 300, 0, 0, i == 1 and 171 or 185 end
 C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true end
+C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
 C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
@@ -342,6 +343,12 @@ do
 	local maps, total = 0, 0
 	for _, list in pairs(vbm) do maps = maps + 1 total = total + #list end
 	print("radar vendors", maps, total, "ready", uv(gv, "indexReady"))
+	-- bundled data: Heldan Galesong (4307) sells in Darkshore, for the Alliance only
+	local bundledVendors = radar.bundledVendors
+	assert(bundledVendors[4307] and bundledVendors[4307].team == "A" and bundledVendors[4307].name == "Heldan Galesong", "bundled vendor")
+	local found
+	for _, v in ipairs(vbm[1439] or {}) do if v.npc == 4307 then found = v end end
+	assert(found and found.x == 37 and found.y == 56.4 and #found.items == 4, "bundled vendor on the Darkshore map")
 end
 local P = ns.PrintAlways; ns.PrintAlways = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.PrintAlways = P
 print("radar OK")

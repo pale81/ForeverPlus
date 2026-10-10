@@ -2,8 +2,9 @@
 -- the world map and/or minimap; clicking sets a waypoint. Recipe items also get
 -- their sources (vendors, quests, drops) in the tooltip.
 --
--- Recipe records may come from the bundled AHledger catalog; vendor, drop,
--- quest, and location relations are shown only when the provider supplies them.
+-- Vendors and recipes come from the bundled Forever data (Data/Radar.lua,
+-- generated from AllTheThings, MIT); QuestieDB, when installed, adds what it
+-- knows beyond that (quest rewards, more vendors, localised NPC names).
 local _, ns = ...
 local L = ns.L
 
@@ -42,7 +43,10 @@ local RECIPE_SKILL = {
 	[10] = 755, -- Jewelcrafting
 }
 
-local DB                -- LibQuestieDB
+local DB                -- LibQuestieDB (optional)
+local bundled           -- ns.RadarData
+local bundledVendors = {} -- npcID -> { name =, title =, team =, maps = { uiMapID, … } }
+Radar.bundledVendors = bundledVendors
 local recipes = {}      -- itemID -> { skill =, vendors =, drops =, quests = }
 local vendorsByMap = {} -- uiMapID -> { { npc =, team =, x =, y =, items = {} }, ... }
 local indexReady = false
@@ -58,6 +62,41 @@ local waitingForItems = false
 -- players called them; an NPC seen in more zones than this has no fixed place.
 local MAX_VENDOR_ZONES = 3
 local mobile = {} -- npcID -> true
+
+local function NpcName(npc)
+	local vendor = bundledVendors[npc]
+	return vendor and vendor.name or DB and DB.Npc.Get(npc, "name")
+end
+
+local function NpcTitle(npc)
+	local vendor = bundledVendors[npc]
+	if vendor then
+		return vendor.title
+	end
+	return DB and DB.Npc.Get(npc, "subName")
+end
+
+-- "A", "H" or "N" (both), nil without a fixed place.
+local function NpcTeam(npc)
+	local vendor = bundledVendors[npc]
+	if vendor then
+		return vendor.team
+	end
+	if mobile[npc] or not DB then
+		return nil
+	end
+	local faction = DB.Npc.Get(npc, "friendlyToFaction")
+	return faction == "AH" and "N" or faction
+end
+
+local function AddVendorPoint(uiMapID, npc, team, x, y, items)
+	local list = vendorsByMap[uiMapID]
+	if not list then
+		list = {}
+		vendorsByMap[uiMapID] = list
+	end
+	list[#list + 1] = { npc = npc, team = team, x = x, y = y, items = items }
+end
 
 local function AddVendorSpawns(npc, items)
 	local spawns = DB.Npc.Get(npc, "spawns")
@@ -78,19 +117,43 @@ local function AddVendorSpawns(npc, items)
 		local uiMapID = ns.QuestieDB.UiMapForArea(DB, areaID)
 		local point = points[1]
 		if uiMapID and point and point[1] and point[1] >= 0 then
-			local list = vendorsByMap[uiMapID]
-			if not list then
-				list = {}
-				vendorsByMap[uiMapID] = list
-			end
-			list[#list + 1] = { npc = npc, team = team, x = point[1], y = point[2], items = items }
+			AddVendorPoint(uiMapID, npc, team, point[1], point[2], items)
 		end
 	end
 end
 
 local indexError -- first error while indexing, for /fp radar
 
-local function BuildIndex(onDone)
+-- Recipe item subclass -> profession skill line of an item the client knows.
+local function RecipeSkill(itemID)
+	local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
+	return classID == RECIPE_CLASS and RECIPE_SKILL[subClassID] or nil
+end
+
+-- The bundled data: small enough to index at once.
+local function IndexBundled()
+	for npc, row in pairs(bundled.vendors) do
+		local items = {}
+		for _, itemID in ipairs(row[5]) do
+			local skill = recipes[itemID] and recipes[itemID].skill or RecipeSkill(itemID)
+			if skill then
+				recipes[itemID] = recipes[itemID] or { skill = skill, vendors = {}, dropCount = bundled.drops[itemID] }
+				tinsert(recipes[itemID].vendors, npc)
+				items[#items + 1] = itemID
+			end
+		end
+		if #items > 0 then
+			local maps = {}
+			for _, point in ipairs(row[4]) do
+				AddVendorPoint(point[1], npc, row[3], point[2], point[3], items)
+				maps[#maps + 1] = point[1]
+			end
+			bundledVendors[npc] = { name = row[1], title = row[2] or nil, team = row[3], maps = maps, items = items }
+		end
+	end
+end
+
+local function BuildQuestieIndex(onDone)
 	local ids = DB.Item.GetAllIds() or {}
 	local npcItems = {}
 	local function IndexItem(id)
@@ -98,15 +161,30 @@ local function BuildIndex(onDone)
 			local skill = RECIPE_SKILL[DB.Item.Get(id, "subClass")]
 			if skill then
 				local vendors = DB.Item.Get(id, "vendors")
-				recipes[id] = {
-					skill = skill,
-					vendors = vendors,
-					drops = DB.Item.Get(id, "npcDrops"),
-					quests = DB.Item.Get(id, "questRewards"),
-				}
+				local recipe = recipes[id]
+				if not recipe then
+					recipe = { skill = skill, vendors = {} }
+					recipes[id] = recipe
+				end
+				recipe.drops = DB.Item.Get(id, "npcDrops")
+				recipe.quests = DB.Item.Get(id, "questRewards")
 				for _, npc in ipairs(vendors or {}) do
-					npcItems[npc] = npcItems[npc] or {}
-					tinsert(npcItems[npc], id)
+					local known = bundledVendors[npc]
+					if known then
+						-- Positions come from the bundled data; add what only QuestieDB lists.
+						local listed
+						for _, item in ipairs(known.items) do
+							listed = listed or item == id
+						end
+						if not listed then
+							tinsert(known.items, id)
+							tinsert(recipe.vendors, npc)
+						end
+					else
+						tinsert(recipe.vendors, npc)
+						npcItems[npc] = npcItems[npc] or {}
+						tinsert(npcItems[npc], id)
+					end
 				end
 			end
 		end
@@ -127,11 +205,26 @@ local function BuildIndex(onDone)
 			if not ok and not indexError then
 				indexError = tostring(message)
 			end
-		end, function()
+		end, onDone)
+	end)
+end
+
+local function BuildIndex(onDone)
+	if bundled then
+		local ok, message = pcall(IndexBundled)
+		if not ok then
+			indexError = tostring(message)
+		end
+	end
+	if DB then
+		BuildQuestieIndex(function()
 			indexReady = true
 			onDone()
 		end)
-	end)
+	else
+		indexReady = true
+		onDone()
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -237,15 +330,15 @@ end
 ---------------------------------------------------------------------------
 local function FillVendorTooltip(tooltip, entry)
 	local vendor = entry.vendor
-	GameTooltip_SetTitle(tooltip, DB.Npc.Get(vendor.npc, "name") or "?")
-	local subName = DB.Npc.Get(vendor.npc, "subName")
+	GameTooltip_SetTitle(tooltip, NpcName(vendor.npc) or "?")
+	local subName = NpcTitle(vendor.npc)
 	if subName then
 		GameTooltip_AddNormalLine(tooltip, subName)
 	end
 	GameTooltip_AddNormalLine(tooltip, ("%.1f, %.1f"):format(vendor.x, vendor.y))
 	for _, recipe in ipairs(entry.recipes) do
 		local itemID, status = recipe[1], recipe[2]
-		local name = C_Item.GetItemNameByID(itemID) or DB.Item.Get(itemID, "name") or ("item:" .. itemID)
+		local name = C_Item.GetItemNameByID(itemID) or DB and DB.Item.Get(itemID, "name") or ("item:" .. itemID)
 		local color = status == "ok" and GREEN_FONT_COLOR or ORANGE_FONT_COLOR
 		tooltip:AddLine(name, color.r, color.g, color.b)
 	end
@@ -265,7 +358,7 @@ local function SetWaypoint(mapID, vendor)
 	C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, vendor.x / 100, vendor.y / 100))
 	C_SuperTrack.SetSuperTrackedUserWaypoint(true)
 	if Radar.db.waypointMessage then
-		ns.Print(L.RADAR_WAYPOINT_SET, DB.Npc.Get(vendor.npc, "name") or "?")
+		ns.Print(L.RADAR_WAYPOINT_SET, NpcName(vendor.npc) or "?")
 	end
 end
 
@@ -277,7 +370,12 @@ end
 -- Recipe sources in item tooltips
 ---------------------------------------------------------------------------
 local function ZoneName(npc)
-	local spawns = DB.Npc.Get(npc, "spawns")
+	local vendor = bundledVendors[npc]
+	if vendor then
+		local info = C_Map.GetMapInfo(vendor.maps[1])
+		return info and info.name or ""
+	end
+	local spawns = DB and DB.Npc.Get(npc, "spawns")
 	for areaID in pairs(spawns or {}) do
 		local uiMapID = ns.QuestieDB.UiMapForArea(DB, areaID)
 		local info = uiMapID and C_Map.GetMapInfo(uiMapID)
@@ -296,19 +394,16 @@ local function AddRecipeSources(tooltip, data)
 	if not recipe then
 		return
 	end
-	if ns.BundledDatabaseAPI == DB then
-		tooltip:AddLine("Catalog data: |Hurl:https://ahledger.com/data|h|cff66ccffAHledger.com|r|h", 0.65, 0.8, 1)
-	end
 	local shown = 0
 	for _, npc in ipairs(recipe.vendors or {}) do
-		local team = not mobile[npc] and DB.Npc.Get(npc, "friendlyToFaction")
-		if team and (team == "AH" or team == playerTeam) then
+		local team = NpcTeam(npc)
+		if team and (team == "N" or team == playerTeam) then
 			shown = shown + 1
 			if shown > TOOLTIP_MAX_VENDORS then
 				tooltip:AddLine(L.RADAR_MORE_VENDORS, 0.7, 0.7, 0.7)
 				break
 			end
-			tooltip:AddDoubleLine(L.RADAR_SOURCE_VENDOR:format(DB.Npc.Get(npc, "name") or "?"), ZoneName(npc), 1, 0.82, 0, 0.8, 0.8, 0.8)
+			tooltip:AddDoubleLine(L.RADAR_SOURCE_VENDOR:format(NpcName(npc) or "?"), ZoneName(npc), 1, 0.82, 0, 0.8, 0.8, 0.8)
 		end
 	end
 	for i, questID in ipairs(recipe.quests or {}) do
@@ -317,8 +412,9 @@ local function AddRecipeSources(tooltip, data)
 		end
 		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(ns.QuestieDB.QuestName(DB, questID) or questID), 1, 0.82, 0)
 	end
-	if recipe.drops then
-		tooltip:AddLine(L.RADAR_SOURCE_DROP:format(#recipe.drops), 1, 0.82, 0)
+	local drops = recipe.dropCount or recipe.drops and #recipe.drops
+	if drops and drops > 0 then
+		tooltip:AddLine(L.RADAR_SOURCE_DROP:format(drops), 1, 0.82, 0)
 	end
 end
 
@@ -542,11 +638,18 @@ local function FindQuestieDB()
 	end
 end
 
+local started
+
 local function Start()
+	if started then
+		return true
+	end
 	DB = FindQuestieDB()
-	if not DB then
+	bundled = ns.RadarData
+	if not (DB or bundled) then
 		return false
 	end
+	started = true
 	UpdateSkills()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", ns.MapSymbols.Setup)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("RecipeRadar: tooltip", AddRecipeSources))
@@ -574,15 +677,21 @@ function Radar:OnLogin()
 	minimapHolder = CreateFrame("Frame", nil, Minimap)
 	minimapHolder:SetAllPoints()
 	minimapHolder:SetFrameLevel(Minimap:GetFrameLevel() + 4)
-	-- The data may still be loading at login: one more try a little later.
-	if not Start() then
-		C_Timer.After(10, Start)
+	Start()
+	-- QuestieDB may still be loading at login: add it a little later.
+	if not DB then
+		C_Timer.After(10, function()
+			DB = FindQuestieDB()
+			if DB and indexReady then
+				BuildQuestieIndex(Refresh)
+			end
+		end)
 	end
 end
 
 -- /fp radar: state of the radar for troubleshooting.
 function Radar:PrintStatus()
-	if not DB then
+	if not (DB or bundled) then
 		ns.PrintAlways(L.RADAR_STATUS_NO_DB)
 		return
 	end
@@ -629,7 +738,7 @@ function Radar:PrintStatus()
 end
 
 function Radar:OnOptionChanged()
-	if DB then
+	if started then
 		self:Apply()
 	end
 end

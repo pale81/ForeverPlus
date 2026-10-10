@@ -1,8 +1,8 @@
 -- Library books (Friend of the Library): the 40 books are items looted from
 -- objects in the world and handed in at the librarian. Books not yet collected
 -- show on the world map; the client has no list of collected books, so a book
--- counts once it has been in the bags (or when marked by hand: right click on
--- its symbol). Where a book was looted is remembered and can be exported
+-- counts once it has been in the bags, when its hand-in quest is done (known
+-- for 16 of the books) or when marked by hand (right click on its symbol). Where a book was looted is remembered and can be exported
 -- (/fp bücher export) to complete the positions in a later update.
 local _, ns = ...
 local L = ns.L
@@ -43,12 +43,19 @@ local function PlayerPosition()
 	end
 end
 
+local function IsOwned(book)
+	return Library.cdb.owned[book[1]] or book[6] and C_QuestLog.IsQuestFlaggedCompleted(book[6]) or false
+end
+
 local function Scan()
 	local owned = Library.cdb.owned
 	local changed
 	for _, book in ipairs(books) do
 		local id = book[1]
-		if C_Item.GetItemCount(id, true) > 0 and not owned[id] then
+		if IsOwned(book) then
+			changed = changed or not owned[id]
+			owned[id] = true
+		elseif C_Item.GetItemCount(id, true) > 0 and not owned[id] then
 			owned[id], changed = true, true
 			-- Looted this session and still in the bags: the player stands at the book.
 			if ready and Library.db.record and C_Item.GetItemCount(id) > 0 and not ns.db.libraryFinds[id] then
@@ -70,7 +77,7 @@ Library.Scan = Scan
 local function Counts()
 	local have = 0
 	for _, book in ipairs(books) do
-		if Library.cdb.owned[book[1]] then
+		if IsOwned(book) then
 			have = have + 1
 		end
 	end
@@ -117,7 +124,7 @@ ns.MapSymbols.AddSource(function(mapID, add)
 		local seen = {}
 		for _, book in ipairs(books) do
 			local id = book[1]
-			if not Library.cdb.owned[id] and not seen[id] then
+			if not IsOwned(book) and not seen[id] then
 				seen[id] = true
 				for _, position in ipairs(Positions(book)) do
 					if position[1] == zoneMapID then
@@ -170,7 +177,7 @@ function Library.Command(msg)
 		local have, total = Counts()
 		ns.PrintAlways(L.LIBRARY_STATUS, have, total)
 		for _, book in ipairs(books) do
-			if not Library.cdb.owned[book[1]] then
+			if not IsOwned(book) then
 				ns.PrintAlways("  " .. BookName(book))
 			end
 		end
@@ -182,6 +189,7 @@ end
 ---------------------------------------------------------------------------
 function Library:Apply()
 	self:ToggleEvent("BAG_UPDATE_DELAYED", true, Scan)
+	self:ToggleEvent("QUEST_TURNED_IN", true, Scan)
 	if self.db.symbols then
 		ns.MapSymbols.Setup()
 	end

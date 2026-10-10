@@ -13,6 +13,7 @@ local Auction = ns:NewModule("Auction", {
 		vendorWarning = true,
 		vendorProfit = false,
 		vendorBuyFilter = false,
+		vendorMinMargin = 10,
 		duration24 = true,
 		startTab = "buy",
 	},
@@ -156,19 +157,23 @@ local FILTER_WANTED = 30      -- profitable rows to collect before paging stops 
 local FILTER_AUTO_PAGES = 40  -- pages requested by itself per search
 local FILTER_NEAR_END = 8     -- rows before the end of the view that ask for more
 local FILTER_RETRY = 2        -- seconds until a request without an answer is repeated
+local FILTER_BATCH = 150      -- rows judged per call; the rest follows on the next frame
 
 local filter = {
-	list = {},         -- profitable rows in the order of Blizzard's list
 	source = nil,      -- Blizzard's results table the view was built from
-	scanned = 0,       -- rows of the source already judged
+	verdict = {},      -- [row index] = true/false once judged
+	judged = 0,        -- rows of the source judged so far (rows waiting for item data included)
+	list = {},         -- profitable rows in the order of Blizzard's list
+	rebuild = false,   -- the list must be rebuilt from the verdicts (a late verdict landed inside)
+	waiting = {},      -- [item ID] = row indexes waiting for the merchant price
 	requests = 0,      -- pages requested by itself for this search
 	requestedAt = -1,  -- row count at the last request
 	requestTime = 0,
 	capped = false,    -- no further pages are requested by itself
-	missing = {},      -- items whose merchant price was not known yet
 }
 local originalProvider
 
+-- true/false, or nil while the merchant price of the item is not known.
 local function Profitable(rowData)
 	if rowData.isVirtualEntry or rowData.totalQuantity == 0 then
 		return false
@@ -180,37 +185,103 @@ local function Profitable(rowData)
 	local itemID = ItemIDOf(rowData)
 	local vendor = VendorPrice(itemID)
 	if not vendor then
-		if itemID and not filter.missing[itemID] then
-			filter.missing[itemID] = true
-			C_Item.RequestLoadItemDataByID(itemID)
-		end
-		return false
+		return nil, itemID
 	end
-	return vendor > price
+	local margin = (Auction.db.vendorMinMargin or 0) / 100
+	return vendor > price and price <= vendor * (1 - margin)
 end
 
 local function ResetFilter()
-	filter.list, filter.scanned = {}, 0
+	filter.source, filter.verdict, filter.judged, filter.list = nil, {}, 0, {}
+	filter.rebuild, filter.waiting = false, {}
 	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
 end
 
--- Judges the rows that arrived since the last call.
+local refreshQueued = false
+
+-- Redraws Blizzard's list from the view, a moment later so that several
+-- changes (arriving item data, remaining rows) cost one redraw.
+local function QueueRefresh(delay)
+	if refreshQueued then
+		return
+	end
+	refreshQueued = true
+	C_Timer.After(delay, function()
+		refreshQueued = false
+		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
+		local itemList = browseFrame and browseFrame.ItemList
+		if Auction.db.vendorBuyFilter and itemList and itemList.RefreshScrollFrame then
+			itemList:RefreshScrollFrame()
+		end
+	end)
+end
+
+-- Judges the rows that arrived since the last call (a part of them per call).
 local function SyncFilter(browseFrame)
 	local rows = browseFrame.browseResults
 	if type(rows) ~= "table" then
 		return
 	end
-	if rows ~= filter.source or #rows < filter.scanned then
-		-- a new search or a new sort order
+	if rows ~= filter.source then
+		-- A new table: a new search (the query hook resets before) or Blizzard's
+		-- copy of the same list; the verdicts stay when it is at least as long.
+		if #rows < filter.judged then
+			ResetFilter()
+		end
 		filter.source = rows
-		ResetFilter()
+		filter.rebuild = true
 	end
-	for i = filter.scanned + 1, #rows do
-		if Profitable(rows[i]) then
-			filter.list[#filter.list + 1] = rows[i]
+	local last = min(#rows, filter.judged + FILTER_BATCH)
+	for i = filter.judged + 1, last do
+		local verdict, itemID = Profitable(rows[i])
+		if verdict == nil then
+			local waiting = filter.waiting[itemID]
+			if not waiting then
+				waiting = {}
+				filter.waiting[itemID] = waiting
+				C_Item.RequestLoadItemDataByID(itemID)
+			end
+			waiting[#waiting + 1] = i
+		else
+			filter.verdict[i] = verdict
+			if verdict and not filter.rebuild then
+				filter.list[#filter.list + 1] = rows[i]
+			end
 		end
 	end
-	filter.scanned = #rows
+	filter.judged = last
+	if filter.rebuild then
+		local list = {}
+		for i = 1, last do
+			if filter.verdict[i] then
+				list[#list + 1] = rows[i]
+			end
+		end
+		filter.list, filter.rebuild = list, false
+	end
+	if last < #rows then
+		QueueRefresh(0)
+	end
+end
+
+-- Item data arrived: the rows waiting for it are judged now.
+local function OnItemInfo(_, itemID)
+	local waiting = filter.waiting[itemID]
+	local rows = filter.source
+	if not waiting or not rows then
+		return
+	end
+	filter.waiting[itemID] = nil
+	local changed = false
+	for _, i in ipairs(waiting) do
+		local verdict = rows[i] and Profitable(rows[i]) or false
+		filter.verdict[i] = verdict
+		changed = changed or verdict
+	end
+	if changed then
+		filter.rebuild = true
+		QueueRefresh(0.25)
+	end
 end
 
 local function SetFilterProvider(browseFrame, on)
@@ -226,7 +297,6 @@ local function SetFilterProvider(browseFrame, on)
 		end
 		itemList:SetDataProvider(originalProvider[1],
 			function(index)
-				SyncFilter(browseFrame)
 				return filter.list[index]
 			end,
 			function()
@@ -248,6 +318,9 @@ local function PageFilter(browseFrame)
 		return
 	end
 	SyncFilter(browseFrame)
+	if filter.judged < #browseFrame.browseResults then
+		return -- the rest is judged first (a redraw is queued)
+	end
 	local itemList = browseFrame.ItemList
 	local shown = itemList and itemList.ScrollBox and itemList.ScrollBox.GetDataIndexEnd and itemList.ScrollBox:GetDataIndexEnd() or 0
 	local atEnd = #filter.list > 0 and shown >= #filter.list - FILTER_NEAR_END
@@ -258,7 +331,7 @@ local function PageFilter(browseFrame)
 	if short and not atEnd and filter.requests >= FILTER_AUTO_PAGES then
 		if not filter.capped then
 			filter.capped = true
-			itemList:RefreshScrollFrame()
+			QueueRefresh(0)
 		end
 		return
 	end
@@ -278,20 +351,9 @@ local function ApplyBuyFilter()
 		return
 	end
 	local on = Auction.db.vendorBuyFilter
-	filter.source = nil
 	ResetFilter()
 	SetFilterProvider(browseFrame, on)
-	Auction:ToggleEvent("GET_ITEM_INFO_RECEIVED", on, function(_, itemID)
-		-- a merchant price arrived: judge the rows again, in the same order
-		if filter.missing[itemID] and not filter.rescan then
-			filter.missing[itemID] = nil
-			filter.rescan = true
-			C_Timer.After(0.3, function()
-				filter.rescan = nil
-				ApplyBuyFilter()
-			end)
-		end
-	end)
+	Auction:ToggleEvent("GET_ITEM_INFO_RECEIVED", on, OnItemInfo)
 	if browseFrame.ItemList and browseFrame.ItemList.RefreshScrollFrame then
 		browseFrame.ItemList:RefreshScrollFrame()
 	end
@@ -300,7 +362,8 @@ local function ApplyBuyFilter()
 	end
 end
 
-Auction.Filter = { Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter, Apply = ApplyBuyFilter }
+Auction.Filter = { Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter,
+	Apply = ApplyBuyFilter, ItemInfo = OnItemInfo, State = filter }
 
 local function HookBuyFilter()
 	local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
@@ -315,6 +378,16 @@ local function HookBuyFilter()
 		hooksecurefunc(browseFrame.ItemList, "CallRefreshCallback", function()
 			PageFilter(browseFrame)
 		end)
+	end
+	-- Every query (new search, new sort order) starts the view and the page budget afresh.
+	for _, name in ipairs({ "SendBrowseQuery", "SearchForFavorites" }) do
+		if C_AuctionHouse[name] then
+			hooksecurefunc(C_AuctionHouse, name, function()
+				if Auction.db.vendorBuyFilter then
+					ResetFilter()
+				end
+			end)
+		end
 	end
 	if Auction.db.vendorBuyFilter then
 		ApplyBuyFilter()
@@ -439,7 +512,8 @@ function Auction:OnLogin()
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_AUCTION_HOUSE_SEARCH_FILTER", function(_, rootDescription)
 			rootDescription:CreateDivider()
-			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_VENDOR_BUY_FILTER, "Auction", "vendorBuyFilter",
+			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_VENDOR_BUY_FILTER_MENU:format(Auction.db.vendorMinMargin or 0),
+				"Auction", "vendorBuyFilter",
 				L.AUCTION_VENDOR_BUY_FILTER_DESC)
 		end)
 	end
@@ -469,7 +543,7 @@ function Auction:OnOptionChanged(key)
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
-	elseif key == "vendorBuyFilter" then
+	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" then
 		ApplyBuyFilter()
 	end
 end
@@ -478,6 +552,8 @@ Auction.options = {
 	{ key = "vendorWarning", type = "toggle", name = L.AUCTION_VENDOR_WARNING, desc = L.AUCTION_VENDOR_WARNING_DESC },
 	{ key = "vendorProfit", type = "toggle", name = L.AUCTION_VENDOR_PROFIT_OPTION, desc = L.AUCTION_VENDOR_PROFIT_DESC, new = true },
 	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
+	{ key = "vendorMinMargin", type = "slider", name = L.AUCTION_VENDOR_MIN_MARGIN, desc = L.AUCTION_VENDOR_MIN_MARGIN_DESC, parent = "vendorBuyFilter",
+		min = 0, max = 90, step = 1, format = function(v) return ("%d%%"):format(v) end },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {
 		{ "buy", L.AUCTION_TAB_BUY },

@@ -2159,11 +2159,15 @@ end)()
 	local full, more = false, 0
 	C_AuctionHouse = { HasFullBrowseResults = function() return full end, RequestMoreBrowseResults = function() more = more + 1 end }
 	A.db.vendorBuyFilter = true
+	A.db.vendorMinMargin = 0
 	local function row(id, price, quantity) return { itemKey = { itemID = id }, minPrice = price, totalQuantity = quantity or 5 } end
 	assert(F.Profitable(row(9001, 99)) and not F.Profitable(row(9001, 100)) and not F.Profitable(row(9001, 101)), "vendor price must be above the buy price")
+	A.db.vendorMinMargin = 10
+	assert(F.Profitable(row(9001, 90)) and not F.Profitable(row(9001, 91)), "at least 10 % below the merchant price")
+	A.db.vendorMinMargin = 0
 	assert(not F.Profitable(row(9003, 1)), "no merchant value, no profit")
 	assert(not F.Profitable(row(9002, 10, 0)) and not F.Profitable({ isVirtualEntry = true }), "empty and virtual rows are left out")
-	assert(not F.Profitable(row(9004, 1)) and requested[1] == 9004, "an unknown merchant price is requested")
+	assert(F.Profitable(row(9004, 1)) == nil, "an unknown merchant price is neither yes nor no")
 	-- the view onto a list, growing with the pages
 	local provider
 	local scrollEnd = 0
@@ -2172,15 +2176,39 @@ end)()
 			ScrollBox = { GetDataIndexEnd = function() return scrollEnd end },
 			SetDataProvider = function(_, started, entry, count, hasFull) provider = { started = started, entry = entry, count = count, hasFull = hasFull } end,
 			RefreshScrollFrame = function() end } }
+	AuctionHouseFrame = { BrowseResultsFrame = frame }
+	F.Apply()
 	F.Provider(frame, true)
 	assert(provider.count() == 2 and provider.entry(1) == frame.browseResults[1] and provider.entry(2) == frame.browseResults[3], "only profitable rows")
 	frame.browseResults[#frame.browseResults + 1] = row(9001, 1)
 	assert(provider.count() == 3, "added rows are judged on the way")
+	-- a row whose item data is missing: asked for once, judged when it arrives, kept in its place
+	frame.browseResults[#frame.browseResults + 1] = row(9005, 5)
+	frame.browseResults[#frame.browseResults + 1] = row(9005, 6)
+	frame.browseResults[#frame.browseResults + 1] = row(9001, 2)
+	assert(provider.count() == 4, "pending rows are not shown")
+	local asked = 0
+	for _, id in ipairs(requested) do if id == 9005 then asked = asked + 1 end end
+	assert(asked == 1, "item data asked once per item")
+	prices[9005] = 20
+	F.ItemInfo("GET_ITEM_INFO_RECEIVED", 9005)
+	assert(provider.count() == 6, "both rows of the item judged")
+	assert(provider.entry(4) == frame.browseResults[5] and provider.entry(5) == frame.browseResults[6] and provider.entry(6) == frame.browseResults[7], "late rows land in order")
+	-- many rows are judged in portions
+	local big = {}
+	for i = 1, 400 do big[i] = row(9001, 10) end
+	frame.browseResults = big
+	F.Apply() -- (a new search resets the view through the query hook)
+	provider.count()
+	assert(F.State.judged < 400, "a portion per call")
+	provider.count(); provider.count()
+	assert(F.State.judged == 400 and provider.count() == 400, "all judged after a few calls")
 	frame.browseResults = { row(9001, 500) }
+	more = 0
+	F.Apply()
 	assert(provider.count() == 0, "a new result table starts a new view")
 	assert(provider.hasFull() == false, "searching while pages are missing")
 	-- paging: asks while the view is short, one request per answer
-	more = 0
 	F.Page(frame)
 	F.Page(frame)
 	assert(more == 1, "one request until new rows arrive")

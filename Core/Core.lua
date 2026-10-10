@@ -98,6 +98,47 @@ function ns.AddDataSection(text, clear)
 	ns.dataSections[#ns.dataSections + 1] = { text = text, clear = clear }
 end
 
+-- Extra lines of item tooltips: modules register a section, Modules/Tooltip.lua
+-- puts all sections together under one separator, in the order given. A section
+-- is fn(data) returning lines { left =, right =, lc = {r, g, b}, rc = {r, g, b},
+-- wrap = true } or nil.
+ns.itemSections = {}
+
+function ns.AddItemSection(order, fn)
+	local sections = ns.itemSections
+	sections[#sections + 1] = { order = order, fn = fn }
+	table.sort(sections, function(a, b)
+		return a.order < b.order
+	end)
+end
+
+-- Entries of ForeverPlus in the world map's filter menu: modules register
+-- fn(root) adding their checkboxes (Modules/WorldMap.lua builds the section).
+ns.mapFilterEntries = {}
+
+function ns.AddMapFilterEntry(fn)
+	ns.mapFilterEntries[#ns.mapFilterEntries + 1] = fn
+end
+
+-- A checkbox in a menu that switches an option of a module; the setting
+-- variable is the one of the settings page ("ForeverPlus_<module>_<key>").
+function ns.CreateOptionCheckbox(parent, text, moduleName, key, tooltip)
+	local function IsOn()
+		local module = ns:GetModule(moduleName)
+		return module and module.db[key] and true or false
+	end
+	local checkbox = parent:CreateCheckbox(text, IsOn, function()
+		Settings.SetValue("ForeverPlus_" .. moduleName .. "_" .. key, not IsOn())
+	end)
+	if tooltip and checkbox.SetTooltip then
+		checkbox:SetTooltip(function(tip)
+			GameTooltip_SetTitle(tip, text)
+			GameTooltip_AddNormalLine(tip, tooltip)
+		end)
+	end
+	return checkbox
+end
+
 -- Quest with objectives that are all fulfilled. The API also reports quests
 -- without objectives (breadcrumbs, "talk to …") as complete; they are not.
 function ns.IsQuestReady(questID, logIndex)

@@ -171,6 +171,10 @@ end, function()
 	ns.db.libraryFinds = {}
 end)
 
+ns.AddMapFilterEntry(function(root)
+	ns.CreateOptionCheckbox(root, L.LIBRARY_SYMBOLS, "Library", "symbols", L.LIBRARY_SYMBOLS_DESC)
+end)
+
 -- /fp bücher [export|zurück]
 function Library.Command(msg)
 	if msg:find("export", 1, true) then

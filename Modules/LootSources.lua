@@ -170,10 +170,16 @@ function LootSources.Sources(itemID)
 	for key, row in pairs(list) do
 		sorted[#sorted + 1] = { key = key, drops = row.drops, windows = row.windows }
 	end
+	-- By the lower end of the share (95 % interval): 40 of 60 windows are a better
+	-- hint than 2 of 2.
+	for _, source in ipairs(sorted) do
+		local n, p = source.windows, source.drops / source.windows
+		local z2 = 1.96 * 1.96
+		source.score = (p + z2 / (2 * n) - 1.96 * math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) / (1 + z2 / n)
+	end
 	table.sort(sorted, function(a, b)
-		local sa, sb = a.drops / a.windows, b.drops / b.windows
-		if sa ~= sb then
-			return sa > sb
+		if a.score ~= b.score then
+			return a.score > b.score
 		end
 		return a.windows > b.windows
 	end)
@@ -186,11 +192,13 @@ local function SourceName(key)
 	if name and name ~= "?" then
 		return name
 	end
-	return key
+	local kind, id = key:match("^(%a+):(%d+)$")
+	return kind == "npc" and L.LOOTSRC_NPC:format(id) or kind == "object" and L.LOOTSRC_OBJECT:format(id) or key
 end
 
-local function AddTooltipLines(tooltip, data)
-	if not (LootSources.db.tooltip and ns.ExtraInfoShown()) or tooltip:IsForbidden() then
+-- A section of the extra block of item tooltips: a heading and the best sources.
+ns.AddItemSection(20, function(data)
+	if not LootSources.db.tooltip then
 		return
 	end
 	local id = data and ns.Number(data.id)
@@ -198,17 +206,18 @@ local function AddTooltipLines(tooltip, data)
 	if not sources or #sources == 0 then
 		return
 	end
+	local lines = { { left = L.LOOTSRC_HEADER, lc = { 1, 0.82, 0 } } }
 	for i = 1, math.min(TOOLTIP_SOURCES, #sources) do
 		local source = sources[i]
 		local share = ("%d%%"):format(math.floor(source.drops / source.windows * 100 + 0.5))
-		local right = source.windows >= MIN_WINDOWS and L.LOOTSRC_SHARE:format(share, source.drops, source.windows)
-			or L.LOOTSRC_ONCE
-		tooltip:AddDoubleLine(L.LOOTSRC_FROM:format(SourceName(source.key)), right, 1, 0.82, 0, 0.8, 0.8, 0.8)
+		lines[#lines + 1] = { left = "  " .. SourceName(source.key), lc = { 1, 1, 1 }, rc = { 0.7, 0.7, 0.7 },
+			right = source.windows >= MIN_WINDOWS and L.LOOTSRC_SHARE:format(share, source.drops, source.windows) or L.LOOTSRC_ONCE }
 	end
 	if #sources > TOOLTIP_SOURCES then
-		tooltip:AddLine(L.LOOTSRC_MORE:format(#sources - TOOLTIP_SOURCES), 0.7, 0.7, 0.7)
+		lines[#lines + 1] = { left = "  " .. L.LOOTSRC_MORE:format(#sources - TOOLTIP_SOURCES), lc = { 0.7, 0.7, 0.7 } }
 	end
-end
+	return lines
+end)
 
 ---------------------------------------------------------------------------
 -- Export
@@ -262,7 +271,6 @@ end
 
 function LootSources:OnLogin()
 	self:Apply()
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("LootSources: tooltip", AddTooltipLines))
 end
 
 function LootSources:OnOptionChanged()

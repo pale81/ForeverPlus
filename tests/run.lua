@@ -906,7 +906,11 @@ C_QuestLog.GetLogIndexForQuestID = function(id) return id == 204 and 3 or nil en
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 7, 0 end
 local out = {}
 local tt = { IsForbidden = function() return false end, AddLine = function(_, t) out[#out + 1] = t end, Show = function() end }
-uv(info.OnInitialize, "OnItemTooltip")(tt, { id = 500 })
+for _, section in ipairs(ns.itemSections) do
+	if section.order == 40 then
+		for _, l in ipairs(section.fn({ id = 500 }) or {}) do out[#out + 1] = l.left end
+	end
+end
 GameTooltip = tt
 uv(info.OnInitialize, "OnUnitTooltip")(tt, { guid = "Creature-0-1-2-3-10-0000" })
 for _, l in ipairs(out) do print("  ", l) end
@@ -1150,19 +1154,36 @@ do
 	local kids = {}
 	print("sell button created", Items.db.sellButton)
 	local Tooltip = ns:GetModule("Tooltip")
-	local f = uv(uv(Tooltip.OnInitialize, "OnItemTooltip") or function() end, "AddStackSize")
-	print("AddStackSize found", f ~= nil)
-	if f then
-		local lines = {}
-		local tt = { AddDoubleLine = function(_, a, b) lines[#lines + 1] = a .. "=" .. tostring(b) end }
-		local orig = C_Item.GetItemInfo
-		C_Item.GetItemInfo = function() return "x", nil, 1, 1, 1, "", "", 20 end
-		f(tt, { id = 2589 })
-		C_Item.GetItemInfo = function() return "x", nil, 1, 1, 1, "", "", 1 end
-		f(tt, { id = 1 })
-		C_Item.GetItemInfo = orig
-		print("stack lines", table.concat(lines, ";"))
+	-- the item tooltip's extra block: stack size section, all under one separator
+	;(function()
+	local Tooltip, uv = Tooltip, uv
+	local orig = C_Item.GetItemInfo
+	C_Item.GetItemInfo = function() return "x", nil, 1, 1, 1, "", "", 20 end
+	local stack
+	for _, section in ipairs(ns.itemSections) do
+		if section.order == 10 then stack = section end
 	end
+	assert(stack, "stack size section registered")
+	local lines = stack.fn({ id = 2589 })
+	assert(lines and #lines == 1 and lines[1].left == ns.L.TOOLTIP_STACK_SIZE and lines[1].right == "20", "stack size line")
+	C_Item.GetItemInfo = function() return "x", nil, 1, 1, 1, "", "", 1 end
+	assert(stack.fn({ id = 1 }) == nil, "no line for single items")
+	C_Item.GetItemInfo = orig
+	-- composed: one separator, then the lines of the sections in order
+	local order, added = {}, {}
+	for _, section in ipairs(ns.itemSections) do order[#order + 1] = section.order end
+	for i = 2, #order do assert(order[i - 1] <= order[i], "sections sorted") end
+	local composed = {}
+	local tipFake = { IsForbidden = function() return false end, AddLine = function(_, t) composed[#composed + 1] = t end,
+		AddDoubleLine = function(_, a, b) composed[#composed + 1] = a .. "=" .. tostring(b) end, Show = function() end }
+	ns.itemSections[#ns.itemSections + 1] = { order = 99, fn = function() return { { left = "last" } } end }
+	C_Item.GetItemInfo = function() return "x", nil, 1, 1, 1, "", "", 20 end
+	local OnItem = uv(Tooltip.OnInitialize, "OnItemTooltip")
+	if OnItem then OnItem(tipFake, { id = 2589 }) end
+	C_Item.GetItemInfo = orig
+	table.remove(ns.itemSections)
+	print("extra block:", table.concat(composed, " | "))
+	end)()
 	local jv = uv(uv(Items.Refresh, "CreateSellButton"), "UpdateSellButton")
 	jv = uv(jv, "JunkValue")
 	print("junk value with kept grey", jv())
@@ -2246,5 +2267,39 @@ end)()
 	assert(B.TrackingActive({ 2383, 2580 }) == true, "Find Herbs tracked")
 	assert(B.TrackingActive({ 2580 }) == false, "another ability is not the tracked one")
 	print("tracking reminder OK")
+end)()
+-- World map filter menu
+;(function()
+	local WM = ns:GetModule("WorldMap")
+	local texts, setters, nested = {}, {}, 0
+	local values = {}
+	Settings.SetValue = function(var, value) values[var] = value end
+	local function node(depth)
+		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
+			CreateCheckbox = function(_, name, isOn, set)
+				texts[#texts + 1] = (depth > 0 and "  " or "") .. name
+				setters[name] = { isOn = isOn, set = set }
+				if depth > 0 then nested = nested + 1 end
+				local box = node(depth + 1)
+				box.SetTooltip = function() end
+				return box
+			end }
+	end
+	WM.db.filterMenu = false
+	WM.AddFilterMenu(node(0))
+	assert(#texts == 0, "option off: no entries")
+	WM.db.filterMenu = true
+	WM.AddFilterMenu(node(0))
+	assert(texts[1] == "# ForeverPlus", "own section under a title")
+	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
+		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
+	assert(nested >= 3, "recipe radar options as a submenu")
+	WM.db.flightPoints = true
+	assert(setters[ns.L.WORLDMAP_FLIGHTS].isOn() == true, "state read from the option")
+	setters[ns.L.WORLDMAP_FLIGHTS].set()
+	assert(values.ForeverPlus_WorldMap_flightPoints == false, "click switches the option")
+	setters[ns.L.RADAR_TITLE].set()
+	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_worldMap ~= nil, "radar entry switches on")
+	print("map filter menu OK")
 end)()
 dofile("bundled.lua")

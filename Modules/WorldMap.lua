@@ -19,6 +19,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		inns = true,
 		places = true,
 		questStarts = true,
+		filterMenu = true,
 	},
 })
 
@@ -233,10 +234,40 @@ function WorldMap:Apply()
 	ns.MapSymbols.Refresh()
 end
 
+-- Our own entries in the filter menu of the map: the symbols and names.
+ns.AddMapFilterEntry(function(root)
+	if ns.MapOverlays then
+		ns.CreateOptionCheckbox(root, L.WORLDMAP_REVEAL, "WorldMap", "reveal", L.WORLDMAP_REVEAL_DESC)
+	end
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_ENTRANCES, "WorldMap", "entrances", L.WORLDMAP_ENTRANCES_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_FLIGHTS, "WorldMap", "flightPoints", L.WORLDMAP_FLIGHTS_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_INNS, "WorldMap", "inns", L.WORLDMAP_INNS_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACES, "WorldMap", "places", L.WORLDMAP_PLACES_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_QUEST_STARTS, "WorldMap", "questStarts", L.WORLDMAP_QUEST_STARTS_DESC)
+end)
+
+-- The section of the map's filter menu (Blizzard's "Show" menu): a title and
+-- every registered entry.
+function WorldMap.AddFilterMenu(rootDescription)
+	if not WorldMap.db.filterMenu or #ns.mapFilterEntries == 0 then
+		return
+	end
+	rootDescription:CreateDivider()
+	rootDescription:CreateTitle("ForeverPlus")
+	for _, fn in ipairs(ns.mapFilterEntries) do
+		fn(rootDescription)
+	end
+end
+
 function WorldMap:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
 		self:Apply()
 	end)
+	if Menu and Menu.ModifyMenu then
+		Menu.ModifyMenu("MENU_WORLD_MAP_TRACKING", function(_, rootDescription)
+			WorldMap.AddFilterMenu(rootDescription)
+		end)
+	end
 end
 
 function WorldMap:OnOptionChanged()
@@ -275,6 +306,7 @@ function WorldMap:PrintStatus()
 end
 
 WorldMap.options = {
+	{ key = "filterMenu", type = "toggle", name = L.WORLDMAP_FILTER_MENU, desc = L.WORLDMAP_FILTER_MENU_DESC },
 	{ key = "entrances", type = "toggle", name = L.WORLDMAP_ENTRANCES, desc = L.WORLDMAP_ENTRANCES_DESC },
 	{ key = "flightPoints", type = "toggle", name = L.WORLDMAP_FLIGHTS, desc = L.WORLDMAP_FLIGHTS_DESC },
 	{ key = "inns", type = "toggle", name = L.WORLDMAP_INNS, desc = L.WORLDMAP_INNS_DESC },

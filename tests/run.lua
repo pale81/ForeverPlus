@@ -1613,6 +1613,13 @@ end)()
 	assert(calls[1] == "split 6 3 13" and calls[2] == "pickup 0 1", "13 from the bank onto the stack of 7")
 	C_Item.GetItemCount = function() return 20 end
 	assert(not MoveOne(), "full stack: nothing left")
+	-- the other way round: marked for the bank, the bag stack goes onto the bank stack with room
+	r.cdb.items = { [2589] = "bank" }
+	bags[6][3] = { itemID = 2589, stackCount = 5 }
+	calls = {}
+	setuv(MoveOne, "run", { skip = {}, moved = {}, stored = {}, steps = 0 })
+	assert(MoveOne() and calls[1] == "pickup 0 1" and calls[2] == "pickup 6 3", "bag stack onto the bank stack")
+	r.cdb.items = {}
 	setuv(MoveOne, "run", nil)
 	setuv(MoveOne, "atBank", false)
 	print("restock OK")
@@ -2154,6 +2161,8 @@ end)()
 	local F = A.Filter
 	local prices = { [9001] = 100, [9002] = 50, [9003] = 0 }
 	C_Item.GetItemInfo = function(id) return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, prices[id] end
+	local uncached = { [9004] = true, [9005] = true }
+	C_Item.IsItemDataCachedByID = function(id) return not uncached[id] end
 	local requested = {}
 	C_Item.RequestLoadItemDataByID = function(id) requested[#requested + 1] = id end
 	local full, more = false, 0
@@ -2191,7 +2200,8 @@ end)()
 	for _, id in ipairs(requested) do if id == 9005 then asked = asked + 1 end end
 	assert(asked == 1, "item data asked once per item")
 	prices[9005] = 20
-	F.ItemInfo("GET_ITEM_INFO_RECEIVED", 9005)
+	uncached[9005] = nil
+	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 9005)
 	assert(provider.count() == 6, "both rows of the item judged")
 	assert(provider.entry(4) == frame.browseResults[5] and provider.entry(5) == frame.browseResults[6] and provider.entry(6) == frame.browseResults[7], "late rows land in order")
 	-- many rows are judged in portions

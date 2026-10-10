@@ -157,7 +157,8 @@ local FILTER_WANTED = 30      -- profitable rows to collect before paging stops 
 local FILTER_AUTO_PAGES = 40  -- pages requested by itself per search
 local FILTER_NEAR_END = 8     -- rows before the end of the view that ask for more
 local FILTER_RETRY = 2        -- seconds until a request without an answer is repeated
-local FILTER_BATCH = 150      -- rows judged per call; the rest follows on the next frame
+local FILTER_BATCH = 150      -- rows judged per call at most; the rest follows on the next frame
+local FILTER_BUDGET = 3       -- milliseconds per call
 
 local filter = {
 	source = nil,      -- Blizzard's results table the view was built from
@@ -173,6 +174,21 @@ local filter = {
 }
 local originalProvider
 
+-- The merchant price without asking the game for an item it has not loaded
+-- (that call is the costly one): nil until the item data is there.
+local function KnownVendorPrice(itemID)
+	if not itemID then
+		return 0
+	end
+	local cached = vendorPriceCache[itemID]
+	if cached then
+		return cached
+	end
+	if C_Item.IsItemDataCachedByID(itemID) then
+		return VendorPrice(itemID) or 0
+	end
+end
+
 -- true/false, or nil while the merchant price of the item is not known.
 local function Profitable(rowData)
 	if rowData.isVirtualEntry or rowData.totalQuantity == 0 then
@@ -183,7 +199,7 @@ local function Profitable(rowData)
 		return false
 	end
 	local itemID = ItemIDOf(rowData)
-	local vendor = VendorPrice(itemID)
+	local vendor = KnownVendorPrice(itemID)
 	if not vendor then
 		return nil, itemID
 	end
@@ -232,7 +248,12 @@ local function SyncFilter(browseFrame)
 		filter.rebuild = true
 	end
 	local last = min(#rows, filter.judged + FILTER_BATCH)
+	local started = debugprofilestop()
 	for i = filter.judged + 1, last do
+		if i % 10 == 0 and debugprofilestop() - started > FILTER_BUDGET then
+			last = i - 1
+			break
+		end
 		local verdict, itemID = Profitable(rows[i])
 		if verdict == nil then
 			local waiting = filter.waiting[itemID]
@@ -265,7 +286,7 @@ local function SyncFilter(browseFrame)
 end
 
 -- Item data arrived: the rows waiting for it are judged now.
-local function OnItemInfo(_, itemID)
+local function OnItemInfo(_, _, itemID)
 	local waiting = filter.waiting[itemID]
 	local rows = filter.source
 	if not waiting or not rows then
@@ -410,6 +431,9 @@ local function UpdateSellWarning(frame, unitPrice)
 	local location = frame:GetItem()
 	local itemID = location and C_Item.DoesItemExist(location) and C_Item.GetItemID(location)
 	local vendor = VendorPrice(itemID)
+	if vendor and vendor <= 0 then
+		vendor = nil -- cannot be sold to a merchant
+	end
 	local quantity = 1
 	if frame.GetQuantity then
 		quantity = frame:GetQuantity() or 1

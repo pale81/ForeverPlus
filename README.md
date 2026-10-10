@@ -67,6 +67,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Komfort | Eigene Seite „Mouseover“: Mikromenü, Questtracker, Taschenleiste, Aktionsleisten 1–8, Haltungs- und Begleiterleiste, Statusleisten (Erfahrung, Ruf), Spieler-, Ziel- und Fokusfenster, Minimap nur bei Mouseover (jedes Element einzeln wählbar; Aktionsleisten und Fenster standardmäßig aus), optional im Kampf immer sichtbar; dort auch EP-/Rufzahlen bei Mouseover und die ausblendenden Chatreiter | ja |
 | | Gegnerische Namensplaketten nur im Kampf | ja |
 | | Namensplaketten außerhalb des Kampfes transparent (Standard 70 %, einstellbar), im Kampf voll sichtbar | ja |
+| | Blizzards Schadensmesser automatisch zurücksetzen: nie (Standard), beim Bosskampf-Start, beim Start eines Mythic+, beides oder bei jedem Kampfbeginn (Seite „Kampf“; ungetestet im Spiel: `ENCOUNTER_START`, `CHALLENGE_MODE_START`) | ja |
 | | Rote Fehlermeldungen in der Bildschirmmitte ausblenden (Standard an) | ja |
 | | Questtracker-Überschrift „Quests 7/25“ (angenommen/Maximum) | – |
 | | Questtracker-Sortierung (Questlog, Stufe, Zone, Entfernung, Name, Fortschritt) per Knopf neben dem Zuklapp-Knopf | ja |

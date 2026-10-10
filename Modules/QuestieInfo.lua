@@ -101,8 +101,9 @@ local function ItemLines(itemID)
 	return itemCache[itemID]
 end
 
-local function OnItemTooltip(tooltip, data)
-	if not Info.db.itemSources or tooltip:IsForbidden() or ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
+-- A section of the extra block of item tooltips.
+local function ItemSection(data)
+	if not Info.db.itemSources then
 		return
 	end
 	local itemID = data and data.id
@@ -122,17 +123,15 @@ local function OnItemTooltip(tooltip, data)
 	-- The loot sources (Modules/LootSources.lua) show where it drops, with shares.
 	local loot = ns:GetModule("LootSources")
 	local dropsCovered = loot.db.tooltip and #loot.Sources(itemID) > 0
-	local shown = false
+	local result = {}
 	for _, line in ipairs(lines) do
 		if not (dropsCovered and line[1] == L.QDB_DROPS) then
-			tooltip:AddLine(("%s %s"):format(SOURCE_COLOR:format(line[1]), line[2]), 1, 1, 1, true)
-			shown = true
+			result[#result + 1] = { left = ("%s %s"):format(SOURCE_COLOR:format(line[1]), line[2]), wrap = true }
 		end
 	end
-	if shown then
-		tooltip:Show()
-	end
+	return result
 end
+ns.AddItemSection(40, ItemSection)
 
 ---------------------------------------------------------------------------
 -- NPC quests: quests the player can take here and quests to hand in here
@@ -329,7 +328,6 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Info:OnInitialize()
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("QuestieInfo: item tooltip", OnItemTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("QuestieInfo: unit tooltip", OnUnitTooltip))
 end
 

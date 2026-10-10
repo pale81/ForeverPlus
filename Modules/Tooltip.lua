@@ -399,9 +399,9 @@ local function OnUnitTooltip(tooltip)
 	end
 end
 
--- Maximum stack size of stackable items.
-local function AddStackSize(tooltip, data)
-	if not Tooltip.db.stackSize or ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
+-- Maximum stack size of stackable items (a section of the extra block).
+ns.AddItemSection(10, function(data)
+	if not Tooltip.db.stackSize then
 		return
 	end
 	local itemID = data and data.id
@@ -410,8 +410,45 @@ local function AddStackSize(tooltip, data)
 	end
 	local stackSize = select(8, C_Item.GetItemInfo(itemID))
 	if type(stackSize) == "number" and stackSize > 1 then
-		tooltip:AddDoubleLine(L.TOOLTIP_STACK_SIZE, stackSize, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1, 1, 1)
+		return { { left = L.TOOLTIP_STACK_SIZE, right = tostring(stackSize),
+			lc = { NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b }, rc = { 1, 1, 1 } } }
 	end
+end)
+
+-- The thin line the game uses to separate tooltip blocks (as in its social tooltips).
+function ns.AddTooltipSeparator(tooltip)
+	tooltip:AddLine(" ", 0, 0, 0, true)
+	if tooltip.AddTexture and Enum.TooltipTextureAnchor then
+		tooltip:AddTexture("Interface\\Common\\UI-TooltipDivider-Transparent", {
+			height = 10, anchor = Enum.TooltipTextureAnchor.All, margin = { left = 0, right = 0, top = -2, bottom = -2 },
+		})
+	end
+end
+
+-- All extra lines of the item tooltip in one block under a separator.
+local function AddItemSections(tooltip, data)
+	if ns.IsShoppingTooltip(tooltip) or not ns.ExtraInfoShown() then
+		return
+	end
+	local lines = {}
+	for _, section in ipairs(ns.itemSections) do
+		for _, line in ipairs(section.fn(data) or {}) do
+			lines[#lines + 1] = line
+		end
+	end
+	if #lines == 0 then
+		return
+	end
+	ns.AddTooltipSeparator(tooltip)
+	for _, line in ipairs(lines) do
+		local lc, rc = line.lc or { 1, 1, 1 }, line.rc or { 0.8, 0.8, 0.8 }
+		if line.right then
+			tooltip:AddDoubleLine(line.left, line.right, lc[1], lc[2], lc[3], rc[1], rc[2], rc[3])
+		else
+			tooltip:AddLine(line.left, lc[1], lc[2], lc[3], line.wrap)
+		end
+	end
+	tooltip:Show()
 end
 
 local function OnItemTooltip(tooltip, data)
@@ -420,7 +457,7 @@ local function OnItemTooltip(tooltip, data)
 	end
 	ColorBorder(tooltip, data)
 	AddUnitPrice(tooltip, data)
-	AddStackSize(tooltip, data)
+	AddItemSections(tooltip, data)
 end
 
 ---------------------------------------------------------------------------

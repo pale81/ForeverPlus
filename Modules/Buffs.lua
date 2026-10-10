@@ -44,6 +44,7 @@ local REMINDERS = {
 		{ key = "wild", auras = { 1126, 21849 }, cast = { 1126, 21849 } },
 		{ key = "thorns", auras = { 467 }, cast = { 467 } },
 		{ key = "clarity", auras = { 16864 }, cast = { 16864 } },
+		{ key = "trackHumanoids", tracking = true, auras = { 5225 }, cast = { 5225 }, default = false },
 	},
 	PALADIN = {
 		{ key = "blessing", auras = { 19740, 19742, 20217, 1038, 19977, 20911, 25782, 25894, 25898, 25895, 25890, 25899 },
@@ -51,14 +52,18 @@ local REMINDERS = {
 		{ key = "aura", auras = { 465, 7294, 19746, 19876, 19888, 19891, 20218 },
 			cast = { 465, 7294, 19746, 20218, 19876, 19888, 19891 } },
 		{ key = "righteousFury", auras = { 25780 }, cast = { 25780 }, default = false },
+		{ key = "senseUndead", tracking = true, auras = { 5502 }, cast = { 5502 }, default = false },
 	},
 	WARLOCK = {
 		{ key = "armor", auras = { 706, 687 }, cast = { 706, 687 } },
 		{ key = "soulLink", auras = { 19028 }, cast = { 19028 } },
+		{ key = "senseDemons", tracking = true, auras = { 5500 }, cast = { 5500 }, default = false },
 	},
 	HUNTER = {
 		{ key = "aspect", auras = { 13165, 13163, 5118, 13159, 20043, 13161 }, cast = { 13165, 13163, 5118, 13159, 20043, 13161 } },
 		{ key = "trueshot", auras = { 19506 }, cast = { 19506 } },
+		{ key = "trackHunter", tracking = true, default = false,
+			auras = { 1494, 19883, 19884, 19885, 19880, 19878, 19882, 19879 }, cast = { 1494, 19883, 19884, 19885, 19880, 19878, 19882, 19879 } },
 	},
 	SHAMAN = {
 		{ key = "shield", auras = { 324 }, cast = { 324 } },
@@ -73,9 +78,12 @@ local REMINDERS = {
 	},
 }
 
--- For every class: the gathering tracking abilities (when learned), shown while none of them is active.
+-- For every class: the gathering tracking abilities (when learned), shown while
+-- none of them is active, and the dwarves' treasure search, which runs next to
+-- another tracking. The class tracking abilities above are off unless chosen.
 local COMMON_REMINDERS = {
 	{ key = "tracking", tracking = true, auras = { 2383, 2580 }, cast = { 2383, 2580 } },
+	{ key = "treasure", tracking = true, auras = { 2481 }, cast = { 2481 } },
 }
 
 local POISONS = {

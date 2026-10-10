@@ -260,6 +260,10 @@ function Transports.Export()
 		L.TRANSPORTS_EXPORT_HINT)
 end
 
+ns.AddMapFilterEntry(function(root)
+	ns.CreateOptionCheckbox(root, L.TRANSPORTS_DOCKS, "Transports", "docks", L.TRANSPORTS_DOCKS_DESC)
+end)
+
 function Transports.Clear()
 	ns.db.transportRides = {}
 	Transports.docks = nil

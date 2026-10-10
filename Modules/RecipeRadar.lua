@@ -386,37 +386,40 @@ local function ZoneName(npc)
 	return ""
 end
 
-local function AddRecipeSources(tooltip, data)
-	if not (indexReady and Radar.db.enabled and Radar.db.tooltipSources) or tooltip:IsForbidden() or not ns.ExtraInfoShown() then
+-- A section of the extra block of item tooltips.
+ns.AddItemSection(30, function(data)
+	if not (indexReady and Radar.db.enabled and Radar.db.tooltipSources) then
 		return
 	end
 	local recipe = data and data.id and recipes[data.id]
 	if not recipe then
 		return
 	end
-	local shown = 0
+	local gold = { 1, 0.82, 0 }
+	local lines, shown = {}, 0
 	for _, npc in ipairs(recipe.vendors or {}) do
 		local team = NpcTeam(npc)
 		if team and (team == "N" or team == playerTeam) then
 			shown = shown + 1
 			if shown > TOOLTIP_MAX_VENDORS then
-				tooltip:AddLine(L.RADAR_MORE_VENDORS, 0.7, 0.7, 0.7)
+				lines[#lines + 1] = { left = L.RADAR_MORE_VENDORS, lc = { 0.7, 0.7, 0.7 } }
 				break
 			end
-			tooltip:AddDoubleLine(L.RADAR_SOURCE_VENDOR:format(NpcName(npc) or "?"), ZoneName(npc), 1, 0.82, 0, 0.8, 0.8, 0.8)
+			lines[#lines + 1] = { left = L.RADAR_SOURCE_VENDOR:format(NpcName(npc) or "?"), right = ZoneName(npc), lc = gold }
 		end
 	end
 	for i, questID in ipairs(recipe.quests or {}) do
 		if i > TOOLTIP_MAX_QUESTS then
 			break
 		end
-		tooltip:AddLine(L.RADAR_SOURCE_QUEST:format(ns.QuestieDB.QuestName(DB, questID) or questID), 1, 0.82, 0)
+		lines[#lines + 1] = { left = L.RADAR_SOURCE_QUEST:format(ns.QuestieDB.QuestName(DB, questID) or questID), lc = gold }
 	end
 	local drops = recipe.dropCount or recipe.drops and #recipe.drops
 	if drops and drops > 0 then
-		tooltip:AddLine(L.RADAR_SOURCE_DROP:format(drops), 1, 0.82, 0)
+		lines[#lines + 1] = { left = L.RADAR_SOURCE_DROP:format(drops), lc = gold }
 	end
-end
+	return lines
+end)
 
 ---------------------------------------------------------------------------
 -- World map (symbols on ForeverPlus' own map layer, Modules/MapSymbols.lua)
@@ -652,13 +655,28 @@ local function Start()
 	started = true
 	UpdateSkills()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", ns.MapSymbols.Setup)
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("RecipeRadar: tooltip", AddRecipeSources))
 	-- Index after the login burst; it only runs while the radar is enabled.
 	C_Timer.After(5, function()
 		Radar:Apply()
 	end)
 	return true
 end
+
+-- Recipe vendors in the filter menu of the world map.
+ns.AddMapFilterEntry(function(root)
+	local radar = root:CreateCheckbox(L.RADAR_TITLE, function()
+		return Radar.db.enabled and Radar.db.worldMap
+	end, function()
+		local on = not (Radar.db.enabled and Radar.db.worldMap)
+		if on then
+			Settings.SetValue("ForeverPlus_RecipeRadar_enabled", true)
+		end
+		Settings.SetValue("ForeverPlus_RecipeRadar_worldMap", on)
+	end)
+	ns.CreateOptionCheckbox(radar, L.RADAR_MINIMAP, "RecipeRadar", "minimap")
+	ns.CreateOptionCheckbox(radar, L.RADAR_LOW_SKILL, "RecipeRadar", "showLowSkill", L.RADAR_LOW_SKILL_DESC)
+	ns.CreateOptionCheckbox(radar, L.RADAR_TOOLTIP, "RecipeRadar", "tooltipSources", L.RADAR_TOOLTIP_DESC)
+end)
 
 function Radar:OnLogin()
 	-- Recipe vendors in the minimap tracking menu.

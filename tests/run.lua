@@ -1964,4 +1964,25 @@ end)()
 	assert(text:find("{ 1411, 0.5000, 0.5000, 1420, 0.6000, 0.4000, 240 },", 1, true), "export line")
 	print("transports OK")
 end)()
+-- Damage meter reset modes
+do
+	local mr = ns:GetModule("MeterReset")
+	local on = {}
+	mr.ToggleEvent = function(_, event, enabled) on[event] = enabled end
+	local resets = 0
+	C_DamageMeter = { ResetAllCombatSessions = function() resets = resets + 1 end }
+	assert(mr.db.mode == "never", "meter reset default")
+	local function Check(mode, boss, mplus, combat)
+		mr.db.mode = mode
+		mr:Apply()
+		assert(on.ENCOUNTER_START == boss and on.CHALLENGE_MODE_START == mplus and on.PLAYER_REGEN_DISABLED == combat, mode)
+	end
+	Check("never", false, false, false)
+	Check("boss", true, false, false)
+	Check("mplus", false, true, false)
+	Check("bossMplus", true, true, false)
+	Check("combat", false, false, true)
+	mr.db.mode = "never"
+	print("meter reset OK")
+end
 dofile("bundled.lua")

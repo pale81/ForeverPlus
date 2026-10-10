@@ -171,8 +171,6 @@ local function StyleEditBox(chatFrame)
 	editBox:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", -5, 22)
 	editBox:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 5, 22)
 
-	-- Up/Down browse the sent history without holding Alt.
-	editBox:SetAltArrowKeyMode(false)
 end
 
 ---------------------------------------------------------------------------
@@ -180,6 +178,7 @@ end
 -- when the chat frame loaded. Shift + wheel jumps to the top or bottom.
 ---------------------------------------------------------------------------
 local wheelHooked = {}
+local wheelOwn = {} -- frames whose wheel only ForeverPlus enabled
 
 local function OnChatWheel(chatFrame, delta)
 	if not Chat.db.mouseScroll then
@@ -191,6 +190,8 @@ local function OnChatWheel(chatFrame, delta)
 		else
 			chatFrame:ScrollToBottom()
 		end
+	elseif not wheelOwn[chatFrame] then
+		return -- Blizzard's own handler scrolls
 	elseif chatFrame.ScrollByAmount then
 		chatFrame:ScrollByAmount(delta * 3)
 	elseif delta > 0 then
@@ -201,12 +202,20 @@ local function OnChatWheel(chatFrame, delta)
 end
 
 local function EnableWheel(chatFrame)
-	if wheelHooked[chatFrame] or chatFrame:IsMouseWheelEnabled() then
-		return
+	if not wheelHooked[chatFrame] then
+		wheelHooked[chatFrame] = true
+		wheelOwn[chatFrame] = not chatFrame:IsMouseWheelEnabled() or nil
+		chatFrame:HookScript("OnMouseWheel", OnChatWheel)
 	end
-	wheelHooked[chatFrame] = true
-	chatFrame:EnableMouseWheel(true)
-	chatFrame:HookScript("OnMouseWheel", OnChatWheel)
+	if wheelOwn[chatFrame] then
+		chatFrame:EnableMouseWheel(Chat.db.mouseScroll and true or false)
+	end
+end
+
+local function UpdateWheels()
+	for chatFrame in pairs(wheelHooked) do
+		EnableWheel(chatFrame)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -245,13 +254,27 @@ local function OnHistoryArrow(editBox, key)
 	editBox:SetCursorPosition(#editBox:GetText())
 end
 
+-- Our list replaces the built-in one, so both do not step at once; Up/Down
+-- work without Alt. Switched off, Blizzard's settings come back.
+local function ApplyHistoryMode(editBox)
+	local on = Chat.db.inputHistory
+	editBox:SetAltArrowKeyMode(not on and editBox.fpAltArrows ~= false)
+	editBox:SetHistoryLines(on and 1 or editBox.fpHistoryLines or 32)
+end
+
+local function UpdateHistoryMode()
+	for editBox in pairs(historyHooked) do
+		ApplyHistoryMode(editBox)
+	end
+end
+
 local function HookHistory(editBox)
 	if not editBox or historyHooked[editBox] then
 		return
 	end
 	historyHooked[editBox] = true
-	-- Our list replaces the built-in one, so both do not step at once.
-	editBox:SetHistoryLines(1)
+	editBox.fpHistoryLines, editBox.fpAltArrows = editBox:GetHistoryLines(), editBox:GetAltArrowKeyMode()
+	ApplyHistoryMode(editBox)
 	hooksecurefunc(editBox, "AddHistoryLine", RecordSent)
 	editBox:HookScript("OnArrowPressed", OnHistoryArrow)
 	editBox:HookScript("OnShow", function(self)
@@ -265,10 +288,11 @@ end
 ---------------------------------------------------------------------------
 local logHooked = {}
 local restoring = false
+local LOG_SLACK = 50
 
 local function LogLine(chatFrame, text, r, g, b)
-	if restoring or not Chat.db.chatLog or type(text) ~= "string" or text == ""
-		or (issecretvalue and (issecretvalue(text) or issecretvalue(r))) then
+	if restoring or not Chat.db.chatLog or (issecretvalue and (issecretvalue(text) or issecretvalue(r)))
+		or type(text) ~= "string" or text == "" then
 		return
 	end
 	local id = chatFrame:GetID()
@@ -279,9 +303,14 @@ local function LogLine(chatFrame, text, r, g, b)
 		logs[id] = log
 	end
 	log[#log + 1] = { text, r, g, b }
+	-- Trimmed in steps, not with every line.
 	local limit = Chat.db.chatLogLines
-	while #log > limit do
-		table.remove(log, 1)
+	if #log >= limit + LOG_SLACK then
+		local kept = {}
+		for i = #log - limit + 1, #log do
+			kept[#kept + 1] = log[i]
+		end
+		logs[id] = kept
 	end
 end
 
@@ -291,7 +320,8 @@ local function RestoreLog()
 	for id, log in pairs(logs) do
 		local chatFrame = _G["ChatFrame" .. id]
 		if chatFrame and #log > 0 then
-			for _, line in ipairs(log) do
+			for i = math.max(1, #log - Chat.db.chatLogLines + 1), #log do
+				local line = log[i]
 				chatFrame:AddMessage(line[1], line[2], line[3], line[4])
 			end
 			chatFrame:AddMessage(L.CHAT_LOG_SEPARATOR, 0.5, 0.5, 0.5)
@@ -301,7 +331,8 @@ local function RestoreLog()
 end
 
 local function HookLog(chatFrame)
-	if logHooked[chatFrame] or chatFrame:GetID() > Constants.ChatFrameConstants.MaxChatWindows then
+	-- The combat log is far too busy to record.
+	if logHooked[chatFrame] or chatFrame == COMBATLOG or chatFrame:GetID() > Constants.ChatFrameConstants.MaxChatWindows then
 		return
 	end
 	logHooked[chatFrame] = true
@@ -495,6 +526,9 @@ local function FlushRepeat(key)
 	if not entry then
 		return
 	end
+	if entry.timer then
+		entry.timer:Cancel()
+	end
 	local info = ChatTypeInfo[entry.kind.group]
 	local text = FormatRepeat(entry)
 	for chatFrame in pairs(entry.frames) do
@@ -506,10 +540,11 @@ local function FlushRepeat(key)
 	end
 end
 
-local function RepeatFilter(chatFrame, event, text)
-	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
+local function RepeatFilter(chatFrame, event, text, ...)
+	if (issecretvalue and issecretvalue(text)) or type(text) ~= "string" then
 		return false
 	end
+	local lineID = select(10, ...)
 	for index, kind in ipairs(REPEAT_KINDS) do
 		if kind.event == event and kind.match and kind.numberArg then
 			local name, number = ParseRepeat(kind, text)
@@ -520,12 +555,11 @@ local function RepeatFilter(chatFrame, event, text)
 					entry = { kind = kind, name = name, value = 0, count = 0, frames = {} }
 					repeatPending[key] = entry
 				end
-				-- The filter runs once per chat window showing the message.
-				local now = GetTime()
-				if entry.lastText ~= text or entry.lastTime ~= now then
+				-- The filter runs once per chat window showing the message; counted once per line.
+				if not lineID or entry.lastLine ~= lineID then
 					entry.count = entry.count + 1
 					entry.value = kind.sum and entry.value + number or number
-					entry.lastText, entry.lastTime = text, now
+					entry.lastLine = lineID
 				end
 				entry.frames[chatFrame] = true
 				if entry.timer then
@@ -760,7 +794,7 @@ local function ShortName(baseName)
 end
 
 local function ChannelFilter(_, _, a1, a2, a3, a4, a5, a6, a7, a8, a9, ...)
-	if type(a4) ~= "string" or type(a8) ~= "number" or type(a9) ~= "string" or a9 == "" then
+	if type(a4) ~= "string" or type(a8) ~= "number" or type(a9) ~= "string" or a9 == "" or a4:find("^Community:") then
 		return false
 	end
 	local short = ("%d. %s"):format(a8, ShortName(a9))
@@ -785,6 +819,12 @@ local function PlainTimestamp(value)
 end
 
 function Chat:UpdateTimestampColor()
+	-- Also while timestamps are off: they can be switched on in Blizzard's settings later.
+	self:ToggleEvent("CVAR_UPDATE", self.db.timestampColor, function(_, _, name)
+		if name == "showTimestamps" and not settingTimestamp then
+			self:UpdateTimestampColor()
+		end
+	end)
 	local current = GetCVar("showTimestamps")
 	if not current or current == "" or current == "none" then
 		return
@@ -799,11 +839,6 @@ function Chat:UpdateTimestampColor()
 		SetCVar("showTimestamps", wanted)
 		settingTimestamp = nil
 	end
-	self:ToggleEvent("CVAR_UPDATE", self.db.timestampColor, function(_, _, name)
-		if name == "showTimestamps" and not settingTimestamp then
-			self:UpdateTimestampColor()
-		end
-	end)
 end
 
 function Chat:EditKeywords()
@@ -852,6 +887,11 @@ function Chat:OnLogin()
 	self:UpdateChannelNames()
 	self:UpdateTimestampColor()
 	self:ApplyTransparency()
+	self:RegisterEvent("PLAYER_LOGOUT", function()
+		for key in pairs(repeatPending) do
+			FlushRepeat(key)
+		end
+	end)
 	self:RegisterEvent("UPDATE_CHAT_WINDOWS", function()
 		self:UnregisterEvent("UPDATE_CHAT_WINDOWS")
 		if self.appliedThisSession then
@@ -875,6 +915,10 @@ function Chat:OnOptionChanged(key, value)
 		wipe(self.cdb.chatLog)
 	elseif key == "timestampColor" or key == "timestampColorValue" then
 		self:UpdateTimestampColor()
+	elseif key == "mouseScroll" then
+		UpdateWheels()
+	elseif key == "inputHistory" then
+		UpdateHistoryMode()
 	elseif key == "hideButtons" then
 		self:UpdateButtons()
 	elseif key == "tabFade" then

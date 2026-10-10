@@ -896,8 +896,8 @@ onArrow(eb, "DOWN"); onArrow(eb, "DOWN"); assert(eb.text == "", "down to empty")
 local logLine = uv(uv(styleFrame, "HookLog"), "LogLine")
 chatM.cdb.chatLog = {}
 local cf = { GetID = function() return 1 end }
-for i = 1, 205 do logLine(cf, "line " .. i, 1, 1, 1) end
-assert(#chatM.cdb.chatLog[1] == 200 and chatM.cdb.chatLog[1][1][1] == "line 6", "log ring")
+for i = 1, 250 do logLine(cf, "line " .. i, 1, 1, 1) end -- trimmed in steps of 50
+assert(#chatM.cdb.chatLog[1] == 200 and chatM.cdb.chatLog[1][1][1] == "line 51", "log ring")
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

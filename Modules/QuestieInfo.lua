@@ -100,7 +100,7 @@ local function ItemLines(itemID)
 end
 
 local function OnItemTooltip(tooltip, data)
-	if not Info.db.itemSources or tooltip:IsForbidden() or tooltip.isShopping then
+	if not Info.db.itemSources or tooltip:IsForbidden() or ns.IsShoppingTooltip(tooltip) then
 		return
 	end
 	local itemID = data and data.id

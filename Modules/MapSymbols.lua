@@ -271,6 +271,8 @@ end
 -- A source is function(mapID, add); add(x, y, symbol) with x, y from 0 to 1
 -- on mapID and symbol = { kind, atlas | texture, size, round, label, font,
 -- tooltip = function(tooltip, symbol), click = function(symbol, button) }.
+Symbols.ForZones = ForZones
+
 function Symbols.AddSource(source)
 	sources[#sources + 1] = source
 end

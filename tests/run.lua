@@ -1908,4 +1908,60 @@ end)()
 	assert(not available(quest({ parent = 5 }), lib), "needs the parent quest in the log")
 	print("quest starts OK")
 end)()
+-- Zeppelin and boat rides
+;(function()
+	local T = ns:GetModule("Transports")
+	local function run(samples)
+		local state, rides = {}, {}
+		for _, sample in ipairs(samples) do
+			local ride = T.Step(state, sample)
+			if ride then rides[#rides + 1] = ride end
+		end
+		return rides
+	end
+	local function series(t0, count, make)
+		local list = {}
+		for i = 0, count - 1 do
+			local sample = make(i)
+			sample.time = t0 + i * 0.5
+			list[#list + 1] = sample
+		end
+		return list
+	end
+	local function append(a, b) for _, v in ipairs(b) do a[#a + 1] = v end return a end
+	local still = function() return { mapID = 1411, x = 0.5, y = 0.5, speed = 0 } end
+	-- 60 s on a zeppelin: moves along while standing still, then stands still again
+	local samples = series(0, 6, still)
+	append(samples, series(3, 120, function(i) return { mapID = 1411, x = 0.5 + 0.003 * (i + 1), y = 0.5, speed = 0 } end))
+	append(samples, series(63, 8, function() return { mapID = 1411, x = 0.86, y = 0.5, speed = 0 } end))
+	local rides = run(samples)
+	assert(#rides == 1, "one ride recorded")
+	assert(math.abs(rides[1].seconds - 60) <= 2, "duration about 60 s: " .. rides[1].seconds)
+	assert(rides[1].from.x == 0.5 and rides[1].to.x > 0.85, "dock and arrival")
+	assert(#rides[1].path > 5, "path sampled")
+	-- walking, a short lift, and a taxi do not count
+	local walking = series(0, 120, function(i) return { mapID = 1411, x = 0.5 + 0.003 * i, y = 0.5, speed = 7 } end)
+	assert(#run(walking) == 0, "own movement is no ride")
+	local lift = series(0, 6, still)
+	append(lift, series(3, 20, function(i) return { mapID = 1411, x = 0.5, y = 0.5 + 0.003 * (i + 1), speed = 0 } end))
+	append(lift, series(13, 8, function() return { mapID = 1411, x = 0.5, y = 0.56, speed = 0 } end))
+	assert(#run(lift) == 0, "a ride under 20 s is no transport")
+	local taxi = series(0, 120, function(i) return { mapID = 1411, x = 0.5 + 0.003 * i, y = 0.5, speed = 0, blocked = true } end)
+	assert(#run(taxi) == 0, "taxi flights are excluded")
+	-- a loading screen in the middle (boat between continents)
+	local boat = series(0, 6, still)
+	append(boat, series(3, 40, function(i) return { mapID = 1437, x = 0.5 + 0.003 * (i + 1), y = 0.5, speed = 0 } end))
+	append(boat, series(23, 60, function(i) return { mapID = 1438, x = 0.2 + 0.003 * i, y = 0.4, speed = 0 } end))
+	append(boat, series(53, 8, function() return { mapID = 1438, x = 0.38, y = 0.4, speed = 0 } end))
+	rides = run(boat)
+	assert(#rides == 1 and rides[1].crossed and rides[1].to.mapID == 1438, "crossing the map is one ride")
+	-- docks: rides close together share a dock, routes collect the durations
+	local docks = T.BuildDocks({ { 1411, 0.50, 0.50, 1420, 0.60, 0.40, 240 }, { 1411, 0.505, 0.5, 1420, 0.6, 0.4, 250 },
+		{ 1411, 0.50, 0.50, 1437, 0.3, 0.3, 120 }, { "x" } })
+	assert(#docks[1411] == 1 and #docks[1411][1].routes == 2, "one dock, two destinations")
+	assert(#docks[1411][1].routes[1].seconds == 2, "the same route twice")
+	local text = T.ExportText({ { 1411, 0.5, 0.5, 1420, 0.6, 0.4, 240 } })
+	assert(text:find("{ 1411, 0.5000, 0.5000, 1420, 0.6000, 0.4000, 240 },", 1, true), "export line")
+	print("transports OK")
+end)()
 dofile("bundled.lua")

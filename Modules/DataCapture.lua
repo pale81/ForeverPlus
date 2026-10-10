@@ -139,8 +139,11 @@ function Capture.Command(msg)
 	elseif msg == "daten aus" or msg == "data off" then
 		Settings.SetValue("ForeverPlus_DataCapture_enabled", false)
 		ns.PrintAlways(L.DATA_OFF)
+	elseif msg == "daten export" or msg == "data export" then
+		ns:GetModule("Transports").Export()
 	elseif msg == "daten löschen" or msg == "data clear" then
 		Capture.Clear()
+		ns:GetModule("Transports").Clear()
 		ns.PrintAlways(L.DATA_CLEARED)
 	elseif msg == "datenbank" or msg == "database" then
 		local meta = ns.BundledDatabase and ns.BundledDatabase.meta or {}

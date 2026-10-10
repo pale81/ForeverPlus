@@ -124,9 +124,34 @@ local function AddEntrance(uiMapID, x, y, name, kind)
 end
 
 -- Entrances of the instances in the client's group finder
--- (Data/Instances.lua) at QuestieDB's positions; names from the client.
+-- (Data/Instances.lua): positions from the shipped data (Data/Points.lua),
+-- QuestieDB's for the instances it does not cover; names from the client.
 local function BuildEntrances(lib)
 	entrances = {}
+	local covered = {}
+	local points = ns.Points and ns.Points.entrances or {}
+	for instanceID, kind in pairs(ns.Instances or {}) do
+		local row = points[instanceID]
+		if row then
+			local uiMapID, x, y
+			if row[2] == "w" then
+				uiMapID, x, y = WorldToMap(row[3], row[4], row[5])
+				if not (x and y and x > 0 and x < 1 and y > 0 and y < 1) then
+					uiMapID = nil
+				end
+				x, y = x and x * 100, y and y * 100
+			else
+				uiMapID, x, y = row[3], row[4], row[5]
+			end
+			if uiMapID and x and y then
+				covered[instanceID] = true
+				AddEntrance(uiMapID, x, y, Text(GetRealZoneText(instanceID)) or row[1], kind)
+			end
+		end
+	end
+	if not lib then
+		return
+	end
 	local ok, zoneDB = pcall(lib.Support.Get, "ZoneDB")
 	local dungeons = ok and type(zoneDB) == "table" and type(zoneDB.private) == "table" and zoneDB.private.dungeons
 	local instanceAreas = ok and type(zoneDB) == "table" and zoneDB.instanceIdToAreaId
@@ -134,7 +159,7 @@ local function BuildEntrances(lib)
 		return
 	end
 	for instanceID, kind in pairs(ns.Instances or {}) do
-		local areaID = instanceAreas[instanceID]
+		local areaID = not covered[instanceID] and instanceAreas[instanceID]
 		local entry = areaID and dungeons[areaID]
 		if type(entry) == "table" and type(entry[4]) == "table" then
 			local name = Text(GetRealZoneText(instanceID)) or Text(entry[1]) or tostring(instanceID)
@@ -165,27 +190,44 @@ local function AddNpc(list, lib, npc, id, faction)
 	end
 end
 
--- Flight masters and innkeepers of the player's faction and neutral ones,
--- read once in the background.
+-- Flight masters of the player's faction and neutral ones from the shipped
+-- data (Data/Points.lua); by map: { x, y, name, title, node, faction }.
+local function BundledFlights(letter)
+	local list = {}
+	for _, flight in pairs(ns.Points and ns.Points.flights or {}) do
+		local team = flight[5]
+		if team == "N" or team == letter then
+			local uiMapID = flight[2]
+			list[uiMapID] = list[uiMapID] or {}
+			tinsert(list[uiMapID], { x = flight[3], y = flight[4], name = flight[6] or flight[1], title = flight[7] or nil,
+				node = flight[1], faction = team == "N" and "AH" or team })
+		end
+	end
+	return list
+end
+
+-- Flight masters (shipped data, else QuestieDB's) and innkeepers (QuestieDB)
+-- of the player's faction and neutral ones, read once in the background.
 local function BuildNpcs(lib, onDone)
 	if npcs or npcsBuilding then
 		return
 	end
-	local npc = lib.Npc
+	local faction = UnitFactionGroup("player")
+	local letter = faction == "Alliance" and "A" or faction == "Horde" and "H" or nil
+	local found = { flights = BundledFlights(letter), inns = {} }
+	local bundledFlights = next(found.flights) ~= nil
+	local npc = lib and lib.Npc
 	if type(npc) ~= "table" or type(npc.GetAllIds) ~= "function" or type(npc.Get) ~= "function" then
-		npcs = { flights = {}, inns = {} }
+		npcs = found
 		return
 	end
 	npcsBuilding = true
-	local faction = UnitFactionGroup("player")
-	local letter = faction == "Alliance" and "A" or faction == "Horde" and "H" or nil
 	local raw = type(npc.GetRaw) == "function" and npc.GetRaw or npc.Get
 	local ids = npc.GetAllIds() or {}
-	local found = { flights = {}, inns = {} }
 	ns.RunSliced("Map symbols: NPCs", #ids, function(i)
 		local id = ids[i]
 		local flags = npc.Get(id, "npcFlags")
-		local flight, inn = HasFlag(flags, FLIGHT_MASTER_FLAG), HasFlag(flags, INNKEEPER_FLAG)
+		local flight, inn = HasFlag(flags, FLIGHT_MASTER_FLAG) and not bundledFlights, HasFlag(flags, INNKEEPER_FLAG)
 		if flight or inn then
 			local friendly = npc.Get(id, "friendlyToFaction")
 			if type(friendly) == "string" and letter and friendly:find(letter, 1, true) then
@@ -287,6 +329,9 @@ end
 local function NpcTooltip(tooltip, symbol)
 	tooltip:AddLine(symbol.data.name or symbol.fallback, 1, 1, 1)
 	tooltip:AddLine(symbol.data.title or symbol.fallback, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	if symbol.data.node then
+		tooltip:AddLine(symbol.data.node, 0.8, 0.8, 0.8)
+	end
 end
 
 Symbols.AddSource(function(mapID, add)
@@ -552,16 +597,14 @@ function Symbols.Refresh()
 	end
 	local db = Options()
 	local lib = (db.entrances or db.flightPoints or db.inns or db.questStarts) and ns.QuestieDB.Get()
-	if lib then
-		if db.entrances and not entrances then
-			BuildEntrances(lib)
-		end
-		if db.flightPoints or db.inns then
-			BuildNpcs(lib, Draw)
-		end
-		if db.questStarts then
-			BuildQuestStarts(lib, Draw)
-		end
+	if db.entrances and not entrances then
+		BuildEntrances(lib)
+	end
+	if db.flightPoints or db.inns then
+		BuildNpcs(lib, Draw)
+	end
+	if lib and db.questStarts then
+		BuildQuestStarts(lib, Draw)
 	end
 	Draw()
 end

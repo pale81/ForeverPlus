@@ -9,47 +9,22 @@
 -- tables in .contrib/.db (the compiled data has none).
 local att, root, build = assert(arg[1], "ATT checkout"), assert(arg[2], "addon root"), assert(arg[3], "client build")
 
-local function Read(path)
-	local file = assert(io.open(path, "rb"))
-	local text = file:read("*a")
-	file:close()
-	return (text:gsub("^\239\187\191", ""))
-end
-
----------------------------------------------------------------------------
--- Load the compiled categories with stand-ins for ATT's constructors
----------------------------------------------------------------------------
-local function Node(kind)
-	return function(id, t)
-		return { kind = kind, id = id, t = type(t) == "table" and t or {} }
-	end
-end
-local env = {}
-for _, name in ipairs({ "CreateAchievement", "CreateHeader", "CreateAchievementCriteria", "CreateCurrencyClass",
-	"CreateExploration", "CreateFaction", "CreateFilter", "CreateFlightPath", "CreateCustomHeader", "CreateItem",
-	"CreateMap", "CreateMount", "CreateNPC", "CreateObject", "CreateSpecies", "CreateProfession", "CreateQuest",
-	"CreateQuestObjective", "CreateRecipe", "CreateItemSource" }) do
-	env[name] = Node(name)
-end
-local Any
-Any = function()
-	return setmetatable({}, { __call = function() return Any() end, __index = function() return Any() end, __newindex = function() end })
-end
-local handler
-env.AddEventHandler = function(_, fn) handler = fn end
-setmetatable(env, { __index = function() return Any() end })
+local here = arg[0]:match("^(.*)/[^/]*$") or "."
+local loader = dofile(here .. "/att_loader.lua")
 
 local vendors = {} -- npc -> { coords, race, items = { itemID, … } }
 local drops = {}   -- itemID -> { creature IDs }
 
-local function Walk(node, npc)
+-- Vendors inside instances carry the entrance's position in the data: left out.
+local function Walk(node, npc, inInstance)
 	if type(node) ~= "table" or type(node.t) ~= "table" then
 		return
 	end
 	local t = node.t
+	inInstance = inInstance or node.kind == "CreateInstance"
 	if node.kind == "CreateNPC" then
 		npc = nil
-		if type(t.coords) == "table" then
+		if type(t.coords) == "table" and not inInstance then
 			vendors[node.id] = vendors[node.id] or { coords = t.coords, race = t.r, items = {} }
 			npc = vendors[node.id]
 		end
@@ -61,24 +36,13 @@ local function Walk(node, npc)
 			drops[t.itemID] = t.crs
 		end
 	end
-	for _, child in ipairs(t.g or t) do
-		Walk(child, npc)
-	end
-	if t.g then
-		for _, child in ipairs(t) do
-			Walk(child, npc)
-		end
+	for _, child in ipairs(loader.children(node)) do
+		Walk(child, npc, inInstance)
 	end
 end
 
-for _, file in ipairs({ "Zones", "Instances", "Holidays", "WorldDrops", "PVP", "Professions" }) do
-	local chunk = assert(loadstring(Read(att .. "/db/Camelot/Categories/" .. file .. ".lua"), file))
-	local categories = {}
-	chunk("ATT", env)
-	handler(categories)
-	for _, root in pairs(categories) do
-		Walk(root)
-	end
+for _, root in ipairs(loader.load(att, { "Zones", "Instances", "Holidays", "WorldDrops", "PVP", "Professions" })) do
+	Walk(root)
 end
 
 ---------------------------------------------------------------------------

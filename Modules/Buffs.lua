@@ -78,11 +78,14 @@ local REMINDERS = {
 	},
 }
 
--- For every class: the gathering tracking abilities (when learned), shown while
--- none of them is active, and the dwarves' treasure search, which runs next to
--- another tracking. The class tracking abilities above are off unless chosen.
+-- For every class: each gathering tracking ability on its own (when learned,
+-- shown while none of the gathering abilities is active) and the dwarves'
+-- treasure search, which runs next to another tracking. The class tracking
+-- abilities above are off unless chosen.
+local GATHERING = { 2383, 2580 }
 local COMMON_REMINDERS = {
-	{ key = "tracking", tracking = true, auras = { 2383, 2580 }, cast = { 2383, 2580 } },
+	{ key = "findHerbs", tracking = true, auras = { 2383 }, cast = { 2383 }, exclusive = GATHERING },
+	{ key = "findMinerals", tracking = true, auras = { 2580 }, cast = { 2580 }, exclusive = GATHERING },
 	{ key = "treasure", tracking = true, auras = { 2481 }, cast = { 2481 } },
 }
 
@@ -311,7 +314,7 @@ local function Evaluate(reminder, threshold)
 		spellID = reminder.cast and PickSpell(reminder)
 	elseif reminder.tracking then
 		-- Tracking has no timer: missing while none of the abilities is switched on.
-		if not PickSpell(reminder) or TrackingActive(reminder.cast) or FindAura(reminder.auras) then
+		if not PickSpell(reminder) or TrackingActive(reminder.exclusive or reminder.cast) or FindAura(reminder.auras) then
 			return false
 		end
 		return true

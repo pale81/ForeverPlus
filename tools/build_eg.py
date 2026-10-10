@@ -118,6 +118,12 @@ def build_radar(base, builds):
 
 
 
+def alternate(key):
+    # The recordings sometimes list a node under a creature ID and the other way round.
+    kind, id = key.split(':')
+    return '%s:%s' % ({'npc': 'object', 'object': 'npc'}.get(kind, kind), id)
+
+
 def build_loot(base, builds):
     sources, names = {}, {}
     for build in builds:
@@ -133,7 +139,9 @@ def build_loot(base, builds):
                     entry['windows'] += row.get('windows') or 0
                     for item, info in (row.get('items') or {}).items():
                         entry['items'][int(item)] = entry['items'].get(int(item), 0) + (info.get('drops') or 0)
-        for name, key, prefix in (('creature_details.enUS', 'creatures', 'npc'), ('object_details.enUS', 'objects', 'object')):
+        # Names also come from the creature scans and the NPC list of every build.
+        for name, key, prefix in (('creatures', 'creatures', 'npc'), ('npcs', 'npcs', 'npc'), ('npcs', 'objects', 'object'),
+                                  ('creature_details.enUS', 'creatures', 'npc'), ('object_details.enUS', 'objects', 'object')):
             path = os.path.join(base, build, name + '.json')
             if os.path.exists(path):
                 with open(path, encoding='utf-8') as f:
@@ -157,7 +165,7 @@ def build_loot(base, builds):
         '\tnames = {',
     ]
     for key in used:
-        lines.append('\t\t[%s] = %s,' % (json.dumps(key), json.dumps(names.get(key) or '?', ensure_ascii=False)))
+        lines.append('\t\t[%s] = %s,' % (json.dumps(key), json.dumps(names.get(key) or names.get(alternate(key)) or '?', ensure_ascii=False)))
     lines += ['\t},', '\titems = {']
     for item in sorted(items):
         rows = sorted(items[item], key=lambda r: -r[1] / r[2])

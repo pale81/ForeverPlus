@@ -2163,6 +2163,20 @@ end)()
 	assert(text:find('{ "npc:777", "Test Wolf", 2, { [100] = 2, [101] = 1 } },', 1, true), "export line")
 	ns.db.lootSources = {}
 	S.count, S.merged = 0, nil
+	-- names: unknown ones get the number, learned ones the client name
+	local savedNames, savedGUID, savedUnitName = ns.LootData.names, UnitGUID, UnitName
+	ns.LootData.names = { ["npc:8931"] = "?", ["npc:5"] = "Wolf" }
+	ns.db.lootNames, S.nameCount = {}, 0
+	assert(S.SourceName("npc:8931") == "Kreatur 8931" or S.SourceName("npc:8931") == "Creature 8931", "unknown name shows the number")
+	assert(S.SourceName("npc:5") == "Wolf", "shipped name")
+	UnitGUID, UnitName = function() return "Creature-0-4379-0-27-8931-00001F5C36" end, function() return "Zottel" end
+	S.LearnName("mouseover")
+	assert(S.SourceName("npc:8931") == "Zottel", "learned name replaces the number")
+	UnitGUID = function() return "Creature-0-4379-0-27-999-00001F5C36" end
+	S.LearnName("mouseover")
+	assert(ns.db.lootNames["npc:999"] == nil, "units without a loot source are not stored")
+	UnitGUID, UnitName, ns.LootData.names = savedGUID, savedUnitName, savedNames
+	ns.db.lootNames, S.nameCount = {}, 0
 	-- /fp daten export collects every recording
 	ns.db.innkeepers = { [1] = { "Wirt", 1436, 10, 20, "A" } }
 	local DC = ns:GetModule("DataCapture")

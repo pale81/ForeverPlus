@@ -1,6 +1,5 @@
--- Optional runtime access to QuestieDB, a separate data addon with a public
--- interface for other addons (LibQuestieDB). Nothing is copied; without
--- QuestieDB every lookup answers nil and the callers keep their own logic.
+-- ForeverPlus ships a compact, generated dataset. QuestieDB remains an
+-- optional richer provider when installed; it is never required at runtime.
 local _, ns = ...
 
 local QDB = {}
@@ -54,6 +53,17 @@ function QDB.Get()
 		end
 		return lib
 	end
+	local bundled = ns.BundledDatabaseAPI
+	if type(bundled) == "table" and HasFunctions(bundled.Quest, "Get", "GetAll", "GetAllIds", "Exists")
+		and HasFunctions(bundled.Support, "Get") then
+		return bundled
+	end
+end
+
+-- Data that ForeverPlus ships itself (custom waypoint and availability fields)
+-- must remain available even when an external QuestieDB provider is preferred.
+function QDB.Bundled()
+	return type(ns.BundledDatabaseAPI) == "table" and ns.BundledDatabaseAPI or nil
 end
 
 -- Quest name in the client's language where the client knows the quest,
@@ -173,7 +183,10 @@ function QDB.IsDungeonQuest(questID)
 		return nil
 	end
 	local zone = lib.Quest.Get(questID, "zoneOrSort")
-	return type(zone) == "number" and zone > 0 and areas[zone] or false
+	if type(zone) ~= "number" then
+		return nil -- partial waypoint-only rows do not establish dungeon membership
+	end
+	return zone > 0 and areas[zone] or false
 end
 
 ---------------------------------------------------------------------------

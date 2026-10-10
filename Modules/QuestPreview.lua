@@ -13,12 +13,12 @@ local PADDING = ns.PANEL_PADDING
 local GAP = 6
 local MAX_POINTS = 150  -- per map; longer spawn lists are thinned out
 local MAX_SOURCES = 12  -- NPCs or objects per item objective
-local MAX_TURNIN_POINTS = 5
+local MAX_TURNIN_POINTS = 20
 local MAX_OTHER_MAPS = 3
 local DOT_SIZE, OUTLINE_SIZE = 6, 8
 local TURNIN_SIZE, PLAYER_SIZE = 18, 16
 local DOT_ATLAS = "WhiteCircle-RaidBlips"
-local TURNIN_ATLAS = "questturnin"
+local TURNIN_ATLAS = "QuestTurnin"
 local PLAYER_ATLAS = "minimaparrow"
 local OBJECTIVE_R, OBJECTIVE_G, OBJECTIVE_B = 1, 0.3, 0.1
 
@@ -76,6 +76,28 @@ local function AddTarget(lib, into, target)
 	if target.spawns then
 		AddPoints(into, ns.QuestieDB.SpawnsByMap(lib, target.spawns))
 	end
+end
+
+-- The bundled MIT waypoint tables provide one quest-level objective point
+-- (or a turn-in fallback), plus a separate turn-in point. Use them only when
+-- richer objective-specific QuestieDB spawn data did not produce pins.
+local function AddBundledPoints(_, questID, field, into)
+	local bundled = ns.QuestieDB.Bundled()
+	local points = bundled and bundled.Quest.Get(questID, field)
+	if type(points) ~= "table" then
+		return false
+	end
+	local added = false
+	for _, point in ipairs(points) do
+		if type(point) == "table" and type(point[1]) == "number"
+			and type(point[2]) == "number" and type(point[3]) == "number" then
+			local list = into[point[1]] or {}
+			into[point[1]] = list
+			list[#list + 1] = { point[2], point[3] }
+			added = true
+		end
+	end
+	return added
 end
 
 local function First(list, count)
@@ -140,7 +162,7 @@ end
 -- whether the points are where the quest is handed in.
 local function Build(questID)
 	local lib = ns.QuestieDB.Get()
-	if not lib or not lib.Quest.Exists(questID) then
+	if not lib then
 		return nil
 	end
 	local model = {
@@ -149,8 +171,9 @@ local function Build(questID)
 		maps = {},
 	}
 	local targets = TargetsByType(lib, questID)
-	local seen, open = {}, 0
+	local seen, open, total = {}, 0, 0
 	for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
+		total = total + 1
 		local kind = Text(objective.type) or "?"
 		seen[kind] = (seen[kind] or 0) + 1
 		local text = Text(objective.text)
@@ -166,7 +189,10 @@ local function Build(questID)
 			end
 		end
 	end
-	if open == 0 then
+	if open > 0 and next(model.maps) == nil then
+		model.pointFallback = AddBundledPoints(lib, questID, "previewPoint", model.maps)
+	end
+	if total > 0 and open == 0 then
 		model.turnIn = true
 		local finishedBy = lib.Quest.Get(questID, "finishedBy")
 		if type(finishedBy) == "table" then
@@ -174,6 +200,10 @@ local function Build(questID)
 			AddTarget(lib, model.maps, { npcs = npcs, objects = First(finishedBy[2], MAX_TURNIN_POINTS) })
 			local npc = npcs[1]
 			model.turnInName = npc and Text(lib.Npc.Get(npc, "name"))
+		end
+		if next(model.maps) == nil then
+			model.pointFallback = AddBundledPoints(lib, questID, "turnInPoint", model.maps)
+				or AddBundledPoints(lib, questID, "previewPoint", model.maps)
 		end
 	end
 	return model
@@ -316,6 +346,9 @@ local function BodyText(model, mapID)
 	if model.turnIn then
 		local place = model.turnInName or (mapID and MapName(mapID))
 		lines[#lines + 1] = NORMAL_FONT_COLOR:WrapTextInColorCode(place and L.QUEST_PREVIEW_TURNIN:format(place) or L.QUEST_PREVIEW_TURNIN_NOW)
+	end
+	if model.pointFallback then
+		lines[#lines + 1] = DISABLED_FONT_COLOR:WrapTextInColorCode(L.QUEST_PREVIEW_SOURCE_POINT)
 	end
 	if not mapID then
 		lines[#lines + 1] = DISABLED_FONT_COLOR:WrapTextInColorCode(L.QUEST_PREVIEW_NO_PLACE)

@@ -18,6 +18,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		flightPoints = true,
 		inns = true,
 		places = true,
+		questStarts = true,
 	},
 })
 
@@ -226,7 +227,7 @@ function WorldMap:Apply()
 		Draw()
 	end
 	local db = self.db
-	if (db.entrances or db.flightPoints or db.inns or db.places) and WorldMapFrame then
+	if (db.entrances or db.flightPoints or db.inns or db.places or db.questStarts) and WorldMapFrame then
 		ns.MapSymbols.Setup()
 	end
 	ns.MapSymbols.Refresh()
@@ -278,6 +279,7 @@ WorldMap.options = {
 	{ key = "flightPoints", type = "toggle", name = L.WORLDMAP_FLIGHTS, desc = L.WORLDMAP_FLIGHTS_DESC },
 	{ key = "inns", type = "toggle", name = L.WORLDMAP_INNS, desc = L.WORLDMAP_INNS_DESC },
 	{ key = "places", type = "toggle", name = L.WORLDMAP_PLACES, desc = L.WORLDMAP_PLACES_DESC },
+	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
 }
 
 -- Without the map data there is nothing to reveal.

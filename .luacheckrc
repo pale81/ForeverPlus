@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"GetServerTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",
 	"DELETE_ITEM_CONFIRM_STRING", "EquipPendingItem", "ConfirmBindOnUse", "StaticPopup_FindVisible",
 	"COMBATLOG", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",

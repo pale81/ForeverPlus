@@ -20,3 +20,5 @@ Blizzards Interface-Quellcode des Forever-Clients (Spieltyp `camelot`) zum Nachs
 ```sh
 git clone --depth 1 -b forever https://github.com/Gethe/wow-ui-source.git
 ```
+
+`bundled.lua` prüft die mitgelieferten Questdaten (`Data/Database.lua`) ohne QuestieDB und läuft am Ende von `run.lua` mit. `lua5.1 tools/validate_database.lua .` prüft den Aufbau der Datei (im Addon-Ordner aufrufen).

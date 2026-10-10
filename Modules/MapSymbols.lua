@@ -25,6 +25,8 @@ local sources = {}
 local entrances  -- uiMapID -> { { x, y, names = { { name, kind } } } } (x, y: 0–100)
 local npcs       -- { flights = { [uiMapID] = { … } }, inns = { … } }
 local npcsBuilding = false
+local questStarts -- uiMapID -> { { id, x, y, gate, any, all, excluded, blockedBy, parent, name } }
+local questStartsBuilding = false
 local rects = {}      -- "child:parent" -> { left, right, top, bottom } or false
 local continents = {} -- uiMapID -> continent (instance map) ID or false
 local positions = {}  -- uiMapID -> { [place] = { x, y } or false }
@@ -201,6 +203,47 @@ local function BuildNpcs(lib, onDone)
 	end)
 end
 
+local function BuildQuestStarts(lib, onDone)
+	if questStarts or questStartsBuilding then
+		return
+	end
+	local bundled = ns.QuestieDB.Bundled()
+	local quest = bundled and bundled.Quest or lib.Quest
+	if type(quest) ~= "table" or type(quest.GetAllIds) ~= "function" or type(quest.Get) ~= "function" then
+		questStarts = {}
+		return
+	end
+	questStartsBuilding = true
+	local ids = quest.GetAllIds() or {}
+	local found = {}
+	ns.RunSliced("Map symbols: quest starts", #ids, function(i)
+		local id = ids[i]
+		local points = quest.Get(id, "startPoints")
+		if type(points) == "table" then
+			local entry = {
+				id = id, gate = quest.Get(id, "startGate"),
+				any = quest.Get(id, "startRequiresAny"), all = quest.Get(id, "startRequiresAll"),
+				excluded = quest.Get(id, "startExcluded"), blockedBy = quest.Get(id, "startBlockedBy"),
+				parent = quest.Get(id, "startParent"), name = quest.Get(id, "name"),
+			}
+			for _, point in ipairs(points) do
+				if type(point) == "table" and type(point[1]) == "number"
+					and type(point[2]) == "number" and type(point[3]) == "number" then
+					local list = found[point[1]] or {}
+					found[point[1]] = list
+					-- Share metadata for every point of this quest. Copying all of
+					-- these fields per point created thousands of table fields while
+					-- opening the world map.
+					list[#list + 1] = { x = point[2], y = point[3], data = entry }
+				end
+			end
+		end
+	end, function()
+		questStarts, questStartsBuilding = found, false
+		onDone()
+	end)
+end
+
 -- Position of a place from Data/Places.lua on a map (0–1), cached per map.
 local function PlacePosition(place, mapID)
 	local cache = positions[mapID]
@@ -256,6 +299,86 @@ Symbols.AddSource(function(mapID, add)
 			end
 			local x, y = toMap(entrance.x, entrance.y)
 			add(x, y, { kind = "entrance", atlas = raid and "raid" or "dungeon", size = ENTRANCE_SIZE, data = entrance, tooltip = EntranceTooltip })
+		end
+	end)
+end)
+
+local function HasMaskBit(mask, bitValue)
+	return type(mask) == "number" and mask > 0 and math.floor(mask / bitValue) % 2 == 1
+end
+
+local function CompletedOrActive(questID)
+	return C_QuestLog.IsQuestFlaggedCompleted(questID) or C_QuestLog.GetLogIndexForQuestID(questID) ~= nil
+end
+
+local function QuestStartAvailable(entry, lib)
+	local quest = entry.data or entry
+	if CompletedOrActive(quest.id) then
+		return false
+	end
+	local gate = type(quest.gate) == "number" and quest.gate or 0
+	local requiredLevel = math.floor(gate / 100000000000)
+	if requiredLevel > 0 and UnitLevel("player") < requiredLevel then
+		return false
+	end
+	local raceMask = math.floor((gate % 100000000) / 10000)
+	local classMask = gate % 10000
+	local _, _, classID = UnitClass("player")
+	local _, _, raceID = UnitRace("player")
+	local enum = lib.Enum
+	local playerRaceMask = type(enum) == "table" and type(enum.raceMaskById) == "table" and enum.raceMaskById[raceID]
+	if not playerRaceMask and raceID then playerRaceMask = 2 ^ (raceID - 1) end
+	local playerClassMask = classID and 2 ^ (classID - 1)
+	if raceMask ~= 0 and playerRaceMask and not HasMaskBit(raceMask, playerRaceMask) then
+		return false
+	end
+	if classMask ~= 0 and playerClassMask and not HasMaskBit(classMask, playerClassMask) then
+		return false
+	end
+	local anyFound, anyCompleted = false, false
+	for _, id in ipairs(quest.any or {}) do
+		anyFound = true
+		if C_QuestLog.IsQuestFlaggedCompleted(id) then anyCompleted = true end
+	end
+	if anyFound and not anyCompleted then return false end
+	for _, id in ipairs(quest.all or {}) do
+		if not C_QuestLog.IsQuestFlaggedCompleted(id) then return false end
+	end
+	for _, id in ipairs(quest.excluded or {}) do
+		if CompletedOrActive(id) then return false end
+	end
+	if quest.blockedBy and CompletedOrActive(quest.blockedBy) then return false end
+	if quest.parent and not C_QuestLog.GetLogIndexForQuestID(quest.parent) then return false end
+	return true
+end
+
+local function QuestStartTooltip(tooltip, symbol)
+	local entry, lib = symbol.data, ns.QuestieDB.Get()
+	local title = ns.QuestieDB.QuestName(lib, entry.id) or entry.name or ("Quest %d"):format(entry.id)
+	tooltip:AddLine(title, 1, 1, 1, true)
+	tooltip:AddLine(L.WORLDMAP_QUEST_START, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	tooltip:AddLine(L.WORLDMAP_QUEST_START_REQUIREMENTS, 0.8, 0.8, 0.8, true)
+end
+
+Symbols.AddSource(function(mapID, add)
+	if not (Options().questStarts and questStarts) then
+		return
+	end
+	local lib = ns.QuestieDB.Get()
+	if not lib then return end
+	local availability = {}
+	ForZones(mapID, function(zoneMapID, toMap)
+		for _, entry in ipairs(questStarts[zoneMapID] or {}) do
+			local id = entry.data.id
+			local isAvailable = availability[id]
+			if isAvailable == nil then
+				isAvailable = QuestStartAvailable(entry, lib)
+				availability[id] = isAvailable
+			end
+			if isAvailable then
+				local x, y = toMap(entry.x, entry.y)
+				add(x, y, { kind = "questStart", atlas = "QuestNormal", size = 16, data = entry.data, tooltip = QuestStartTooltip })
+			end
 		end
 	end)
 end)
@@ -426,13 +549,16 @@ function Symbols.Refresh()
 		return
 	end
 	local db = Options()
-	local lib = (db.entrances or db.flightPoints or db.inns) and ns.QuestieDB.Get()
+	local lib = (db.entrances or db.flightPoints or db.inns or db.questStarts) and ns.QuestieDB.Get()
 	if lib then
 		if db.entrances and not entrances then
 			BuildEntrances(lib)
 		end
 		if db.flightPoints or db.inns then
 			BuildNpcs(lib, Draw)
+		end
+		if db.questStarts then
+			BuildQuestStarts(lib, Draw)
 		end
 	end
 	Draw()
@@ -462,6 +588,12 @@ function Symbols.Setup()
 		end
 	end
 	WorldMapFrame:HookScript("OnShow", Symbols.Refresh)
+	local events = CreateFrame("Frame")
+	events:RegisterEvent("QUEST_LOG_UPDATE")
+	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
+	events:SetScript("OnEvent", function()
+		if WorldMapFrame:IsShown() then Symbols.Refresh() end
+	end)
 end
 
 -- Number of symbols per kind on a map, for /fp karte.

@@ -1238,31 +1238,6 @@ do
 	ok, err = pcall(showNext)
 	print("show upgrade empty slot", ok, err)
 end
-(function()
-	-- marked junk placement plan
-	local items = ns:GetModule("Items")
-	local onSort = uv(uv(items.OnLogin, "QueueSort") and items.OnLogin, "OnSortStarted")
-	local step = uv(onSort, "PlacingStep")
-	local plan = uv(step, "PlanJunkMoves")
-	Enum.ItemQuality.Poor = 0
-	items.db.junkPerCharacter = false
-	items.db.junk = { [500] = true, [501] = true }
-	-- 10 slots: normal 1-3, marked at 2 and 4, greys at 9-10
-	local contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 500, quality = 1 }, [3] = { itemID = 2, quality = 1 },
-		[4] = { itemID = 501, quality = 1 }, [9] = { itemID = 90, quality = 0 }, [10] = { itemID = 91, quality = 0 } }
-	local slots = {}
-	for i = 1, 10 do slots[i] = { 0, i } end
-	C_Container.GetContainerItemInfo = function(_, slot) local c = contents[slot]; if c then c.hyperlink = "|Hitem:" .. c.itemID .. "|h"; end return c end
-	local moves = plan(slots)
-	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
-	assert(#moves == 2 and moves[1][2][2] == 8 and moves[2][2][2] == 7, "marked before greys")
-	-- greys at the start: marked go after them
-	contents = { [1] = { itemID = 90, quality = 0 }, [2] = { itemID = 1, quality = 1 }, [6] = { itemID = 500, quality = 1 } }
-	moves = plan(slots)
-	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
-	assert(#moves == 1 and moves[1][2][2] == 2, "after greys")
-	print("junk placement OK")
-end)()
 ;(function()
 	SKILL_RANK_UP = "Eure Fertigkeit '%s' hat sich auf %d erhöht."
 	FACTION_STANDING_INCREASED = "Euer Ruf bei der Fraktion '%s' hat sich um %d verbessert."

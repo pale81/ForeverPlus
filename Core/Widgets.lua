@@ -67,6 +67,29 @@ function ns.CreatePanel(name, options)
 	return panel
 end
 
+-- Copy symbol in the colour of the tab labels (gold), white while hovered;
+-- the symbol itself is drawn desaturated so it matches the rest of the UI.
+function ns.StyleCopyButton(button)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	if C_Texture.GetAtlasInfo("friends-icon-battlenet-copy") then
+		icon:SetAtlas("friends-icon-battlenet-copy")
+	else
+		icon:SetTexture([[Interface\Buttons\UI-GuildButton-PublicNote-Up]])
+	end
+	icon:SetDesaturated(true)
+	button.Icon = icon
+	ns.SetCopyHot(button, false)
+end
+
+function ns.SetCopyHot(button, hot)
+	if hot then
+		button.Icon:SetVertexColor(1, 1, 1)
+	else
+		button.Icon:SetVertexColor(NORMAL_FONT_COLOR:GetRGB())
+	end
+end
+
 -- Darker area behind scrolling texts inside a panel.
 function ns.AddPanelInset(panel, region)
 	local inset = panel:CreateTexture(nil, "BACKGROUND", nil, 1)

@@ -436,22 +436,21 @@ local function CreateCopyButton(chatFrame)
 	button:SetSize(18, 18)
 	button:SetPoint("TOPRIGHT", chatFrame.Background or chatFrame, "TOPRIGHT", -24, -2)
 	button:SetFrameLevel(chatFrame:GetFrameLevel() + 5)
-	if C_Texture.GetAtlasInfo("friends-icon-battlenet-copy") then
-		button:SetNormalAtlas("friends-icon-battlenet-copy")
-	else
-		button:SetNormalTexture([[Interface\Buttons\UI-GuildButton-PublicNote-Up]])
-	end
-	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	ns.StyleCopyButton(button)
 	button:SetScript("OnClick", function()
 		Chat:CopyChat(chatFrame)
 	end)
 	button:SetScript("OnEnter", function(self)
+		ns.SetCopyHot(self, true)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip_SetTitle(GameTooltip, L.CHAT_COPY)
 		GameTooltip_AddInstructionLine(GameTooltip, L.CHAT_COPY_CLICK)
 		GameTooltip:Show()
 	end)
-	button:SetScript("OnLeave", GameTooltip_Hide)
+	button:SetScript("OnLeave", function(self)
+		ns.SetCopyHot(self, false)
+		GameTooltip_Hide()
+	end)
 	button:SetAlpha(0)
 	copyButtons[chatFrame] = button
 	return button

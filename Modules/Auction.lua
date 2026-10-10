@@ -18,8 +18,24 @@ local Auction = ns:NewModule("Auction", {
 local WARNING_ICON = [[Interface\DialogFrame\UI-Dialog-Icon-AlertNew]]
 local AUCTION_HOUSE_CUT = 0.05
 
+-- C_Item.GetItemInfo is costly and the result lists ask for the same items
+-- again and again: a known merchant price is kept per item (an item whose data
+-- is not loaded yet is asked again).
+local vendorPriceCache = {}
+
 local function VendorPrice(itemID)
-	return itemID and select(11, C_Item.GetItemInfo(itemID)) or nil
+	if not itemID then
+		return nil
+	end
+	local cached = vendorPriceCache[itemID]
+	if cached then
+		return cached
+	end
+	local price = select(11, C_Item.GetItemInfo(itemID))
+	if price then
+		vendorPriceCache[itemID] = price
+	end
+	return price
 end
 
 -- True when the unit price is at or below what a merchant pays.

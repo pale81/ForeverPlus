@@ -571,11 +571,23 @@ local function UpdateActiveAuras()
 	end
 end
 
+-- UNIT_AURA comes in bursts: one rebuild per frame.
+local auraUpdatePending = false
+local function QueueAuraUpdate()
+	if not auraUpdatePending then
+		auraUpdatePending = true
+		C_Timer.After(0, function()
+			auraUpdatePending = false
+			UpdateActiveAuras()
+		end)
+	end
+end
+
 local function UpdateAuraWatch()
 	local enabled = Visuals.db.actionColors and Visuals.db.colorActiveBuff
 	if enabled and not auraWatcher then
 		auraWatcher = CreateFrame("Frame")
-		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", UpdateActiveAuras))
+		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", QueueAuraUpdate))
 	end
 	if auraWatcher then
 		if enabled then

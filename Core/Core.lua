@@ -291,7 +291,11 @@ function ns.PrintTimings()
 	end
 	for i = 1, #list do
 		local item = list[i]
-		ns.PrintAlways(ns.L.TIMINGS_LINE, item.name, item.entry.max, item.entry.slow, item.entry.count)
+		-- Same colours as the CPU list of the performance display: green below
+		-- 0.5 ms, orange up to 2 ms, red from 2 ms.
+		local max = item.entry.max
+		local color = max >= 2 and "|cffff0000" or max >= 0.5 and "|cffff8800" or "|cff00ff00"
+		ns.PrintAlways(color .. ns.L.TIMINGS_LINE .. "|r", item.name, max, item.entry.slow, item.entry.count)
 	end
 end
 

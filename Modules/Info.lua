@@ -16,7 +16,7 @@ local Info = ns:NewModule("Info", {
 local PERF_INTERVAL = 1
 local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
-local CPU_LOW, CPU_HIGH = 1, 5 -- ms per frame: green below, red from
+local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame: green below 0.5, orange 0.5-2, red from 2
 
 local _, playerClass = UnitClass("player")
 local playerName, playerRealm = UnitName("player"), GetRealmName()

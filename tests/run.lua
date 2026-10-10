@@ -585,10 +585,18 @@ local entry = ns:RegisterDisplay(disp, "TestDisplay", function(f) f:SetPoint("CE
 IsAltKeyDown = function() return true end
 GetMouseFoci = function() return { disp } end
 assert(ns.db.locked == nil and not ns.db.unlocked["M:TestDisplay"], "locked by default")
+clicks = 0
+PlaySound = function() clicks = clicks + 1 end
 mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
 assert(ns.db.unlocked["M:TestDisplay"] == true, "alt right-click unlocks")
 mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
 assert(ns.db.unlocked["M:TestDisplay"] == nil, "alt right-click locks")
+assert(clicks == 2, "a click for unlocking and for locking")
+ns.db.lockSound = false
+mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+assert(clicks == 2, "no click with the option off")
+mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+ns.db.lockSound = true
 mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
 ns.db.lockAll = true
 mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "LeftButton")

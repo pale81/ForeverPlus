@@ -50,6 +50,10 @@ local function ToggleLock(key)
 	if ns.db.lockMessage then
 		ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
 	end
+	-- A short click like a lock: on when unlocking, off when locking.
+	if ns.db.lockSound and SOUNDKIT then
+		PlaySound(locked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+	end
 	RefreshDisplays()
 end
 
@@ -473,6 +477,9 @@ function Mover:OnInitialize()
 	end
 	if ns.db.lockMessage == nil then
 		ns.db.lockMessage = true
+	end
+	if ns.db.lockSound == nil then
+		ns.db.lockSound = true
 	end
 	Migrate()
 	self:Refresh()

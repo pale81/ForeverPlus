@@ -15,6 +15,8 @@ Locales\enUS.lua
 Locales\deDE.lua
 
 Core\Core.lua
+Data\Database.lua
+Data\DatabaseLoader.lua
 Core\Settings.xml
 Core\Settings.lua
 Core\Widgets.lua
@@ -41,6 +43,7 @@ Modules\Info.lua
 Modules\Quests.lua
 Modules\Parchment.lua
 Modules\QuestPreview.lua
+Modules\DataCapture.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
 Modules\Errors.lua

@@ -1735,7 +1735,11 @@ end)()
 	-- Recipe vendors: round icons with their own click (waypoint).
 	local radar = ns:GetModule("RecipeRadar")
 	radar.db.worldMap = true
-	local getVendors = uv(uv(S.Count, "Collect"), "sources")[5]
+	local getVendors
+	for _, source in ipairs(uv(uv(S.Count, "Collect"), "sources")) do
+		local ok, found = pcall(uv, source, "GetVendors")
+		if ok and found then getVendors = source end
+	end
 	local vendorMap
 	for id, list in pairs(uv(uv(getVendors, "GetVendors"), "vendorsByMap")) do if #list > 0 then vendorMap = id break end end
 	mapID = vendorMap
@@ -1861,3 +1865,47 @@ end)()
 	assert(not listed and not rawget(quiet, "Close"), "tooltip-like panel")
 	print("panel OK")
 end)()
+;(function()
+	-- Local quest capture is opt-in and deduplicates unchanged snapshots.
+	local capture = ns:GetModule("DataCapture")
+	C_QuestLog.GetTitleForQuestID = function() return "Koboldlager" end
+	C_QuestLog.GetQuestObjectives = function() return { { text = "Kobolde: 0/10", type = "monster", finished = false } } end
+	capture.Clear()
+	capture.SetEnabled(true)
+	capture.OnEvent(capture, "QUEST_ACCEPTED", 33)
+	capture.OnEvent(capture, "QUEST_ACCEPTED", 33)
+	local rows = ForeverPlusDB.observations["33"]
+	assert(rows and #rows == 1 and rows[1].title == "Koboldlager", "visible quest snapshot captured once")
+	assert(rows[1].method == "QUEST_ACCEPTED" and rows[1].source == "client-visible quest log", "observation provenance")
+	capture.SetEnabled(false)
+	capture.OnEvent(capture, "QUEST_ACCEPTED", 33)
+	assert(#rows == 1, "disabled capture records nothing")
+	capture.Clear()
+	print("data capture OK")
+end)()
+-- Quest starts on the map: level gate, prerequisites, active quests
+;(function()
+	local available
+	for _, source in ipairs(uv(uv(ns.MapSymbols.Count, "Collect"), "sources")) do
+		local ok, found = pcall(uv, source, "QuestStartAvailable")
+		if ok and found then available = found end
+	end
+	assert(available, "quest start source found")
+	C_QuestLog.IsQuestFlaggedCompleted = function(id) return id == 7 end
+	C_QuestLog.GetLogIndexForQuestID = function(id) return id == 8 and 1 or nil end
+	UnitLevel = function() return 20 end
+	UnitRace = function() return "Human", "Human", 1 end
+	UnitClass = function() return "Mage", "MAGE", 8 end
+	local lib = { Enum = {} }
+	local function quest(fields) fields.id = fields.id or 1 return { data = fields } end
+	assert(available(quest({ gate = 20 * 100000000000 }), lib), "level reached")
+	assert(not available(quest({ gate = 30 * 100000000000 }), lib), "level too low")
+	assert(not available(quest({ id = 7 }), lib), "completed quests are hidden")
+	assert(not available(quest({ id = 8 }), lib), "active quests are hidden")
+	assert(available(quest({ all = { 7 } }), lib) and not available(quest({ all = { 9 } }), lib), "all prerequisites needed")
+	assert(not available(quest({ any = { 9 } }), lib) and available(quest({ any = { 9, 7 } }), lib), "one of the alternatives")
+	assert(not available(quest({ excluded = { 8 } }), lib), "an active exclusive quest hides it")
+	assert(not available(quest({ parent = 5 }), lib), "needs the parent quest in the log")
+	print("quest starts OK")
+end)()
+dofile("bundled.lua")

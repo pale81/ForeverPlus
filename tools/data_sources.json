@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "id": "ahledger-catalog-api",
+      "api": "https://ahledger.com/api/catalog?class={class}",
+      "client_build": "1.60.1.70291",
+      "license": "AHledger public API terms; attribution required; no feed resale",
+      "license_status": "publisher permits personal and commercial API use subject to attribution and no-resale conditions; underlying Blizzard game data remains Blizzard's property",
+      "license_evidence": "AHledger API terms, updated 2026-09-19: https://ahledger.com/terms (sections API and Content and ownership); developer documentation: https://ahledger.com/developers; open-data description: https://ahledger.com/data. Credit AHledger with a link wherever data is shown; do not present as own scan or resell as a feed. AHledger states item names, icons, and game data belong to Blizzard and are shown under Blizzard's published game data terms.",
+      "attribution": "AHledger catalog data — https://ahledger.com/data",
+      "classes": [
+        "armor",
+        "weapon",
+        "consumable",
+        "container",
+        "quest",
+        "key",
+        "miscellaneous",
+        "projectile",
+        "trade-goods",
+        "recipe",
+        "reagent",
+        "quiver"
+      ],
+      "trust": "client-catalog"
+    },
+    {
+      "id": "everything-quests-mit-waypoints",
+      "repository": "https://github.com/wheelbarrel00/EverythingQuests",
+      "commit": "bb29c7326185377d05381a0a7c6817e4d3f1e883",
+      "files": [
+        "Data/QuestCoords_Forever.lua",
+        "Data/QuestTurnIn_Forever.lua",
+        "Data/QuestAvailable_Forever.lua"
+      ],
+      "license": "MIT; attribution and license notices retained",
+      "license_status": "upstream repository is MIT-licensed; includes a separate MIT notice for Forever quest data from AllTheThings. This does not independently grant rights to Blizzard-owned underlying game content.",
+      "license_evidence": "Repository LICENSE and README acknowledgement; Data/AllTheThings MIT LICENSE.txt. Exact source commit is pinned in this manifest.",
+      "attribution": "Quest waypoint tables adapted from Everything Quests by Wheelbarrel00 and AllTheThings WoW Addon — https://github.com/wheelbarrel00/EverythingQuests",
+      "fields": [
+        "objective-or-hand-in-area point",
+        "all known hand-in point alternatives",
+        "quest start points",
+        "English quest title fallback",
+        "level, race, class and prerequisite/exclusion filters"
+      ],
+      "trust": "published-quest-waypoint-table"
+    }
+  ]
+}

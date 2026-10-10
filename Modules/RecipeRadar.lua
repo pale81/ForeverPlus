@@ -2,8 +2,8 @@
 -- the world map and/or minimap; clicking sets a waypoint. Recipe items also get
 -- their sources (vendors, quests, drops) in the tooltip.
 --
--- Data comes from QuestieDB at runtime (current Forever data set with Forever
--- coordinates and localized names). Nothing is copied into ForeverPlus.
+-- Recipe records may come from the bundled AHledger catalog; vendor, drop,
+-- quest, and location relations are shown only when the provider supplies them.
 local _, ns = ...
 local L = ns.L
 
@@ -20,7 +20,10 @@ local Radar = ns:NewModule("RecipeRadar", {
 	},
 })
 
-local MINIMAP_UPDATE_INTERVAL = 0.05
+-- Repositioning every 50 ms repeatedly calls map APIs and resets each pin's
+-- anchors. Ten updates per second remain smooth on the minimap and halve the
+-- work while moving or turning.
+local MINIMAP_UPDATE_INTERVAL = 0.1
 local RECIPE_CLASS = 9           -- Enum.ItemClass.Recipe
 local TOOLTIP_MAX_VENDORS = 3
 local TOOLTIP_MAX_QUESTS = 2
@@ -293,6 +296,9 @@ local function AddRecipeSources(tooltip, data)
 	if not recipe then
 		return
 	end
+	if ns.BundledDatabaseAPI == DB then
+		tooltip:AddLine("Catalog data: |Hurl:https://ahledger.com/data|h|cff66ccffAHledger.com|r|h", 0.65, 0.8, 1)
+	end
 	local shown = 0
 	for _, npc in ipairs(recipe.vendors or {}) do
 		local team = not mobile[npc] and DB.Npc.Get(npc, "friendlyToFaction")
@@ -358,6 +364,7 @@ local minimapPins = {}
 local activePins = {}
 local minimapHolder
 local currentMapID
+local currentMapWidth, currentMapHeight, minimapRadius
 
 local function CreateMinimapPin(index)
 	local pin = CreateFrame("Button", nil, minimapHolder)
@@ -384,15 +391,15 @@ local function PositionMinimapPins()
 		return
 	end
 	local position = currentMapID and C_Map.GetPlayerMapPosition(currentMapID, "player")
-	local width, height = C_Map.GetMapWorldSize(currentMapID)
-	if not position or not width or width == 0 then
+	local width, height = currentMapWidth, currentMapHeight
+	local radius = minimapRadius
+	if not position or not width or width == 0 or not height or height == 0 or not radius or radius == 0 then
 		for _, pin in ipairs(activePins) do
 			pin:Hide()
 		end
 		return
 	end
 	local px, py = position:GetXY()
-	local radius = C_Minimap.GetViewRadius()
 	local halfWidth, halfHeight = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
 	local facing = GetCVarBool("rotateMinimap") and GetPlayerFacing() or 0
 	local sin, cos = math.sin(facing), math.cos(facing)
@@ -437,6 +444,12 @@ local function RefreshMinimap()
 	end
 	local db = Radar.db
 	currentMapID = C_Map.GetBestMapForUnit("player")
+	if currentMapID then
+		currentMapWidth, currentMapHeight = C_Map.GetMapWorldSize(currentMapID)
+	else
+		currentMapWidth, currentMapHeight = nil, nil
+	end
+	minimapRadius = C_Minimap.GetViewRadius()
 	if db.enabled and db.minimap and currentMapID then
 		for index, entry in ipairs(GetVendors(currentMapID) or {}) do
 			local pin = minimapPins[index] or CreateMinimapPin(index)
@@ -502,7 +515,10 @@ function Radar:Apply()
 		PLAYER_STOPPED_MOVING = SetMoving,
 		PLAYER_STARTED_TURNING = SetMoving,
 		PLAYER_STOPPED_TURNING = SetMoving,
-		MINIMAP_UPDATE_ZOOM = PositionMinimapPins,
+		MINIMAP_UPDATE_ZOOM = function()
+			minimapRadius = C_Minimap.GetViewRadius()
+			PositionMinimapPins()
+		end,
 	}
 	for event, handler in pairs(events) do
 		self:ToggleEvent(event, enabled, handler)

@@ -214,9 +214,9 @@ function ns.Measured(name, fn)
 end
 
 -- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
--- frame (default 0.8, below the 1 ms the game's addon profiler counts as
+-- frame (default 0.25, below the 1 ms the game's addon profiler counts as
 -- slow), then onDone. Used for large one-time scans.
-local SLICE_BUDGET = 0.8
+local SLICE_BUDGET = 0.25
 
 function ns.RunSliced(name, count, fn, onDone, budget)
 	budget = budget or SLICE_BUDGET
@@ -375,12 +375,12 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 		ns:BuildSettings()
 		ns.RecordTiming("Settings", debugprofilestop() - start)
 	elseif event == "PLAYER_LOGIN" then
-		-- QuestieDB picks its locale once (decoding its name tables) while
-		-- the loading screen is still up instead of on the first tooltip.
+		-- Select the installed data provider while the loading screen is up,
+		-- instead of on the first tooltip.
 		if ns.QuestieDB then
 			local start = debugprofilestop()
 			ns.QuestieDB.Get()
-			ns.RecordTiming("QuestieDB: locale", debugprofilestop() - start)
+			ns.RecordTiming("Database: provider", debugprofilestop() - start)
 		end
 		for _, module in ipairs(ns.modules) do
 			if module.OnLogin then
@@ -519,6 +519,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns.StartWheelCheck()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
+	elseif msg:find("^daten") or msg:find("^data") then
+		ns:GetModule("DataCapture").Command(msg)
 	else
 		ns:OpenSettings()
 	end

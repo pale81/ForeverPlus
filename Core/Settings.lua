@@ -279,6 +279,7 @@ local PAGES = {
 		{ "Minimap" },
 		{ "WorldMap", header = L.WORLDMAP_TITLE },
 		{ "Info", header = L.INFO_TITLE },
+		{ "DataCapture", header = L.DATA_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},

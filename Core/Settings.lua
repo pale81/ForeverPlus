@@ -282,6 +282,7 @@ local PAGES = {
 		{ "Info", header = L.INFO_TITLE },
 		{ "DataCapture", header = L.DATA_TITLE },
 		{ "Transports", header = L.TRANSPORTS_TITLE },
+		{ "Library", header = L.LIBRARY_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},

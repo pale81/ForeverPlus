@@ -1628,6 +1628,7 @@ end)()
 	-- town and city names, recipe vendors.
 	local wm = ns:GetModule("WorldMap")
 	local S = ns.MapSymbols
+	ns:GetModule("Library").db.symbols = false
 	local dungeons = { [1581] = { "The Deadmines", nil, 40, { { 40, 42.5, 71.7 } } }, [1584] = { "Blackrock Depths", nil, 51, { { 51, 34.8, 85.3 } } },
 		[2717] = { "Molten Core", nil, 51, { { 51, 35, 85 } } }, [2366] = { "The Black Morass", nil, 440, { { 440, 65.7, 49.8 } } } }
 	local npcs = { [523] = { name = "Thor", subName = "Greifenmeister", npcFlags = 11, friendlyToFaction = "A", spawns = { [40] = { { 56.6, 52.6 } } } },
@@ -1985,4 +1986,37 @@ do
 	mr.db.mode = "never"
 	print("meter reset OK")
 end
+-- Library books
+;(function()
+	local Lib = ns:GetModule("Library")
+	local seen, located = {}, 0
+	for _, b in ipairs(ns.LibraryBooks) do
+		seen[b[1]] = true
+		if b[2] then
+			located = located + 1
+			assert(b[3] > 0 and b[3] < 100 and b[4] > 0 and b[4] < 100, "position in range " .. b[1])
+		end
+	end
+	local n = 0
+	for _ in pairs(seen) do n = n + 1 end
+	assert(n == 40, "40 different books: " .. n)
+	assert(located >= 30, "most books have a position")
+	-- a book in the bags after login counts as collected and its find is remembered
+	local id = ns.LibraryBooks[1][1]
+	local inBags = false
+	C_Item.GetItemCount = function(item) return inBags and item == id and 1 or 0 end
+	C_Map.GetBestMapForUnit = function() return 1455 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.757, 0.105 end } end
+	Lib.Scan()
+	assert(not Lib.cdb.owned[id], "no book yet")
+	inBags = true
+	Lib.Scan()
+	assert(Lib.cdb.owned[id], "collected once in the bags")
+	local find = ns.db.libraryFinds[id]
+	assert(find and find[1] == 1455 and math.abs(find[2] - 75.7) < 0.01, "find location remembered")
+	local text = Lib.ExportText(ns.db.libraryFinds)
+	assert(text:find("{ " .. id .. ", 1455, 75.7, 10.5 },", 1, true), "export line")
+	Lib.cdb.owned[id], ns.db.libraryFinds[id] = nil, nil
+	print("library OK")
+end)()
 dofile("bundled.lua")

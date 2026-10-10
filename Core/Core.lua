@@ -521,6 +521,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Items"):ShowJunkMenu()
 	elseif msg:find("^daten") or msg:find("^data") then
 		ns:GetModule("DataCapture").Command(msg)
+	elseif msg:find("^bücher") or msg:find("^books") then
+		ns:GetModule("Library").Command(msg)
 	else
 		ns:OpenSettings()
 	end

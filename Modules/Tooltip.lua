@@ -14,6 +14,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		hoverLevel = true,
 		hoverHealth = true,
 		hoverFullName = false,
+		hoverObjects = true,
 		classColors = true,
 		qualityBorder = true,
 	},
@@ -330,7 +331,11 @@ local sinceMaskUpdate = 0
 
 -- Runs while a mouseover unit exists; the text hides over other frames.
 local function UpdateHover(frame, elapsed)
-	if not UnitExists("mouseover") then
+	-- An object (sign, mailbox, node) has no unit: the text stays while its tooltip does.
+	if frame.object and UnitExists("mouseover") then
+		frame.object = false
+	end
+	if not (frame.object and GameTooltip:IsShown() or UnitExists("mouseover")) then
 		frame:Hide()
 		return
 	end
@@ -346,10 +351,7 @@ local function UpdateHover(frame, elapsed)
 	frame:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", x / scale, y / scale + 18)
 end
 
-local function ShowHoverName()
-	if not Tooltip.db.hoverName or not UnitExists("mouseover") then
-		return
-	end
+local function GetHover()
 	if not hover then
 		hover = CreateHover()
 		hover:SetScript("OnUpdate", UpdateHover)
@@ -358,9 +360,52 @@ local function ShowHoverName()
 	for _, text in ipairs({ hover.Name, hover.Grey, hover.Level }) do
 		text:SetFont(face, NAME_SIZE, "OUTLINE")
 	end
-	Layout(hover)
-	hover:Show()
-	UpdateHover(hover, 0)
+	return hover
+end
+
+local function ShowHoverName()
+	if not Tooltip.db.hoverName or not UnitExists("mouseover") then
+		return
+	end
+	local frame = GetHover()
+	frame.object = false
+	Layout(frame)
+	frame:Show()
+	UpdateHover(frame, 0)
+end
+
+-- The name of an object under the cursor (sign, mailbox, node, chest) in the
+-- colour of its tooltip's first line.
+local function LayoutObject(frame, name, r, g, b)
+	frame.Name:SetText(name)
+	frame.Name:SetTextColor(r, g, b)
+	frame.Grey:Hide()
+	frame.Level:SetText("")
+	frame.masked = false
+	frame.Clip:SetClipsChildren(false)
+	frame.Clip:ClearAllPoints()
+	frame.Clip:SetAllPoints(frame.Box)
+	local width, height = frame.Name:GetStringWidth() + 2, frame.Name:GetStringHeight() + 2
+	frame.Box:SetSize(width, height)
+	frame:SetSize(width, height)
+end
+
+local function OnObjectTooltip(tooltip)
+	if not Tooltip.db.hoverName or not Tooltip.db.hoverObjects or tooltip ~= GameTooltip or tooltip:IsForbidden()
+		or UnitExists("mouseover") or not OverWorld() then
+		return
+	end
+	local first = GameTooltipTextLeft1
+	local name = first and first:GetText()
+	if type(name) ~= "string" or name == "" or Secret(name) then
+		return
+	end
+	local r, g, b = first:GetTextColor()
+	local frame = GetHover()
+	frame.object = true
+	LayoutObject(frame, name, r or 1, g or 1, b or 1)
+	frame:Show()
+	UpdateHover(frame, 0)
 end
 
 ---------------------------------------------------------------------------
@@ -583,6 +628,9 @@ function Tooltip:OnInitialize()
 	hooksecurefunc(GameTooltip, "Show", ReserveHealthBarSpace)
 	GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
 		ClearSpacer(tooltip)
+		if hover and hover.object then
+			hover:Hide()
+		end
 		tooltip.fpUnitSuffix = nil
 		HideCompareTips()
 	end)
@@ -596,11 +644,13 @@ function Tooltip:OnInitialize()
 	end
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Tooltip: item", OnItemTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Tooltip: unit", OnUnitTooltip))
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, ns.Measured("Tooltip: object", OnObjectTooltip))
 end
 
 Tooltip.options = {
 	{ key = "hoverName", type = "toggle", name = L.TOOLTIP_HOVER_NAME, desc = L.TOOLTIP_HOVER_NAME_DESC },
 	{ key = "hoverLevel", type = "toggle", name = L.TOOLTIP_HOVER_LEVEL, parent = "hoverName" },
+	{ key = "hoverObjects", type = "toggle", name = L.TOOLTIP_HOVER_OBJECTS, desc = L.TOOLTIP_HOVER_OBJECTS_DESC, parent = "hoverName" },
 	{ key = "hoverFullName", type = "toggle", name = L.TOOLTIP_HOVER_FULL_NAME, desc = L.TOOLTIP_HOVER_FULL_NAME_DESC, parent = "hoverName" },
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },

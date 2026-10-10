@@ -704,6 +704,16 @@ UnitHealthPercent = function() return 0.3 end
 GameTooltip_UnitColor = function() return 0.2, 0.6, 1 end
 local show = uv(ns:GetModule("Tooltip").OnLogin, "ShowHoverName")
 if show then show() end
+do
+	local Tip = ns:GetModule("Tooltip")
+	local objectCall = uv(Tip.OnInitialize, "OnObjectTooltip")
+	assert(objectCall, "object tooltip handler")
+	UnitExists = function() return false end
+	GameTooltipTextLeft1 = { GetText = function() return "Briefkasten" end, GetTextColor = function() return 1, 0.82, 0 end }
+	GameTooltip.IsForbidden = function() return false end
+	objectCall(GameTooltip)
+	UnitExists = function() return true end
+end
 print("hover OK")
 -- Rank up: rank 2 replaced by rank 3, rank 1 kept
 local qolMod = ns:GetModule("QoL")

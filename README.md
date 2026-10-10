@@ -32,7 +32,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (Gegenstands- und Questnamen in der Sprache des Clients, soweit er sie kennt; annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
-| | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt | ja |
+| | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt; auch für Objekte (Schilder, Briefkästen, Rohstoffe, Truhen) in der Farbe der ersten Tooltip-Zeile, einzeln abschaltbar (Tooltip-Typ `Object`, im Spiel ungeprüft) | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Stapelgröße bei stapelbaren Gegenständen | ja |

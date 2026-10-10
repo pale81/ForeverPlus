@@ -47,6 +47,8 @@ frameMeta.__index = function(t, k)
 		EnumerateValidItems = function() return ipairs({}) end,
 		GetCount = function() return 0 end,
 		GetChildren = function() return end,
+		GetClampRectInsets = function(self) return rawget(self, 'clamp') and unpack(self.clamp) or -32, 25, 60, -32 end,
+		SetClampRectInsets = function(self, ...) self.clamp = { ... } end,
 	}
 	if methods[k] then return methods[k] end
 	local child = NewFrame("child", nil)
@@ -898,6 +900,24 @@ chatM.cdb.chatLog = {}
 local cf = { GetID = function() return 1 end }
 for i = 1, 250 do logLine(cf, "line " .. i, 1, 1, 1) end -- trimmed in steps of 50
 assert(#chatM.cdb.chatLog[1] == 200 and chatM.cdb.chatLog[1][1][1] == "line 51", "log ring")
+-- Chat edges: left/right/bottom reach the screen edge, the tabs keep room on top
+do
+local applyEdges = uv(uv(styleFrame, "HookEdges"), "ApplyEdges")
+local edgeFrame = NewFrame("Frame")
+edgeFrame.clamp = { -32, 25, 60, -32 }
+chatM.db.chatEdges, chatM.db.hideButtons = true, true
+applyEdges(edgeFrame)
+assert(edgeFrame.clamp[1] == 0 and edgeFrame.clamp[2] == 0 and edgeFrame.clamp[3] == 30 and edgeFrame.clamp[4] == 0, "edges reach the border")
+edgeFrame.clamp = { -32, 25, 60, -32 }
+chatM.db.hideButtons = false
+applyEdges(edgeFrame)
+assert(edgeFrame.clamp[1] == -32 and edgeFrame.clamp[3] == 30, "button column stays while shown")
+chatM.db.chatEdges = false
+edgeFrame.clamp = { -32, 25, 60, -32 }
+applyEdges(edgeFrame)
+assert(edgeFrame.clamp[3] == 60, "off: Blizzard's values")
+chatM.db.chatEdges, chatM.db.hideButtons = true, true
+end
 print("chat history OK")
 -- Sliced runner and timings
 local sum, done = 0, false

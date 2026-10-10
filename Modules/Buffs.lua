@@ -13,6 +13,7 @@ local Buffs = ns:NewModule("Buffs", {
 		scale = 0.8,
 		threshold = 1,
 		restingZones = false,
+		skipFishing = true,
 		expiringAlpha = 0.3,
 		wheelCast = false,
 		classes = {},
@@ -317,7 +318,8 @@ local function Update()
 	-- In rest areas (inns, cities) only when wanted; never during a flight.
 	local resting = IsResting() and not Buffs.db.restingZones
 	local flying = UnitOnTaxi("player") or IsFlying()
-	if Buffs.db.enabled and not resting and not flying and not UnitIsDeadOrGhost("player") then
+	local fishing = Buffs.db.skipFishing and ns.HasFishingPole and ns.HasFishingPole()
+	if Buffs.db.enabled and not resting and not flying and not fishing and not UnitIsDeadOrGhost("player") then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
@@ -489,6 +491,7 @@ function Buffs:options()
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
 		{ key = "restingZones", type = "toggle", name = L.BUFFS_RESTING, desc = L.BUFFS_RESTING_DESC, parent = "enabled" },
+		{ key = "skipFishing", type = "toggle", name = L.BUFFS_SKIP_FISHING, desc = L.BUFFS_SKIP_FISHING_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",
 			min = 0, max = 10, step = 1, format = function(v) return ("%d min"):format(v) end },
 		{ key = "expiringAlpha", type = "slider", name = L.BUFFS_EXPIRING_ALPHA, desc = L.BUFFS_EXPIRING_ALPHA_DESC, parent = "enabled",

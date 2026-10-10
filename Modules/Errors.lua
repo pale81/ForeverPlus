@@ -349,14 +349,16 @@ end
 function Errors:Apply()
 	local enabled = self.db.enabled
 	if enabled then
-		if self.cdb.previousCVar == nil then
-			self.cdb.previousCVar = GetCVar("scriptErrors")
+		-- The CVar is the same for every character, so its original value is kept account-wide.
+		if ns.db.previousScriptErrors == nil then
+			ns.db.previousScriptErrors = self.cdb.previousCVar or GetCVar("scriptErrors")
 		end
 		SetCVar("scriptErrors", "0")
-	elseif self.cdb.previousCVar ~= nil then
-		SetCVar("scriptErrors", self.cdb.previousCVar)
-		self.cdb.previousCVar = nil
+	elseif ns.db.previousScriptErrors ~= nil then
+		SetCVar("scriptErrors", ns.db.previousScriptErrors)
+		ns.db.previousScriptErrors = nil
 	end
+	self.cdb.previousCVar = nil
 	button:SetShown(enabled)
 	self:ToggleEvent("ADDON_ACTION_BLOCKED", enabled, function(_, event, addon, func)
 		AddBlocked(event, addon, func)

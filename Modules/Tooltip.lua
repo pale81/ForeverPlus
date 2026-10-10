@@ -100,6 +100,12 @@ local function AppendToSellLine(tooltip, suffix)
 	return false
 end
 
+-- Comparison tooltips next to an item tooltip.
+function ns.IsShoppingTooltip(tooltip)
+	return tooltip == ShoppingTooltip1 or tooltip == ShoppingTooltip2
+		or tooltip == ItemRefShoppingTooltip1 or tooltip == ItemRefShoppingTooltip2
+end
+
 local function OnTooltipAddMoney(tooltip)
 	if tooltip.fpUnitSuffix and AppendToSellLine(tooltip, tooltip.fpUnitSuffix) then
 		tooltip.fpUnitSuffix = nil
@@ -107,7 +113,7 @@ local function OnTooltipAddMoney(tooltip)
 end
 
 local function AddUnitPrice(tooltip, data)
-	if not Tooltip.db.unitPrice or tooltip.isShopping then
+	if not Tooltip.db.unitPrice or ns.IsShoppingTooltip(tooltip) then
 		return
 	end
 	local info = tooltip.GetPrimaryTooltipInfo and tooltip:GetPrimaryTooltipInfo()
@@ -178,7 +184,7 @@ end
 
 local function ColorBorder(tooltip, data)
 	local nineSlice = tooltip.NineSlice
-	if not Tooltip.db.qualityBorder or not nineSlice or not data or not data.id then
+	if not Tooltip.db.qualityBorder or not nineSlice or not data or not data.id or tooltip.IsEmbedded then
 		return
 	end
 	if not defaultBorder[tooltip] then
@@ -237,13 +243,19 @@ local function Layout(frame)
 			name = full
 		end
 	end
-	local r, g, b = GameTooltip_UnitColor("mouseover")
+	local ok, r, g, b = pcall(GameTooltip_UnitColor, "mouseover")
+	if not ok then
+		r, g, b = NORMAL_FONT_COLOR:GetRGB()
+	end
 	frame.Name:SetText(name)
 	frame.Name:SetTextColor(r, g, b)
 	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
 	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")
 	-- Clipping needs the width of the name; a protected name is shown plainly.
 	frame.masked = not Secret(name)
+	if not frame.masked then
+		frame.Level:SetText("") -- the box is 1 px wide then; the level would cover the name
+	end
 	frame.Clip:ClearAllPoints()
 	frame.Clip:SetClipsChildren(frame.masked and Tooltip.db.hoverHealth)
 	if frame.masked then
@@ -299,10 +311,10 @@ local function UpdateHover(frame, elapsed)
 		frame:Hide()
 		return
 	end
-	frame:SetAlpha(OverWorld() and 1 or 0)
 	sinceMaskUpdate = sinceMaskUpdate + (elapsed or 0)
-	if sinceMaskUpdate >= 0.1 then
+	if sinceMaskUpdate >= 0.1 or elapsed == 0 then
 		sinceMaskUpdate = 0
+		frame:SetAlpha(OverWorld() and 1 or 0)
 		UpdateHealthMask(frame)
 	end
 	local x, y = GetCursorPosition()
@@ -366,7 +378,7 @@ end
 
 -- Maximum stack size of stackable items.
 local function AddStackSize(tooltip, data)
-	if not Tooltip.db.stackSize or tooltip.isShopping then
+	if not Tooltip.db.stackSize or ns.IsShoppingTooltip(tooltip) then
 		return
 	end
 	local itemID = data and data.id

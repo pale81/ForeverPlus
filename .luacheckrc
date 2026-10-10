@@ -21,6 +21,7 @@ globals = {
 }
 
 read_globals = {
+	"COMBATLOG", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",
 	"geterrorhandler",
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",

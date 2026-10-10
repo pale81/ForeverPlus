@@ -160,6 +160,10 @@ local function AddSource(sources, order, name, amount)
 end
 
 local function ItemQuality(link)
+	local fromColor = tonumber(link:match("|cnIQ(%d+):"))
+	if fromColor then
+		return fromColor
+	end
 	local itemID = tonumber(link:match("item:(%d+)"))
 	return itemID and C_Item.GetItemQualityByID(itemID) or 0
 end
@@ -408,6 +412,10 @@ function Loot:Update()
 end
 
 function Loot:OnLogin()
+	-- Pending summaries would be lost with the logout or reload.
+	self:RegisterEvent("PLAYER_LOGOUT", function()
+		Flush()
+	end)
 	hooksecurefunc(C_Container, "UseContainerItem", function(bag, slot)
 		if self.db.summary then
 			local link = C_Container.GetContainerItemLink(bag, slot)

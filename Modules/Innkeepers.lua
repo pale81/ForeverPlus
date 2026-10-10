@@ -1,8 +1,9 @@
--- Innkeepers: the client has no list of who can set the hearthstone. When the
--- player binds at an innkeeper (CONFIRM_BINDER, the innkeeper is the unit
--- "npc") the NPC and the player's position are remembered; the world map shows
--- them with the inns. /fp gasthäuser export shows the list as text to pass on
--- so it can ship with a later update (Data/Inns.lua).
+-- Innkeepers: the client has no list of who can set the hearthstone. When an
+-- NPC offers it (a gossip option with the binder icon) or the player binds
+-- there (CONFIRM_BINDER; the innkeeper is the unit "npc") the NPC and the
+-- player's position are remembered; the world map shows them with the inns.
+-- /fp gasthäuser export shows the list as text to pass on so it can ship
+-- with a later update (Data/Inns.lua).
 local _, ns = ...
 local L = ns.L
 
@@ -36,26 +37,39 @@ local function PlayerPosition()
 	end
 end
 
-local function OnConfirmBinder()
+local BINDER_ICON = 132052 -- icon of "Make this inn your home"
+
+local function Record()
 	local id = Innkeepers.NpcID(UnitGUID("npc"))
 	local mapID, x, y = PlayerPosition()
 	if not (id and mapID) then
 		return
 	end
-	local name = UnitName("npc")
 	local faction = UnitFactionGroup("player")
 	local team = faction == "Alliance" and "A" or faction == "Horde" and "H" or "N"
 	local known = ns.db.innkeepers[id]
-	-- Another faction binding at the same NPC makes it neutral.
-	if known and known[5] ~= team then
-		team = "N"
+	if known then
+		-- Another faction meeting the same NPC makes it neutral; the first position stays.
+		known[5] = known[5] ~= team and "N" or known[5]
+		return
 	end
+	local name = UnitName("npc")
 	ns.db.innkeepers[id] = { type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name or "?",
 		mapID, tonumber(("%.1f"):format(x)), tonumber(("%.1f"):format(y)), team }
 	ns.MapSymbols.Refresh()
 end
 
-Innkeepers.Record = OnConfirmBinder
+local function OnGossipShow()
+	for _, option in ipairs(C_GossipInfo.GetOptions() or {}) do
+		if ns.Number(option.icon) == BINDER_ICON then
+			Record()
+			return
+		end
+	end
+end
+
+Innkeepers.Record = Record
+Innkeepers.OnGossipShow = OnGossipShow
 
 function Innkeepers.ExportText(list)
 	local lines = { L.INNS_EXPORT_HEADER }
@@ -98,7 +112,8 @@ function Innkeepers.Command(msg)
 end
 
 function Innkeepers:Apply()
-	self:ToggleEvent("CONFIRM_BINDER", self.db.record, OnConfirmBinder)
+	self:ToggleEvent("GOSSIP_SHOW", self.db.record, OnGossipShow)
+	self:ToggleEvent("CONFIRM_BINDER", self.db.record, Record)
 end
 
 function Innkeepers:OnInitialize()

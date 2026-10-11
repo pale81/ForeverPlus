@@ -26,6 +26,7 @@ local Chat = ns:NewModule("Chat", {
 		copyButton = true,
 		repeatSummary = true,
 		repeatDelay = 30,
+		skillLine = true,
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -568,6 +569,13 @@ local function ParseRepeat(kind, text)
 end
 
 local function FormatRepeat(entry)
+	if entry.items then
+		local parts = {}
+		for _, item in ipairs(entry.items) do
+			parts[#parts + 1] = L.CHAT_SKILL_ITEM:format(item.name, item.from, item.to)
+		end
+		return L.CHAT_SKILL_LINE_TEXT:format(table.concat(parts, ", "))
+	end
 	local kind = entry.kind
 	local args = {}
 	args[kind.numberArg] = entry.value
@@ -608,11 +616,26 @@ local function RepeatFilter(chatFrame, event, text, ...)
 		if kind.event == event and kind.match and kind.numberArg then
 			local name, number = ParseRepeat(kind, text)
 			if name then
-				local key = index .. ":" .. name
+				-- All skills share one entry and end up in one line: "Defense 30->40, Axes 33->36 increased".
+				local combine = kind.group == "SKILL" and Chat.db.skillLine
+				local key = combine and "skills" or (index .. ":" .. name)
 				local entry = repeatPending[key]
 				if not entry then
 					entry = { kind = kind, name = name, value = 0, count = 0, frames = {} }
+					if combine then
+						entry.items, entry.byName = {}, {}
+					end
 					repeatPending[key] = entry
+				end
+				if combine then
+					local item = entry.byName[name]
+					if not item then
+						-- Skill-ups come in steps of one, so the first message shows the old value.
+						item = { name = name, from = number - 1 }
+						entry.byName[name] = item
+						entry.items[#entry.items + 1] = item
+					end
+					item.to = number
 				end
 				-- The filter runs once per chat window showing the message; counted once per line.
 				if not lineID or entry.lastLine ~= lineID then
@@ -979,6 +1002,10 @@ end
 function Chat:OnOptionChanged(key, value)
 	if key == "repeatSummary" then
 		self:UpdateRepeatSummary()
+	elseif key == "skillLine" then
+		for pendingKey in pairs(repeatPending) do
+			FlushRepeat(pendingKey)
+		end
 	elseif key == "keywordAlert" or key == "keywordHighlight" then
 		self:UpdateKeywordAlert()
 	elseif key == "channelShort" then
@@ -1034,6 +1061,7 @@ Chat.options = {
 	{ key = "timestampColor", type = "toggle", name = L.CHAT_TIMESTAMP_COLOR, desc = L.CHAT_TIMESTAMP_COLOR_DESC },
 	{ key = "timestampColorValue", type = "dropdown", name = L.CHAT_COLOR, parent = "timestampColor", values = ColorValues },
 	{ key = "repeatSummary", type = "toggle", name = L.CHAT_REPEAT, desc = L.CHAT_REPEAT_DESC },
+	{ key = "skillLine", type = "toggle", name = L.CHAT_SKILL_LINE, desc = L.CHAT_SKILL_LINE_DESC, parent = "repeatSummary" },
 	{ key = "repeatDelay", type = "slider", name = L.CHAT_REPEAT_DELAY, desc = L.CHAT_REPEAT_DELAY_DESC, parent = "repeatSummary", min = 5, max = 120, step = 5,
 		format = function(value)
 			return ("%d s"):format(value)

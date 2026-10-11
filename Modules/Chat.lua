@@ -27,6 +27,8 @@ local Chat = ns:NewModule("Chat", {
 		repeatSummary = true,
 		repeatDelay = 30,
 		skillLine = true,
+		repLine = true,
+		learnLine = true,
 	},
 	charDefaults = {
 		transparencyApplied = false,
@@ -531,8 +533,12 @@ end
 ---------------------------------------------------------------------------
 local REPEAT_KINDS = {
 	{ event = "CHAT_MSG_SKILL", group = "SKILL", format = SKILL_RANK_UP },
-	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_INCREASED, sum = true },
-	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_DECREASED, sum = true },
+	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_INCREASED, sum = true, sign = 1 },
+	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_DECREASED, sum = true, sign = -1 },
+	-- New spells: one line with all links ("You have learned the spell: [Fireball]").
+	{ event = "CHAT_MSG_SYSTEM", group = "SYSTEM", format = ERR_LEARN_SPELL_S, learn = true },
+	{ event = "CHAT_MSG_SYSTEM", group = "SYSTEM", format = ERR_LEARN_ABILITY_S, learn = true },
+	{ event = "CHAT_MSG_SYSTEM", group = "SYSTEM", format = ERR_LEARN_PASSIVE_S, learn = true },
 }
 local REPEAT_EVENTS = { "CHAT_MSG_SKILL", "CHAT_MSG_COMBAT_FACTION_CHANGE" }
 local repeatPending = {} -- kind index .. name -> { kind, name, value, count, frames, timer }
@@ -568,13 +574,33 @@ local function ParseRepeat(kind, text)
 	end
 end
 
+-- The reputation change of a chat line as faction name and signed amount.
+function ns.ParseReputationMessage(text)
+	for _, kind in ipairs(REPEAT_KINDS) do
+		if kind.sign and kind.match and kind.numberArg then
+			local name, number = ParseRepeat(kind, text)
+			if name then
+				return name, number * kind.sign
+			end
+		end
+	end
+end
+
 local function FormatRepeat(entry)
-	if entry.items then
+	if entry.mode == "skill" then
 		local parts = {}
 		for _, item in ipairs(entry.items) do
 			parts[#parts + 1] = L.CHAT_SKILL_ITEM:format(item.name, item.from, item.to)
 		end
 		return L.CHAT_SKILL_LINE_TEXT:format(table.concat(parts, ", "))
+	elseif entry.mode == "rep" then
+		local parts = {}
+		for _, item in ipairs(entry.items) do
+			parts[#parts + 1] = L.CHAT_REP_ITEM:format(item.name, item.total)
+		end
+		return table.concat(parts, ", ")
+	elseif entry.mode == "learn" then
+		return L.CHAT_LEARN_LINE:format(table.concat(entry.items, ", "))
 	end
 	local kind = entry.kind
 	local args = {}
@@ -607,40 +633,61 @@ local function FlushRepeat(key)
 	end
 end
 
+-- Which kinds end up in one common line: skills, reputation, new spells.
+local function CombineMode(kind)
+	if kind.group == "SKILL" then
+		return Chat.db.skillLine and "skill"
+	elseif kind.sign then
+		return Chat.db.repLine and "rep"
+	elseif kind.learn then
+		return Chat.db.learnLine and "learn"
+	end
+end
+
 local function RepeatFilter(chatFrame, event, text, ...)
 	if (issecretvalue and issecretvalue(text)) or type(text) ~= "string" then
 		return false
 	end
 	local lineID = select(10, ...)
 	for index, kind in ipairs(REPEAT_KINDS) do
-		if kind.event == event and kind.match and kind.numberArg then
-			local name, number = ParseRepeat(kind, text)
+		if kind.event == event and kind.match and (kind.numberArg or kind.learn) and (not kind.learn or Chat.db.learnLine) then
+			local name, number
+			if kind.learn then
+				name = text:match(kind.match.pattern)
+			else
+				name, number = ParseRepeat(kind, text)
+			end
 			if name then
-				-- All skills share one entry and end up in one line: "Defense 30->40, Axes 33->36 increased".
-				local combine = kind.group == "SKILL" and Chat.db.skillLine
-				local key = combine and "skills" or (index .. ":" .. name)
+				local mode = CombineMode(kind)
+				local key = mode and ("combined:" .. mode) or (index .. ":" .. name)
 				local entry = repeatPending[key]
 				if not entry then
-					entry = { kind = kind, name = name, value = 0, count = 0, frames = {} }
-					if combine then
+					entry = { kind = kind, name = name, value = 0, count = 0, frames = {}, mode = mode }
+					if mode then
 						entry.items, entry.byName = {}, {}
 					end
 					repeatPending[key] = entry
 				end
-				if combine then
+				if mode == "skill" or mode == "rep" then
 					local item = entry.byName[name]
 					if not item then
 						-- Skill-ups come in steps of one, so the first message shows the old value.
-						item = { name = name, from = number - 1 }
+						item = { name = name, from = (number or 1) - 1, total = 0 }
 						entry.byName[name] = item
 						entry.items[#entry.items + 1] = item
 					end
 					item.to = number
+					-- The filter runs once per chat window showing the message; counted once per line.
+					if mode == "rep" and (not lineID or entry.lastLine ~= lineID) then
+						item.total = item.total + number * kind.sign
+					end
+				elseif mode == "learn" and not entry.byName[name] then
+					entry.byName[name] = true
+					entry.items[#entry.items + 1] = name
 				end
-				-- The filter runs once per chat window showing the message; counted once per line.
 				if not lineID or entry.lastLine ~= lineID then
 					entry.count = entry.count + 1
-					entry.value = kind.sum and entry.value + number or number
+					entry.value = kind.sum and entry.value + number or number or 0
 					entry.lastLine = lineID
 				end
 				entry.frames[chatFrame] = true
@@ -659,6 +706,7 @@ end
 
 function Chat:UpdateRepeatSummary()
 	SetFilter(REPEAT_EVENTS, self.db.repeatSummary, RepeatFilter)
+	SetFilter({ "CHAT_MSG_SYSTEM" }, self.db.repeatSummary and self.db.learnLine, RepeatFilter)
 	if not self.db.repeatSummary then
 		for key in pairs(repeatPending) do
 			FlushRepeat(key)
@@ -945,6 +993,8 @@ local function AddKeywordAlertMenuItem(_, rootDescription)
 	ns.CreateOptionCheckbox(extras, L.CHAT_TIMESTAMP_COLOR, "Chat", "timestampColor", L.CHAT_TIMESTAMP_COLOR_DESC)
 	ns.CreateOptionCheckbox(extras, L.CHAT_REPEAT, "Chat", "repeatSummary", L.CHAT_REPEAT_DESC)
 	ns.CreateOptionCheckbox(extras, L.CHAT_SKILL_LINE, "Chat", "skillLine", L.CHAT_SKILL_LINE_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_REP_LINE, "Chat", "repLine", L.CHAT_REP_LINE_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_LEARN_OPTION, "Chat", "learnLine", L.CHAT_LEARN_OPTION_DESC)
 	ns.CreateOptionCheckbox(extras, L.LOOT_SUMMARY, "Loot", "summary", L.LOOT_SUMMARY_DESC)
 end
 
@@ -1010,10 +1060,11 @@ end
 function Chat:OnOptionChanged(key, value)
 	if key == "repeatSummary" then
 		self:UpdateRepeatSummary()
-	elseif key == "skillLine" then
+	elseif key == "skillLine" or key == "repLine" or key == "learnLine" then
 		for pendingKey in pairs(repeatPending) do
 			FlushRepeat(pendingKey)
 		end
+		self:UpdateRepeatSummary()
 	elseif key == "keywordAlert" or key == "keywordHighlight" then
 		self:UpdateKeywordAlert()
 	elseif key == "channelShort" then
@@ -1070,6 +1121,8 @@ Chat.options = {
 	{ key = "timestampColorValue", type = "dropdown", name = L.CHAT_COLOR, parent = "timestampColor", values = ColorValues },
 	{ key = "repeatSummary", type = "toggle", name = L.CHAT_REPEAT, desc = L.CHAT_REPEAT_DESC },
 	{ key = "skillLine", type = "toggle", name = L.CHAT_SKILL_LINE, desc = L.CHAT_SKILL_LINE_DESC, parent = "repeatSummary" },
+	{ key = "repLine", type = "toggle", name = L.CHAT_REP_LINE, desc = L.CHAT_REP_LINE_DESC, parent = "repeatSummary" },
+	{ key = "learnLine", type = "toggle", name = L.CHAT_LEARN_OPTION, desc = L.CHAT_LEARN_OPTION_DESC, parent = "repeatSummary" },
 	{ key = "repeatDelay", type = "slider", name = L.CHAT_REPEAT_DELAY, desc = L.CHAT_REPEAT_DELAY_DESC, parent = "repeatSummary", min = 5, max = 120, step = 5,
 		format = function(value)
 			return ("%d s"):format(value)

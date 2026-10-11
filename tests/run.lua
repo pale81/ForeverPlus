@@ -1342,6 +1342,29 @@ end)()
 	print("dialog OK")
 end)()
 ;(function()
+	-- reputation flash and trivial messages
+	local flash = ns:GetModule("RepFlash")
+	local ok, err = pcall(flash.Add, flash, "Eisenschmiede", 25)
+	assert(ok, tostring(err))
+	assert(pcall(flash.Add, flash, "Orgrimmar", -10), "second change merges")
+	local trivial = ns:GetModule("Trivial")
+	DRUNK_MESSAGE_SELF1 = "Ihr fühlt Euch ein wenig beschwipst."
+	MARKED_AFK = "Ihr seid jetzt AFK."
+	trivial:OnLogin()
+	local filter = uv(trivial.Apply, "Filter")
+	trivial.db.enabled, trivial.db.rested, trivial.db.drunk, trivial.db.afk = true, true, true, false
+	issecretvalue = function() return false end
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid nicht mehr erholt.") == true, "rested hidden")
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr fühlt Euch ein wenig beschwipst.") == true, "drunk hidden")
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid jetzt AFK.") == false, "afk kept while off")
+	trivial.db.afk = true
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid jetzt AFK.") == true, "afk hidden when on")
+	trivial.db.rested = false
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid nicht mehr erholt.") == false, "rested kept when off")
+	assert(filter(nil, "CHAT_MSG_SYSTEM", "Etwas ganz anderes.") == false, "other lines pass")
+	print("trivial OK")
+end)()
+;(function()
 	local tp = ns:GetModule("Teleports")
 	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
 	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end
@@ -1384,6 +1407,9 @@ end)()
 	SKILL_RANK_UP = "Eure Fertigkeit '%s' hat sich auf %d erhöht."
 	FACTION_STANDING_INCREASED = "Euer Ruf bei der Fraktion '%s' hat sich um %d verbessert."
 	FACTION_STANDING_DECREASED = "Euer Ruf bei der Fraktion '%s' hat sich um %d verschlechtert."
+	ERR_LEARN_SPELL_S = "Ihr habt den Zauber %s erlernt."
+	ERR_LEARN_ABILITY_S = "Ihr habt die Fähigkeit %s erlernt."
+	ERR_LEARN_PASSIVE_S = "Ihr habt den passiven Zauber %s erlernt."
 	local chunk = assert(loadfile(root .. "/Modules/Chat.lua"))
 	ns.modules.Chat = nil
 	chunk("ForeverPlus", ns)
@@ -1423,6 +1449,21 @@ end)()
 	for key in pairs(pending) do flush(key) end
 	assert(#out == 1 and out[1] == "A:" .. ns.L.CHAT_SKILL_LINE_TEXT:format("Verteidigung 30->40, Äxte 33->36"), out[1])
 	print("skill line OK")
+	-- reputation and new spells in one line each
+	chat.db.repLine, chat.db.learnLine = true, true
+	out = {}
+	for i = 1, 3 do filter(frameA, "CHAT_MSG_COMBAT_FACTION_CHANGE", "Euer Ruf bei der Fraktion 'Eisenschmiede' hat sich um 25 verbessert.") end
+	filter(frameA, "CHAT_MSG_COMBAT_FACTION_CHANGE", "Euer Ruf bei der Fraktion 'Orgrimmar' hat sich um 10 verschlechtert.")
+	assert(ns.ParseReputationMessage("Euer Ruf bei der Fraktion 'Orgrimmar' hat sich um 10 verschlechtert.") == "Orgrimmar", "rep parse")
+	assert(filter(frameA, "CHAT_MSG_SYSTEM", "Ihr habt den Zauber |Hspell:133|h[Feuerball]|h erlernt.") == true, "learn caught")
+	filter(frameA, "CHAT_MSG_SYSTEM", "Ihr habt die Fähigkeit |Hspell:116|h[Frostblitz]|h erlernt.")
+	assert(filter(frameA, "CHAT_MSG_SYSTEM", "Etwas anderes.") == false, "other system lines pass")
+	for key in pairs(pending) do flush(key) end
+	table.sort(out)
+	assert(#out == 2, "two lines: " .. #out)
+	assert(out[1] == "A:Eisenschmiede +75, Orgrimmar -10", out[1])
+	assert(out[2] == "A:" .. ns.L.CHAT_LEARN_LINE:format("|Hspell:133|h[Feuerball]|h, |Hspell:116|h[Frostblitz]|h"), out[2])
+	print("rep and learn lines OK")
 end)()
 ;(function()
 	local q = ns:GetModule("Quests")

@@ -3,6 +3,7 @@ local _, ns = ...
 local L = ns.L
 
 local mainCategory
+local RefreshBadges
 local NEW_SEEN_LIMIT = 3
 
 local function NewSeenCounts()
@@ -24,31 +25,6 @@ local function SetFrameLabel(frame, text)
 	if label and label.SetText then
 		label:SetText(text)
 	end
-end
-
-local function ClearPageBadge(category, page)
-	if category.SetName then
-		category:SetName(page.title)
-	elseif category.name then
-		category.name = page.title
-	end
-
-	local list = SettingsPanel and SettingsPanel.CategoryList
-	local scrollBox = list and (list.ScrollBox or list.scrollBox)
-	if not scrollBox or not scrollBox.ForEachFrame then
-		return
-	end
-	local categoryID = category:GetID()
-	scrollBox:ForEachFrame(function(button)
-		local data = button.GetElementData and button:GetElementData()
-		local id = data and (data.categoryID or data.id)
-		if data and data.category and data.category.GetID then
-			id = data.category:GetID()
-		end
-		if id == categoryID then
-			SetFrameLabel(button, page.title)
-		end
-	end)
 end
 
 local function AddSearchTags(initializer, ...)
@@ -84,6 +60,9 @@ local function TrackNew(initializer, id, text, enabled)
 					CountAsSeen(id)
 					if not IsNew(id, true) then
 						SetFrameLabel(row, text)
+						if RefreshBadges then
+							RefreshBadges()
+						end
 					end
 				end
 			end)
@@ -99,10 +78,8 @@ local function OptionName(opt)
 	return opt.name
 end
 
+-- The page entry carries no text mark: a glowing "NEW" label is put beside it while something on the page is new.
 local function PageName(page)
-	if IsNew(page._newID, page.new) then
-		return ("%s  |cff00ff00%s|r"):format(page.title, L.SETTINGS_NEW or _G.NEW or "NEW")
-	end
 	return page.title
 end
 
@@ -373,19 +350,97 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 	return true
 end
 
--- The entry "ForeverPlus" in the list of addons carries the green "new" too while a page below it does.
-local function MainTitle()
-	for _, page in ipairs(PAGES) do
-		if IsNew(page._newID, page.new) then
-			return ("ForeverPlus  |cff00ff00%s|r"):format(L.SETTINGS_NEW or _G.NEW or "NEW")
+---------------------------------------------------------------------------
+-- A glowing "NEW" label (yellow, with turning rays) at the tab "Addons", the entry "ForeverPlus", the pages and the
+-- button "Addons" of the game menu, while something on a page is new (like the game's own label on new settings).
+---------------------------------------------------------------------------
+local ownBadges = setmetatable({}, { __mode = "k" })
+
+local function PageStillNew(page)
+	for _, entry in ipairs(page) do
+		local module = ns:GetModule(entry[1])
+		for _, opt in ipairs(module and ModuleOptions(module) or {}) do
+			if opt.new and opt._newID and IsNew(opt._newID, true) then
+				local included = entry.keys and opt.key and entry.keys[opt.key]
+				if not entry.keys and not (entry.exclude and opt.key and entry.exclude[opt.key]) then
+					included = true
+				end
+				if included then
+					return true
+				end
+			end
 		end
 	end
-	return "ForeverPlus"
+	return false
 end
 
-local function RefreshMainBadge()
-	if mainCategory then
-		ClearPageBadge(mainCategory, { title = MainTitle() })
+local function Mark(owner, on, point, x, y)
+	if not owner or (owner.IsForbidden and owner:IsForbidden()) then
+		return
+	end
+	local badge = ownBadges[owner]
+	if on then
+		if not badge then
+			badge = ns.CreateNewBadge(owner, L.SETTINGS_NEW or _G.NEW or "NEW")
+			ownBadges[owner] = badge
+		end
+		badge:ClearAllPoints()
+		badge:SetPoint(point, owner, point, x, y)
+		badge:Show()
+	elseif badge then
+		badge:Hide()
+	end
+end
+
+function RefreshBadges()
+	if not mainCategory or not SettingsPanel then
+		return
+	end
+	local newIDs, any = {}, false
+	for _, page in ipairs(PAGES) do
+		if page._category and PageStillNew(page) then
+			newIDs[page._category:GetID()] = true
+			any = true
+		end
+	end
+	newIDs[mainCategory:GetID()] = any
+	Mark(SettingsPanel.AddOnsTab, any, "TOPRIGHT", -2, 6)
+	local list = SettingsPanel.CategoryList
+	local scrollBox = list and (list.ScrollBox or list.scrollBox)
+	if scrollBox and type(scrollBox.ForEachFrame) == "function" then
+		scrollBox:ForEachFrame(function(button)
+			local data = button.GetElementData and button:GetElementData()
+			local id = data and (data.categoryID or data.id)
+			if data and data.category and data.category.GetID then
+				id = data.category:GetID()
+			end
+			Mark(button, id and newIDs[id] or false, "RIGHT", -8, 0)
+		end)
+	end
+	if GameMenuFrame and GameMenuFrame:IsShown() and GameMenuFrame.buttonPool and type(GameMenuFrame.buttonPool.EnumerateActive) == "function" then
+		for button in GameMenuFrame.buttonPool:EnumerateActive() do
+			local isAddons = button == _G.GameMenuButtonAddons or (button.GetText and button:GetText() == ADDONS)
+			Mark(button, isAddons and any or false, "TOPLEFT", 10, -1)
+		end
+	end
+end
+
+local function HookBadges()
+	if type(SettingsPanel.HookScript) == "function" then
+		SettingsPanel:HookScript("OnShow", function()
+			C_Timer.After(0, RefreshBadges)
+		end)
+	end
+	local list = SettingsPanel.CategoryList
+	local scrollBox = list and (list.ScrollBox or list.scrollBox)
+	if scrollBox and scrollBox.RegisterCallback then
+		local event = ScrollBoxListMixin and ScrollBoxListMixin.Event and ScrollBoxListMixin.Event.OnDataRangeChanged or "OnDataRangeChanged"
+		pcall(scrollBox.RegisterCallback, scrollBox, event, RefreshBadges, ns)
+	end
+	if GameMenuFrame and type(GameMenuFrame.HookScript) == "function" then
+		GameMenuFrame:HookScript("OnShow", function()
+			C_Timer.After(0, RefreshBadges)
+		end)
 	end
 end
 
@@ -441,38 +496,7 @@ function ns:BuildSettings()
 				listed[entry[1]] = true
 			end
 		end
-		if hasNew then
-			local pageSeen = false
-			local pageRef, categoryRef = page, category
-			for _, entry in ipairs(page) do
-				local module = ns:GetModule(entry[1])
-				for _, opt in ipairs(module and ModuleOptions(module) or {}) do
-					if opt.new and not pageSeen then
-						local init = initializers[module] and initializers[module][opt.key]
-						if init then
-							local pageID = pageRef._newID
-							local wrapped = init.InitFrame
-							init.InitFrame = function(initializer, frame)
-								wrapped(initializer, frame)
-								if not frame.foreverPlusPageTracked then
-									frame.foreverPlusPageTracked = true
-									frame:HookScript("OnShow", function()
-										if IsNew(pageID, true) then
-											CountAsSeen(pageID)
-											if not IsNew(pageID, true) then
-												ClearPageBadge(categoryRef, pageRef)
-												RefreshMainBadge()
-											end
-										end
-									end)
-								end
-							end
-							pageSeen = true
-						end
-					end
-				end
-			end
-		end
+		page._category = category
 	end
 
 	-- Safety net: modules that are not part of the layout above.
@@ -483,7 +507,8 @@ function ns:BuildSettings()
 		end
 	end
 
-	RefreshMainBadge()
+	HookBadges()
+	RefreshBadges()
 	Settings.RegisterAddOnCategory(mainCategory)
 end
 

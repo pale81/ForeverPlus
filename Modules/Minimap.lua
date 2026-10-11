@@ -361,12 +361,39 @@ local function HunterClicked(info)
 	MinimapUtil.SetTrackingFilterByFilterIndex(info.index, selected)
 end
 
+-- The check mark itself is drawn by Blizzard's own initializer from its remembered state; this one runs after
+-- it (and again on every refresh) and draws the mark the way it should be.
+local function DrawHunterCheck(button, description)
+	local info = description:GetData()
+	local base = button.leftTexture1
+	if type(info) ~= "table" or not base then
+		return
+	end
+	local mark = button.leftTexture2
+	if HunterSelected(info) then
+		if not mark then
+			mark = button:AttachTexture()
+			local layer, level = base:GetDrawLayer()
+			mark:SetDrawLayer(layer, level + 1)
+			mark:SetAtlas("common-dropdown-icon-checkmark-yellow", true)
+			mark:SetPoint("CENTER", base, "CENTER", 2, 1)
+			button.leftTexture2 = mark
+		end
+		mark:Show()
+	elseif mark then
+		mark:Hide()
+	end
+end
+
 local function FixHunterTracking(description)
 	for _, element in description:EnumerateElementDescriptions() do
 		local info = element:GetData()
 		if type(info) == "table" and info.index and IsHunterTracking(info) then
 			element:SetIsSelected(HunterSelected)
 			element:SetResponder(HunterClicked)
+			element:AddInitializer(function(button, desc)
+				pcall(DrawHunterCheck, button, desc)
+			end)
 		end
 		FixHunterTracking(element)
 	end

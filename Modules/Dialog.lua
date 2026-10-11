@@ -127,7 +127,6 @@ end
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
-	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
 	frame:SetScript("OnMouseDown", function()
 		if reveal.active then
@@ -186,7 +185,7 @@ local function CreateBubble()
 	frame:SetPropagateKeyboardInput(true)
 	frame:SetScript("OnKeyDown", function(self, key)
 		local action
-		if current and not InCombatLockdown() and not (IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown()) then
+		if current and not InCombatLockdown() and (key == "TAB" or not (IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown())) then
 			if key == "SPACE" then
 				for _, info in ipairs(current.view.buttons or {}) do
 					if info.primary and info.enabled ~= false then
@@ -202,10 +201,10 @@ local function CreateBubble()
 					local only = current.view.buttons[1]
 					action = only.enabled ~= false and only.action or nil
 				end
-			elseif key == "TAB" then
+			elseif key == "TAB" or key == "UP" or key == "DOWN" then
 				local count = #self.rowActions
 				if count > 1 then
-					local step = IsShiftKeyDown() and -1 or 1
+					local step = (key == "UP" or (key == "TAB" and IsShiftKeyDown())) and -1 or 1
 					self.selectedRow = ((self.selectedRow or 1) - 1 + step) % count + 1
 					Dialog.Rerender()
 					self:SetPropagateKeyboardInput(false)
@@ -292,6 +291,13 @@ local function CreateRow(frame)
 	row.Highlight:SetPoint("BOTTOMRIGHT", 3, -1)
 	row.Highlight:SetColorTexture(0, 0, 0, 0.1)
 	row.Highlight:Hide()
+	-- The arrow of the chosen option (the one Space takes; moved with Tab, the arrow keys or a click).
+	row.Cursor = row:CreateFontString(nil, "OVERLAY")
+	row.Cursor:SetFontObject(TextFont())
+	row.Cursor:SetPoint("TOPRIGHT", row, "TOPLEFT", -3, 0)
+	row.Cursor:SetText(">")
+	row.Cursor:SetTextColor(0.33, 1, 0.47)
+	row.Cursor:Hide()
 	-- The option Space takes (changed with Tab): lightly lit.
 	row.Selected = row:CreateTexture(nil, "BACKGROUND")
 	row.Selected:SetPoint("TOPLEFT", -4, 2)
@@ -311,6 +317,11 @@ local function CreateRow(frame)
 		GameTooltip_Hide()
 	end)
 	row:SetScript("OnClick", function(button)
+		-- A click moves the arrow to the row, then does what the row does.
+		if button.number and bubble then
+			bubble.selectedRow = button.number
+			Dialog.ShowSelection()
+		end
 		if button.action then
 			button.action()
 		end
@@ -455,6 +466,7 @@ Render = function(view)
 				row.Text:SetText(label)
 				row.number = info.action and #frame.rowActions or nil
 				row.Selected:SetShown(row.number ~= nil and row.number == frame.selectedRow)
+				row.Cursor:SetShown(row.number ~= nil and row.number == frame.selectedRow)
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
 				row.action, row.tooltip = info.action, info.tooltip
@@ -514,6 +526,10 @@ Render = function(view)
 		elseif block.money then
 			AddText(block.money, palette.text)
 		end
+	end
+	if frame.selectedRow > #frame.rowActions then
+		frame.selectedRow = math.max(1, #frame.rowActions)
+		Dialog.ShowSelection()
 	end
 	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
 	local buttons = {}
@@ -617,7 +633,34 @@ local function CollapseAll(on)
 	Collapse(MerchantFrame, on)
 end
 
+-- The nameplate of the NPC cannot be measured or clamped by an addon (it is a restricted region), but
+-- the game keeps plates inside the screen by its own settings: while a bubble is open the upper inset
+-- is raised by the height of the bubble, so the plate (and the bubble on it) stays low enough.
+local PLATE_CVARS = { "nameplateOtherTopInset", "nameplateLargeTopInset", "clampTargetNameplateToScreen" }
+local savedPlateCVars
+
+local function KeepOnScreen(on)
+	if on and bubble and not InCombatLockdown() then
+		if not savedPlateCVars then
+			savedPlateCVars = {}
+			for _, name in ipairs(PLATE_CVARS) do
+				savedPlateCVars[name] = GetCVar(name)
+			end
+		end
+		local fraction = math.min(0.85, (bubble:GetHeight() + INSET * 2 + 22 + 24) / math.max(UIParent:GetHeight(), 1))
+		SetCVar("nameplateOtherTopInset", fraction)
+		SetCVar("nameplateLargeTopInset", fraction)
+		SetCVar("clampTargetNameplateToScreen", "1")
+	elseif not on and savedPlateCVars and not InCombatLockdown() then
+		for name, value in pairs(savedPlateCVars) do
+			SetCVar(name, value)
+		end
+		savedPlateCVars = nil
+	end
+end
+
 local function Hide()
+	KeepOnScreen(false)
 	if bubble then
 		bubble:Hide()
 		if reveal.active then
@@ -632,6 +675,7 @@ end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
 local function UseBlizzard()
+	KeepOnScreen(false)
 	showToken = showToken + 1
 	if bubble then
 		bubble:Hide()
@@ -654,7 +698,9 @@ function Dialog.ShowSelection()
 		return
 	end
 	for _, row in pairs(bubble.pools.row) do
-		row.Selected:SetShown(row:IsShown() and row.number ~= nil and row.number == bubble.selectedRow)
+		local isCursor = row:IsShown() and row.number ~= nil and row.number == bubble.selectedRow
+		row.Selected:SetShown(isCursor)
+		row.Cursor:SetShown(isCursor)
 	end
 end
 
@@ -662,11 +708,11 @@ local function Show(view, fromBack)
 	if not bubble then
 		bubble = CreateBubble()
 	end
-	-- Nameplates are restricted regions (they cannot be measured), so the engine does the keeping: the
-	-- clamp rectangle includes the art around the bubble, which lies outside the frame itself.
-	bubble:SetClampedToScreen(Dialog.db.onScreen and true or false)
-	bubble:SetClampRectInsets(-(INSET + 10), INSET + 10, INSET + 10, -(INSET + 10))
-	bubble.selectedRow = 1
+	-- Lists that refresh themselves (trainer, merchant) keep the arrow where it was.
+	local keepCursor = current and current.view.kind == view.kind and (view.kind == "TRAINER_SHOW" or view.kind == "MERCHANT_SHOW")
+	if not keepCursor then
+		bubble.selectedRow = 1
+	end
 	showToken = showToken + 1
 	if not current then
 		wipe(history)
@@ -678,6 +724,7 @@ local function Show(view, fromBack)
 	end
 	current = { view = view }
 	Render(view)
+	KeepOnScreen(Dialog.db.onScreen)
 	Place()
 	bubble:Show()
 	CollapseAll(true)
@@ -694,11 +741,6 @@ end
 ---------------------------------------------------------------------------
 local function NpcName()
 	return Readable(UnitName("npc")) or ""
-end
-
--- The arrow of a chosen row: its own bright colour, apart from the rest of the text.
-local function PickMarker()
-	return "|cff55ff77>|r "
 end
 
 local function Marker(symbol)
@@ -948,7 +990,8 @@ function Dialog.TrainerView()
 		end
 		local selected = isAvailable and trainerSelected == entry.index
 		rows[#rows + 1] = {
-			text = (selected and PickMarker() or "  ") .. table.concat(parts, "   "),
+			text = table.concat(parts, "   "),
+			selected = selected,
 			icon = entry.icon,
 			dim = not isAvailable,
 			action = isAvailable and function()
@@ -1190,7 +1233,7 @@ function Dialog.MerchantView()
 		local index, info = entry.index, entry.info
 		local isPicked = merchantPicked[index] and true or false
 		rows[#rows + 1] = {
-			text = (isPicked and PickMarker() or "  ") .. (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
+			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
 			dim = info.isPurchasable == false,
 			selected = isPicked, -- chosen rows are shown a little larger and bold, like under a magnifying glass

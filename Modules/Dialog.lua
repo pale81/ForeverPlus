@@ -188,6 +188,11 @@ local function CreateItem(frame)
 	item.Count:SetPoint("BOTTOMRIGHT", -2, 2)
 	-- Action button frame, tinted in the item quality; green arrow when it beats the worn item.
 	ns.ApplyActionFrame(item, item.Icon, "standalone", 3)
+	-- The coin of the junk mark: the choice that sells for the most.
+	item.Coin = item:CreateTexture(nil, "OVERLAY", nil, 6)
+	item.Coin:SetAtlas("bags-junkcoin", true)
+	item.Coin:SetPoint("TOPLEFT", 1, 0)
+	item.Coin:Hide()
 	item.Upgrade = item:CreateTexture(nil, "OVERLAY", nil, 6)
 	item.Upgrade:SetAtlas("bags-greenarrow", true)
 	item.Upgrade:SetPoint("TOPRIGHT", 0, 0)
@@ -240,6 +245,7 @@ Render = function(view)
 		frame.Tail:SetShown(usePlayer)
 	end
 	local used = { text = 0, row = 0, item = 0, button = 0 }
+	local bestChoice, bestChecked -- most valuable quest choice, looked up once per display
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do
 			object:Hide()
@@ -310,6 +316,15 @@ Render = function(view)
 				end
 				ns.SizeActionFrame(item)
 				ns.SetActionFrameColor(item, r, g, b)
+				if info.choice and bestChoice == nil and not bestChecked then
+					bestChecked = true
+					bestChoice = ns.BestQuestChoice and ns.BestQuestChoice(function()
+						if bubble:IsShown() and current then
+							Render(current.view)
+						end
+					end) or false
+				end
+				item.Coin:SetShown(info.choice ~= nil and bestChoice == info.choice)
 				item.Upgrade:SetShown(ns.IsRewardUpgrade and ns.IsRewardUpgrade(info.link, function()
 					if bubble:IsShown() and current then
 						Render(current.view)

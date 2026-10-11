@@ -429,14 +429,6 @@ local function CurrentPlan()
 	return plans[key]
 end
 
-local function PlannedPoints(plan)
-	local total = 0
-	for _, ranks in pairs(plan) do
-		total = total + ranks
-	end
-	return total
-end
-
 local function PlanOverlay(button)
 	local overlay = button.fpPlan
 	if not overlay then
@@ -546,6 +538,26 @@ end
 
 local function Effective(node, plan)
 	return math.max(node.ranksPurchased or 0, plan[node.ID] or 0)
+end
+
+-- Points of the whole plan: what is learned already counts with the planned ranks.
+local function TotalPoints(nodes, plan)
+	local total = 0
+	for _, node in pairs(nodes) do
+		total = total + Effective(node, plan)
+	end
+	return total
+end
+
+-- Something planned that is not learned yet.
+local function HasPending(nodes, plan)
+	for nodeID, ranks in pairs(plan) do
+		local node = nodes[nodeID]
+		if node and ranks > (node.ranksPurchased or 0) then
+			return true
+		end
+	end
+	return false
 end
 
 -- Points in the rows above a row, per tree, and the arrows that lead to a node: worked out once per
@@ -773,12 +785,13 @@ local function UpdatePlan()
 		end
 	end
 	if planBar then
-		local points = PlannedPoints(plan)
+		local points = nodes and TotalPoints(nodes, plan) or 0
+		local pending = nodes and HasPending(nodes, plan) or false
 		planBar:SetShown(enabled and true or false)
 		planBar.Counter:SetText(points > 0 and L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points) or "")
 		planBar:SetWidth(PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))
-		planBar.Apply:SetEnabled(points > 0)
-		planBar.Clear:SetEnabled(points > 0)
+		planBar.Apply:SetEnabled(pending)
+		planBar.Clear:SetEnabled(next(plan) ~= nil)
 	end
 end
 
@@ -1013,10 +1026,20 @@ local function OnTalentClick(_, button, mouseButton)
 			button:SetTooltipInternal()
 		end
 	end
+	local learned = node.ranksPurchased or 0
 	if IsShiftKeyDown() then
-		planned = planned - 1
+		-- Learned ranks stay: only what is planned on top of them can be taken back.
+		if math.max(planned, learned) <= learned then
+			if learned > 0 then
+				Refuse(L.TALENTS_PLAN_LEARNED)
+			end
+			plan[nodeID] = nil
+			QueuePlanUpdate()
+			return
+		end
+		planned = math.max(planned, learned) - 1
 		local old = plan[nodeID]
-		plan[nodeID] = planned > 0 and planned or nil
+		plan[nodeID] = planned > learned and planned or nil
 		-- Removing must not leave a talent above without its requirement.
 		problem = CheckPlan(nodes, rowOf, names, plan)
 		plan[nodeID] = old
@@ -1031,7 +1054,8 @@ local function OnTalentClick(_, button, mouseButton)
 		if target > node.maxRanks then
 			return
 		end
-		if PlannedPoints(plan) - planned + target > PLAN_POINTS then
+		-- The plan counts the learned points too.
+		if TotalPoints(nodes, plan) - math.max(planned, learned) + target > PLAN_POINTS then
 			Refuse(L.TALENTS_PLAN_FULL:format(PLAN_POINTS, PLAN_MAX_LEVEL))
 			return
 		end
@@ -1042,7 +1066,7 @@ local function OnTalentClick(_, button, mouseButton)
 		end
 		planned = target
 	end
-	plan[nodeID] = planned > 0 and planned or nil
+	plan[nodeID] = planned > learned and planned or nil
 	QueuePlanUpdate()
 	-- Rebuild the open tooltip with the new planned rank.
 	if GameTooltip:GetOwner() == button and button.SetTooltipInternal then

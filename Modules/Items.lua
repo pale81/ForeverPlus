@@ -1502,6 +1502,34 @@ local function HideRewardMarks()
 	end
 end
 
+-- Index of the most valuable choice (by vendor price) of the open quest; nil with fewer than two
+-- choices, with the option off, or while item data is still loading (onLoaded runs then).
+function ns.BestQuestChoice(onLoaded)
+	if not Items.db or not Items.db.questReward or (GetNumQuestChoices() or 0) < 2 then
+		return nil
+	end
+	local bestIndex, bestValue, waiting = nil, 0, false
+	for i = 1, GetNumQuestChoices() do
+		local link = GetQuestItemLink("choice", i)
+		if link then
+			local price = select(11, C_Item.GetItemInfo(link))
+			if price == nil then
+				waiting = true
+				if onLoaded then
+					Item:CreateFromItemLink(link):ContinueOnItemLoad(onLoaded)
+				end
+			else
+				local _, _, count = GetQuestItemInfo("choice", i)
+				local value = price * max(count or 1, 1)
+				if value > bestValue then
+					bestIndex, bestValue = i, value
+				end
+			end
+		end
+	end
+	return not waiting and bestIndex or nil
+end
+
 local function MarkBestReward()
 	HideRewardMarks()
 	if not Items.db.questReward or QuestInfoFrame.questLog then

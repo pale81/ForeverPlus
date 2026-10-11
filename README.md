@@ -3,6 +3,8 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
+Lokal entwickeln (macOS): `sh tools/setup-local.sh` richtet Lua 5.1, luacheck, QuestieDB und Blizzards Interface-Quelltext ein (`--data` zusätzlich die Quellen der Datengeneratoren) und legt die Arbeitsregeln als lokale `CLAUDE.md` an (nicht im Projekt); `sh tools/check.sh` führt Tests und luacheck aus (ungeprüft auf dem Mac).
+
 Aktualisieren aus dem Projekt (macOS, Git-Clone im AddOns-Ordner): `sh tools/autopull.sh install` richtet einmalig einen Hintergrundauftrag ein, der alle 30 Sekunden `git pull --ff-only` ausführt; danach genügt `/rl` im Spiel (`status` und `uninstall` gehören dazu; ungeprüft).
 
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Mouseover, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Karten & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Meldung beim Sperren“, „Klick beim Sperren und Entsperren“ (kurzer Blizzard-Klang), „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.

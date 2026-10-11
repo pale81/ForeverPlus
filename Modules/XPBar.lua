@@ -14,7 +14,8 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
-local QUEST_DARKEN = 0.75 -- the quest part is a little darker than the bar, still easy to see
+local QUEST_DARKEN = 0.7 -- the quest part is a little darker than the bar, still easy to see
+local QUEST_MIN = 0.45 -- brightest channel at least this strong
 local SCAN_DELAY = 0.3
 
 local expBars = {}
@@ -93,12 +94,23 @@ local function UpdateOverlay(bar)
 	else
 		overlay:SetColorTexture(1, 1, 1)
 	end
-	local r, g, b = bar.StatusBar:GetStatusBarColor()
-	local vr, vg, vb = 1, 1, 1
+	-- The status bar colour is the vertex colour of its fill: use it once (using both
+	-- squared the colour and the part came out black).
+	local r, g, b
 	if fill then
-		vr, vg, vb = fill:GetVertexColor()
+		r, g, b = fill:GetVertexColor()
 	end
-	overlay:SetVertexColor((r or 1) * vr * QUEST_DARKEN, (g or 1) * vg * QUEST_DARKEN, (b or 1) * vb * QUEST_DARKEN, 1)
+	if not r then
+		r, g, b = bar.StatusBar:GetStatusBarColor()
+	end
+	r, g, b = (r or 1) * QUEST_DARKEN, (g or 1) * QUEST_DARKEN, (b or 1) * QUEST_DARKEN
+	-- Never nearly black: raised until the brightest channel reaches a minimum.
+	local peak = math.max(r, g, b)
+	if peak < QUEST_MIN then
+		local lift = peak > 0 and QUEST_MIN / peak or 0
+		r, g, b = peak > 0 and r * lift or QUEST_MIN, peak > 0 and g * lift or QUEST_MIN, peak > 0 and b * lift or QUEST_MIN
+	end
+	overlay:SetVertexColor(r, g, b, 1)
 	local width = ns.Number(bar.StatusBar:GetWidth())
 	if not width then
 		overlay:Hide()

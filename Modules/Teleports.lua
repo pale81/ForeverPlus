@@ -210,8 +210,19 @@ function Teleports:ShowMenu()
 	end
 	menu.Empty:SetShown(#list == 0)
 	menu:SetHeight(-y + ns.PANEL_PADDING + (#list == 0 and ROW_HEIGHT or 0))
+	-- The menu holds secure buttons and counts as protected: protected frames may
+	-- not anchor to other frames, so it sits at plain screen coordinates.
 	menu:ClearAllPoints()
-	menu:SetPoint("TOP", self.trigger or Minimap, "BOTTOM", 0, -6)
+	local anchor = self.trigger or Minimap
+	local centerX = anchor:GetCenter()
+	local bottom = anchor:GetBottom()
+	local scale = ns.Number(anchor:GetEffectiveScale(), 1) / ns.Number(menu:GetEffectiveScale(), 1)
+	centerX, bottom = ns.Number(centerX), ns.Number(bottom)
+	if centerX and bottom then
+		menu:SetPoint("TOP", UIParent, "BOTTOMLEFT", centerX * scale, bottom * scale - 6)
+	else
+		menu:SetPoint("TOP", UIParent, "TOP", 0, -200)
+	end
 	menu:Show()
 end
 

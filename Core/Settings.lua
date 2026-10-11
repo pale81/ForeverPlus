@@ -390,6 +390,7 @@ function ns:BuildSettings()
 		ns:ResetFramePositions()
 	end, L.MOVER_RESET_DESC))
 	AddOption(mover, mainCategory, mainLayout, mover.options[2], moverInit)
+	AddOption(mover, mainCategory, mainLayout, mover.options[3], moverInit)
 	mainLayout:AddInitializer(ButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI))
 	mover.settingsCategory = mainCategory
 

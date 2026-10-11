@@ -15,6 +15,8 @@ local Dialog = ns:NewModule("Dialog", {
 		enabled = false,
 		style = "PLAYER",
 		plates = true,
+		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
+		trainer = true,        -- the trainer's list in the bubble too
 	},
 })
 
@@ -52,6 +54,70 @@ local function Palette()
 end
 
 ---------------------------------------------------------------------------
+-- Text that appears letter by letter, like a story being read aloud: the whole text is laid out at once
+-- (so the bubble does not change size) and an alpha gradient uncovers it from the front.
+---------------------------------------------------------------------------
+local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
+local REVEAL_SOFT = 4                              -- letters of the soft edge
+local reveal = { list = {}, index = 1, position = 0, active = false }
+
+local function FinishReveal()
+	for _, fontString in ipairs(reveal.list) do
+		fontString:SetAlpha(1)
+		fontString:SetAlphaGradient(100000, 1)
+	end
+	reveal.active = false
+	wipe(reveal.list)
+	if bubble then
+		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
+	end
+end
+
+local function RevealStep(_, elapsed)
+	local speed = REVEAL_SPEEDS[Dialog.db.textSpeed]
+	local fontString = reveal.list[reveal.index]
+	if not speed or not fontString then
+		FinishReveal()
+		return
+	end
+	reveal.position = reveal.position + elapsed * speed
+	local length = reveal.lengths[reveal.index]
+	fontString:SetAlphaGradient(reveal.position, REVEAL_SOFT)
+	if reveal.position >= length + REVEAL_SOFT then
+		fontString:SetAlphaGradient(100000, 1)
+		reveal.index = reveal.index + 1
+		reveal.position = 0
+		local nextOne = reveal.list[reveal.index]
+		if nextOne then
+			nextOne:SetAlpha(1)
+			nextOne:SetAlphaGradient(0, REVEAL_SOFT)
+		else
+			FinishReveal()
+		end
+	end
+end
+
+-- texts: the font strings of the paragraphs, in reading order. Each view is revealed once.
+local function StartReveal(view, texts)
+	if reveal.active then
+		FinishReveal()
+	end
+	if view.revealed or not REVEAL_SPEEDS[Dialog.db.textSpeed] or #texts == 0 then
+		return
+	end
+	view.revealed = true
+	reveal.active, reveal.index, reveal.position = true, 1, 0
+	reveal.lengths = {}
+	for index, fontString in ipairs(texts) do
+		reveal.list[index] = fontString
+		reveal.lengths[index] = strlenutf8 and strlenutf8(fontString:GetText() or "") or #(fontString:GetText() or "")
+		fontString:SetAlpha(index == 1 and 1 or 0)
+		fontString:SetAlphaGradient(0, REVEAL_SOFT)
+	end
+	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
+end
+
+---------------------------------------------------------------------------
 -- The bubble
 ---------------------------------------------------------------------------
 local function CreateBubble()
@@ -59,6 +125,11 @@ local function CreateBubble()
 	frame:SetFrameStrata("HIGH")
 	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
+	frame:SetScript("OnMouseDown", function()
+		if reveal.active then
+			FinishReveal()
+		end
+	end)
 	frame:SetWidth(WIDTH)
 	frame:Hide()
 	-- Dark variant: one plain pane.
@@ -105,11 +176,21 @@ local function CreateBubble()
 	frame:SetPropagateKeyboardInput(true)
 	frame:SetScript("OnKeyDown", function(self, key)
 		local action
-		if key == "SPACE" and current and not InCombatLockdown() then
-			for _, info in ipairs(current.view.buttons or {}) do
-				if info.primary and info.enabled ~= false then
-					action = info.action
+		if current and not InCombatLockdown() and not (IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown()) then
+			if key == "SPACE" then
+				for _, info in ipairs(current.view.buttons or {}) do
+					if info.primary and info.enabled ~= false then
+						action = info.action
+					end
 				end
+				-- A single option goes on with Space.
+				if not action and #self.rowActions == 1 then
+					action = self.rowActions[1]
+				end
+			else
+				-- 1 to 9 (also on the number block) choose the numbered options.
+				local number = tonumber(key:match("^NUMPAD(%d)$") or key:match("^(%d)$"))
+				action = number and self.rowActions[number] or nil
 			end
 		end
 		self:SetPropagateKeyboardInput(not action)
@@ -118,6 +199,7 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
+	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	return frame
 end
 
@@ -252,6 +334,8 @@ Render = function(view)
 		end
 	end
 	local y = 0
+	local paragraphs = {}
+	wipe(frame.rowActions)
 	local function AddText(text, color, font)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
@@ -261,6 +345,8 @@ Render = function(view)
 		fs:SetWidth(WIDTH)
 		fs:SetTextColor(unpack(color))
 		fs:SetText(text)
+		fs:SetAlpha(1)
+		fs:SetAlphaGradient(100000, 1)
 		fs:Show()
 		y = y + fs:GetStringHeight() + BLOCK_GAP
 		return fs
@@ -273,7 +359,7 @@ Render = function(view)
 		if block.title then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
 		elseif block.text then
-			AddText(block.text, block.dim and palette.dim or palette.text)
+			paragraphs[#paragraphs + 1] = AddText(block.text, block.dim and palette.dim or palette.text)
 		elseif block.rows then
 			for _, info in ipairs(block.rows) do
 				used.row = used.row + 1
@@ -290,7 +376,13 @@ Render = function(view)
 				row.Text:SetPoint("TOPLEFT", iconWidth, 0)
 				row.Text:SetWidth(WIDTH - iconWidth)
 				row.Text:SetTextColor(unpack(info.dim and palette.dim or palette.row))
-				row.Text:SetText(info.text)
+				-- Every option that can be chosen has a number (key 1 to 9).
+				local label = info.text
+				if info.action then
+					frame.rowActions[#frame.rowActions + 1] = info.action
+					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
+				end
+				row.Text:SetText(label)
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
 				row.action, row.tooltip = info.action, info.tooltip
@@ -383,6 +475,7 @@ Render = function(view)
 		y = y - BLOCK_GAP
 	end
 	frame:SetHeight(math.max(y, 20))
+	StartReveal(view, paragraphs)
 end
 
 ---------------------------------------------------------------------------
@@ -435,11 +528,15 @@ end
 local function CollapseAll(on)
 	Collapse(GossipFrame, on)
 	Collapse(QuestFrame, on)
+	Collapse(ClassTrainerFrame, on)
 end
 
 local function Hide()
 	if bubble then
 		bubble:Hide()
+		if reveal.active then
+			FinishReveal()
+		end
 	end
 	current = nil
 	wipe(history)
@@ -697,11 +794,132 @@ function Dialog.RewardView()
 end
 
 ---------------------------------------------------------------------------
+-- Trainer: the list of what can be learned, as rows; a click selects, the buttons train.
+---------------------------------------------------------------------------
+local TRAINER_ROWS = 12 -- rows in the bubble: what can be learned first, then what is still too high
+local trainerSelected
+
+local function TrainerServices()
+	local available, locked = {}, {}
+	for index = 1, GetNumTrainerServices() or 0 do
+		local name, kind, icon, level, subText = GetTrainerServiceInfo(index)
+		if name and not (issecretvalue and issecretvalue(name)) then
+			local cost = GetTrainerServiceCost(index) or 0
+			local entry = { index = index, name = name, icon = icon, level = level, subText = subText, cost = cost }
+			if kind == "available" then
+				available[#available + 1] = entry
+			elseif kind == "unavailable" then
+				locked[#locked + 1] = entry
+			end
+		end
+	end
+	return available, locked
+end
+
+function Dialog.TrainerView()
+	local available, locked = TrainerServices()
+	local money = GetMoney()
+	local rows, shown = {}, 0
+	local function AddRow(entry, isAvailable)
+		shown = shown + 1
+		local label = entry.name
+		if entry.subText and entry.subText ~= "" then
+			label = ("%s (%s)"):format(label, entry.subText)
+		end
+		local parts = { label }
+		if entry.cost > 0 then
+			parts[#parts + 1] = GetMoneyString(entry.cost, true)
+		end
+		if not isAvailable and entry.level and entry.level > UnitLevel("player") then
+			parts[#parts + 1] = L.DIALOG_TRAIN_LEVEL:format(entry.level)
+		end
+		local selected = isAvailable and trainerSelected == entry.index
+		rows[#rows + 1] = {
+			text = Marker(selected and ">" or " ") .. table.concat(parts, "   "),
+			icon = entry.icon,
+			dim = not isAvailable,
+			action = isAvailable and function()
+				trainerSelected = entry.index
+				Dialog:OnConversation("TRAINER_UPDATE")
+			end or nil,
+			tooltip = function(tooltip)
+				if tooltip.SetTrainerService then
+					tooltip:SetTrainerService(entry.index)
+				end
+			end,
+		}
+	end
+	for _, entry in ipairs(available) do
+		if shown < TRAINER_ROWS then
+			AddRow(entry, true)
+		end
+	end
+	for _, entry in ipairs(locked) do
+		if shown < TRAINER_ROWS then
+			AddRow(entry, false)
+		end
+	end
+	local more = #available + #locked - shown
+	local blocks = {}
+	local greeting = Readable(GetTrainerGreetingText and GetTrainerGreetingText())
+	if greeting and greeting ~= "" then
+		blocks[#blocks + 1] = { text = greeting }
+	end
+	if #rows == 0 then
+		blocks[#blocks + 1] = { text = L.DIALOG_TRAIN_NONE, dim = true }
+	else
+		blocks[#blocks + 1] = { rows = rows }
+	end
+	if more > 0 then
+		blocks[#blocks + 1] = { text = L.DIALOG_TRAIN_MORE:format(more), dim = true }
+	end
+	blocks[#blocks + 1] = { money = L.DIALOG_MONEY:format(GetMoneyString(money, true)) }
+	-- Keep a selection only while it can still be trained and paid.
+	local selection
+	for _, entry in ipairs(available) do
+		if entry.index == trainerSelected and entry.cost <= money then
+			selection = entry
+		end
+	end
+	local affordable = 0
+	for _, entry in ipairs(available) do
+		if entry.cost <= money then
+			affordable = affordable + 1
+		end
+	end
+	return {
+		name = NpcName(), blocks = blocks,
+		buttons = {
+			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, enabled = selection ~= nil, action = function()
+				BuyTrainerService(selection.index)
+			end },
+			{ text = L.DIALOG_TRAIN_ALL, enabled = affordable > 0, action = function()
+				-- Most expensive last: what was bought first changes what the list shows, so go from the top
+				-- and count the money down.
+				local left = GetMoney()
+				for _, entry in ipairs(available) do
+					if entry.cost <= left then
+						left = left - entry.cost
+						BuyTrainerService(entry.index)
+					end
+				end
+			end },
+			{ text = L.DIALOG_CLOSE, action = function()
+				if CloseTrainer then
+					CloseTrainer()
+				end
+			end },
+		},
+	}
+end
+
+---------------------------------------------------------------------------
 -- Events
 ---------------------------------------------------------------------------
 local VIEWS = {
 	GOSSIP_SHOW = "GossipView", QUEST_GREETING = "GreetingView", QUEST_DETAIL = "DetailView",
 	QUEST_PROGRESS = "ProgressView", QUEST_COMPLETE = "RewardView",
+	TRAINER_SHOW = "TrainerView", TRAINER_UPDATE = "TrainerView",
 }
 
 -- Steps Blizzard has to confirm itself (the confirmation windows cannot be opened by addon code).
@@ -746,6 +964,16 @@ function Dialog:OnConversation(event)
 	if not self.db.enabled or InCombatLockdown() then
 		return
 	end
+	if event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then
+		-- Only while the trainer is open and its list is the step on show (updates alone do not open it).
+		if not self.db.trainer or (event == "TRAINER_UPDATE" and not (current and current.view.kind == "TRAINER_SHOW")) then
+			return
+		end
+		if event == "TRAINER_SHOW" then
+			trainerSelected = nil
+		end
+		event = "TRAINER_SHOW"
+	end
 	if NeedsBlizzard(event) then
 		UseBlizzard()
 		return
@@ -782,7 +1010,7 @@ function Dialog:Apply()
 	end)
 	-- Selecting a quest in the gossip closes the gossip and opens the quest: only a
 	-- close with no new step right after ends the bubble.
-	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED" }) do
+	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "TRAINER_CLOSED" }) do
 		self:ToggleEvent(event, on, function()
 			local token = showToken
 			C_Timer.After(0.15, function()
@@ -849,4 +1077,8 @@ Dialog.options = {
 	{ key = "style", type = "dropdown", name = L.DIALOG_STYLE, desc = L.DIALOG_STYLE_DESC, parent = "enabled", values = {
 		{ "PLAYER", L.DIALOG_STYLE_PLAYER }, { "DARK", L.DIALOG_STYLE_DARK },
 	} },
+	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
+		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
+	}, new = true },
+	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },
 }

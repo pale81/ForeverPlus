@@ -365,11 +365,61 @@ local function GameXPSettings()
 	return found
 end
 
--- /fp xpzahl: every console setting about floating text and experience with its value, to find the game's number.
+-- The game's own floating text (the frame "CombatText") can carry the experience number: its messages are
+-- listened to (hook after the game's own work), the line of an experience message is emptied again.
+local logUntil = 0
+
+local XP_WORDS = { ep = true, xp = true, erfahrung = true, experience = true, exp = true }
+
+local function IsExperienceText(message)
+	local plain = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	local first, last = plain:match("^%s*(%a+)%s*:?%s*[%+%-]?[%d%.,]+%s*(%a*)%s*$")
+	return (first and XP_WORDS[first:lower()]) or (last and XP_WORDS[last:lower()]) or false
+end
+
+local function OnCombatText(frame, message)
+	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+		return
+	end
+	if GetTime() < logUntil then
+		ns.PrintAlways(L.REPFLASH_GAMEXP_LOG, (message:gsub("|", "||")))
+	end
+	if RepFlash.db.hideGameXP and IsExperienceText(message) then
+		pcall(function()
+			for _, fontString in frame:EnumerateActiveFontStrings() do
+				if fontString:GetText() == message then
+					fontString:SetText("")
+				end
+			end
+		end)
+	end
+end
+
+local combatTextHooked = false
+
+local function HookCombatText()
+	if combatTextHooked or not (CombatText and CombatText.AddMessage) then
+		return
+	end
+	combatTextHooked = true
+	hooksecurefunc(CombatText, "AddMessage", ns.Measured("RepFlash: game number", OnCombatText))
+end
+
+-- /fp xpzahl: what the game says about floating text and experience, and for 90 seconds every message of its
+-- floating text in the chat (to see whether the violet number passes through it).
 function RepFlash.PrintGameXPSettings()
-	local ok, list = pcall(C_Console and C_Console.GetAllCommands or function() end)
+	local listed, count = {}, 0
+	for _, name in ipairs({ "C_Console.GetAllCommands", "ConsoleGetAllCommands" }) do
+		local fn = name == "ConsoleGetAllCommands" and _G.ConsoleGetAllCommands or C_Console and C_Console.GetAllCommands
+		local ok, list = pcall(fn or function() end)
+		local n = ok and type(list) == "table" and #list or 0
+		ns.PrintAlways(L.REPFLASH_GAMEXP_API, name, fn and "ja" or "nein", n)
+		if n > count then
+			listed, count = list, n
+		end
+	end
 	local lines = {}
-	for _, entry in ipairs(ok and type(list) == "table" and list or {}) do
+	for _, entry in ipairs(listed) do
 		local name = type(entry) == "table" and entry.command
 		if type(name) == "string" then
 			local lower = name:lower()
@@ -386,6 +436,8 @@ function RepFlash.PrintGameXPSettings()
 	for _, line in ipairs(lines) do
 		ns.PrintAlways(line)
 	end
+	ns.PrintAlways(L.REPFLASH_GAMEXP_CT, CombatText and "ja" or "nein", combatTextHooked and "ja" or "nein")
+	logUntil = GetTime() + 90
 end
 
 function RepFlash:ApplyGameXP(announce)
@@ -414,6 +466,8 @@ end
 function RepFlash:OnLogin()
 	BuildHonorPatterns()
 	self:Apply()
+	HookCombatText()
+	ns.OnAddOnLoaded("Blizzard_CombatText", HookCombatText)
 	if self.db.hideGameXP then
 		self:ApplyGameXP(false)
 	end

@@ -655,9 +655,20 @@ function Symbols.Setup()
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
-	events:SetScript("OnEvent", function()
-		if WorldMapFrame:IsShown() then Symbols.Refresh() end
-	end)
+	-- The quest log changes in bursts: one refresh after the last change, not one per event.
+	local queued = false
+	events:SetScript("OnEvent", ns.Measured("Map symbols: quest event", function()
+		if queued or not WorldMapFrame:IsShown() then
+			return
+		end
+		queued = true
+		C_Timer.After(0.4, function()
+			queued = false
+			if WorldMapFrame:IsShown() then
+				Symbols.Refresh()
+			end
+		end)
+	end))
 end
 
 -- Number of symbols per kind on a map, for /fp karte.

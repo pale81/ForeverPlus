@@ -396,6 +396,8 @@ for i = 1, 200 do local n = debug.getupvalue(up, i) if not n then break end if n
 local GetWeights = upvalue(upvalue(compare, "EquippedScore"), "Score")
 local function check(link, expect)
 	for k in pairs(cache) do cache[k] = nil end
+	for k in pairs(upvalue(GetWeights, "scoreCache")) do upvalue(GetWeights, "scoreCache")[k] = nil end
+	for k in pairs(upvalue(upvalue(compare, "EquippedScore"), "equippedCache")) do upvalue(upvalue(compare, "EquippedScore"), "equippedCache")[k] = nil end
 	local r = IsUpgrade(0, 1, link)
 	print("  upgrade", link, r)
 	assert(r == expect, link)
@@ -810,7 +812,11 @@ print("loot flow OK")
 -- Upgrade: Forever talent trees, shaman hammer from the screenshot
 local scoreFn = upvalue(upvalue(compare, "EquippedScore"), "Score")
 local getW = upvalue(scoreFn, "GetWeights")
-local function resetWeights() for i = 1, 200 do local n = debug.getupvalue(getW, i) if not n then break end if n == "weights" then debug.setupvalue(getW, i, nil) end if n == "playerClass" then debug.setupvalue(getW, i, "SHAMAN") end end end
+local function resetWeights()
+	local scoreFn = upvalue(upvalue(compare, "EquippedScore"), "Score")
+	for k in pairs(upvalue(scoreFn, "scoreCache")) do upvalue(scoreFn, "scoreCache")[k] = nil end
+	for k in pairs(upvalue(upvalue(compare, "EquippedScore"), "equippedCache")) do upvalue(upvalue(compare, "EquippedScore"), "equippedCache")[k] = nil end
+	for i = 1, 200 do local n = debug.getupvalue(getW, i) if not n then break end if n == "weights" then debug.setupvalue(getW, i, nil) end if n == "playerClass" then debug.setupvalue(getW, i, "SHAMAN") end end end
 local trees = { { groupID = 11, orderIndex = 0, displayName = "Elementar" }, { groupID = 12, orderIndex = 1, displayName = "Verstärkung" }, { groupID = 13, orderIndex = 2, displayName = "Wiederherstellung" } }
 local spent = { [11] = 0, [12] = 0, [13] = 0 }
 C_ClassTalents = { GetActiveConfigID = function() return 5 end }
@@ -1410,7 +1416,18 @@ end)()
 	assert(other == 1, "the cooldown sentence is only counted: " .. other)
 	lines = ns.TalentSummary.Build({ "Increases your attack speed by 5%. Reduces threat caused by 10%." }, false)
 	assert(#lines == 2 and lines[1].text == "+5 % Attack speed" and lines[2].text == "-10 % Threat", lines[1].text .. " / " .. lines[#lines].text)
-	print("talent summary OK")
+	local classes = 0
+	for class, builds in pairs(ns.TalentPresets) do
+		classes = classes + 1
+		assert(#builds >= 4, class .. " has at least three standards and one special")
+		for _, build in ipairs(builds) do
+			local points, count = 0, 0
+			for rank in build.ranks:gmatch("%d+:(%d+)") do points, count = points + tonumber(rank), count + 1 end
+			assert(points == 51 and count > 10, class .. " " .. build.en .. " " .. points)
+		end
+	end
+	assert(classes == 9, "all nine classes")
+	print("talent summary and presets OK")
 end)()
 ;(function()
 	local tp = ns:GetModule("Teleports")
@@ -1688,8 +1705,10 @@ end)()
 	-- Tooltip shows the planned rank
 	plan[77] = 3
 	local lines = {}
-	GameTooltip = { GetOwner = function() return btn end, AppendInfo = function(_, getter, entryID, rank) lines[#lines + 1] = getter .. ":" .. entryID .. ":" .. rank end, Show = function() end }
+	GameTooltip = { GetOwner = function() return btn end, Show = function() end }
 	GameTooltip_AddBlankLineToTooltip = function() end
+	GameTooltip_AddHighlightLine = function(_, text) lines[#lines + 1] = text end
+	C_Traits.GetTraitDescription = function(entryID, rank) return "GetTraitEntry:" .. entryID .. ":" .. rank end
 	GameTooltip_AddColoredLine = function(_, text) lines[#lines + 1] = text end
 	C_Traits.GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 1, activeEntry = { entryID = 500, rank = 1 } } end
 	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(btn)

@@ -142,6 +142,8 @@ function ns.EquipSlots(equipLoc)
 end
 
 local upgradeCache = {}    -- hyperlink -> bool
+local scoreCache = {}      -- hyperlink (+ ranged) -> weighted value; weapons need a tooltip for it
+local equippedCache = {}   -- inventory slot -> weighted value of the worn item
 
 -- Profession tools (fishing poles, mining picks, …) are never shown as upgrades.
 local IGNORED_WEAPONS = {
@@ -295,6 +297,11 @@ local function TooltipDPS(link)
 end
 
 local function Score(link, ranged)
+	local cacheKey = ranged and link .. "#r" or link
+	local cached = scoreCache[cacheKey]
+	if cached then
+		return cached
+	end
 	local w = GetWeights()
 	local score, hasDPS = 0, false
 	for key, value in pairs(C_Item.GetItemStats(link) or {}) do
@@ -316,6 +323,7 @@ local function Score(link, ranged)
 			score = score + weight * dps
 		end
 	end
+	scoreCache[cacheKey] = score
 	return score
 end
 
@@ -364,11 +372,24 @@ local function EquippedLink(invSlot)
 end
 
 local function EquippedScore(invSlot)
+	local cached = equippedCache[invSlot]
+	if cached then
+		return cached
+	end
 	local link = EquippedLink(invSlot)
 	if link == false then
 		return false
 	end
-	return link and Score(link, invSlot == INVSLOT_RANGED) or 0
+	local value = link and Score(link, invSlot == INVSLOT_RANGED) or 0
+	equippedCache[invSlot] = value
+	return value
+end
+
+-- Everything that depends on what is worn or on the stat weights.
+local function ClearWeighCaches()
+	wipe(upgradeCache)
+	wipe(scoreCache)
+	wipe(equippedCache)
 end
 
 local function IsTwoHand(link)
@@ -420,10 +441,20 @@ end
 -- An upgrade is the best armor type for the class, usable, and has a higher
 -- weighted value (stats of the current talent tree) than the weakest
 -- equipped item it could replace. Unknown data never shows an arrow.
+local WEIGH_BUDGET = 2 -- ms per bag update: the rest of the new items is weighed a moment later
+local weighStart, weighDone, weighDeferred, weighActive = 0, 0, false, false
+
 local function IsUpgrade(bag, slot, link)
 	local cached = upgradeCache[link]
 	if cached ~= nil then
 		return cached
+	end
+	if weighActive then
+		if weighDone > 0 and debugprofilestop() - weighStart > WEIGH_BUDGET then
+			weighDeferred = true
+			return false
+		end
+		weighDone = weighDone + 1
 	end
 	local score, equippedScore = CompareScores(link)
 	if score == nil then
@@ -686,8 +717,16 @@ local function UpdateContainerFrame(frame)
 	if not frame:IsShown() then
 		return
 	end
+	weighStart, weighDone, weighActive = debugprofilestop(), 0, true
 	for _, button in frame:EnumerateValidItems() do
 		UpdateButton(button)
+	end
+	weighActive = false
+	if weighDeferred then
+		weighDeferred = false
+		C_Timer.After(0.05, function()
+			UpdateContainerFrame(frame)
+		end)
 	end
 end
 
@@ -698,6 +737,21 @@ local function UpdateAllBags()
 	for _, frame in ipairs(ContainerFrameContainer.ContainerFrames) do
 		UpdateContainerFrame(frame)
 	end
+end
+
+-- Talent and level changes come in bursts: one refresh a moment after the last one.
+local weighRefreshQueued = false
+local function QueueWeighRefresh()
+	if weighRefreshQueued then
+		return
+	end
+	weighRefreshQueued = true
+	C_Timer.After(0.5, function()
+		weighRefreshQueued = false
+		weights = nil
+		ClearWeighCaches()
+		UpdateAllBags()
+	end)
 end
 
 local hookedButtons = {}
@@ -951,12 +1005,20 @@ local function HookBagFrameMenu(frame)
 end
 
 local function PostUpdateItems(frame)
+	weighStart, weighDone, weighActive = debugprofilestop(), 0, true
 	for _, button in frame:EnumerateValidItems() do
 		if not hookedButtons[button] then
 			hookedButtons[button] = true
 			button:HookScript("OnMouseUp", OnItemMouseUp)
 		end
 		UpdateButton(button)
+	end
+	weighActive = false
+	if weighDeferred then
+		weighDeferred = false
+		C_Timer.After(0.05, function()
+			UpdateContainerFrame(frame)
+		end)
 	end
 end
 
@@ -1741,17 +1803,13 @@ function Items:Refresh()
 	end
 	local weighs = db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", weighs, function()
-		wipe(upgradeCache)
+		ClearWeighCaches()
 		UpdateAllBags()
 	end)
 	-- Level, specialization and talent changes alter the stat weights.
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
 		if C_EventUtils.IsEventValid(event) then
-			self:ToggleEvent(event, weighs, function()
-				weights = nil
-				wipe(upgradeCache)
-				UpdateAllBags()
-			end)
+			self:ToggleEvent(event, weighs, QueueWeighRefresh)
 		end
 	end
 end

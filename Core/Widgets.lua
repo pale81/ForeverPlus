@@ -297,7 +297,7 @@ local function CreatePopup(name)
 		local items = data.items or {}
 		self:SetWidth(data.width or POPUP_WIDTH)
 		self.Title:SetText(data.title or "")
-		local visible = math.min(#items, MAX_ROWS)
+		local visible = math.min(#items, data.maxRows or MAX_ROWS)
 		self.offset = math.max(0, math.min(self.offset, #items - visible))
 		local rowsHeight = 0
 		for i = 1, math.max(visible, #self.rows) do

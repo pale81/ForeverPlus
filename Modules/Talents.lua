@@ -402,7 +402,7 @@ end
 local PLAN_COLOR = CreateColor(0.3, 0.65, 1)
 local FIRST_TALENT_LEVEL, PLAN_MAX_LEVEL = 10, 60
 local PLAN_POINTS = PLAN_MAX_LEVEL - FIRST_TALENT_LEVEL + 1
-local planCounter
+local planBar
 
 local function CurrentPlan()
 	local key = ("%s:%s"):format(playerClass, PlayerUtil.GetCurrentSpecID() or 0)
@@ -434,87 +434,6 @@ local function PlanOverlay(button)
 		button.fpPlan = overlay
 	end
 	return overlay
-end
-
--- Tooltip of a planned talent: the values of the planned rank below
--- Blizzard's own text, so the effect of the plan is visible while planning.
-local function AddPlanTooltip(button)
-	if not (Talents.db.enabled and Talents.db.planner) or GameTooltip:GetOwner() ~= button then
-		return
-	end
-	local frame = TalentsFrame()
-	local configID = frame and frame:GetConfigID()
-	local nodeID = button.GetNodeID and button:GetNodeID()
-	local planned = nodeID and CurrentPlan()[nodeID]
-	local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
-	if not node or planned <= node.ranksPurchased then
-		return
-	end
-	local entry = node.activeEntry or node.nextEntry
-	local entryID = entry and entry.entryID or (node.entryIDs and node.entryIDs[1])
-	if not entryID then
-		return
-	end
-	GameTooltip_AddBlankLineToTooltip(GameTooltip)
-	GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
-	if GameTooltip.AppendInfo then
-		GameTooltip:AppendInfo("GetTraitEntry", entryID, planned)
-	else
-		GameTooltip_AddHighlightLine(GameTooltip, C_Traits.GetTraitDescription(entryID, planned), true)
-	end
-	GameTooltip:Show()
-end
-
-local tooltipHooked = {}
-
-local function HookPlanTooltip(button)
-	if not tooltipHooked[button] and button.SetTooltipInternal then
-		tooltipHooked[button] = true
-		hooksecurefunc(button, "SetTooltipInternal", AddPlanTooltip)
-	end
-end
-
-local function UpdatePlan()
-	local frame = TalentsFrame()
-	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
-		return
-	end
-	local configID = frame:GetConfigID()
-	local plan = CurrentPlan()
-	local enabled = Talents.db.enabled and Talents.db.planner
-	for button in frame:EnumerateAllTalentButtons() do
-		HookPlanTooltip(button)
-		local nodeID = button.GetNodeID and button:GetNodeID()
-		local planned = enabled and nodeID and plan[nodeID]
-		if planned or button.fpPlan then
-			local overlay = PlanOverlay(button)
-			local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
-			if node then
-				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
-				overlay.Text:Show()
-				overlay.Tint:SetShown(planned > node.ranksPurchased)
-			else
-				overlay.Text:Hide()
-				overlay.Tint:Hide()
-			end
-		end
-	end
-	if planCounter then
-		local points = PlannedPoints(plan)
-		planCounter:SetShown(enabled and points > 0)
-		planCounter:SetText(L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + max(points, 1)))
-	end
-end
-
-local updatePending = false
-local function QueuePlanUpdate()
-	if not updatePending then
-		updatePending = true
-		C_Timer.After(0, function()
-			updatePending = false
-			UpdatePlan()
-		end)
-	end
 end
 
 -- Rules of the classic talent trees: each row needs 5 points in rows above
@@ -591,6 +510,119 @@ local function CheckPlan(nodes, rowOf, names, plan)
 	return nil
 end
 
+-- Why the last right-click did nothing: { nodeID =, text = }, shown in that talent's tooltip.
+local blocked
+
+-- Tooltip of a talent while planning: the values of the planned rank below
+-- Blizzard's own text, and what stops the next planned rank (with the plan
+-- counted in), all in the colour of the plan.
+local function AddPlanTooltip(button)
+	if not (Talents.db.enabled and Talents.db.planner) or GameTooltip:GetOwner() ~= button then
+		return
+	end
+	local frame = TalentsFrame()
+	local configID = frame and frame:GetConfigID()
+	local nodeID = button.GetNodeID and button:GetNodeID()
+	local node = nodeID and configID and C_Traits.GetNodeInfo(configID, nodeID)
+	if not node or not node.maxRanks or node.maxRanks == 0 then
+		return
+	end
+	local plan = CurrentPlan()
+	local planned = plan[nodeID]
+	local blank = false
+	local entry = node.activeEntry or node.nextEntry
+	local entryID = entry and entry.entryID or (node.entryIDs and node.entryIDs[1])
+	if planned and planned > (node.ranksPurchased or 0) and entryID then
+		GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		blank = true
+		GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
+		if GameTooltip.AppendInfo then
+			GameTooltip:AppendInfo("GetTraitEntry", entryID, planned)
+		else
+			GameTooltip_AddHighlightLine(GameTooltip, C_Traits.GetTraitDescription(entryID, planned), true)
+		end
+	end
+	local notes = {}
+	local target = math.max(planned or 0, node.ranksPurchased or 0) + 1
+	if target <= node.maxRanks then
+		node.ID = node.ID or nodeID
+		node.posY = node.posY or 0
+		local nodes, rowOf, names = TreeState(frame, configID)
+		local problem = CheckNode(nodes, rowOf, names, plan, node, target)
+		if problem then
+			notes[#notes + 1] = problem
+		end
+	end
+	if blocked and blocked.nodeID == nodeID and blocked.text ~= notes[1] then
+		notes[#notes + 1] = blocked.text
+	end
+	if #notes > 0 then
+		if not blank then
+			GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		end
+		for _, note in ipairs(notes) do
+			GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_NOTE:format(note), PLAN_COLOR, true)
+		end
+	end
+	if blank or #notes > 0 then
+		GameTooltip:Show()
+	end
+end
+
+local tooltipHooked = {}
+
+local function HookPlanTooltip(button)
+	if not tooltipHooked[button] and button.SetTooltipInternal then
+		tooltipHooked[button] = true
+		hooksecurefunc(button, "SetTooltipInternal", AddPlanTooltip)
+	end
+end
+
+local function UpdatePlan()
+	local frame = TalentsFrame()
+	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
+		return
+	end
+	local configID = frame:GetConfigID()
+	local plan = CurrentPlan()
+	local enabled = Talents.db.enabled and Talents.db.planner
+	for button in frame:EnumerateAllTalentButtons() do
+		HookPlanTooltip(button)
+		local nodeID = button.GetNodeID and button:GetNodeID()
+		local planned = enabled and nodeID and plan[nodeID]
+		if planned or button.fpPlan then
+			local overlay = PlanOverlay(button)
+			local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
+			if node then
+				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
+				overlay.Text:Show()
+				overlay.Tint:SetShown(planned > node.ranksPurchased)
+			else
+				overlay.Text:Hide()
+				overlay.Tint:Hide()
+			end
+		end
+	end
+	if planBar then
+		local points = PlannedPoints(plan)
+		planBar:SetShown(enabled and true or false)
+		planBar.Counter:SetText(points > 0 and L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points) or "")
+		planBar.Apply:SetEnabled(points > 0)
+		planBar.Clear:SetEnabled(points > 0)
+	end
+end
+
+local updatePending = false
+local function QueuePlanUpdate()
+	if not updatePending then
+		updatePending = true
+		C_Timer.After(0, function()
+			updatePending = false
+			UpdatePlan()
+		end)
+	end
+end
+
 local function OnTalentClick(_, button, mouseButton)
 	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
 		return
@@ -606,6 +638,15 @@ local function OnTalentClick(_, button, mouseButton)
 	local planned = plan[nodeID] or 0
 	local nodes, rowOf, names = TreeState(frame, configID)
 	local problem
+	blocked = nil
+	local function Refuse(text)
+		-- The reason shows in the talent's tooltip, rebuilt below.
+		blocked = { nodeID = nodeID, text = text }
+		if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
+			HookPlanTooltip(button)
+			button:SetTooltipInternal()
+		end
+	end
 	if IsShiftKeyDown() then
 		planned = planned - 1
 		local old = plan[nodeID]
@@ -614,19 +655,23 @@ local function OnTalentClick(_, button, mouseButton)
 		problem = CheckPlan(nodes, rowOf, names, plan)
 		plan[nodeID] = old
 		if problem then
-			ns.Print(L.TALENTS_PLAN_REMOVE_BLOCKED)
+			Refuse(L.TALENTS_PLAN_REMOVE_BLOCKED)
 			return
 		end
 	elseif button.CanRefundRank and button:CanRefundRank() then
 		return -- Blizzard refunds a staged rank with this click
 	else
 		local target = math.max(planned, node.ranksPurchased or 0) + 1
-		if target > node.maxRanks or PlannedPoints(plan) - planned + target > PLAN_POINTS then
+		if target > node.maxRanks then
+			return
+		end
+		if PlannedPoints(plan) - planned + target > PLAN_POINTS then
+			Refuse(L.TALENTS_PLAN_FULL:format(PLAN_POINTS, PLAN_MAX_LEVEL))
 			return
 		end
 		problem = CheckNode(nodes, rowOf, names, plan, node, target)
 		if problem then
-			ns.Print(problem)
+			Refuse(problem)
 			return
 		end
 		planned = target
@@ -672,12 +717,84 @@ function ClearPlan()
 	QueuePlanUpdate()
 end
 
+-- A flat button in the blue of the plan: dark blue ground, thin light-blue
+-- border, a soft shine on the upper half.
+local BLUE_BACK, BLUE_BORDER, BLUE_HOVER = { 0.04, 0.14, 0.3, 0.95 }, { 0.3, 0.65, 1, 1 }, { 0.08, 0.26, 0.5, 0.98 }
+
+local function CreateBlueButton(parent, text, width, tooltip, onClick)
+	local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+	button:SetSize(width, 22)
+	button:SetBackdrop({ bgFile = [[Interface\Buttons\WHITE8X8]], edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1 })
+	local shine = button:CreateTexture(nil, "ARTWORK")
+	shine:SetPoint("TOPLEFT", 1, -1)
+	shine:SetPoint("BOTTOMRIGHT", -1, 11)
+	shine:SetColorTexture(1, 1, 1, 1)
+	shine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0), CreateColor(0.6, 0.8, 1, 0.22))
+	button.Label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	button.Label:SetPoint("CENTER", 0, 0)
+	button.Label:SetText(text)
+	local function Paint()
+		local enabled, hovered, pressed = button:IsEnabled(), button:IsMouseOver(), button.pressed
+		local back = hovered and BLUE_HOVER or BLUE_BACK
+		button:SetBackdropColor(unpack(enabled and (pressed and { 0.02, 0.08, 0.2, 0.98 } or back) or { 0.1, 0.12, 0.16, 0.8 }))
+		button:SetBackdropBorderColor(unpack(enabled and BLUE_BORDER or { 0.35, 0.4, 0.45, 1 }))
+		if enabled then
+			button.Label:SetTextColor(hovered and 1 or 0.65, hovered and 1 or 0.85, 1)
+		else
+			button.Label:SetTextColor(0.5, 0.55, 0.6)
+		end
+		shine:SetShown(enabled)
+	end
+	button:SetScript("OnEnter", function(self)
+		Paint()
+		if tooltip then
+			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+			GameTooltip_AddColoredLine(GameTooltip, text, PLAN_COLOR)
+			GameTooltip_AddNormalLine(GameTooltip, tooltip)
+			GameTooltip:Show()
+		end
+	end)
+	button:SetScript("OnLeave", function()
+		Paint()
+		GameTooltip:Hide()
+	end)
+	button:SetScript("OnMouseDown", function(self)
+		self.pressed = true
+		Paint()
+	end)
+	button:SetScript("OnMouseUp", function(self)
+		self.pressed = false
+		Paint()
+	end)
+	button:SetScript("OnClick", onClick)
+	hooksecurefunc(button, "SetEnabled", Paint)
+	Paint()
+	return button
+end
+
+-- Top right of the talent window: counter, "apply" and "clear" in the colour of the plan.
+local function CreatePlanBar(frame)
+	local bar = CreateFrame("Frame", nil, frame)
+	bar:SetSize(330, 24)
+	bar:SetFrameLevel(ns.Number(frame:GetFrameLevel(), 0) + 1010)
+	bar.Apply = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, 90, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
+		ApplyPlan()
+	end)
+	bar.Apply:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+	bar.Clear = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, 70, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
+		ClearPlan()
+	end)
+	bar.Clear:SetPoint("RIGHT", bar.Apply, "LEFT", -6, 0)
+	bar.Counter = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	bar.Counter:SetPoint("RIGHT", bar.Clear, "LEFT", -10, 0)
+	bar.Counter:SetTextColor(PLAN_COLOR:GetRGB())
+	return bar
+end
+
 local function SetupPlanner(frame)
-	planCounter = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	local anchor = frame.ClassCurrencyDisplay or frame
-	planCounter:SetPoint("TOP", anchor, "BOTTOM", 0, -2)
-	planCounter:SetTextColor(PLAN_COLOR:GetRGB())
-	planCounter:Hide()
+	planBar = CreatePlanBar(frame)
+	planBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -40, -34)
+	ns:RegisterEditFrame(planBar, "TalentPlan", L.TALENTS_PLAN, { "TOPRIGHT", frame, "TOPRIGHT", -40, -34 })
 	EventRegistry:RegisterCallback("TalentButton.OnClick", OnTalentClick, Talents)
 	frame:HookScript("OnShow", QueuePlanUpdate)
 	if frame.SetTab then

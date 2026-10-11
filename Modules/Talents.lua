@@ -765,6 +765,9 @@ local function UpdatePlan()
 	if enabled and configID then
 		nodes, rowOf, names = TreeState(frame, configID)
 	end
+	-- The blue rings mark what the plan opens up: only while something is still to be learned (after "apply plan" the
+	-- game shows the talents as they are, nothing glows).
+	local pending = nodes and HasPending(nodes, plan) or false
 	for button in frame:EnumerateAllTalentButtons() do
 		HookPlanTooltip(button)
 		local nodeID = button.GetNodeID and button:GetNodeID()
@@ -781,12 +784,11 @@ local function UpdatePlan()
 				overlay.Text:Hide()
 				overlay.Tint:Hide()
 			end
-			overlay.Ring:SetShown(unlocked and true or false)
+			overlay.Ring:SetShown(unlocked and pending and true or false)
 		end
 	end
 	if planBar then
 		local points = nodes and TotalPoints(nodes, plan) or 0
-		local pending = nodes and HasPending(nodes, plan) or false
 		planBar:SetShown(enabled and true or false)
 		planBar.Counter:SetText(points > 0 and L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points) or "")
 		planBar:SetWidth(PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))

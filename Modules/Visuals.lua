@@ -42,8 +42,8 @@ local function SoftBorder(button)
 	if not line then
 		local icon = button.Icon or button.icon or button
 		local inner = CreateFrame("Frame", nil, button)
-		inner:SetPoint("TOPLEFT", icon, "TOPLEFT", 3, -3)
-		inner:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -3, 3)
+		inner:SetPoint("TOPLEFT", icon, "TOPLEFT", 2, -2)
+		inner:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -2, 2)
 		inner:SetFrameLevel(button:GetFrameLevel() + 1)
 		line = ns.CreatePixelBorder(inner, inner, 1, "OVERLAY", 7)
 		soft[button] = line

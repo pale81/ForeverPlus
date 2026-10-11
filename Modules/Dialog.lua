@@ -533,6 +533,15 @@ local function CreateButton(frame)
 			self.action()
 		end
 	end)
+	-- Some buttons explain themselves (the total price of "train all").
+	button:SetScript("OnEnter", function(self)
+		if self.tooltip then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			self.tooltip(GameTooltip)
+			GameTooltip:Show()
+		end
+	end)
+	button:SetScript("OnLeave", GameTooltip_Hide)
 	return button
 end
 
@@ -760,6 +769,7 @@ Render = function(view)
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
 			button.action = info.action
+			button.tooltip = info.tooltip
 			button:Show()
 			x = x + button:GetWidth() + 6
 		end
@@ -1353,7 +1363,31 @@ function Dialog.TrainerView()
 			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, spends = true, enabled = selection ~= nil, action = function()
 				BuyTrainerService(selection.index)
 			end },
-			{ text = L.DIALOG_TRAIN_ALL, enabled = affordable > 0, action = function()
+			{ text = L.DIALOG_TRAIN_ALL, enabled = affordable > 0, tooltip = function(tooltip)
+				-- What "train all" would buy and cost: from the top down, as long as the money lasts.
+				local left, total, count = money, 0, 0
+				local names = {}
+				for _, entry in ipairs(available) do
+					if entry.cost <= left then
+						left = left - entry.cost
+						total, count = total + entry.cost, count + 1
+						names[#names + 1] = entry.subText and entry.subText ~= "" and ("%s (%s)"):format(entry.name, entry.subText) or entry.name
+					end
+				end
+				GameTooltip_SetTitle(tooltip, L.DIALOG_TRAIN_ALL)
+				if count == 0 then
+					GameTooltip_AddNormalLine(tooltip, L.DIALOG_TRAIN_ALL_NONE)
+					return
+				end
+				GameTooltip_AddNormalLine(tooltip, L.DIALOG_TRAIN_ALL_TOTAL:format(count, GetMoneyString(total, true)))
+				for index, name in ipairs(names) do
+					if index > 12 then
+						tooltip:AddLine(L.DIALOG_TRAIN_ALL_MORE:format(count - 12), 0.7, 0.7, 0.7)
+						break
+					end
+					tooltip:AddLine(name, 1, 1, 1)
+				end
+			end, action = function()
 				-- Most expensive last: what was bought first changes what the list shows, so go from the top
 				-- and count the money down.
 				local left = GetMoney()

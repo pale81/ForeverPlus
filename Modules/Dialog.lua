@@ -302,6 +302,46 @@ local function CreateRow(frame)
 	row.Highlight:SetPoint("BOTTOMRIGHT", 3, -1)
 	row.Highlight:SetColorTexture(0, 0, 0, 0.1)
 	row.Highlight:Hide()
+	-- In the basket / chosen: a soft green tint, and the counter of the quantity (a click types a number).
+	row.Picked = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+	row.Picked:SetPoint("TOPLEFT", -4, 2)
+	row.Picked:SetPoint("BOTTOMRIGHT", 4, -2)
+	row.Picked:SetColorTexture(0.25, 0.9, 0.35, 0.16)
+	row.Picked:Hide()
+	row.Counter = CreateFrame("Button", nil, row)
+	row.Counter:SetSize(44, 20)
+	row.Counter:SetPoint("RIGHT", row, "RIGHT", 2, 0)
+	row.Counter.Back = row.Counter:CreateTexture(nil, "BACKGROUND")
+	row.Counter.Back:SetAllPoints()
+	row.Counter.Back:SetColorTexture(0, 0, 0, 0.55)
+	row.Counter.Border = ns.CreatePixelBorder(row.Counter, row.Counter, 1, "OVERLAY", 5)
+	row.Counter.Text = row.Counter:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	row.Counter.Text:SetPoint("CENTER")
+	row.Counter:SetScript("OnClick", function(self)
+		if row.onCounter then
+			row.onCounter(self)
+		end
+	end)
+	row.Counter:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_AddNormalLine(GameTooltip, L.DIALOG_COUNTER_TIP)
+		GameTooltip:Show()
+	end)
+	row.Counter:SetScript("OnLeave", GameTooltip_Hide)
+	row.Counter:SetScript("OnMouseWheel", function(_, delta)
+		if row.wheel then
+			row.wheel(delta)
+		end
+	end)
+	row.Counter:Hide()
+	row:EnableMouseWheel(true)
+	row:SetScript("OnMouseWheel", function(self, delta)
+		if self.wheel then
+			self.wheel(delta)
+		elseif bubble and current and current.view.kind == "MERCHANT_SHOW" then
+			Dialog.MerchantScroll(delta)
+		end
+	end)
 	-- The option Space takes (changed with Tab): lightly lit.
 	row.Selected = row:CreateTexture(nil, "BACKGROUND")
 	row.Selected:SetPoint("TOPLEFT", -4, 2)
@@ -372,9 +412,53 @@ local function CreateItem(frame)
 	return item
 end
 
+-- A "glitter frame": a thin gold line and two sparks that run around the button (the main step, ready).
+local function AddSparkle(button)
+	local holder = CreateFrame("Frame", nil, button)
+	holder:SetAllPoints()
+	holder:EnableMouse(false)
+	holder.Border = ns.CreatePixelBorder(holder, button, 1, "OVERLAY", 6)
+	holder.sparks = {}
+	for index = 1, 2 do
+		local spark = holder:CreateTexture(nil, "OVERLAY", nil, 7)
+		spark:SetTexture([[Interface\Cooldown\star4]])
+		spark:SetBlendMode("ADD")
+		spark:SetSize(20, 20)
+		spark:SetVertexColor(1, 0.9, 0.5)
+		holder.sparks[index] = spark
+	end
+	holder.t = 0
+	ns.SetUpdate(holder, "Dialog: button sparkle", function(self, elapsed)
+		self.t = (self.t + elapsed * 0.4) % 1
+		local width, height = button:GetWidth(), button:GetHeight()
+		local perimeter = 2 * (width + height)
+		for index, spark in ipairs(self.sparks) do
+			local p = ((self.t + (index - 1) * 0.5) % 1) * perimeter
+			local x, y
+			if p < width then
+				x, y = p, 0
+			elseif p < width + height then
+				x, y = width, -(p - width)
+			elseif p < 2 * width + height then
+				x, y = width - (p - width - height), -height
+			else
+				x, y = 0, -(height - (p - 2 * width - height))
+			end
+			spark:ClearAllPoints()
+			spark:SetPoint("CENTER", button, "TOPLEFT", x, y)
+		end
+	end)
+	holder:SetScript("OnShow", function(self)
+		self.Border:ShowColor(1, 0.82, 0.3)
+	end)
+	holder:Hide()
+	button.Sparkle = holder
+end
+
 local function CreateButton(frame)
 	local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	button:SetHeight(22)
+	AddSparkle(button)
 	button:SetScript("OnClick", function(self)
 		if self.action then
 			self.action()
@@ -455,7 +539,7 @@ Render = function(view)
 					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
 				end
 				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
-				local emphasised = info.selected or (info.action and #frame.rowActions == frame.selectedRow)
+				local emphasised = info.action and #frame.rowActions == frame.selectedRow
 				-- Always set the font itself: a font object set again would not undo an earlier size.
 				local baseFont = _G[TextFont()]
 				local file, size, flags
@@ -467,7 +551,17 @@ Render = function(view)
 				else
 					row.Text:SetFontObject(TextFont())
 				end
+				-- In the basket: a tick in front (the others get a blank of the same width).
+				label = (info.picked and "|A:common-icon-checkmark:14:14|a " or "|TInterface\\Common\\Spacer:14:14|t ") .. label
 				row.Text:SetText(label)
+				row.Picked:SetShown(info.picked and true or false)
+				row.wheel, row.onCounter = info.wheel, info.onCounter
+				row.Counter:SetShown(info.counter ~= nil)
+				if info.counter then
+					row.Counter.Text:SetText("x" .. info.counter)
+					row.Counter.Border:ShowColor(0.35, 1, 0.5)
+				end
+				row.Text:SetWidth(WIDTH - iconWidth - (info.counter and 50 or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
@@ -533,9 +627,13 @@ Render = function(view)
 			AddText(block.money, palette.text)
 		end
 	end
-	if frame.selectedRow > #frame.rowActions then
+	if frame.selectedRow > #frame.rowActions and not frame.reclamped then
+		-- The arrow row no longer exists: once more with the last one chosen, so the fonts match.
 		frame.selectedRow = math.max(1, #frame.rowActions)
-		Dialog.ShowSelection()
+		frame.reclamped = true
+		Render(view)
+		frame.reclamped = nil
+		return
 	end
 	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
 	local buttons = {}
@@ -567,6 +665,7 @@ Render = function(view)
 			end
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
+			button.Sparkle:SetShown(info.glow and info.enabled ~= false or false)
 			button.action = info.action
 			button:Show()
 			x = x + button:GetWidth() + 6
@@ -696,6 +795,39 @@ function Dialog.UpdateFilter()
 	filter.Icon:SetAlpha(filter.hover and 0.95 or 0.5)
 	filter.Cross:SetShown(on and true or false)
 	filter.Cross:SetAlpha(filter.hover and 1 or 0.8)
+end
+
+-- A small box over the counter to type a number (Enter takes it, Escape or a click elsewhere drops it).
+local quantityBox
+function Dialog.EditQuantity(anchor, value, onAccept)
+	if not quantityBox then
+		quantityBox = CreateFrame("EditBox", nil, bubble, "InputBoxTemplate")
+		quantityBox:SetSize(52, 20)
+		quantityBox:SetAutoFocus(true)
+		quantityBox:SetNumeric(true)
+		quantityBox:SetMaxLetters(3)
+		quantityBox:SetFrameStrata("FULLSCREEN_DIALOG")
+		quantityBox:SetScript("OnEnterPressed", function(self)
+			local number = tonumber(self:GetText())
+			self:Hide()
+			if number and self.onAccept then
+				self.onAccept(number)
+			end
+		end)
+		quantityBox:SetScript("OnEscapePressed", function(self)
+			self:Hide()
+		end)
+		quantityBox:SetScript("OnEditFocusLost", function(self)
+			self:Hide()
+		end)
+	end
+	quantityBox.onAccept = onAccept
+	quantityBox:ClearAllPoints()
+	quantityBox:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+	quantityBox:SetText(tostring(value))
+	quantityBox:Show()
+	quantityBox:SetFocus()
+	quantityBox:HighlightText()
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -1008,7 +1140,7 @@ function Dialog.TrainerView()
 		local selected = isAvailable and trainerSelected == entry.index
 		rows[#rows + 1] = {
 			text = table.concat(parts, "   "),
-			selected = selected,
+			picked = selected,
 			icon = entry.icon,
 			dim = not isAvailable,
 			action = isAvailable and function()
@@ -1092,8 +1224,7 @@ end
 ---------------------------------------------------------------------------
 local MERCHANT_ROWS = 14
 local merchantPicked, merchantOffset, merchantMode, merchantSaying = {}, 0, "wares", nil
-local merchantQuantity = 1 -- 1, 5, 10 or "stack": how many of each chosen ware "Buy" takes
-local QUANTITIES = { 1, 5, 10, "stack" }
+local merchantQty = {} -- ware index -> how many "Buy" takes of it (counted with the mouse wheel over the row)
 local knownWares = {} -- ware index -> known already (read from the tooltip once per visit)
 
 local function IsKnownWare(index)
@@ -1227,10 +1358,7 @@ function Dialog.MerchantView()
 		end
 	end
 	local function QuantityOf(index)
-		if merchantQuantity == "stack" then
-			return math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1)
-		end
-		return buyback and 1 or merchantQuantity
+		return buyback and 1 or math.max(1, merchantQty[index] or 1)
 	end
 	local picks, cost, payable = {}, 0, true
 	for index in pairs(merchantPicked) do
@@ -1249,15 +1377,39 @@ function Dialog.MerchantView()
 		local entry = entries[position]
 		local index, info = entry.index, entry.info
 		local isPicked = merchantPicked[index] and true or false
+		local limit = (info.numAvailable or -1) >= 0 and info.numAvailable or 999
 		rows[#rows + 1] = {
 			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
 			dim = info.isPurchasable == false,
-			selected = isPicked, -- chosen rows are shown a little larger and bold, like under a magnifying glass
+			picked = isPicked, -- in the basket: a tick, a green tint and the counter
+			counter = isPicked and not buyback and QuantityOf(index) or nil,
 			action = function()
 				merchantPicked[index] = not isPicked or nil
+				merchantQty[index] = merchantPicked[index] and (merchantQty[index] or 1) or nil
 				RefreshMerchant()
 			end,
+			-- The mouse wheel over a ware in the basket counts its quantity up and down (below 1 it leaves the basket).
+			wheel = isPicked and not buyback and function(delta)
+				local quantity = QuantityOf(index) + delta
+				if quantity < 1 then
+					merchantPicked[index], merchantQty[index] = nil, nil
+				else
+					merchantQty[index] = math.min(quantity, limit)
+				end
+				RefreshMerchant()
+			end or nil,
+			-- A click on the counter: type the number.
+			onCounter = isPicked and not buyback and function(anchor)
+				Dialog.EditQuantity(anchor, QuantityOf(index), function(number)
+					if number <= 0 then
+						merchantPicked[index], merchantQty[index] = nil, nil
+					else
+						merchantQty[index] = math.min(math.floor(number), limit)
+					end
+					RefreshMerchant()
+				end)
+			end or nil,
 			tooltip = function(tooltip)
 				if buyback then
 					if tooltip.SetBuybackItem then
@@ -1279,12 +1431,16 @@ function Dialog.MerchantView()
 	end
 	local moneyText = L.DIALOG_MONEY:format(GetMoneyString(money, true))
 	if #picks > 0 then
-		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, GetMoneyString(cost, true))
+		local pieces = 0
+		for _, index in ipairs(picks) do
+			pieces = pieces + QuantityOf(index)
+		end
+		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, GetMoneyString(cost, true))
 	end
 	blocks[#blocks + 1] = { money = moneyText }
 	local canBuy = #picks > 0 and payable and cost <= money
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, glow = canBuy, action = function()
 			if buyback then
 				-- Buy-back numbers shift with every purchase: from the back to the front.
 				for position = #picks, 1, -1 do
@@ -1302,18 +1458,6 @@ function Dialog.MerchantView()
 			end
 		end },
 	}
-	if not buyback then
-		local label = merchantQuantity == "stack" and L.DIALOG_QUANTITY_STACK or tostring(merchantQuantity)
-		buttons[#buttons + 1] = { text = L.DIALOG_QUANTITY:format(label), action = function()
-			for position, value in ipairs(QUANTITIES) do
-				if value == merchantQuantity then
-					merchantQuantity = QUANTITIES[position % #QUANTITIES + 1]
-					break
-				end
-			end
-			RefreshMerchant()
-		end }
-	end
 	if buyback then
 		buttons[#buttons + 1] = { text = L.DIALOG_WARES, action = function()
 			merchantMode, merchantOffset = "wares", 0
@@ -1416,6 +1560,7 @@ function Dialog:OnConversation(event)
 		end
 		if event == "MERCHANT_SHOW" then
 			wipe(merchantPicked)
+			wipe(merchantQty)
 			merchantOffset, merchantSaying = 0, PickSaying()
 			merchantMode = self.db.merchantTalk and "talk" or "wares"
 			wipe(knownWares)

@@ -152,8 +152,18 @@ local function PlaceFigure()
 	end
 	if best then
 		figure:SetPoint("LEFT", best, "RIGHT", 10 / FIGURE_SCALE, 0)
-	else
-		figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
+		return true
+	end
+	figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
+	return false
+end
+
+-- The slots have no place yet while the window opens: try again a few times.
+local function PlaceFigureLater(tries)
+	if not PlaceFigure() and tries > 0 then
+		C_Timer.After(0.1, function()
+			PlaceFigureLater(tries - 1)
+		end)
 	end
 end
 
@@ -207,7 +217,7 @@ function Durability:OnLogin()
 		figure = CreateFigure(PaperDollFrame)
 		figure:Hide()
 		PaperDollFrame:HookScript("OnShow", function()
-			PlaceFigure()
+			PlaceFigureLater(20)
 			UpdateAll()
 		end)
 		PaperDollFrame:HookScript("OnHide", UpdateFigure)

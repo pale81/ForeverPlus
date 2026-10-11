@@ -2714,6 +2714,8 @@ end)()
 	Settings.SetValue = function(var, value) values[var] = value end
 	local function node(depth)
 		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
+			CreateRadio = function(_, name, isOn, set) setters[name .. depth] = { isOn = isOn, set = set } end,
+			CreateButton = function(_, name) texts[#texts + 1] = (depth > 0 and "  " or "") .. name nested = nested + 1 return node(depth + 1) end,
 			CreateCheckbox = function(_, name, isOn, set)
 				texts[#texts + 1] = (depth > 0 and "  " or "") .. name
 				setters[name] = { isOn = isOn, set = set }

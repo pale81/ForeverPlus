@@ -10,6 +10,7 @@ local Talents = ns:NewModule("Talents", {
 		enabled = true,
 		planner = true,
 		builds = {}, -- classFile -> { { name =, text = }, ... }
+		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
@@ -292,6 +293,7 @@ local function TalentsFrame()
 end
 
 local ApplyPlan, ClearPlan, ApplyTemplate -- planner, defined below
+local SavePlanTemplate, ImportTemplate, ExportCurrentBuild
 local PLAN_BUTTON_SIZE = 26
 
 local function ClassBuilds()
@@ -431,20 +433,41 @@ local function ShowBuildMenu(owner)
 		root:CreateTitle(L.TALENTS_BUILDS)
 		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
 		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
-		-- Suggested distributions (Data/TalentPresets.lua) go into the plan.
+		root:CreateButton(L.TALENTS_EXPORT_CURRENT, ExportCurrentBuild)
+		-- Suggested distributions (Data/TalentPresets.lua) and the player's own templates go into the plan.
 		local presets = Talents.db.planner and ns.TalentPresets and ns.TalentPresets[playerClass]
-		if presets and #presets > 0 then
+		if Talents.db.planner then
 			local sub = root:CreateButton(L.TALENTS_TEMPLATE)
 			sub:SetTooltip(function(tooltip)
 				GameTooltip_SetTitle(tooltip, L.TALENTS_TEMPLATE)
 				GameTooltip_AddNormalLine(tooltip, L.TALENTS_TEMPLATE_NOTE)
 			end)
-			for _, preset in ipairs(presets) do
+			for _, preset in ipairs(presets or {}) do
 				local name = GetLocale() == "deDE" and preset.de or preset.en
 				sub:CreateButton(("%s (%s)"):format(name, preset.points), function()
 					ApplyTemplate(preset, name)
 				end)
 			end
+			local own = Talents.db.templates[playerClass] or {}
+			if #own > 0 then
+				sub:CreateDivider()
+				sub:CreateTitle(L.TALENTS_TEMPLATE_OWN)
+			end
+			for index, template in ipairs(own) do
+				local item = sub:CreateButton(("%s (%d)"):format(template.name, template.points))
+				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
+					ApplyTemplate(template, template.name)
+				end)
+				item:CreateButton(L.TALENTS_EXPORT, function()
+					ns.ShowEditWindow("TemplateExport", template.name, ("FPT1|%s|%s"):format(playerClass, template.ranks), CLOSE, nil, L.TALENTS_EXPORT_HINT)
+				end)
+				item:CreateButton(DELETE, function()
+					tremove(own, index)
+				end)
+			end
+			sub:CreateDivider()
+			sub:CreateButton(L.TALENTS_TEMPLATE_SAVE, SavePlanTemplate)
+			sub:CreateButton(L.TALENTS_TEMPLATE_IMPORT, ImportTemplate)
 		end
 		local builds = ClassBuilds()
 		if #builds > 0 then
@@ -765,6 +788,84 @@ local function UpdatePlan()
 		planBar.Apply:SetEnabled(points > 0)
 		planBar.Clear:SetEnabled(points > 0)
 	end
+end
+
+-- Own templates: the plan (what is planned or learned) saved under a name; exported and imported as text.
+local function TemplateList()
+	local list = Talents.db.templates[playerClass]
+	if not list then
+		list = {}
+		Talents.db.templates[playerClass] = list
+	end
+	return list
+end
+
+local function StoreTemplate(name, ranks)
+	local points = 0
+	for rank in ranks:gmatch("%d+:(%d+)") do
+		points = points + tonumber(rank)
+	end
+	if name == "" then
+		name = date("%d.%m. %H:%M")
+	end
+	local list = TemplateList()
+	list[#list + 1] = { name = name, points = points, ranks = ranks }
+	ns.Print(L.TALENTS_TEMPLATE_SAVED:format(name, points))
+end
+
+function SavePlanTemplate()
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local nodes = TreeState(frame, configID)
+	local plan, parts = CurrentPlan(), {}
+	for nodeID, node in pairs(nodes) do
+		local rank = Effective(node, plan)
+		if rank > 0 then
+			parts[#parts + 1] = { nodeID, rank }
+		end
+	end
+	if #parts == 0 then
+		ns.Print(L.TALENTS_TEMPLATE_EMPTY)
+		return
+	end
+	table.sort(parts, function(a, b)
+		return a[1] < b[1]
+	end)
+	for index, part in ipairs(parts) do
+		parts[index] = part[1] .. ":" .. part[2]
+	end
+	local ranks = table.concat(parts, ",")
+	ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
+		StoreTemplate(name, ranks)
+	end, L.TALENTS_NAME_HINT)
+end
+
+function ImportTemplate()
+	ns.ShowEditWindow("TemplateImport", L.TALENTS_TEMPLATE_IMPORT, "", L.TALENTS_IMPORT, function(text)
+		local class, ranks = (text or ""):match("^%s*FPT1|(%u+)|([%d:,]+)%s*$")
+		if not ranks then
+			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_FORMAT))
+		elseif class ~= playerClass then
+			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_CLASS))
+		else
+			ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
+				StoreTemplate(name, ranks)
+			end, L.TALENTS_NAME_HINT)
+		end
+	end, L.TALENTS_TEMPLATE_IMPORT_HINT)
+end
+
+-- The learned talents as Blizzard's loadout text.
+function ExportCurrentBuild()
+	local frame = TalentsFrame()
+	if not frame or not frame:GetConfigID() then
+		return
+	end
+	ns.ShowEditWindow("BuildExport", L.TALENTS_EXPORT_CURRENT, frame:GetLoadoutExportString(), CLOSE, nil, L.TALENTS_EXPORT_HINT)
 end
 
 local updatePending = false

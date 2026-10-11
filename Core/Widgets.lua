@@ -195,9 +195,16 @@ local function PopupRow(popup, index)
 	highlight:SetAllPoints()
 	highlight:SetColorTexture(1, 1, 1, 0.08)
 	row:SetHighlightTexture(highlight)
+	row.Stripe = row:CreateTexture(nil, "BACKGROUND")
+	row.Stripe:SetAllPoints()
+	row.Stripe:SetColorTexture(1, 1, 1, 0.05)
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
 	row.Icon:SetSize(18, 18)
 	row.Icon:SetPoint("LEFT", 2, 0)
+	row.IconBorder = ns.CreatePixelBorder(row, row.Icon, 1, "OVERLAY", 6)
+	row.Value = row:CreateFontString(nil, "OVERLAY", "GameTooltipText")
+	row.Value:SetPoint("RIGHT", -4, 0)
+	row.Value:SetJustifyH("RIGHT")
 	row.Check = row:CreateTexture(nil, "OVERLAY")
 	row.Check:SetSize(16, 16)
 	row.Check:SetPoint("RIGHT", -2, 0)
@@ -250,6 +257,10 @@ local function CreatePopup(name)
 	popup.rows, popup.footer, popup.offset = {}, {}, 0
 	popup.Info = popup:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	popup.Info:SetPoint("TOPRIGHT", -POPUP_PAD, -POPUP_PAD - 1)
+	popup.TotalsLine = popup:CreateTexture(nil, "ARTWORK")
+	popup.TotalsLine:SetColorTexture(1, 1, 1, 0.18)
+	popup.TotalsLine:SetHeight(1)
+	popup.totals = {}
 	popup.Empty = popup:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 	popup.Empty:SetPoint("TOPLEFT", popup.Title, "BOTTOMLEFT", 2, -8)
 	popup:SetScript("OnMouseWheel", function(self, delta)
@@ -295,6 +306,26 @@ local function CreatePopup(name)
 					if item.icon then
 						row.Icon:SetTexture(item.icon)
 					end
+					-- Optional: coloured icon border, value column, striped background.
+					local r, g, b
+					if item.quality then
+						r, g, b = C_Item.GetItemQualityColor(item.quality)
+					end
+					if item.icon and r and item.quality > 1 then
+						row.IconBorder:ShowColor(r, g, b)
+					else
+						row.IconBorder:Hide()
+					end
+					row.Stripe:SetShown(data.striped and (i + self.offset) % 2 == 0 or false)
+					row.Value:SetShown(item.right ~= nil)
+					row.Text:ClearAllPoints()
+					row.Text:SetPoint("LEFT", row.Icon, "RIGHT", 6, 0)
+					if item.right ~= nil then
+						row.Value:SetText(item.right)
+						row.Text:SetPoint("RIGHT", row.Value, "LEFT", -8, 0)
+					else
+						row.Text:SetPoint("RIGHT", row.Check, "LEFT", -4, 0)
+					end
 					row.Check:SetShown(item.checked ~= nil)
 					if item.checked ~= nil then
 						row.Check:SetAtlas(item.checked and "common-icon-checkmark" or "common-icon-redx")
@@ -319,6 +350,44 @@ local function CreatePopup(name)
 		end
 		if #footer > 0 then
 			height = height + 28
+		end
+		-- Summary block at the bottom (above the footer buttons): { label, value, big }.
+		local totals = data.totals or {}
+		local base = POPUP_PAD + (#footer > 0 and 28 or 0)
+		self.TotalsLine:SetShown(#totals > 0)
+		for _, line in ipairs(self.totals) do
+			line.Label:Hide()
+			line.Value:Hide()
+		end
+		if #totals > 0 then
+			local lineHeight, y = 18, base
+			self.TotalsLine:ClearAllPoints()
+			self.TotalsLine:SetPoint("BOTTOMLEFT", POPUP_PAD, base + #totals * lineHeight + 4)
+			self.TotalsLine:SetPoint("BOTTOMRIGHT", -POPUP_PAD, base + #totals * lineHeight + 4)
+			for i = #totals, 1, -1 do
+				local line = self.totals[i]
+				if not line then
+					line = {
+						Label = self:CreateFontString(nil, "OVERLAY", "GameFontNormal"),
+						Value = self:CreateFontString(nil, "OVERLAY", "GameTooltipText"),
+					}
+					line.Label:SetJustifyH("LEFT")
+					line.Value:SetJustifyH("RIGHT")
+					self.totals[i] = line
+				end
+				local entry = totals[i]
+				line.Label:ClearAllPoints()
+				line.Label:SetPoint("BOTTOMLEFT", POPUP_PAD + 2, y)
+				line.Value:ClearAllPoints()
+				line.Value:SetPoint("BOTTOMRIGHT", -POPUP_PAD - 2, y)
+				line.Label:SetText(entry[1])
+				line.Value:SetText(entry[2])
+				line.Label:SetFontObject(entry[3] and "GameFontNormal" or "GameFontHighlightSmall")
+				line.Label:Show()
+				line.Value:Show()
+				y = y + lineHeight
+			end
+			height = height + #totals * lineHeight + 10
 		end
 		self:SetHeight(height)
 	end

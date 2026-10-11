@@ -12,6 +12,7 @@ local Loot = ns:NewModule("Loot", {
 		delay = 20,
 		inlineQuality = "UNCOMMON",
 		combineMoney = true,
+		showValue = true,
 	},
 })
 
@@ -346,18 +347,25 @@ local function ItemSource(name, count)
 	return count > 1 and ("%s (%d)"):format(name, count) or name
 end
 
-local function MoneySource(name, amount)
-	return ("%s: %s"):format(name, GetMoneyString(amount, true))
-end
-
-local POPUP_WIDTH = 380
+local POPUP_WIDTH = 460
 
 local function ItemIcon(link)
 	local itemID = tonumber(link:match("item:(%d+)"))
 	return itemID and C_Item.GetItemIconByID(itemID)
 end
 
--- Soft popup at the cursor: items with icon, count and origin, then money.
+-- Vendor value of a stack (0 when the client does not know the item yet).
+local function ItemValue(link, count)
+	local price = select(11, C_Item.GetItemInfo(link))
+	return (tonumber(price) or 0) * count
+end
+
+local function ValueText(value)
+	return value > 0 and GetMoneyString(value, true) or "|cff808080-|r"
+end
+
+-- Soft popup at the cursor: items with icon, count, origin and value, then
+-- money, and at the bottom the sums.
 -- Shift-click on an item puts its link into the chat.
 local function ShowSummary(id)
 	local record = summaries[id]
@@ -367,12 +375,18 @@ local function ShowSummary(id)
 	end
 	ns.ShowPopupList(nil, function()
 		local items = {}
+		local showValue = Loot.db.showValue
+		local itemsValue = 0
 		if record.count > 0 then
-			items[#items + 1] = { text = L.LOOT_ITEMS_HEADER }
+			items[#items + 1] = { text = ("%s (%d)"):format(L.LOOT_ITEMS_HEADER, record.count) }
 			for _, link in ipairs(record.order) do
 				local entry = record.items[link]
+				local value = ItemValue(link, entry.count)
+				itemsValue = itemsValue + value
 				items[#items + 1] = {
 					icon = ItemIcon(link),
+					quality = ItemQuality(link),
+					right = showValue and ValueText(value) or nil,
 					text = ("%s x%d  " .. GREY):format(link:gsub("|H.-|h(.-)|h", "%1"), entry.count, SourceText(entry.sources, entry.order, ItemSource)),
 					tooltip = function(tooltip)
 						tooltip:SetHyperlink(link)
@@ -387,13 +401,30 @@ local function ShowSummary(id)
 			end
 		end
 		if record.money > 0 then
-			items[#items + 1] = { text = L.LOOT_MONEY_HEADER .. " " .. GetMoneyString(record.money, true) }
+			items[#items + 1] = { text = L.LOOT_MONEY_HEADER }
 			for _, name in ipairs(record.moneyOrder) do
-				items[#items + 1] = { text = MoneySource(name, record.moneySources[name]), onClick = function() end }
+				items[#items + 1] = {
+					text = name,
+					right = GetMoneyString(record.moneySources[name], true),
+					onClick = function() end,
+				}
+			end
+		end
+		local totals
+		if showValue and (itemsValue > 0 or record.money > 0) then
+			totals = {}
+			if itemsValue > 0 then
+				totals[#totals + 1] = { L.LOOT_TOTAL_ITEMS, GetMoneyString(itemsValue, true) }
+			end
+			if record.money > 0 then
+				totals[#totals + 1] = { L.LOOT_TOTAL_MONEY, GetMoneyString(record.money, true) }
+			end
+			if itemsValue > 0 and record.money > 0 then
+				totals[#totals + 1] = { L.LOOT_TOTAL, GetMoneyString(itemsValue + record.money, true), true }
 			end
 		end
 		local title = ("%s  " .. GREY):format(L.LOOT_TITLE, ("%s - %s"):format(date("%H:%M", record.started), date("%H:%M", record.ended)))
-		return { title = title, items = items, width = POPUP_WIDTH }
+		return { title = title, items = items, width = POPUP_WIDTH, striped = true, totals = totals }
 	end, "Loot")
 end
 
@@ -462,5 +493,6 @@ Loot.options = {
 		end
 		return values
 	end },
+	{ key = "showValue", type = "toggle", name = L.LOOT_VALUE, desc = L.LOOT_VALUE_DESC, parent = "summary" },
 	{ key = "combineMoney", type = "toggle", name = L.LOOT_COMBINE_MONEY, desc = L.LOOT_COMBINE_MONEY_DESC, parent = "summary" },
 }

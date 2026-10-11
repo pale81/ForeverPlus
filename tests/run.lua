@@ -1279,6 +1279,25 @@ do
 	print("show upgrade empty slot", ok, err)
 end
 ;(function()
+	-- real popup list with value column, quality border, stripes and sums
+	C_Item.GetItemQualityColor = function() return 0, 0.44, 0.87 end
+	local ok, err = pcall(realPopup, nil, function()
+		return {
+			title = "Beute", width = 460, striped = true,
+			items = {
+				{ text = "Gegenstände (2)" },
+				{ text = "[Test] x1", icon = 1, quality = 3, right = "1g", onClick = function() end },
+				{ text = "[Grau] x2", icon = 2, quality = 0, right = "-", onClick = function() end },
+				{ text = "Geld" },
+				{ text = "Quelle", right = "5s", onClick = function() end },
+			},
+			totals = { { "Händlerwert", "1g" }, { "Geld", "5s" }, { "Gesamt", "1g 5s", true } },
+		}
+	end, "TestLoot")
+	assert(ok, tostring(err))
+	print("loot popup OK")
+end)()
+;(function()
 	local tp = ns:GetModule("Teleports")
 	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
 	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end

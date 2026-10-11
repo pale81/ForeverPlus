@@ -17,6 +17,7 @@ local Dialog = ns:NewModule("Dialog", {
 		plates = true,
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
 		trainer = true,        -- the trainer's list in the bubble too
+		merchant = false,      -- the merchant's wares as a list in the bubble (test)
 	},
 })
 
@@ -183,9 +184,18 @@ local function CreateBubble()
 						action = info.action
 					end
 				end
-				-- A single option goes on with Space.
-				if not action and #self.rowActions == 1 then
-					action = self.rowActions[1]
+				-- Otherwise the chosen option (the first one, or the one picked with Tab).
+				if not action then
+					action = self.rowActions[self.selectedRow or 1]
+				end
+			elseif key == "TAB" then
+				local count = #self.rowActions
+				if count > 1 then
+					local step = IsShiftKeyDown() and -1 or 1
+					self.selectedRow = ((self.selectedRow or 1) - 1 + step) % count + 1
+					Dialog.ShowSelection()
+					self:SetPropagateKeyboardInput(false)
+					return
 				end
 			else
 				-- 1 to 9 (also on the number block) choose the numbered options.
@@ -200,6 +210,7 @@ local function CreateBubble()
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
+	frame.selectedRow = 1
 	return frame
 end
 
@@ -241,6 +252,12 @@ local function CreateRow(frame)
 	row.Highlight:SetPoint("BOTTOMRIGHT", 3, -1)
 	row.Highlight:SetColorTexture(0, 0, 0, 0.1)
 	row.Highlight:Hide()
+	-- The option Space takes (changed with Tab): lightly lit.
+	row.Selected = row:CreateTexture(nil, "BACKGROUND")
+	row.Selected:SetPoint("TOPLEFT", -4, 2)
+	row.Selected:SetPoint("BOTTOMRIGHT", 4, -2)
+	row.Selected:SetColorTexture(1, 0.82, 0.2, 0.2)
+	row.Selected:Hide()
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
 		if button.tooltip then
@@ -383,6 +400,8 @@ Render = function(view)
 					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
 				end
 				row.Text:SetText(label)
+				row.number = info.action and #frame.rowActions or nil
+				row.Selected:SetShown(row.number ~= nil and row.number == frame.selectedRow)
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
 				row.action, row.tooltip = info.action, info.tooltip
@@ -464,6 +483,11 @@ Render = function(view)
 			button:SetText(info.text)
 			button:SetWidth(math.max(80, (button:GetTextWidth() or 56) + 24))
 			button:ClearAllPoints()
+			-- A new line when the next button does not fit.
+			if x > 0 and x + button:GetWidth() > WIDTH then
+				x = 0
+				y = y + 22 + 4
+			end
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
 			button.action = info.action
@@ -529,6 +553,7 @@ local function CollapseAll(on)
 	Collapse(GossipFrame, on)
 	Collapse(QuestFrame, on)
 	Collapse(ClassTrainerFrame, on)
+	Collapse(MerchantFrame, on)
 end
 
 local function Hide()
@@ -555,10 +580,21 @@ local function UseBlizzard()
 	ns.ShowFriendlyPlates(false)
 end
 
+-- Lights the option Space takes.
+function Dialog.ShowSelection()
+	if not bubble then
+		return
+	end
+	for _, row in pairs(bubble.pools.row) do
+		row.Selected:SetShown(row:IsShown() and row.number ~= nil and row.number == bubble.selectedRow)
+	end
+end
+
 local function Show(view, fromBack)
 	if not bubble then
 		bubble = CreateBubble()
 	end
+	bubble.selectedRow = 1
 	showToken = showToken + 1
 	if not current then
 		wipe(history)
@@ -888,7 +924,7 @@ function Dialog.TrainerView()
 		end
 	end
 	return {
-		name = NpcName(), blocks = blocks,
+		name = NpcName(), blocks = blocks, revealed = true,
 		buttons = {
 			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, enabled = selection ~= nil, action = function()
 				BuyTrainerService(selection.index)
@@ -914,12 +950,132 @@ function Dialog.TrainerView()
 end
 
 ---------------------------------------------------------------------------
+-- Merchant: the wares as a list (ten per page); a click selects, "Buy" buys one.
+---------------------------------------------------------------------------
+local MERCHANT_PAGE = 10
+local merchantSelected, merchantPage = nil, 1
+
+local function MerchantRowText(info, index)
+	local color = "ffffffff"
+	local link = GetMerchantItemLink and GetMerchantItemLink(index)
+	local quality = link and select(3, C_Item.GetItemInfo(link))
+	if quality and C_Item.GetItemQualityColor then
+		local _, _, _, hex = C_Item.GetItemQualityColor(quality)
+		color = hex or color
+	end
+	if info.isUsable == false then
+		color = "ffff4040"
+	end
+	local parts = { ("|c%s%s|r"):format(color, info.name or "?") }
+	if (info.stackCount or 1) > 1 then
+		parts[1] = parts[1] .. " x" .. info.stackCount
+	end
+	if info.hasExtendedCost then
+		parts[#parts + 1] = L.DIALOG_MERCHANT_SPECIAL
+	elseif (info.price or 0) > 0 then
+		parts[#parts + 1] = GetMoneyString(info.price, true)
+	end
+	if (info.numAvailable or -1) >= 0 then
+		parts[#parts + 1] = L.DIALOG_MERCHANT_LEFT:format(info.numAvailable)
+	end
+	return table.concat(parts, "   ")
+end
+
+function Dialog.MerchantView()
+	local total = GetMerchantNumItems() or 0
+	local pages = math.max(1, math.ceil(total / MERCHANT_PAGE))
+	merchantPage = math.max(1, math.min(merchantPage, pages))
+	local money = GetMoney()
+	local rows, selection = {}, nil
+	for slot = 1, MERCHANT_PAGE do
+		local index = (merchantPage - 1) * MERCHANT_PAGE + slot
+		local info = index <= total and C_MerchantFrame.GetItemInfo(index)
+		if info and info.name then
+			local isSelected = merchantSelected == index
+			if isSelected then
+				selection = info
+			end
+			rows[#rows + 1] = {
+				text = Marker(isSelected and ">" or " ") .. MerchantRowText(info, index),
+				icon = info.texture,
+				dim = info.isPurchasable == false,
+				action = function()
+					merchantSelected = index
+					Dialog:OnConversation("MERCHANT_UPDATE")
+				end,
+				tooltip = function(tooltip)
+					if tooltip.SetMerchantItem then
+						tooltip:SetMerchantItem(index)
+					end
+				end,
+			}
+		end
+	end
+	local blocks = {}
+	if #rows == 0 then
+		blocks[1] = { text = L.DIALOG_MERCHANT_NONE, dim = true }
+	else
+		blocks[1] = { rows = rows }
+	end
+	if pages > 1 then
+		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_PAGE:format(merchantPage, pages), dim = true }
+	end
+	blocks[#blocks + 1] = { money = L.DIALOG_MONEY:format(GetMoneyString(money, true)) }
+	local canBuy = selection and selection.isPurchasable ~= false and (selection.numAvailable or -1) ~= 0
+		and (selection.hasExtendedCost or (selection.price or 0) <= money)
+	local buttons = {
+		{ text = L.DIALOG_BUY, primary = true, enabled = canBuy and true or false, action = function()
+			BuyMerchantItem(merchantSelected, 1)
+		end },
+	}
+	if pages > 1 then
+		buttons[#buttons + 1] = { text = L.DIALOG_PAGE_PREVIOUS, enabled = merchantPage > 1, action = function()
+			merchantPage = merchantPage - 1
+			merchantSelected = nil
+			Dialog:OnConversation("MERCHANT_UPDATE")
+		end }
+		buttons[#buttons + 1] = { text = L.DIALOG_PAGE_NEXT, enabled = merchantPage < pages, action = function()
+			merchantPage = merchantPage + 1
+			merchantSelected = nil
+			Dialog:OnConversation("MERCHANT_UPDATE")
+		end }
+	end
+	local tools = ns.MerchantTools
+	if tools then
+		local junkCount = tools.JunkValue()
+		if junkCount > 0 then
+			buttons[#buttons + 1] = { text = L.DIALOG_SELL_JUNK:format(junkCount), action = tools.SellJunk }
+		end
+	end
+	if CanMerchantRepair and CanMerchantRepair() then
+		local cost, canRepair = GetRepairAllCost()
+		if canRepair and cost > 0 then
+			buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = cost <= money, action = function()
+				RepairAllItems(false)
+			end }
+		end
+	end
+	-- Buy-back and everything else: the game's own window.
+	buttons[#buttons + 1] = { text = L.DIALOG_ORIGINAL_WINDOW, action = function()
+		UseBlizzard()
+	end }
+	buttons[#buttons + 1] = { text = L.DIALOG_CLOSE, action = function()
+		if CloseMerchant then
+			CloseMerchant()
+		end
+	end }
+	-- Lists refresh often: their text does not appear letter by letter.
+	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true }
+end
+
+---------------------------------------------------------------------------
 -- Events
 ---------------------------------------------------------------------------
 local VIEWS = {
 	GOSSIP_SHOW = "GossipView", QUEST_GREETING = "GreetingView", QUEST_DETAIL = "DetailView",
 	QUEST_PROGRESS = "ProgressView", QUEST_COMPLETE = "RewardView",
 	TRAINER_SHOW = "TrainerView", TRAINER_UPDATE = "TrainerView",
+	MERCHANT_SHOW = "MerchantView", MERCHANT_UPDATE = "MerchantView",
 }
 
 -- Steps Blizzard has to confirm itself (the confirmation windows cannot be opened by addon code).
@@ -963,6 +1119,16 @@ end
 function Dialog:OnConversation(event)
 	if not self.db.enabled or InCombatLockdown() then
 		return
+	end
+	if event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
+		-- Updates (stock, money, bags) only refresh the list that is on show.
+		if not self.db.merchant or (event == "MERCHANT_UPDATE" and not (current and current.view.kind == "MERCHANT_SHOW")) then
+			return
+		end
+		if event == "MERCHANT_SHOW" then
+			merchantSelected, merchantPage = nil, 1
+		end
+		event = "MERCHANT_SHOW"
 	end
 	if event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then
 		-- Only while the trainer is open and its list is the step on show (updates alone do not open it).
@@ -1010,7 +1176,7 @@ function Dialog:Apply()
 	end)
 	-- Selecting a quest in the gossip closes the gossip and opens the quest: only a
 	-- close with no new step right after ends the bubble.
-	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "TRAINER_CLOSED" }) do
+	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "TRAINER_CLOSED", "MERCHANT_CLOSED" }) do
 		self:ToggleEvent(event, on, function()
 			local token = showToken
 			C_Timer.After(0.15, function()
@@ -1080,5 +1246,6 @@ Dialog.options = {
 	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
+	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },
 }

@@ -254,7 +254,7 @@ local PAGES = {
 		{ "Helpers", header = L.HELPERS_TITLE },
 		{ "QoL", keys = Keys("bagSlots") },
 	},
-	{ title = L.QUESTS_TITLE, { "Quests" } },
+	{ title = L.QUESTS_TITLE, { "Quests" }, { "SpeechBubbles", header = L.SPEECH_TITLE } },
 	{ title = L.GROUPFINDER_TITLE, { "GroupFinder" } },
 	{ title = L.PAGE_MOUSEOVER,
 		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_BAR_KEYS },

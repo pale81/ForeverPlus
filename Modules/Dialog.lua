@@ -24,8 +24,8 @@ local ITEM_SIZE = 34
 
 local PALETTES = {
 	PLAYER = {
-		text = { 0.1, 0.1, 0.1 }, name = { 0.45, 0.28, 0 }, title = { 0.45, 0.28, 0 },
-		row = { 0.04, 0.2, 0.55 }, marker = "ff8a5a00", dim = { 0.35, 0.35, 0.35 },
+		text = { 1, 1, 1 }, name = { 1, 0.82, 0 }, title = { 1, 0.82, 0 },
+		row = { 0.55, 0.8, 1 }, marker = "ffffd100", dim = { 0.65, 0.65, 0.65 },
 	},
 	DARK = {
 		text = { 1, 1, 1 }, name = { 1, 0.82, 0 }, title = { 1, 0.82, 0 },
@@ -52,10 +52,6 @@ end
 ---------------------------------------------------------------------------
 -- The bubble
 ---------------------------------------------------------------------------
-local function BubbleLayout()
-	return NineSliceLayouts and NineSliceLayouts.ChatBubble
-end
-
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
@@ -70,18 +66,9 @@ local function CreateBubble()
 	frame.Dark:SetTexture([[Interface\Tooltips\UI-Tooltip-Background]])
 	frame.Dark:SetVertexColor(0.08, 0.08, 0.1, 0.94)
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
-	frame.Art = CreateFrame("Frame", nil, frame, "NineSliceCodeTemplate")
-	frame.Art:SetPoint("TOPLEFT", -INSET, INSET)
-	frame.Art:SetPoint("BOTTOMRIGHT", INSET, -INSET)
-	frame.Art:SetFrameLevel(frame:GetFrameLevel())
-	local layout = BubbleLayout()
-	frame.hasArt = false
-	if layout then
-		frame.hasArt = pcall(NineSliceUtil.ApplyLayout, frame.Art, layout)
-	end
-	frame.Tail = frame.Art:CreateTexture(nil, "ARTWORK", nil, 7)
-	frame.hasTail = pcall(frame.Tail.SetAtlas, frame.Tail, "ChatBubble-Tail", true)
-	frame.Tail:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 22, -INSET + 3)
+	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, 22 - WIDTH / 2)
+	frame.hasArt = frame.Art ~= nil
+	frame.hasTail = frame.Tail ~= nil
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
 	return frame
 end
@@ -193,8 +180,12 @@ Render = function(view)
 	local palette = Palette()
 	local usePlayer = Dialog.db.style == "PLAYER" and frame.hasArt
 	frame.Dark:SetShown(not usePlayer)
-	frame.Art:SetShown(usePlayer)
-	frame.Tail:SetShown(usePlayer and frame.hasTail)
+	if frame.Art then
+		frame.Art:SetShown(usePlayer)
+	end
+	if frame.Tail then
+		frame.Tail:SetShown(usePlayer)
+	end
 	local used = { text = 0, row = 0, item = 0, button = 0 }
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do

@@ -1402,9 +1402,16 @@ function Dialog.MerchantView()
 			picked = isPicked, -- in the basket: a tick, a green tint, a glitter frame and the quantity field
 			counter = isPicked and not buyback and QuantityOf(index) or nil,
 			reserve = 48,
-			-- Left click: into the basket, or one more; right click: one less (the last one takes it out again).
+			-- A click chooses this ware alone; on a chosen ware left clicks count up, right clicks down (the last
+			-- one takes it out). Shift + click adds a ware to the choice or takes it out (several wares at once).
 			action = function(mouseButton)
-				if isPicked and not buyback then
+				if IsShiftKeyDown() then
+					if isPicked then
+						merchantPicked[index], merchantQty[index] = nil, nil
+					else
+						merchantPicked[index], merchantQty[index] = true, 1
+					end
+				elseif isPicked and not buyback then
 					local quantity = QuantityOf(index) + (mouseButton == "RightButton" and -1 or 1)
 					if quantity < 1 then
 						merchantPicked[index], merchantQty[index] = nil, nil
@@ -1414,6 +1421,8 @@ function Dialog.MerchantView()
 				elseif isPicked then
 					merchantPicked[index] = nil
 				else
+					wipe(merchantPicked)
+					wipe(merchantQty)
 					merchantPicked[index], merchantQty[index] = true, 1
 				end
 				RefreshMerchant()
@@ -1433,6 +1442,18 @@ function Dialog.MerchantView()
 					end
 				elseif tooltip.SetMerchantItem then
 					tooltip:SetMerchantItem(index)
+					-- The game's hint ("Shift-click to buy another quantity") does not fit here: what a click does now.
+					local hint = isPicked and L.DIALOG_CLICK_PICKED or L.DIALOG_CLICK_FREE
+					local stackHint = _G.ITEM_VENDOR_STACK_BUY
+					for line = 1, tooltip:NumLines() do
+						local left = _G[tooltip:GetName() .. "TextLeft" .. line]
+						local text = left and left:GetText()
+						if type(text) == "string" and not (issecretvalue and issecretvalue(text))
+							and ((stackHint and text == stackHint) or text:lower():find("umschalt", 1, true) or text:lower():find("shift", 1, true)) then
+							left:SetText(hint)
+						end
+					end
+					tooltip:Show()
 				end
 			end,
 		}

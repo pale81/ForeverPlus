@@ -139,8 +139,13 @@ local function TrackAddon(name)
 	end
 end
 
+-- Loading peaks (login, loading screens) are not counted: the list should show
+-- what the addons cost while playing, not how long they took to load.
+local LOGIN_GRACE, ZONE_GRACE = 180, 20 -- seconds
+local ignoreUntil = GetTime() + LOGIN_GRACE
+
 local function SampleAddonMetrics()
-	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
+	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) or GetTime() < ignoreUntil then
 		return
 	end
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
@@ -170,8 +175,13 @@ local function SetupProfilerSampler(enabled)
 	if not profilerSampler then
 		profilerSampler = CreateFrame("Frame")
 		profilerSampler:RegisterEvent("ADDON_LOADED")
-		profilerSampler:SetScript("OnEvent", function(_, _, name)
-			TrackAddon(name)
+		profilerSampler:RegisterEvent("PLAYER_ENTERING_WORLD")
+		profilerSampler:SetScript("OnEvent", function(_, event, name)
+			if event == "PLAYER_ENTERING_WORLD" then
+				ignoreUntil = math.max(ignoreUntil, GetTime() + ZONE_GRACE)
+			else
+				TrackAddon(name)
+			end
 		end)
 		for i = 1, C_AddOns.GetNumAddOns() do
 			if C_AddOns.IsAddOnLoaded(i) then
@@ -256,6 +266,9 @@ local function ShowCpuTooltip(owner)
 		return a.peak > b.peak
 	end)
 	GameTooltip_AddNormalLine(GameTooltip, L.INFO_CPU_COLUMNS)
+	if GetTime() < ignoreUntil then
+		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WARMUP:format(math.ceil(ignoreUntil - GetTime())))
+	end
 	local total = 0
 	for _, addon in ipairs(list) do
 		total = total + addon.ms

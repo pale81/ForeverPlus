@@ -839,8 +839,13 @@ local function ShowSortMenu(owner)
 end
 
 local function CreateSortButton()
-	local header = QuestObjectiveTracker and QuestObjectiveTracker.Header
+	-- The header of the whole tracker ("All objectives") has more room than the one of the quest list.
+	local header = ObjectiveTrackerFrame and ObjectiveTrackerFrame.Header
 	local minimize = header and header.MinimizeButton
+	if not minimize then
+		header = QuestObjectiveTracker and QuestObjectiveTracker.Header
+		minimize = header and header.MinimizeButton
+	end
 	if not minimize then
 		return
 	end

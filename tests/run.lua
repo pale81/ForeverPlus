@@ -113,6 +113,7 @@ MinimapCluster.DielFrame = NewFrame("Frame")
 ScriptErrorsFrame.seen = {}
 GameTooltip.StatusBar = NewFrame("StatusBar")
 QuestObjectiveTracker.Header = { Text = NewFrame("FS") }
+ObjectiveTrackerFrame.Header = { Text = NewFrame("FS") }
 MainActionBar.EndCaps = { LeftEndCap = NewFrame("F"), RightEndCap = NewFrame("F") }
 MainActionBar.EndCaps.LeftEndCap.Texture = NewFrame("T"); MainActionBar.EndCaps.RightEndCap.Texture = NewFrame("T")
 DressUpFrame.ModelScene = NewFrame("MS"); DressUpFrame.CustomSetDetailsPanel = NewFrame("P")

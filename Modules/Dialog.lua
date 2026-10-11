@@ -294,6 +294,49 @@ local function CreateText(frame)
 	return text
 end
 
+-- A "glitter frame": a thin gold line and two sparks that run around a row (what is chosen).
+local function AddSparkle(button, size)
+	local holder = CreateFrame("Frame", nil, button)
+	holder:SetAllPoints()
+	holder:EnableMouse(false)
+	holder.Border = ns.CreatePixelBorder(holder, button, 1, "OVERLAY", 6)
+	holder.sparks = {}
+	for index = 1, 2 do
+		local spark = holder:CreateTexture(nil, "OVERLAY", nil, 7)
+		spark:SetTexture([[Interface\Cooldown\star4]])
+		spark:SetBlendMode("ADD")
+		spark:SetSize(size or 16, size or 16)
+		spark:SetVertexColor(1, 0.9, 0.5)
+		holder.sparks[index] = spark
+	end
+	holder.t = 0
+	ns.SetUpdate(holder, "Dialog: button sparkle", function(self, elapsed)
+		self.t = (self.t + elapsed * 0.4) % 1
+		local width, height = button:GetWidth(), button:GetHeight()
+		local perimeter = 2 * (width + height)
+		for index, spark in ipairs(self.sparks) do
+			local p = ((self.t + (index - 1) * 0.5) % 1) * perimeter
+			local x, y
+			if p < width then
+				x, y = p, 0
+			elseif p < width + height then
+				x, y = width, -(p - width)
+			elseif p < 2 * width + height then
+				x, y = width - (p - width - height), -height
+			else
+				x, y = 0, -(height - (p - 2 * width - height))
+			end
+			spark:ClearAllPoints()
+			spark:SetPoint("CENTER", button, "TOPLEFT", x, y)
+		end
+	end)
+	holder:SetScript("OnShow", function(self)
+		self.Border:ShowColor(1, 0.82, 0.3)
+	end)
+	holder:Hide()
+	button.Sparkle = holder
+end
+
 local function CreateRow(frame)
 	local row = CreateFrame("Button", nil, frame)
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
@@ -315,37 +358,31 @@ local function CreateRow(frame)
 	row.Picked:SetPoint("BOTTOMRIGHT", 4, -2)
 	row.Picked:SetColorTexture(0.25, 0.9, 0.35, 0.16)
 	row.Picked:Hide()
-	row.Counter = CreateFrame("Button", nil, row)
-	row.Counter:SetSize(44, 20)
-	row.Counter:SetPoint("RIGHT", row, "RIGHT", 2, 0)
-	row.Counter.Back = row.Counter:CreateTexture(nil, "BACKGROUND")
-	row.Counter.Back:SetAllPoints()
-	row.Counter.Back:SetColorTexture(0, 0, 0, 0.55)
-	row.Counter.Border = ns.CreatePixelBorder(row.Counter, row.Counter, 1, "OVERLAY", 5)
-	row.Counter.Text = row.Counter:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	row.Counter.Text:SetPoint("CENTER")
-	row.Counter:SetScript("OnClick", function(self)
-		if row.onCounter then
-			row.onCounter(self)
+	-- The quantity of a ware in the basket: the game's own input field right of the row (left clicks on the row
+	-- count up, right clicks down; the number can be typed too).
+	row.Qty = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+	row.Qty:SetSize(40, 20)
+	row.Qty:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+	row.Qty:SetAutoFocus(false)
+	row.Qty:SetNumeric(true)
+	row.Qty:SetMaxLetters(3)
+	row.Qty:SetJustifyH("CENTER")
+	row.Qty:SetScript("OnEnterPressed", function(self)
+		self:ClearFocus()
+		local number = tonumber(self:GetText())
+		if number and row.onQuantity then
+			row.onQuantity(number)
 		end
 	end)
-	row.Counter:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip_AddNormalLine(GameTooltip, L.DIALOG_COUNTER_TIP)
-		GameTooltip:Show()
+	row.Qty:SetScript("OnEscapePressed", function(self)
+		self:ClearFocus()
 	end)
-	row.Counter:SetScript("OnLeave", GameTooltip_Hide)
-	row.Counter:SetScript("OnMouseWheel", function(_, delta)
-		if row.wheel then
-			row.wheel(delta)
-		end
-	end)
-	row.Counter:Hide()
+	row.Qty:Hide()
+	AddSparkle(row, 14)
+	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	row:EnableMouseWheel(true)
-	row:SetScript("OnMouseWheel", function(self, delta)
-		if self.wheel then
-			self.wheel(delta)
-		elseif bubble and current and current.view.kind == "MERCHANT_SHOW" then
+	row:SetScript("OnMouseWheel", function(_, delta)
+		if bubble and current and current.view.kind == "MERCHANT_SHOW" then
 			Dialog.MerchantScroll(delta)
 		end
 	end)
@@ -367,14 +404,14 @@ local function CreateRow(frame)
 		button.Highlight:Hide()
 		GameTooltip_Hide()
 	end)
-	row:SetScript("OnClick", function(button)
+	row:SetScript("OnClick", function(button, mouseButton)
 		-- A click moves the arrow to the row, then does what the row does.
 		if button.number and bubble and bubble.selectedRow ~= button.number then
 			bubble.selectedRow = button.number
 			Dialog.Rerender()
 		end
 		if button.action then
-			button.action()
+			button.action(mouseButton)
 		end
 	end)
 	return row
@@ -419,53 +456,9 @@ local function CreateItem(frame)
 	return item
 end
 
--- A "glitter frame": a thin gold line and two sparks that run around the button (the main step, ready).
-local function AddSparkle(button)
-	local holder = CreateFrame("Frame", nil, button)
-	holder:SetAllPoints()
-	holder:EnableMouse(false)
-	holder.Border = ns.CreatePixelBorder(holder, button, 1, "OVERLAY", 6)
-	holder.sparks = {}
-	for index = 1, 2 do
-		local spark = holder:CreateTexture(nil, "OVERLAY", nil, 7)
-		spark:SetTexture([[Interface\Cooldown\star4]])
-		spark:SetBlendMode("ADD")
-		spark:SetSize(20, 20)
-		spark:SetVertexColor(1, 0.9, 0.5)
-		holder.sparks[index] = spark
-	end
-	holder.t = 0
-	ns.SetUpdate(holder, "Dialog: button sparkle", function(self, elapsed)
-		self.t = (self.t + elapsed * 0.4) % 1
-		local width, height = button:GetWidth(), button:GetHeight()
-		local perimeter = 2 * (width + height)
-		for index, spark in ipairs(self.sparks) do
-			local p = ((self.t + (index - 1) * 0.5) % 1) * perimeter
-			local x, y
-			if p < width then
-				x, y = p, 0
-			elseif p < width + height then
-				x, y = width, -(p - width)
-			elseif p < 2 * width + height then
-				x, y = width - (p - width - height), -height
-			else
-				x, y = 0, -(height - (p - 2 * width - height))
-			end
-			spark:ClearAllPoints()
-			spark:SetPoint("CENTER", button, "TOPLEFT", x, y)
-		end
-	end)
-	holder:SetScript("OnShow", function(self)
-		self.Border:ShowColor(1, 0.82, 0.3)
-	end)
-	holder:Hide()
-	button.Sparkle = holder
-end
-
 local function CreateButton(frame)
 	local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	button:SetHeight(22)
-	AddSparkle(button)
 	button:SetScript("OnClick", function(self)
 		if self.action then
 			self.action()
@@ -562,13 +555,15 @@ Render = function(view)
 				label = (info.picked and "|A:common-icon-checkmark:14:14|a " or "|TInterface\\Common\\Spacer:14:14|t ") .. label
 				row.Text:SetText(label)
 				row.Picked:SetShown(info.picked and true or false)
-				row.wheel, row.onCounter = info.wheel, info.onCounter
-				row.Counter:SetShown(info.counter ~= nil)
-				if info.counter then
-					row.Counter.Text:SetText("x" .. info.counter)
-					row.Counter.Border:ShowColor(0.35, 1, 0.5)
+				row.onQuantity = info.onQuantity
+				row.Qty:SetShown(info.counter ~= nil)
+				if info.counter and not row.Qty:HasFocus() then
+					row.Qty:SetText(tostring(info.counter))
 				end
-				row.Text:SetWidth(WIDTH - iconWidth - (info.counter and 50 or 0))
+				row.Sparkle:SetShown(info.picked and true or false)
+				-- Lists with a quantity field keep one line and a free column on the right: nothing wraps or shifts.
+				row.Text:SetWordWrap(not info.reserve)
+				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
@@ -672,7 +667,6 @@ Render = function(view)
 			end
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
-			button.Sparkle:SetShown(info.glow and info.enabled ~= false or false)
 			button.action = info.action
 			button:Show()
 			x = x + button:GetWidth() + 6
@@ -833,39 +827,6 @@ function Dialog.UpdateFilter()
 	filter.Icon:SetAlpha(filter.hover and 1 or 0.7)
 	filter.Border:ShowColor(on and 0.85 or 0.55, on and 0.7 or 0.55, on and 0.3 or 0.55)
 	filter.Cross:SetShown(on and true or false)
-end
-
--- A small box over the counter to type a number (Enter takes it, Escape or a click elsewhere drops it).
-local quantityBox
-function Dialog.EditQuantity(anchor, value, onAccept)
-	if not quantityBox then
-		quantityBox = CreateFrame("EditBox", nil, bubble, "InputBoxTemplate")
-		quantityBox:SetSize(52, 20)
-		quantityBox:SetAutoFocus(true)
-		quantityBox:SetNumeric(true)
-		quantityBox:SetMaxLetters(3)
-		quantityBox:SetFrameStrata("FULLSCREEN_DIALOG")
-		quantityBox:SetScript("OnEnterPressed", function(self)
-			local number = tonumber(self:GetText())
-			self:Hide()
-			if number and self.onAccept then
-				self.onAccept(number)
-			end
-		end)
-		quantityBox:SetScript("OnEscapePressed", function(self)
-			self:Hide()
-		end)
-		quantityBox:SetScript("OnEditFocusLost", function(self)
-			self:Hide()
-		end)
-	end
-	quantityBox.onAccept = onAccept
-	quantityBox:ClearAllPoints()
-	quantityBox:SetPoint("CENTER", anchor, "CENTER", 0, 0)
-	quantityBox:SetText(tostring(value))
-	quantityBox:Show()
-	quantityBox:SetFocus()
-	quantityBox:HighlightText()
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -1420,33 +1381,32 @@ function Dialog.MerchantView()
 			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
 			dim = info.isPurchasable == false,
-			picked = isPicked, -- in the basket: a tick, a green tint and the counter
+			picked = isPicked, -- in the basket: a tick, a green tint, a glitter frame and the quantity field
 			counter = isPicked and not buyback and QuantityOf(index) or nil,
-			action = function()
-				merchantPicked[index] = not isPicked or nil
-				merchantQty[index] = merchantPicked[index] and (merchantQty[index] or 1) or nil
-				RefreshMerchant()
-			end,
-			-- The mouse wheel over a ware in the basket counts its quantity up and down (below 1 it leaves the basket).
-			wheel = isPicked and not buyback and function(delta)
-				local quantity = QuantityOf(index) + delta
-				if quantity < 1 then
-					merchantPicked[index], merchantQty[index] = nil, nil
-				else
-					merchantQty[index] = math.min(quantity, limit)
-				end
-				RefreshMerchant()
-			end or nil,
-			-- A click on the counter: type the number.
-			onCounter = isPicked and not buyback and function(anchor)
-				Dialog.EditQuantity(anchor, QuantityOf(index), function(number)
-					if number <= 0 then
+			reserve = 48,
+			-- Left click: into the basket, or one more; right click: one less (the last one takes it out again).
+			action = function(mouseButton)
+				if isPicked and not buyback then
+					local quantity = QuantityOf(index) + (mouseButton == "RightButton" and -1 or 1)
+					if quantity < 1 then
 						merchantPicked[index], merchantQty[index] = nil, nil
 					else
-						merchantQty[index] = math.min(math.floor(number), limit)
+						merchantQty[index] = math.min(quantity, limit)
 					end
-					RefreshMerchant()
-				end)
+				elseif isPicked then
+					merchantPicked[index] = nil
+				else
+					merchantPicked[index], merchantQty[index] = true, 1
+				end
+				RefreshMerchant()
+			end,
+			onQuantity = isPicked and not buyback and function(number)
+				if number < 1 then
+					merchantPicked[index], merchantQty[index] = nil, nil
+				else
+					merchantQty[index] = math.min(math.floor(number), limit)
+				end
+				RefreshMerchant()
 			end or nil,
 			tooltip = function(tooltip)
 				if buyback then
@@ -1478,7 +1438,7 @@ function Dialog.MerchantView()
 	blocks[#blocks + 1] = { money = moneyText }
 	local canBuy = #picks > 0 and payable and cost <= money
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, glow = canBuy, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, action = function()
 			if buyback then
 				-- Buy-back numbers shift with every purchase: from the back to the front.
 				for position = #picks, 1, -1 do

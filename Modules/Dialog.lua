@@ -20,6 +20,7 @@ local Dialog = ns:NewModule("Dialog", {
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
 		merchantTalk = false,  -- the merchant speaks first, the wares come with the next step (the saying is above the list otherwise)
 		merchantHide = false,  -- hide wares that cannot be used or are known already
+		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 	},
 })
@@ -223,19 +224,25 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
-	-- Merchant list, top right: a small struck-through item switches "hide what cannot be used or is known".
+	-- Merchant list, in the line of the name at the right edge: a small tool button (item, struck through while
+	-- unusable and known wares are hidden) with a soft plate behind it.
 	local filter = CreateFrame("Button", nil, frame)
-	filter:SetSize(18, 18)
-	filter:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
+	filter:SetSize(30, 22)
+	filter:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 3)
+	filter.Back = filter:CreateTexture(nil, "BACKGROUND")
+	filter.Back:SetAllPoints()
+	filter.Back:SetColorTexture(1, 1, 1, 0.08)
+	filter.Border = ns.CreatePixelBorder(filter, filter, 1, "BORDER", 2)
 	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
-	filter.Icon:SetAllPoints()
+	filter.Icon:SetSize(16, 16)
+	filter.Icon:SetPoint("CENTER")
 	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Bag_08]])
 	filter.Icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
 	filter.Icon:SetDesaturated(true)
 	-- A thin strike through the item: there when unusable and known wares are hidden.
 	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
-	filter.Cross:SetColorTexture(0.85, 0.3, 0.3, 1)
-	filter.Cross:SetSize(2, 22)
+	filter.Cross:SetColorTexture(0.9, 0.35, 0.35, 1)
+	filter.Cross:SetSize(2, 20)
 	filter.Cross:SetPoint("CENTER")
 	filter.Cross:SetRotation(math.rad(45))
 	filter:SetScript("OnEnter", function(self)
@@ -690,11 +697,39 @@ local function NpcNameplate()
 	end
 end
 
+-- The bubble sits on the lower edge of the plate and covers it: the plate is made invisible meanwhile.
+local hiddenPlate, hiddenAlpha
+
+local function RestorePlate()
+	if hiddenPlate and hiddenPlate.UnitFrame and not hiddenPlate:IsForbidden() then
+		hiddenPlate.UnitFrame:SetAlpha(hiddenAlpha or 1)
+	end
+	hiddenPlate, hiddenAlpha = nil, nil
+end
+
+local function HidePlate(plate)
+	if hiddenPlate and hiddenPlate ~= plate then
+		RestorePlate()
+	end
+	if plate and plate.UnitFrame and not plate:IsForbidden() then
+		if hiddenPlate ~= plate then
+			hiddenAlpha = ns.Number(plate.UnitFrame:GetAlpha(), 1)
+			hiddenPlate = plate
+		end
+		plate.UnitFrame:SetAlpha(0)
+	end
+end
+
 local function Place()
 	bubble:ClearAllPoints()
 	local nameplate = NpcNameplate()
 	if nameplate then
-		bubble:SetPoint("BOTTOM", nameplate, "TOP", 0, INSET + 22)
+		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
+		if Dialog.db.hidePlate then
+			HidePlate(nameplate)
+		else
+			RestorePlate()
+		end
 	else
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
@@ -760,6 +795,7 @@ end
 
 local function Hide()
 	KeepOnScreen(false)
+	RestorePlate()
 	if bubble then
 		bubble:Hide()
 		if reveal.active then
@@ -775,6 +811,7 @@ end
 -- Blizzard's window shows instead of the bubble (confirmation needed).
 local function UseBlizzard()
 	KeepOnScreen(false)
+	RestorePlate()
 	showToken = showToken + 1
 	if bubble then
 		bubble:Hide()
@@ -792,9 +829,10 @@ function Dialog.UpdateFilter()
 		return
 	end
 	local on = Dialog.db.merchantHide
-	filter.Icon:SetAlpha(filter.hover and 0.95 or 0.5)
+	filter.Back:SetColorTexture(1, 1, 1, filter.hover and 0.18 or 0.08)
+	filter.Icon:SetAlpha(filter.hover and 1 or 0.7)
+	filter.Border:ShowColor(on and 0.85 or 0.55, on and 0.7 or 0.55, on and 0.3 or 0.55)
 	filter.Cross:SetShown(on and true or false)
-	filter.Cross:SetAlpha(filter.hover and 1 or 0.8)
 end
 
 -- A small box over the counter to type a number (Enter takes it, Escape or a click elsewhere drops it).
@@ -1685,6 +1723,7 @@ Dialog.options = {
 	{ key = "style", type = "dropdown", name = L.DIALOG_STYLE, desc = L.DIALOG_STYLE_DESC, parent = "enabled", values = {
 		{ "PLAYER", L.DIALOG_STYLE_PLAYER }, { "DARK", L.DIALOG_STYLE_DARK },
 	} },
+	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
 	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },

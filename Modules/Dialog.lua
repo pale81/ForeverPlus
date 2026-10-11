@@ -235,15 +235,7 @@ local function CreateBubble()
 	local filter = CreateFrame("Button", nil, frame)
 	filter:SetSize(14, 14)
 	filter:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
-	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
-	filter.Icon:SetAllPoints()
-	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Book_09]])
-	filter.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	filter.Icon:SetDesaturated(true)
-	filter.Mask = filter:CreateMaskTexture()
-	filter.Mask:SetAllPoints(filter.Icon)
-	filter.Mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-	filter.Icon:AddMaskTexture(filter.Mask)
+	ns.SetRoundGreyIcon(filter, [[Interface\Icons\INV_Misc_Book_09]])
 	filter.Cross = filter:CreateTexture(nil, "OVERLAY")
 	filter.Cross:SetAtlas("common-icon-redx")
 	filter.Cross:SetSize(10, 10)
@@ -269,6 +261,69 @@ local function CreateBubble()
 	filter:HookScript("OnLeave", GameTooltip_Hide)
 	filter:Hide()
 	frame.Filter = filter
+	-- Beside the book, same style and size: repair, sell junk, restock (each only where the merchant can do it).
+	frame.Tools = {}
+	local function Tool(key, texture, onClick, onTip)
+		local tool = CreateFrame("Button", nil, frame)
+		tool:SetSize(14, 14)
+		ns.SetRoundGreyIcon(tool, texture)
+		tool:SetScript("OnEnter", function(self)
+			self.hover = true
+			self.Icon:SetAlpha(1)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			onTip(GameTooltip)
+			GameTooltip:Show()
+		end)
+		tool:SetScript("OnLeave", function(self)
+			self.hover = nil
+			self.Icon:SetAlpha(self.enabledLook and 0.6 or 0.3)
+			GameTooltip_Hide()
+		end)
+		tool:SetScript("OnClick", function(self)
+			if self.enabledLook then
+				onClick()
+			end
+		end)
+		tool:Hide()
+		frame.Tools[key] = tool
+	end
+	Tool("repair", [[Interface\Icons\Trade_BlackSmithing]], function()
+		local tools = ns.MerchantTools
+		if tools then
+			tools.Repair()
+		end
+	end, function(tooltip)
+		local cost = GetRepairAllCost()
+		GameTooltip_SetTitle(tooltip, L.DIALOG_REPAIR)
+		GameTooltip_AddNormalLine(tooltip, GetMoneyString(cost or 0, true))
+	end)
+	Tool("sell", [[Interface\Icons\INV_Misc_Coin_01]], function()
+		local tools = ns.MerchantTools
+		if tools then
+			tools.SellJunk()
+		end
+	end, function(tooltip)
+		local tools = ns.MerchantTools
+		local count, value = 0, 0
+		if tools then
+			count, value = tools.JunkValue()
+		end
+		GameTooltip_SetTitle(tooltip, L.DIALOG_SELL_JUNK:format(count))
+		GameTooltip_AddNormalLine(tooltip, GetMoneyString(value or 0, true))
+	end)
+	Tool("restock", [[Interface\Icons\INV_Misc_Bag_08]], function()
+		local restock = ns:GetModule("Restock")
+		restock.MerchantBuy()
+	end, function(tooltip)
+		local restock = ns:GetModule("Restock")
+		local plan, cost = restock.MerchantPlan()
+		GameTooltip_SetTitle(tooltip, L.DIALOG_TOOL_RESTOCK)
+		GameTooltip_AddNormalLine(tooltip, L.DIALOG_TOOL_RESTOCK_TIP)
+		for _, entry in ipairs(plan) do
+			tooltip:AddLine(("%d x %s"):format(entry.amount, entry.name), 1, 1, 1)
+		end
+		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
+	end)
 	-- A grey x at the top right closes merchant and trainer windows (they have no "close" button).
 	local close = CreateFrame("Button", nil, frame)
 	close:SetSize(14, 14)
@@ -378,7 +433,7 @@ local function CreateRow(frame)
 			glow:SetJustifyH("LEFT")
 			glow:SetJustifyV("TOP")
 			glow:SetNonSpaceWrap(true)
-			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.34 or 0.17)
+			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.27 or 0.09)
 			glow:Hide()
 			row.Glow[#row.Glow + 1] = glow
 		end
@@ -560,7 +615,7 @@ Render = function(view)
 				row.Text:SetWordWrap(not info.reserve)
 				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
-				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
+				row.Text:SetTextColor(unpack(emphasised and { 1, 0.97, 0.78 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
 				for _, glow in ipairs(row.Glow) do
 					glow:SetShown(emphasised and true or false)
@@ -653,6 +708,7 @@ Render = function(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
+	Dialog.UpdateTools(view)
 	frame.Close:SetShown(view.kind == "MERCHANT_SHOW" or view.kind == "TRAINER_SHOW")
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
@@ -832,6 +888,29 @@ function Dialog.UpdateFilter()
 	local on = Dialog.db.merchantHide
 	filter.Icon:SetAlpha(filter.hover and 1 or 0.6)
 	filter.Cross:SetShown(on and true or false)
+end
+
+-- Repair, sell junk and restock symbols beside the book: only those the merchant offers, packed to the left.
+function Dialog.UpdateTools(view)
+	local frame = bubble
+	if not frame then
+		return
+	end
+	-- Worked out once per view (MerchantView), not again here: the bags are not scanned twice.
+	local available = view and view.kind == "MERCHANT_SHOW" and view.filter and view.tools or {}
+	local x = 2 - 18
+	for _, key in ipairs({ "repair", "sell", "restock" }) do
+		local tool = frame.Tools[key]
+		local state = available[key]
+		tool:SetShown(state ~= nil)
+		if state ~= nil then
+			tool.enabledLook = state
+			tool:ClearAllPoints()
+			tool:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", x, -2)
+			tool.Icon:SetAlpha(tool.hover and 1 or (state and 0.6 or 0.3))
+			x = x - 18
+		end
+	end
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -1476,6 +1555,7 @@ function Dialog.MerchantView()
 	end
 	blocks[#blocks + 1] = { money = moneyText }
 	local canBuy = #picks > 0 and payable and cost <= money
+	local available = {} -- the symbols beside the book: repair, sell, restock
 	local buttons = {
 		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, enabled = canBuy, action = function()
 			if buyback then
@@ -1520,6 +1600,7 @@ function Dialog.MerchantView()
 			local junkCount = tools.JunkValue()
 			if junkCount > 0 then
 				buttons[#buttons + 1] = { text = L.DIALOG_SELL_JUNK:format(junkCount), action = tools.SellJunk }
+				available.sell = true
 			end
 		end
 		if CanMerchantRepair and CanMerchantRepair() then
@@ -1528,11 +1609,16 @@ function Dialog.MerchantView()
 				buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = repairCost <= money, action = function()
 					RepairAllItems(false)
 				end }
+				available.repair = repairCost <= money -- false: shown dim
 			end
+		end
+		local restock = ns:GetModule("Restock")
+		if restock and restock.MerchantPlan and #restock.MerchantPlan() > 0 then
+			available.restock = true
 		end
 	end
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
-	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback }
+	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback, tools = available }
 end
 
 ---------------------------------------------------------------------------

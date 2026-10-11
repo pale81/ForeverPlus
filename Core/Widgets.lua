@@ -90,6 +90,21 @@ function ns.CreatePanel(name, options)
 	return panel
 end
 
+-- A small round grey game icon on a button (like the buttons at the minimap), dull until the mouse is over it:
+-- button.Icon and button.Mask.
+function ns.SetRoundGreyIcon(button, texture)
+	button.Icon = button:CreateTexture(nil, "ARTWORK")
+	button.Icon:SetAllPoints()
+	button.Icon:SetTexture(texture)
+	button.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	button.Icon:SetDesaturated(true)
+	button.Icon:SetAlpha(0.6)
+	button.Mask = button:CreateMaskTexture()
+	button.Mask:SetAllPoints(button.Icon)
+	button.Mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	button.Icon:AddMaskTexture(button.Mask)
+end
+
 -- Copy symbol in the colour of the tab labels (gold), white while hovered;
 -- the symbol itself is drawn desaturated so it matches the rest of the UI.
 function ns.StyleCopyButton(button)

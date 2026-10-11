@@ -1834,6 +1834,20 @@ end)()
 	assert(bought[1] == "1x1" and #bought == 1, "button buys once: " .. table.concat(bought, ","))
 	view = dialog.MerchantView()
 	assert(view.buttons[1].enabled == false, "basket empty after buying")
+	-- Restock at the merchant: a marked item sold singly is bought up to a full stack, capped by the purse.
+	local restock = ns:GetModule("Restock")
+	local savedDb, savedCdb = restock.db, restock.cdb
+	restock.db, restock.cdb = { enabled = true, message = false }, { items = { [777] = true, [888] = "bank" } }
+	GetMerchantItemLink = function(i) return i == 1 and "item:777" or nil end
+	local savedItem = C_Item
+	C_Item = setmetatable({ GetItemInfoInstant = function(link) return tonumber(tostring(link):match("item:(%d+)")) end,
+		GetItemMaxStackSizeByID = function() return 20 end, GetItemCount = function() return 15 end }, { __index = savedItem })
+	local plan, planCost = restock.MerchantPlan()
+	assert(#plan == 1 and plan[1].index == 1 and plan[1].amount == 1, "restock buys the one missing item (money 150, price 100): " .. tostring(plan[1] and plan[1].amount))
+	assert(planCost == 100, "restock cost")
+	C_Item = savedItem
+	restock.db, restock.cdb = savedDb, savedCdb
+	GetMerchantItemLink = function() return nil end
 	ns.MerchantTools = tools
 	print("merchant view OK")
 end)()

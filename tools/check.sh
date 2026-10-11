@@ -11,6 +11,10 @@ done
 [ -n "$LUA" ] || { echo "Lua 5.1 fehlt: sh tools/setup-local.sh"; exit 1; }
 export QUESTIEDB="${QUESTIEDB:-$DEV/QuestieDB/}"
 [ -d "$QUESTIEDB" ] || { echo "QuestieDB fehlt in $QUESTIEDB: sh tools/setup-local.sh"; exit 1; }
-(cd tests && "$LUA" run.lua ..) | tail -n 3
+OUT="$(mktemp)"
+trap 'rm -f "$OUT"' EXIT
+(cd tests && "$LUA" run.lua ..) >"$OUT" 2>&1 || { tail -n 20 "$OUT"; echo "TESTS FEHLGESCHLAGEN"; exit 1; }
+tail -n 3 "$OUT"
 command -v luacheck >/dev/null 2>&1 || { echo "luacheck fehlt: sh tools/setup-local.sh"; exit 1; }
-luacheck . | tail -n 2
+luacheck . >"$OUT" 2>&1 || { tail -n 30 "$OUT"; echo "LUACHECK FEHLGESCHLAGEN"; exit 1; }
+tail -n 2 "$OUT"

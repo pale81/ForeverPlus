@@ -1745,6 +1745,53 @@ end)()
 	end
 end)()
 ;(function()
+	-- Time in the finished level: the difference of the level starts (total played time minus time in the level).
+	local info = ns:GetModule("Info")
+	info.db.levelTime = true
+	UnitLevel = function() return 11 end
+	SecondsToTime = function(seconds) return tostring(seconds) .. "s" end
+	local handler = info.TIME_PLAYED_MSG
+	local known = uv(handler, "LevelTimeKnown")
+	assert(known, "level time reachable")
+	-- level 10 began at 600 s (total 1000, 400 in the level)
+	UnitLevel = function() return 10 end
+	handler(info, "TIME_PLAYED_MSG", 1000, 400)
+	-- level-up to 11: the request arrives with total 2600 and 5 s in the new level
+	local index
+	for i = 1, 60 do local name = debug.getupvalue(handler, i) if name == "levelPending" then index = i end end
+	assert(index, "levelPending upvalue")
+	debug.setupvalue(handler, index, { level = 11, at = GetTime() })
+	UnitLevel = function() return 11 end
+	handler(info, "TIME_PLAYED_MSG", 2600, 5)
+	local text = uv(known, "levelText")
+	assert(text and text:find("10") and text:find("1995"), "time of level 10: " .. tostring(text))
+	print("level time OK")
+end)()
+;(function()
+	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
+	local indent = ns:GetModule("ChatIndent")
+	assert(indent and indent.Wrap, "chat indent module")
+	local measureBefore, fn = indent.measure, uv(indent.Wrap, "PrepareMeter")
+	indent.measure = function(text) return #(text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1")) end
+	-- meter is created on demand from the hider frame; the mock is lenient, so only the key matters here
+	local frame = { GetWidth = function() return 60 end, GetFontObject = function() return nil end }
+	ChatFrameUtil = { GetTimestampFormat = function() return "%H:%M " end }
+	TimeUtil = { BetterDate = function(format, t) return os.date(format, t) end }
+	local message = "12:34 aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll"
+	local ok, wrapped = pcall(indent.Wrap, frame, message)
+	assert(ok, tostring(wrapped))
+	if wrapped then
+		local first, second = wrapped:match("^(.-)\n(.*)$")
+		assert(first and second:sub(1, 6) == "      ", "continuation indented by the timestamp: " .. wrapped)
+		assert(not indent.Wrap({ GetWidth = function() return 400 end, GetFontObject = function() return nil end }, message), "short text unchanged")
+		print("chat indent OK")
+	else
+		error("chat indent: no wrap")
+	end
+	indent.measure = measureBefore
+	assert(fn, "meter set-up reachable")
+end)()
+;(function()
 	-- Talent plan as Blizzard's loadout text: same bit layout the game reads back.
 	local talents = ns:GetModule("Talents")
 	local menu = uv(talents.OnLogin, "CreateButtons") and uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")

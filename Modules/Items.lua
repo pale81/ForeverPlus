@@ -16,6 +16,7 @@ local Items = ns:NewModule("Items", {
 		questReward = true,
 		upgradeArrow = true,
 		rewardUpgrade = true,
+		moneyPickup = true,
 		upgradeScore = false,
 		upgradePopup = true,
 		fastLoot = true,
@@ -846,7 +847,7 @@ end
 -- settings that concern the bags.
 ---------------------------------------------------------------------------
 local MENU_SECTIONS_BAG = {
-	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
+	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "Items", "moneyPickup", "ITEMS_MONEY_PICKUP" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
 	{ L.ITEMS_DISPLAY, {
 		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "rewardUpgrade", "ITEMS_REWARD_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
 		{ "Items", "upgradePopup", "ITEMS_UPGRADE_POPUP" },
@@ -959,6 +960,56 @@ local function PostUpdateItems(frame)
 	end
 end
 
+-- Money of the backpack: Blizzard's click opens the currency tab; here a click takes up coins again
+-- (a window asks for the amount, then the coins hang on the cursor like an item), Shift + click
+-- opens the currency tab as before. Own click areas lie on the coin buttons.
+local moneyAreas = {}
+
+local function MoneyClick(moneyFrame)
+	if GetCursorMoney() > 0 then
+		DropCursorMoney()
+		return
+	end
+	if IsShiftKeyDown() or not (MoneyInputFrame_OpenPopup and MoneyTypeInfo and MoneyTypeInfo.PLAYER) then
+		-- Blizzard's own behaviour (currency tab).
+		if MoneyInputFrame_OpenPopup then
+			MoneyInputFrame_OpenPopup(moneyFrame)
+		end
+		return
+	end
+	-- A stand-in without the currency flag: the window asks how much to take up.
+	MoneyInputFrame_OpenPopup({ info = MoneyTypeInfo.PLAYER })
+end
+
+local function HookMoneyFrame(moneyFrame)
+	if not moneyFrame then
+		return
+	end
+	for _, key in ipairs({ "GoldButton", "SilverButton", "CopperButton" }) do
+		local button = moneyFrame[key]
+		if button and not moneyAreas[button] then
+			local area = CreateFrame("Button", nil, button)
+			area:SetAllPoints(button)
+			area:SetFrameLevel(button:GetFrameLevel() + 3)
+			area:SetScript("OnClick", function()
+				MoneyClick(moneyFrame)
+			end)
+			area:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:SetText(L.ITEMS_MONEY_TIP, 1, 1, 1)
+				GameTooltip:AddLine(L.ITEMS_MONEY_TIP_PICK, nil, nil, nil, true)
+				GameTooltip:AddLine(L.ITEMS_MONEY_TIP_CURRENCY, 0.7, 0.7, 0.7, true)
+				GameTooltip:Show()
+			end)
+			area:SetScript("OnLeave", GameTooltip_Hide)
+			moneyAreas[button] = area
+		end
+		if moneyAreas[button] then
+			moneyAreas[button]:SetShown(Items.db.moneyPickup and true or false)
+		end
+	end
+end
+
 local function HookContainerFrames()
 	local frames = { ContainerFrameCombinedBags }
 	for _, frame in ipairs(ContainerFrameContainer.ContainerFrames) do
@@ -966,6 +1017,7 @@ local function HookContainerFrames()
 	end
 	for _, frame in ipairs(frames) do
 		HookBagFrameMenu(frame)
+		HookMoneyFrame(frame.MoneyFrame)
 		if frame and frame.UpdateItems then
 			hooksecurefunc(frame, "UpdateItems", ns.Measured("Items: bag update", PostUpdateItems))
 		end
@@ -1690,6 +1742,11 @@ function Items:OnOptionChanged(key)
 	end
 	self:Refresh()
 	UpdateAllBags()
+	if key == "moneyPickup" then
+		for _, area in pairs(moneyAreas) do
+			area:SetShown(self.db.moneyPickup and true or false)
+		end
+	end
 	if QuestInfoFrame:IsVisible() then
 		MarkBestReward()
 		MarkRewardUpgrades()
@@ -1716,6 +1773,7 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_BAGS },
 	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
 	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
+	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

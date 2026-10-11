@@ -9,6 +9,7 @@ local Info = ns:NewModule("Info", {
 	defaults = {
 		played = true,
 		performance = true,
+		levelTime = true,
 		characters = {}, -- "Realm" -> { name -> { total, class, level, time } }
 	},
 })
@@ -47,10 +48,65 @@ local function CharacterEntry()
 	return entry
 end
 
-function Info:TIME_PLAYED_MSG(_, total)
+---------------------------------------------------------------------------
+-- Time in the level that was just finished: below the level-up message in the middle of the screen.
+-- The start of every level (total played time at its beginning) is kept per character; after a level-up
+-- the time between the two starts is the duration of the finished level.
+---------------------------------------------------------------------------
+local LEVEL_WAIT = 30       -- seconds a reached level waits for the played time
+local levelPending          -- { level, at } after a level-up, until the played time arrives
+local levelText, levelTextAt -- the line for the toast
+local levelLine
+
+local function ShowLevelLine()
+	local manager = EventToastManagerFrame
+	local toast = manager and manager.currentDisplayingToast
+	local isLevel = toast and toast.toastInfo and Enum and Enum.EventToastEventType
+		and toast.toastInfo.eventType == Enum.EventToastEventType.LevelUp
+	if levelLine and not (isLevel and levelText) then
+		levelLine:Hide()
+	end
+	if not (isLevel and levelText and levelTextAt and GetTime() - levelTextAt < 60) then
+		return false
+	end
+	if not levelLine then
+		levelLine = manager:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	end
+	levelLine:ClearAllPoints()
+	levelLine:SetPoint("TOP", toast, "BOTTOM", 0, -8)
+	levelLine:SetText(levelText)
+	levelLine:Show()
+	return true
+end
+
+local function LevelTimeKnown(level, seconds)
+	levelText = L.INFO_LEVEL_TIME:format(level - 1, SecondsToTime(seconds, true, false, 3))
+	levelTextAt = GetTime()
+	if not ShowLevelLine() then
+		-- The message may come a little later (or not exist in this client): the line goes to the chat then.
+		C_Timer.After(8, function()
+			if levelText and levelTextAt and GetTime() - levelTextAt >= 8 and not (levelLine and levelLine:IsShown()) then
+				ns.Print(levelText)
+			end
+		end)
+	end
+end
+
+function Info:TIME_PLAYED_MSG(_, total, levelTime)
 	local entry = CharacterEntry()
 	entry.total, entry.time = total, time()
 	playedReceived = true
+	if type(total) == "number" and type(levelTime) == "number" then
+		local start = total - levelTime
+		if levelPending and GetTime() - levelPending.at < LEVEL_WAIT then
+			local reached = levelPending.level
+			if self.db.levelTime and entry.levelStart and entry.levelStartLevel == reached - 1 and start > entry.levelStart then
+				LevelTimeKnown(reached, start - entry.levelStart)
+			end
+		end
+		levelPending = nil
+		entry.levelStart, entry.levelStartLevel = start, UnitLevel("player")
+	end
 	-- The chat frames receive the event before this handler; unmute afterwards.
 	C_Timer.After(0, UnmuteChat)
 end
@@ -357,7 +413,16 @@ function Info:OnLogin()
 	self:RegisterEvent("TIME_PLAYED_MSG")
 	self:RegisterEvent("PLAYER_LEVEL_UP", function(_, _, level)
 		CharacterEntry().level = level
+		if self.db.levelTime and type(level) == "number" then
+			levelPending = { level = level, at = GetTime() }
+			levelText = nil
+			-- A moment later, so the server has counted the new level.
+			C_Timer.After(1, RequestPlayedSilently)
+		end
 	end)
+	if EventToastManagerFrame and EventToastManagerFrame.DisplayToast then
+		hooksecurefunc(EventToastManagerFrame, "DisplayToast", ns.Measured("Info: level time", ShowLevelLine))
+	end
 	C_Timer.After(3, RequestPlayedSilently)
 	ns.OnAddOnLoaded("Blizzard_TimeManager", function()
 		if TimeManagerClockButton_UpdateTooltip then
@@ -381,4 +446,5 @@ end
 Info.options = {
 	{ key = "played", type = "toggle", name = L.INFO_PLAYED_OPT, desc = L.INFO_PLAYED_DESC },
 	{ key = "performance", type = "toggle", name = L.INFO_PERF, desc = L.INFO_PERF_DESC },
+	{ key = "levelTime", type = "toggle", name = L.INFO_LEVEL_TIME_OPT, desc = L.INFO_LEVEL_TIME_DESC, new = true },
 }

@@ -1001,7 +1001,8 @@ do
 	local radar = ns:GetModule("RecipeRadar")
 	local created, titles, checkboxes = 0, 0, {}
 	local root = { CreateDivider = function() created = created + 1 end, CreateTitle = function() titles = titles + 1 end,
-		CreateCheckbox = function(_, name, isOn, set) checkboxes[#checkboxes + 1] = { name = name, isOn = isOn, set = set } end }
+		CreateCheckbox = function(_, name, isOn, set) checkboxes[#checkboxes + 1] = { name = name, isOn = isOn, set = set } end,
+		CreateButton = function() return { CreateCheckbox = function() return {} end } end }
 	mm.db.trackingEntries = false
 	add(root); assert(#checkboxes == 0, "option off: no entries")
 	mm.db.trackingEntries = true
@@ -2627,7 +2628,7 @@ end)()
 	assert(#texts == 0, "option off: no entries")
 	WM.db.filterMenu = true
 	WM.AddFilterMenu(node(0))
-	assert(texts[1] == "# ForeverPlus", "own section under a title")
+	assert(texts[1] == "# " .. ns.L.MENU_EXTRAS, "own section under a title")
 	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
 		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
 	assert(nested >= 3, "recipe radar options as a submenu")

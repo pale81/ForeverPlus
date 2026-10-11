@@ -36,6 +36,7 @@ local PALETTES = {
 
 local bubble
 local current -- { view, selected }
+local history = {} -- earlier gossip and greeting steps of this conversation, for "back"
 local showToken = 0 -- counts the steps shown (a closing event only counts when no new step followed)
 local collapsed = {} -- Blizzard window -> original scale
 
@@ -70,6 +71,35 @@ local function CreateBubble()
 	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, -10)
 	frame.hasArt = frame.Art ~= nil
 	frame.hasTail = frame.Tail ~= nil
+	frame.Abandon = CreateFrame("Button", nil, frame)
+	frame.Abandon:SetSize(16, 16)
+	frame.Abandon:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
+	frame.Abandon.Icon = frame.Abandon:CreateTexture(nil, "ARTWORK")
+	frame.Abandon.Icon:SetAllPoints()
+	frame.Abandon.Icon:SetAtlas("common-icon-redx")
+	frame.Abandon:SetScript("OnEnter", function(self)
+		self.Icon:SetVertexColor(1, 1, 1)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.DIALOG_ABANDON)
+		GameTooltip_AddNormalLine(GameTooltip, self.armed and L.DIALOG_ABANDON_CONFIRM or L.DIALOG_ABANDON_HINT)
+		GameTooltip:Show()
+	end)
+	frame.Abandon:SetScript("OnLeave", function(self)
+		self.Icon:SetVertexColor(self.armed and 1 or 0.8, self.armed and 0.4 or 0.8, self.armed and 0.4 or 0.8)
+		GameTooltip_Hide()
+	end)
+	frame.Abandon:SetScript("OnClick", function(self)
+		if not self.armed then
+			self.armed = true
+			self.Icon:SetVertexColor(1, 0.4, 0.4)
+			GameTooltip:Hide()
+			C_Timer.After(3, function()
+				self.armed = false
+			end)
+			return
+		end
+		Dialog.AbandonQuest(self.questID)
+	end)
 	-- Space takes the main step (accept, continue, complete), like in the parchment windows.
 	frame:EnableKeyboard(true)
 	frame:SetPropagateKeyboardInput(true)
@@ -299,10 +329,22 @@ Render = function(view)
 			AddText(block.money, palette.text)
 		end
 	end
-	-- Buttons side by side at the bottom.
-	if view.buttons and #view.buttons > 0 then
+	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
+	local buttons = {}
+	for _, info in ipairs(view.buttons or {}) do
+		buttons[#buttons + 1] = info
+	end
+	if #history > 0 then
+		table.insert(buttons, math.max(#buttons, 1), { text = L.DIALOG_BACK, action = Dialog.GoBack })
+	end
+	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
+	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
+	frame.Abandon.questID = view.abandonQuestID
+	frame.Abandon.armed = false
+	frame.Abandon.Icon:SetVertexColor(0.8, 0.8, 0.8)
+	if #buttons > 0 then
 		local x = 0
-		for _, info in ipairs(view.buttons) do
+		for _, info in ipairs(buttons) do
 			used.button = used.button + 1
 			local button = Pooled(frame, "button", used.button, CreateButton)
 			button:SetText(info.text)
@@ -378,6 +420,7 @@ local function Hide()
 		bubble:Hide()
 	end
 	current = nil
+	wipe(history)
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false)
 end
@@ -393,11 +436,19 @@ local function UseBlizzard()
 	ns.ShowFriendlyPlates(false)
 end
 
-local function Show(view)
+local function Show(view, fromBack)
 	if not bubble then
 		bubble = CreateBubble()
 	end
 	showToken = showToken + 1
+	if not current then
+		wipe(history)
+	elseif not fromBack and current.view ~= view and (current.view.kind == "GOSSIP_SHOW" or current.view.kind == "QUEST_GREETING") then
+		history[#history + 1] = current.view
+		if #history > 8 then
+			table.remove(history, 1)
+		end
+	end
 	current = { view = view }
 	Render(view)
 	Place()
@@ -641,6 +692,33 @@ local function NeedsBlizzard(event)
 	return false
 end
 
+-- Back to the step before (gossip and greeting steps are kept); the game's own
+-- state is not changed, a choice made there is made again.
+function Dialog.GoBack()
+	local previous = table.remove(history)
+	if previous then
+		Show(previous, true)
+	end
+end
+
+function Dialog.AbandonQuest(questID)
+	if not questID or InCombatLockdown() then
+		return
+	end
+	local selected = C_QuestLog.GetSelectedQuest and C_QuestLog.GetSelectedQuest()
+	pcall(function()
+		C_QuestLog.SetSelectedQuest(questID)
+		C_QuestLog.SetAbandonQuest()
+		C_QuestLog.AbandonQuest()
+	end)
+	if selected and selected ~= questID then
+		C_QuestLog.SetSelectedQuest(selected)
+	end
+	if CloseQuest then
+		CloseQuest()
+	end
+end
+
 function Dialog:OnConversation(event)
 	if not self.db.enabled or InCombatLockdown() then
 		return
@@ -651,6 +729,11 @@ function Dialog:OnConversation(event)
 	end
 	local ok, view = pcall(Dialog[VIEWS[event]])
 	if ok and view then
+		view.kind = event
+		if event == "QUEST_PROGRESS" and GetQuestID then
+			local id = GetQuestID()
+			view.abandonQuestID = type(id) == "number" and id > 0 and id or nil
+		end
 		Show(view)
 	else
 		-- Blizzard's window shows instead; the reason is reported once.

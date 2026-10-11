@@ -1334,6 +1334,13 @@ end)()
 		local ok, err = pcall(dialog.OnConversation, dialog, event)
 		assert(ok, event .. ": " .. tostring(err))
 	end
+	-- back: gossip first, then a quest detail; "back" shows the gossip step again
+	dialog:OnConversation("GOSSIP_SHOW")
+	dialog:OnConversation("QUEST_DETAIL")
+	assert(pcall(dialog.GoBack), "back runs")
+	GetQuestID = function() return 77 end
+	assert(pcall(dialog.OnConversation, dialog, "QUEST_PROGRESS"), "progress with abandon")
+	assert(pcall(dialog.AbandonQuest, 77), "abandon runs")
 	local reward = dialog.RewardView()
 	assert(#reward.buttons == 2 and reward.blocks[3].choose, "reward choice")
 	dialog.db.style = "DARK"

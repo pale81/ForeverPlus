@@ -298,6 +298,7 @@ local function CreateOpenButton()
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	button:Hide()
+	ns.FrameActionButton(button)
 	openButton = button
 	ns:RegisterEditFrame(button, "OpenButton", L.HELPERS_OPEN_BUTTON, { "CENTER", UIParent, "CENTER", 60, -180 }, UpdateOpenButton)
 end

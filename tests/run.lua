@@ -1776,6 +1776,25 @@ end)()
 	print("level time OK")
 end)()
 ;(function()
+	-- Trainer in the bubble: affordable services are selectable rows, the rest follows dimmed.
+	local dialog = ns:GetModule("Dialog")
+	GetNumTrainerServices = function() return 3 end
+	GetTrainerServiceInfo = function(i)
+		local data = { { "Erste Hilfe", "available", 1, 1, "Lehrling" }, { "Zweiter", "unavailable", 2, 20, "" }, { "Alt", "used", 3, 1, "" } }
+		return unpack(data[i])
+	end
+	GetTrainerServiceCost = function(i) return i == 1 and 100 or 500 end
+	GetMoney = function() return 1000 end
+	GetMoneyString = function(copper) return tostring(copper) .. "c" end
+	UnitLevel = function() return 10 end
+	local view = dialog.TrainerView()
+	local rows
+	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
+	assert(rows and #rows == 2 and rows[1].action and not rows[2].action and rows[2].dim, "available first, locked dimmed, used left out")
+	assert(view.buttons[1].enabled == false and view.buttons[2].enabled == true, "train needs a selection, train all is possible")
+	print("trainer view OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

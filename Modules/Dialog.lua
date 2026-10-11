@@ -223,8 +223,32 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
-	-- While it is shown the place is checked now and then (camera and plate move).
-	frame.Fitter = CreateFrame("Frame", nil, frame)
+	-- Merchant list, top right: a small struck-through item switches "hide what cannot be used or is known".
+	local filter = CreateFrame("Button", nil, frame)
+	filter:SetSize(18, 18)
+	filter:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
+	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
+	filter.Icon:SetAllPoints()
+	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Bag_08]])
+	filter.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	filter.Border = ns.CreatePixelBorder(filter, filter, 1, "OVERLAY", 5)
+	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
+	filter.Cross:SetAtlas("common-icon-redx")
+	filter.Cross:SetSize(14, 14)
+	filter.Cross:SetPoint("CENTER")
+	filter:SetScript("OnClick", function()
+		Settings.SetValue("ForeverPlus_Dialog_merchantHide", not Dialog.db.merchantHide)
+		Dialog.OnConversation(Dialog, "MERCHANT_UPDATE")
+	end)
+	filter:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.DIALOG_MERCHANT_HIDE)
+		GameTooltip_AddNormalLine(GameTooltip, Dialog.db.merchantHide and L.DIALOG_FILTER_ON or L.DIALOG_FILTER_OFF)
+		GameTooltip:Show()
+	end)
+	filter:SetScript("OnLeave", GameTooltip_Hide)
+	filter:Hide()
+	frame.Filter = filter
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.selectedRow = 1
 	return frame
@@ -500,6 +524,14 @@ Render = function(view)
 		table.insert(buttons, math.max(#buttons, 1), { text = L.DIALOG_BACK, action = Dialog.GoBack })
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
+	frame.Filter:SetShown(view.filter and true or false)
+	if view.filter then
+		local on = Dialog.db.merchantHide
+		frame.Filter.Icon:SetDesaturated(not on)
+		frame.Filter.Icon:SetAlpha(on and 1 or 0.7)
+		frame.Filter.Cross:SetAlpha(on and 1 or 0.55)
+		frame.Filter.Border:ShowColor(on and 1 or 0.6, on and 0.82 or 0.6, on and 0.2 or 0.6)
+	end
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
 	frame.Abandon.questID = view.abandonQuestID
 	frame.Abandon.armed = false
@@ -543,40 +575,11 @@ local function NpcNameplate()
 	end
 end
 
--- A big bubble must not leave the screen (camera angle, a plate high up): the offsets above the plate
--- are worked out from the plate's place each time, so the bubble slides down or aside as needed.
-local function FitOffsets(plate, x, y)
-	local scale = ns.Number(plate:GetEffectiveScale(), 1) / ns.Number(UIParent:GetEffectiveScale(), 1)
-	local top, centerX = ns.Number(plate:GetTop()), ns.Number((plate:GetCenter()))
-	if not (top and centerX) then
-		return x, y
-	end
-	top, centerX = top * scale, centerX * scale
-	local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
-	local margin = INSET + 10
-	local over = top + y + bubble:GetHeight() + margin - screenHeight
-	if over > 0 then
-		y = y - over
-	end
-	local half = WIDTH / 2 + margin
-	local left, right = centerX + x - half, centerX + x + half
-	if left < 0 then
-		x = x - left
-	elseif right > screenWidth then
-		x = x - (right - screenWidth)
-	end
-	return x, y
-end
-
 local function Place()
 	bubble:ClearAllPoints()
 	local nameplate = NpcNameplate()
 	if nameplate then
-		local x, y = 0, INSET + 22
-		if Dialog.db.onScreen then
-			x, y = FitOffsets(nameplate, x, y)
-		end
-		bubble:SetPoint("BOTTOM", nameplate, "TOP", x, y)
+		bubble:SetPoint("BOTTOM", nameplate, "TOP", 0, INSET + 22)
 	else
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
@@ -658,15 +661,11 @@ end
 local function Show(view, fromBack)
 	if not bubble then
 		bubble = CreateBubble()
-		local sinceCheck = 0
-		ns.SetUpdate(bubble.Fitter, "Dialog: keep on screen", function(_, elapsed)
-			sinceCheck = sinceCheck + elapsed
-			if sinceCheck > 0.03 and Dialog.db.onScreen and current and NpcNameplate() then
-				sinceCheck = 0
-				Place()
-			end
-		end)
 	end
+	-- Nameplates are restricted regions (they cannot be measured), so the engine does the keeping: the
+	-- clamp rectangle includes the art around the bubble, which lies outside the frame itself.
+	bubble:SetClampedToScreen(Dialog.db.onScreen and true or false)
+	bubble:SetClampRectInsets(-(INSET + 10), INSET + 10, INSET + 10, -(INSET + 10))
 	bubble.selectedRow = 1
 	showToken = showToken + 1
 	if not current then
@@ -1295,7 +1294,7 @@ function Dialog.MerchantView()
 		end
 	end }
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
-	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true }
+	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback }
 end
 
 ---------------------------------------------------------------------------

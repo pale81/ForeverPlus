@@ -28,7 +28,17 @@ if ! command -v brew >/dev/null 2>&1; then
 	exit 1
 fi
 export HOMEBREW_NO_AUTO_UPDATE=1
-if ! { command -v lua5.1 || command -v lua-5.1 || [ -x /opt/homebrew/opt/lua@5.1/bin/lua5.1 ] || [ -x /usr/local/opt/lua@5.1/bin/lua5.1 ]; } >/dev/null 2>&1; then brew install lua@5.1 || echo "lua@5.1 konnte nicht installiert werden"; fi
+if ! { command -v lua5.1 || command -v lua-5.1 || [ -x "$DEV/lua51/bin/lua" ]; } >/dev/null 2>&1; then
+	# Homebrew fuehrt lua@5.1 nicht mehr: Lua 5.1.5 wird aus dem Quelltext nach $DEV/lua51 gebaut.
+	mkdir -p "$DEV/src-lua51"
+	(
+		cd "$DEV/src-lua51" &&
+		curl -fsSLO https://www.lua.org/ftp/lua-5.1.5.tar.gz &&
+		[ "$(shasum -a 256 lua-5.1.5.tar.gz | cut -d' ' -f1)" = "2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333" ] &&
+		tar xzf lua-5.1.5.tar.gz && cd lua-5.1.5 &&
+		make macosx INSTALL_TOP="$DEV/lua51" >/dev/null && make install INSTALL_TOP="$DEV/lua51" >/dev/null
+	) || echo "Lua 5.1 konnte nicht gebaut werden"
+fi
 command -v luacheck >/dev/null 2>&1 || brew install luacheck || echo "luacheck konnte nicht installiert werden"
 command -v python3 >/dev/null 2>&1 || brew install python || true
 

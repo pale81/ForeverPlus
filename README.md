@@ -3,7 +3,7 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
-Lokal entwickeln (macOS): `sh tools/setup-local.sh` richtet Lua 5.1, luacheck, QuestieDB und Blizzards Interface-Quelltext ein (`--data` zusätzlich die Quellen der Datengeneratoren) und legt die Arbeitsregeln als lokale `CLAUDE.md` an (nicht im Projekt); `sh tools/check.sh` führt Tests und luacheck aus (ungeprüft auf dem Mac).
+Lokal entwickeln (macOS): `sh tools/setup-local.sh` richtet Lua 5.1 (aus dem Quelltext nach `~/ForeverPlus-dev/lua51` gebaut, Homebrew hat es nicht mehr), luacheck, QuestieDB und Blizzards Interface-Quelltext ein (`--data` zusätzlich die Quellen der Datengeneratoren) und legt die Arbeitsregeln als lokale `CLAUDE.md` an (nicht im Projekt); `sh tools/check.sh` führt Tests und luacheck aus (auf dem Mac geprüft).
 
 Aktualisieren aus dem Projekt (macOS, Git-Clone im AddOns-Ordner): `sh tools/autopull.sh install` richtet einmalig einen Hintergrundauftrag ein, der alle 30 Sekunden `git pull --ff-only` ausführt; danach genügt `/rl` im Spiel (`status` und `uninstall` gehören dazu; ungeprüft).
 

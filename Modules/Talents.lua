@@ -12,6 +12,7 @@ local Talents = ns:NewModule("Talents", {
 		builds = {}, -- classFile -> { { name =, text = }, ... }
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
+		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
 	},
 	charDefaults = {
 		seenSpells = {}, -- learnable spells already shown to the player
@@ -67,13 +68,20 @@ local function TrainerList()
 end
 
 -- Reads the whole service list of a class trainer, all filters switched on.
+local function PetTrainerList()
+	local lists = Talents.db.petTrainer
+	lists[playerClass] = lists[playerClass] or {}
+	return lists[playerClass]
+end
+
 local TRAINER_FILTERS = { "available", "unavailable", "used" }
 
 local function ScanTrainer()
 	local trainerType = C_Trainer and C_Trainer.GetTrainerType and C_Trainer.GetTrainerType()
-	if trainerType == Enum.TrainerType.Tradeskills or trainerType == Enum.TrainerType.Pet then
+	if trainerType == Enum.TrainerType.Tradeskills then
 		return
 	end
+	local isPet = trainerType == Enum.TrainerType.Pet
 	local classLines = {}
 	for _, info in ipairs(SpellBookLines()) do
 		classLines[info.name] = true
@@ -85,13 +93,14 @@ local function ScanTrainer()
 			SetTrainerServiceTypeFilter(filter, true)
 		end
 	end
-	local list = TrainerList()
+	local list = isPet and PetTrainerList() or TrainerList()
 	local found = {}
 	for index = 1, GetNumTrainerServices() do
 		local name, serviceType, icon, level, rank = GetTrainerServiceInfo(index)
 		local line = GetTrainerServiceSkillLine and GetTrainerServiceSkillLine(index)
-		if name and serviceType ~= "header" and level and level > 0 and (not line or classLines[line]) then
-			found[#found + 1] = { name = name, rank = rank ~= "" and rank or nil, icon = icon, level = level }
+		if name and serviceType ~= "header" and level and level > 0 and (isPet or not line or classLines[line]) then
+			found[#found + 1] = { name = name, rank = rank ~= "" and rank or nil, icon = icon, level = level,
+				known = isPet and serviceType == "used" or nil }
 		end
 	end
 	for _, filter in ipairs(TRAINER_FILTERS) do
@@ -187,6 +196,54 @@ local function UpdateSpellsGlow()
 	spellsButton.Alert:SetShown(new and Talents.db.enabled)
 end
 
+-- The abilities of the hunter's pet by level, from the pet trainer's list
+-- (stored at each visit) and the pet's own spell book while it is out.
+local function PetKnownKeys()
+	local known = {}
+	local bank = Enum.SpellBookSpellBank.Pet
+	if C_SpellBook.HasPetSpells and C_SpellBook.HasPetSpells() then
+		for index = 1, C_SpellBook.HasPetSpells() or 0 do
+			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
+			if item and item.spellID and item.name then
+				known[SpellKey(item.name, item.subName)] = true
+			end
+		end
+	end
+	return known
+end
+
+local function AddPetAbilities(lines, playerLevel)
+	lines[#lines + 1] = NORMAL_FONT_COLOR:WrapTextInColorCode(L.TALENTS_PET_HEADER)
+	local list = PetTrainerList()
+	if #list == 0 then
+		lines[#lines + 1] = L.TALENTS_VISIT_PET_TRAINER
+		return
+	end
+	local known = PetKnownKeys()
+	local byLevel, levels = {}, {}
+	for _, entry in ipairs(list) do
+		if not byLevel[entry.level] then
+			byLevel[entry.level] = {}
+			levels[#levels + 1] = entry.level
+		end
+		tinsert(byLevel[entry.level], entry)
+	end
+	table.sort(levels)
+	for _, level in ipairs(levels) do
+		local color = level <= playerLevel and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+		lines[#lines + 1] = color:WrapTextInColorCode(L.TALENTS_LEVEL:format(level))
+		table.sort(byLevel[level], function(a, b)
+			return a.name < b.name
+		end)
+		for _, entry in ipairs(byLevel[level]) do
+			local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
+			local text = ("   |T%s:16:16|t %s"):format(entry.icon or 134400, name)
+			lines[#lines + 1] = (entry.known or known[SpellKey(entry.name, entry.rank)]) and GRAY_FONT_COLOR:WrapTextInColorCode(text) or text
+		end
+		lines[#lines + 1] = " "
+	end
+end
+
 local function ShowSpellsByLevel()
 	local byLevel = CollectSpells()
 	local seen = Talents.cdb.seenSpells
@@ -220,6 +277,9 @@ local function ShowSpellsByLevel()
 	end
 	if #levels == 0 then
 		lines[#lines + 1] = L.TALENTS_NO_SPELLS
+	end
+	if playerClass == "HUNTER" then
+		AddPetAbilities(lines, playerLevel)
 	end
 	ns.ShowTextWindow("Spells", L.TALENTS_SPELLS, table.concat(lines, "\n"))
 end
@@ -431,6 +491,14 @@ local function PlanOverlay(button)
 		overlay.Text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		overlay.Text:SetPoint("BOTTOM", button, "TOP", 0, -6)
 		overlay.Text:SetTextColor(PLAN_COLOR:GetRGB())
+		-- Ring around a talent the plan has unlocked (Blizzard still shows it locked).
+		overlay.Ring = button:CreateTexture(nil, "OVERLAY", nil, 5)
+		overlay.Ring:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+		overlay.Ring:SetBlendMode("ADD")
+		overlay.Ring:SetPoint("CENTER", button.Icon or button, "CENTER", 0, 0)
+		overlay.Ring:SetSize(70, 70)
+		overlay.Ring:SetVertexColor(PLAN_COLOR.r, PLAN_COLOR.g, PLAN_COLOR.b, 0.85)
+		overlay.Ring:Hide()
 		button.fpPlan = overlay
 	end
 	return overlay
@@ -510,6 +578,16 @@ local function CheckPlan(nodes, rowOf, names, plan)
 	return nil
 end
 
+-- A talent Blizzard still shows as locked (row or arrow) that the plan has
+-- unlocked: the next rank may be planned.
+local function UnlockedByPlan(node, nodes, rowOf, names, plan)
+	if node.isAvailable ~= false and node.meetsEdgeRequirements ~= false then
+		return false
+	end
+	local target = math.max(plan[node.ID] or 0, node.ranksPurchased or 0) + 1
+	return target <= node.maxRanks and CheckNode(nodes, rowOf, names, plan, node, target) == nil
+end
+
 -- Why the last right-click did nothing: { nodeID =, text = }, shown in that talent's tooltip.
 local blocked
 
@@ -551,6 +629,8 @@ local function AddPlanTooltip(button)
 		local problem = CheckNode(nodes, rowOf, names, plan, node, target)
 		if problem then
 			notes[#notes + 1] = problem
+		elseif UnlockedByPlan(node, nodes, rowOf, names, plan) then
+			notes[#notes + 1] = L.TALENTS_PLAN_UNLOCKED
 		end
 	end
 	if blocked and blocked.nodeID == nodeID and blocked.text ~= notes[1] then
@@ -581,19 +661,27 @@ end
 local function UpdatePlan()
 	local frame = TalentsFrame()
 	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
+		if planBar then
+			planBar:Hide()
+		end
 		return
 	end
 	local configID = frame:GetConfigID()
 	local plan = CurrentPlan()
 	local enabled = Talents.db.enabled and Talents.db.planner
+	local nodes, rowOf, names
+	if enabled and configID then
+		nodes, rowOf, names = TreeState(frame, configID)
+	end
 	for button in frame:EnumerateAllTalentButtons() do
 		HookPlanTooltip(button)
 		local nodeID = button.GetNodeID and button:GetNodeID()
 		local planned = enabled and nodeID and plan[nodeID]
-		if planned or button.fpPlan then
+		local unlocked = nodes and nodeID and nodes[nodeID] and UnlockedByPlan(nodes[nodeID], nodes, rowOf, names, plan)
+		if planned or unlocked or button.fpPlan then
 			local overlay = PlanOverlay(button)
-			local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
-			if node then
+			local node = (planned or unlocked) and configID and C_Traits.GetNodeInfo(configID, nodeID)
+			if node and planned then
 				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
 				overlay.Text:Show()
 				overlay.Tint:SetShown(planned > node.ranksPurchased)
@@ -601,6 +689,7 @@ local function UpdatePlan()
 				overlay.Text:Hide()
 				overlay.Tint:Hide()
 			end
+			overlay.Ring:SetShown(unlocked and true or false)
 		end
 	end
 	if planBar then
@@ -777,6 +866,7 @@ local function CreatePlanBar(frame)
 	local bar = CreateFrame("Frame", nil, frame)
 	bar:SetSize(330, 24)
 	bar:SetFrameLevel(ns.Number(frame:GetFrameLevel(), 0) + 1010)
+	bar:SetFrameStrata("HIGH")
 	bar.Apply = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, 90, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
 		ApplyPlan()
 	end)
@@ -792,9 +882,16 @@ local function CreatePlanBar(frame)
 end
 
 local function SetupPlanner(frame)
-	planBar = CreatePlanBar(frame)
-	planBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -40, -34)
-	ns:RegisterEditFrame(planBar, "TalentPlan", L.TALENTS_PLAN, { "TOPRIGHT", frame, "TOPRIGHT", -40, -34 })
+	-- On the outer window (visible whatever the talent frame is clipped by); it
+	-- follows the talent tab: UpdatePlan shows it only while that is open.
+	local parent = PlayerSpellsFrame or frame
+	planBar = CreatePlanBar(parent)
+	planBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -14, -30)
+	planBar:Hide()
+	ns:RegisterEditFrame(planBar, "TalentPlan", L.TALENTS_PLAN, { "TOPRIGHT", parent, "TOPRIGHT", -14, -30 })
+	frame:HookScript("OnHide", function()
+		planBar:Hide()
+	end)
 	EventRegistry:RegisterCallback("TalentButton.OnClick", OnTalentClick, Talents)
 	frame:HookScript("OnShow", QueuePlanUpdate)
 	if frame.SetTab then
@@ -879,6 +976,19 @@ function Talents:OnLogin()
 		end)
 	end)
 	self:RegisterEvent("SPELLS_CHANGED", QueueGlowUpdate)
+end
+
+-- /fp talente: where the plan bar is and whether it shows.
+function Talents:PrintStatus()
+	local frame = TalentsFrame()
+	local bar = planBar
+	local point, relativeTo, relative, x, y
+	if bar then
+		point, relativeTo, relative, x, y = bar:GetPoint(1)
+	end
+	ns.PrintAlways(L.TALENTS_STATUS, frame and "ja" or "nein", frame and frame:IsVisible() and "ja" or "nein", bar and "ja" or "nein",
+		bar and bar:IsShown() and "ja" or "nein", bar and bar:GetParent() and bar:GetParent():GetName() or "?",
+		tostring(point), tostring(relativeTo and relativeTo:GetName() or relative), ns.Number(x, 0), ns.Number(y, 0), Talents.db.planner and "ja" or "nein")
 end
 
 function Talents:OnOptionChanged()

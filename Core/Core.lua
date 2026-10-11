@@ -619,6 +619,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns.PrintAlways(ns.L.SLASH_HELP)
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
+	elseif msg == "talente" or msg == "talents" then
+		ns:GetModule("Talents"):PrintStatus()
 	elseif msg == "beute" or msg == "loot" then
 		ns:GetModule("Loot"):PrintStatus()
 	elseif msg == "karte" or msg == "map" then

@@ -1,6 +1,6 @@
 -- Durability on the equipment slots of the character window: a small figure
 -- at the bottom of each item, in a colour from green over yellow to red.
--- Items at 100 % show nothing.
+-- Items at 100 % show nothing (unless the option to show them is on).
 local _, ns = ...
 local L = ns.L
 
@@ -10,6 +10,7 @@ local Durability = ns:NewModule("Durability", {
 	defaults = {
 		enabled = true,
 		figure = true,
+		showFull = false,
 	},
 })
 
@@ -51,10 +52,10 @@ function Durability.Raw(slot)
 	return math.max(math.floor(current / maximum * 100 + 0.5), 0)
 end
 
--- The same below 100, nil for whole items (nothing to show on them).
+-- The same below 100 (also at 100 with the option), nil for whole items otherwise.
 function Durability.Percent(slot)
 	local percent = Durability.Raw(slot)
-	return percent and percent < 100 and percent or nil
+	return percent and (percent < 100 or Durability.db.showFull) and percent or nil
 end
 
 local function UpdateSlot(button)
@@ -277,4 +278,5 @@ Durability.Update = UpdateAll
 Durability.options = {
 	{ key = "enabled", type = "toggle", name = L.DURABILITY_ENABLE, desc = L.DURABILITY_ENABLE_DESC, new = true },
 	{ key = "figure", type = "toggle", name = L.DURABILITY_FIGURE, desc = L.DURABILITY_FIGURE_DESC, new = true },
+	{ key = "showFull", type = "toggle", name = L.DURABILITY_FULL, desc = L.DURABILITY_FULL_DESC, parent = "enabled", new = true },
 }

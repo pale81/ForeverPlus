@@ -145,6 +145,26 @@ function ns.CreateOptionCheckbox(parent, text, moduleName, key, tooltip)
 	return checkbox
 end
 
+-- A submenu with the sizes (percent) of a module's symbols as radio buttons; the setting is
+-- "ForeverPlus_<module>_<key>" like on the settings page.
+local SIZE_STEPS = { 50, 75, 100, 125, 150, 200 }
+
+function ns.CreateSizeMenu(parent, text, moduleName, key)
+	local menu = parent:CreateButton(text)
+	if not menu or not menu.CreateRadio then
+		return menu
+	end
+	for _, percent in ipairs(SIZE_STEPS) do
+		menu:CreateRadio(("%d %%"):format(percent), function()
+			local module = ns:GetModule(moduleName)
+			return math.abs((module and module.db[key] or 100) - percent) < 12
+		end, function()
+			Settings.SetValue("ForeverPlus_" .. moduleName .. "_" .. key, percent)
+		end)
+	end
+	return menu
+end
+
 -- Quest with objectives that are all fulfilled. The API also reports quests
 -- without objectives (breadcrumbs, "talk to …") as complete; they are not.
 function ns.IsQuestReady(questID, logIndex)

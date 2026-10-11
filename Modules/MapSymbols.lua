@@ -103,7 +103,7 @@ end
 ---------------------------------------------------------------------------
 -- Data
 ---------------------------------------------------------------------------
-local function AddEntrance(uiMapID, x, y, name, kind)
+local function AddEntrance(uiMapID, x, y, name, kind, instanceID)
 	local list = entrances[uiMapID]
 	if not list then
 		list = {}
@@ -116,11 +116,11 @@ local function AddEntrance(uiMapID, x, y, name, kind)
 					return
 				end
 			end
-			entrance.names[#entrance.names + 1] = { name, kind }
+			entrance.names[#entrance.names + 1] = { name, kind, instanceID }
 			return
 		end
 	end
-	list[#list + 1] = { x = x, y = y, names = { { name, kind } } }
+	list[#list + 1] = { x = x, y = y, names = { { name, kind, instanceID } } }
 end
 
 -- Entrances of the instances in the client's group finder
@@ -145,7 +145,7 @@ local function BuildEntrances(lib)
 			end
 			if uiMapID and x and y then
 				covered[instanceID] = true
-				AddEntrance(uiMapID, x, y, Text(GetRealZoneText(instanceID)) or row[1], kind)
+				AddEntrance(uiMapID, x, y, Text(GetRealZoneText(instanceID)) or row[1], kind, instanceID)
 			end
 		end
 	end
@@ -167,7 +167,7 @@ local function BuildEntrances(lib)
 				local uiMapID = type(location) == "table" and ns.QuestieDB.UiMapForArea(lib, location[1])
 				local x, y = uiMapID and location[2], uiMapID and location[3]
 				if type(x) == "number" and type(y) == "number" then
-					AddEntrance(uiMapID, x, y, name, kind)
+					AddEntrance(uiMapID, x, y, name, kind, instanceID)
 				end
 			end
 		end
@@ -320,8 +320,14 @@ function Symbols.AddSource(source)
 end
 
 local function EntranceTooltip(tooltip, symbol)
+	local showInfo = Options().placeInfo and ns.InstanceInfo
 	for _, entry in ipairs(symbol.data.names) do
 		tooltip:AddLine(entry[2] == "raid" and L.WORLDMAP_RAID:format(entry[1]) or entry[1], 1, 1, 1)
+		-- A short text about the place (own texts, Data/PlaceInfo.lua).
+		local info = showInfo and entry[3] and ns.InstanceInfo[entry[3]]
+		if info then
+			tooltip:AddLine(GetLocale() == "deDE" and info.de or info.en, 0.8, 0.8, 0.8, true)
+		end
 	end
 	tooltip:AddLine(L.WORLDMAP_ENTRANCE, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
 end
@@ -545,7 +551,9 @@ local function Setup(frame, symbol)
 		frame.Label:SetFontObject(symbol.font)
 		frame.Label:SetText(symbol.label)
 		frame.Label:Show()
-		frame:SetSize(frame.Label:GetStringWidth(), frame.Label:GetStringHeight())
+		local scale = (Options().symbolScale or 100) / 100
+		frame.Label:SetScale(scale)
+		frame:SetSize(frame.Label:GetStringWidth() * scale, frame.Label:GetStringHeight() * scale)
 		-- A name with a text shows it on hover; clicks still reach the map.
 		frame:EnableMouse(symbol.tooltip ~= nil)
 		frame:SetMouseClickEnabled(false)
@@ -563,7 +571,8 @@ local function Setup(frame, symbol)
 	else
 		frame.Icon:RemoveMaskTexture(frame.Mask)
 	end
-	frame:SetSize(symbol.size, symbol.size)
+	local size = symbol.size * (Options().symbolScale or 100) / 100
+	frame:SetSize(size, size)
 	-- Hover shows the tooltip; clicks go on to the map unless the symbol
 	-- has its own.
 	frame:EnableMouse(symbol.tooltip ~= nil)

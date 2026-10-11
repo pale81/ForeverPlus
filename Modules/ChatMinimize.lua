@@ -70,31 +70,41 @@ local function TimestampSample()
 	end
 end
 
--- How many lines the last message takes in this window: measured with the font and width of the window.
-local function LastMessageLines(frame)
+-- The last message in this window, measured with the font and width of the window: how many lines it takes and how
+-- high that is (the height the font itself gives it, so it fits exactly).
+local function LastMessageSize(frame)
 	local count = frame.GetNumMessages and ns.Number(frame:GetNumMessages(), 0) or 0
 	local text = count > 0 and frame.GetMessageInfo and frame:GetMessageInfo(count)
 	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
-		return 1
+		return 1, LineHeight(frame)
 	end
 	local file, size, flags = frame:GetFont()
 	if not file then
-		return 1
+		return 1, LineHeight(frame)
 	end
 	meter = meter or ns.hider:CreateFontString(nil, "ARTWORK")
 	meter:SetFont(file, ns.Number(size, 14), flags or "")
+	if meter.SetSpacing and frame.GetSpacing then
+		meter:SetSpacing(ns.Number(frame:GetSpacing(), 0))
+	end
 	meter:SetWidth(math.max(50, ns.Number(frame:GetWidth(), 300) - MARGIN))
 	meter:SetWordWrap(true)
 	meter:SetText((TimestampSample() or "") .. text)
-	local lines = math.floor(ns.Number(meter:GetStringHeight(), 0) / math.max(1, ns.Number(size, 14)) + 0.5)
-	return math.max(1, math.min(MAX_LINES, lines))
+	local height = ns.Number(meter:GetStringHeight(), 0)
+	local lines = math.max(1, math.floor(height / math.max(1, ns.Number(size, 14)) + 0.5))
+	if lines > MAX_LINES then
+		height = height / lines * MAX_LINES
+		lines = MAX_LINES
+	end
+	return lines, math.max(height, LineHeight(frame))
 end
 
 local foldHeights = {} -- chat window -> height it takes when folded (the lines of its last message)
 local shown = {}       -- chat window -> height set at the moment
 
 local function FoldHeight(frame)
-	return LastMessageLines(frame) * LineHeight(frame)
+	local _, height = LastMessageSize(frame)
+	return math.ceil(height)
 end
 
 local function ApplyAlpha()

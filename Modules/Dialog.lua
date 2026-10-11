@@ -392,11 +392,22 @@ local function CreateBubble()
 		end
 		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
 	end)
-	-- Merchant list: what the mouse does, small, at the top right (where the x used to be).
-	frame.Help = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	frame.Help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-	frame.Help:SetJustifyH("RIGHT")
-	frame.Help:SetText(L.DIALOG_MERCHANT_HELP)
+	-- Merchant list: what the mouse does, as small symbols at the top right (where the x used to be): left button
+	-- plus (more), right button minus (fewer), Shift + left button several wares; the words are in the tooltip.
+	frame.Help = CreateFrame("Frame", nil, frame)
+	frame.Help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 1)
+	frame.Help:SetHeight(14)
+	frame.Help:EnableMouse(true)
+	frame.Help.Text = frame.Help:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	frame.Help.Text:SetPoint("RIGHT")
+	frame.Help.Text:SetJustifyH("RIGHT")
+	frame.Help:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+		GameTooltip_SetTitle(GameTooltip, L.DIALOG_MERCHANT_HELP_TITLE)
+		GameTooltip_AddNormalLine(GameTooltip, L.DIALOG_MERCHANT_HELP)
+		GameTooltip:Show()
+	end)
+	frame.Help:SetScript("OnLeave", GameTooltip_Hide)
 	frame.Help:Hide()
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
@@ -799,7 +810,17 @@ Render = function(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
-	frame.Help:SetShown(view.kind == "MERCHANT_SHOW" and view.filter and true or false)
+	local helpOn = view.kind == "MERCHANT_SHOW" and view.filter and true or false
+	frame.Help:SetShown(helpOn)
+	if helpOn then
+		-- Two clear symbols: the mouse buttons of the game's tutorials; without them the letters L and R.
+		local function Mouse(atlas, letter)
+			return C_Texture.GetAtlasInfo(atlas) and ("|A:%s:15:15|a"):format(atlas) or letter
+		end
+		local left, right = Mouse("NPE_LeftClick", "L"), Mouse("NPE_RightClick", "R")
+		frame.Help.Text:SetText(("%s +   %s -   Shift + %s ++"):format(left, right, left))
+		frame.Help:SetWidth(frame.Help.Text:GetStringWidth() + 2)
+	end
 	Dialog.UpdateTools(view)
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)

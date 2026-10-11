@@ -406,7 +406,16 @@ local function Mark(owner, on, place)
 end
 
 local function LabelOf(button)
-	return button.Label or button.Text or button.Name
+	local label = button.Label or button.Text or button.Name
+	if label then
+		return label
+	end
+	-- Else the first text of the entry.
+	for _, region in ipairs({ button:GetRegions() }) do
+		if region.GetObjectType and region:GetObjectType() == "FontString" then
+			return region
+		end
+	end
 end
 
 -- Beside the name of an entry in the list: behind it (the entry "ForeverPlus"), in front of it (the pages).
@@ -425,6 +434,33 @@ local function BeforeLabel(badge, button)
 		badge:SetPoint("RIGHT", label, "LEFT", 6, 0)
 	else
 		badge:SetPoint("LEFT", button, "LEFT", 2, 0)
+	end
+end
+
+-- The category an entry of the list stands for: the list is a tree, the entry's data is a node whose data holds the
+-- category (or the category itself, or an ID).
+local function CategoryIDOf(button)
+	local element = button.GetElementData and button:GetElementData()
+	if not element then
+		return nil
+	end
+	local candidates = { element }
+	if type(element.GetData) == "function" then
+		candidates[#candidates + 1] = element:GetData()
+	end
+	if type(element.data) == "table" then
+		candidates[#candidates + 1] = element.data
+	end
+	for _, data in ipairs(candidates) do
+		if type(data) == "table" then
+			local category = data.category or data
+			if type(category.GetID) == "function" then
+				return category:GetID()
+			end
+			if data.categoryID or data.id then
+				return data.categoryID or data.id
+			end
+		end
 	end
 end
 
@@ -447,11 +483,7 @@ function RefreshBadges()
 	local scrollBox = list and (list.ScrollBox or list.scrollBox)
 	if scrollBox and type(scrollBox.ForEachFrame) == "function" then
 		scrollBox:ForEachFrame(function(button)
-			local data = button.GetElementData and button:GetElementData()
-			local id = data and (data.categoryID or data.id)
-			if data and data.category and data.category.GetID then
-				id = data.category:GetID()
-			end
+			local id = CategoryIDOf(button)
 			Mark(button, id and newIDs[id] or false, id == mainCategory:GetID() and BehindLabel or BeforeLabel)
 		end)
 	end
@@ -468,8 +500,21 @@ end
 
 local function HookBadges()
 	if type(SettingsPanel.HookScript) == "function" then
+		-- While the panel is open the labels are looked after twice a second (entries are made anew when the list
+		-- is opened, closed or scrolled; no event is relied on).
+		local ticker
 		SettingsPanel:HookScript("OnShow", function()
 			C_Timer.After(0, RefreshBadges)
+			if ticker then
+				ticker:Cancel()
+			end
+			ticker = C_Timer.NewTicker(0.5, RefreshBadges)
+		end)
+		SettingsPanel:HookScript("OnHide", function()
+			if ticker then
+				ticker:Cancel()
+				ticker = nil
+			end
 		end)
 	end
 	local list = SettingsPanel.CategoryList

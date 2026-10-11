@@ -1373,6 +1373,7 @@ end)()
 	assert(dura.Percent(2) == nil, "full hidden")
 	assert(dura.Percent(3) == nil, "no durability")
 	assert(pcall(dura.Update), "update runs")
+	assert(dura.Raw(2) == 100 and dura.Raw(3) == nil, "raw percent")
 	-- pet food
 	local helpers = ns:GetModule("Helpers")
 	assert(helpers.db.feedPet == true, "feed pet default")

@@ -97,6 +97,8 @@ read_globals = {
 	"C_Traits",
 	"GetMaxLevelForPlayerExpansion",
 	"IsPlayerSpell",
+	"C_PaperDollInfo",
+	"GossipOptionSort",
 	"C_PetInfo", "GetInventoryItemDurability", "PaperDollFrame",
 	"EditModeSystemSettingsDialog", "PlayerCastingBarFrame", "EditModeManagerFrame",
 	"UnitIsUnit",

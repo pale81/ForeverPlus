@@ -9,6 +9,7 @@ local Durability = ns:NewModule("Durability", {
 	order = 4.9,
 	defaults = {
 		enabled = true,
+		figure = true,
 	},
 })
 
@@ -40,18 +41,20 @@ local function GetText(button)
 	return text
 end
 
--- Percent of a slot (0-99), or nil when the item has no durability or is whole.
-function Durability.Percent(slot)
+-- Percent of a slot (0-100), or nil when it holds no item with durability.
+function Durability.Raw(slot)
 	local current, maximum = GetInventoryItemDurability(slot)
 	current, maximum = ns.Number(current), ns.Number(maximum)
 	if not current or not maximum or maximum <= 0 then
 		return nil
 	end
-	local percent = math.floor(current / maximum * 100 + 0.5)
-	if percent >= 100 then
-		return nil
-	end
-	return math.max(percent, 0)
+	return math.max(math.floor(current / maximum * 100 + 0.5), 0)
+end
+
+-- The same below 100, nil for whole items (nothing to show on them).
+function Durability.Percent(slot)
+	local percent = Durability.Raw(slot)
+	return percent and percent < 100 and percent or nil
 end
 
 local function UpdateSlot(button)
@@ -71,6 +74,114 @@ local function UpdateSlot(button)
 	end
 end
 
+---------------------------------------------------------------------------
+-- The armour figure of the repair warning, in the character window: every
+-- part has the colour of its piece (green over yellow to red), grey when the
+-- function is off. A click switches colours and numbers on and off.
+---------------------------------------------------------------------------
+-- name, width, height, point, relative part, relative point, x, y, texture coordinates, inventory slot.
+local PARTS = {
+	{ "Head", 18, 22, "TOPRIGHT", nil, "TOPRIGHT", -31, 0, 0, 0.140625, 0, 0.171875, 1 },
+	{ "Shoulders", 48, 22, "TOP", "Head", "BOTTOM", 0, 16, 0.140625, 0.515625, 0, 0.171875, 3 },
+	{ "Chest", 20, 22, "TOP", "Shoulders", "TOP", 0, -7, 0.515625, 0.6640625, 0, 0.171875, 5 },
+	{ "Wrists", 44, 22, "TOP", "Shoulders", "BOTTOM", 0, 7, 0.6640625, 1, 0, 0.171875, 9 },
+	{ "Hands", 42, 18, "TOP", "Wrists", "BOTTOM", 0, 15, 0, 0.328125, 0.171875, 0.3046875, 10 },
+	{ "Waist", 16, 5, "TOP", "Chest", "BOTTOM", 0, 6, 0.328125, 0.46875, 0.171875, 0.203125, 6 },
+	{ "Legs", 29, 20, "TOP", "Waist", "BOTTOM", 0, 2, 0.46875, 0.6875, 0.171875, 0.3203125, 7 },
+	{ "Feet", 41, 32, "TOP", "Legs", "BOTTOM", 0, 8, 0.6875, 1, 0.171875, 0.4140625, 8 },
+	{ "Weapon", 20, 45, "RIGHT", "Wrists", "LEFT", 0, -6, 0, 0.140625, 0.3203125, 0.6640625, 16 },
+	{ "Shield", 25, 31, "LEFT", "Wrists", "RIGHT", 0, 10, 0.1875, 0.375, 0.3203125, 0.5546875, 17 },
+	{ "OffWeapon", 20, 45, "LEFT", "Wrists", "RIGHT", 0, -6, 0, 0.140625, 0.3203125, 0.6640625, 17 },
+	{ "Ranged", 28, 38, "TOP", "Shield", "BOTTOM", 0, 5, 0.1875, 0.3984375, 0.5546875, 0.84375, 18 },
+}
+local FIGURE_TEXTURE = [[Interface\Durability\UI-Durability-Icons]]
+local figure
+
+local function CreateFigure(parent)
+	local frame = CreateFrame("Button", nil, parent)
+	frame:SetSize(80, 80)
+	frame:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 20)
+	frame.parts = {}
+	for _, part in ipairs(PARTS) do
+		local name, width, height, point, relative, relativePoint, x, y = unpack(part, 1, 8)
+		local texture = frame:CreateTexture(nil, "ARTWORK")
+		texture:SetTexture(FIGURE_TEXTURE)
+		texture:SetTexCoord(part[9], part[10], part[11], part[12])
+		texture:SetSize(width, height)
+		texture:SetPoint(point, relative and frame.parts[relative].texture or frame, relativePoint, x, y)
+		frame.parts[name] = { texture = texture, slot = part[13] }
+	end
+	frame:RegisterForClicks("LeftButtonUp")
+	frame:SetScript("OnClick", function()
+		Settings.SetValue("ForeverPlus_Durability_enabled", not Durability.db.enabled)
+	end)
+	frame:SetScript("OnEnter", function(self)
+		local lowest, sum, count = 100, 0, 0
+		for _, part in pairs(self.parts) do
+			local percent = Durability.Raw(part.slot)
+			if percent then
+				lowest, sum, count = math.min(lowest, percent), sum + percent, count + 1
+			end
+		end
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip_SetTitle(GameTooltip, L.DURABILITY_TITLE)
+		if count > 0 then
+			GameTooltip:AddDoubleLine(L.DURABILITY_AVERAGE, ("%d %%"):format(sum / count + 0.5), 1, 1, 1, Color(sum / count / 100))
+			GameTooltip:AddDoubleLine(L.DURABILITY_LOWEST, ("%d %%"):format(lowest), 1, 1, 1, Color(lowest / 100))
+		end
+		GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		GameTooltip_AddInstructionLine(GameTooltip, Durability.db.enabled and L.DURABILITY_CLICK_OFF or L.DURABILITY_CLICK_ON)
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", GameTooltip_Hide)
+	return frame
+end
+
+-- Right of the rightmost slot of the weapon row, at its lower edge.
+local function PlaceFigure()
+	figure:ClearAllPoints()
+	local best, right
+	for _, name in ipairs({ "CharacterMainHandSlot", "CharacterSecondaryHandSlot", "CharacterRangedSlot" }) do
+		local slot = _G[name]
+		local edge = slot and ns.Number(slot:GetRight())
+		if edge and (not right or edge > right) then
+			best, right = slot, edge
+		end
+	end
+	if best then
+		figure:SetPoint("BOTTOMLEFT", best, "BOTTOMRIGHT", 14, -4)
+	else
+		figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
+	end
+end
+
+local function UpdateFigure()
+	if not figure then
+		return
+	end
+	local show = Durability.db.figure
+	figure:SetShown(show and PaperDollFrame and PaperDollFrame:IsShown() or false)
+	if not show then
+		return
+	end
+	local offhandWeapon = C_PaperDollInfo and C_PaperDollInfo.OffhandHasWeapon and C_PaperDollInfo.OffhandHasWeapon()
+	local on = Durability.db.enabled
+	for name, part in pairs(figure.parts) do
+		local hidden = (name == "Shield" and offhandWeapon) or (name == "OffWeapon" and not offhandWeapon)
+		part.texture:SetShown(not hidden)
+		local percent = Durability.Raw(part.slot)
+		part.texture:SetDesaturated(not on)
+		if not on then
+			part.texture:SetVertexColor(0.6, 0.6, 0.6, 0.6)
+		elseif percent then
+			local r, g, b = Color(percent / 100)
+			part.texture:SetVertexColor(r, g, b, 1)
+		else
+			part.texture:SetVertexColor(1, 1, 1, 0.25)
+		end
+	end
+end
+
 local function UpdateAll()
 	for _, name in ipairs(SLOT_BUTTONS) do
 		local button = _G[name]
@@ -78,10 +189,11 @@ local function UpdateAll()
 			UpdateSlot(button)
 		end
 	end
+	UpdateFigure()
 end
 
 function Durability:Apply()
-	local on = self.db.enabled
+	local on = self.db.enabled or self.db.figure
 	self:ToggleEvent("UPDATE_INVENTORY_DURABILITY", on, UpdateAll)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", on, UpdateAll)
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", on, UpdateAll)
@@ -90,7 +202,13 @@ end
 
 function Durability:OnLogin()
 	if PaperDollFrame then
-		PaperDollFrame:HookScript("OnShow", UpdateAll)
+		figure = CreateFigure(PaperDollFrame)
+		figure:Hide()
+		PaperDollFrame:HookScript("OnShow", function()
+			PlaceFigure()
+			UpdateAll()
+		end)
+		PaperDollFrame:HookScript("OnHide", UpdateFigure)
 	end
 	self:Apply()
 end
@@ -103,4 +221,5 @@ Durability.Update = UpdateAll
 
 Durability.options = {
 	{ key = "enabled", type = "toggle", name = L.DURABILITY_ENABLE, desc = L.DURABILITY_ENABLE_DESC, new = true },
+	{ key = "figure", type = "toggle", name = L.DURABILITY_FIGURE, desc = L.DURABILITY_FIGURE_DESC, new = true },
 }

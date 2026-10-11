@@ -13,6 +13,7 @@ local Loot = ns:NewModule("Loot", {
 		inlineQuality = "UNCOMMON",
 		combineMoney = true,
 		showValue = true,
+		sortByValue = true,
 	},
 })
 
@@ -379,13 +380,28 @@ local function ShowSummary(id)
 		local itemsValue = 0
 		if record.count > 0 then
 			items[#items + 1] = { text = ("%s (%d)"):format(L.LOOT_ITEMS_HEADER, record.count) }
-			for _, link in ipairs(record.order) do
+			-- Most valuable first (then by quality); caught order for equal ones.
+			local sorted = {}
+			for index, link in ipairs(record.order) do
 				local entry = record.items[link]
-				local value = ItemValue(link, entry.count)
+				sorted[index] = { link = link, entry = entry, value = ItemValue(link, entry.count), quality = ItemQuality(link), index = index }
+			end
+			if Loot.db.sortByValue then
+				table.sort(sorted, function(a, b)
+					if a.value ~= b.value then
+						return a.value > b.value
+					elseif a.quality ~= b.quality then
+						return a.quality > b.quality
+					end
+					return a.index < b.index
+				end)
+			end
+			for _, row in ipairs(sorted) do
+				local link, entry, value = row.link, row.entry, row.value
 				itemsValue = itemsValue + value
 				items[#items + 1] = {
 					icon = ItemIcon(link),
-					quality = ItemQuality(link),
+					quality = row.quality,
 					right = showValue and ValueText(value) or nil,
 					text = ("%s x%d  " .. GREY):format(link:gsub("|H.-|h(.-)|h", "%1"), entry.count, SourceText(entry.sources, entry.order, ItemSource)),
 					tooltip = function(tooltip)
@@ -494,5 +510,6 @@ Loot.options = {
 		return values
 	end },
 	{ key = "showValue", type = "toggle", name = L.LOOT_VALUE, desc = L.LOOT_VALUE_DESC, parent = "summary" },
+	{ key = "sortByValue", type = "toggle", name = L.LOOT_SORT, desc = L.LOOT_SORT_DESC, parent = "summary" },
 	{ key = "combineMoney", type = "toggle", name = L.LOOT_COMBINE_MONEY, desc = L.LOOT_COMBINE_MONEY_DESC, parent = "summary" },
 }

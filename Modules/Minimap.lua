@@ -11,6 +11,8 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		trackingIcons = true,
 		trackingEntries = true,
 		campfires = false,
+		zoomReset = true,
+		zoomDelay = 10,
 	},
 })
 
@@ -332,7 +334,45 @@ local function AddForeverPlusEntries(rootDescription)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Zoom back out: after zooming in, the minimap returns to the level it had
+-- before once nobody zoomed for a few seconds.
+---------------------------------------------------------------------------
+local zoomRest, zoomLast, zoomTimer, zoomOwn
+
+local function ZoomBack()
+	zoomTimer = nil
+	if MinimapCoords.db.zoomReset and zoomRest and Minimap:GetZoom() > zoomRest then
+		zoomOwn = true
+		Minimap:SetZoom(zoomRest)
+		zoomOwn = false
+		zoomLast = Minimap:GetZoom()
+	end
+end
+
+local function OnZoomChanged()
+	if zoomOwn or not MinimapCoords.db.zoomReset then
+		return
+	end
+	local zoom = Minimap:GetZoom()
+	if not zoomTimer then
+		zoomRest = zoomLast or zoom
+	end
+	zoomLast = zoom
+	if zoomTimer then
+		zoomTimer:Cancel()
+		zoomTimer = nil
+	end
+	if zoom > zoomRest then
+		zoomTimer = C_Timer.NewTimer(MinimapCoords.db.zoomDelay, ZoomBack)
+	else
+		zoomRest = zoom
+	end
+end
+
 function MinimapCoords:OnLogin()
+	zoomLast = Minimap:GetZoom()
+	hooksecurefunc(Minimap, "SetZoom", OnZoomChanged)
 	campfireHolder = CreateFrame("Frame", nil, Minimap)
 	campfireHolder:SetAllPoints()
 	campfireHolder:SetFrameLevel(Minimap:GetFrameLevel() + 6)
@@ -385,6 +425,12 @@ function MinimapCoords:OnOptionChanged(key)
 	if key == "campfires" then
 		self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
 		PositionCampfires()
+	elseif key == "zoomReset" or key == "zoomDelay" then
+		if zoomTimer then
+			zoomTimer:Cancel()
+			zoomTimer = nil
+		end
+		zoomLast = Minimap:GetZoom()
 	else
 		self:UpdateWorldMapCoords()
 	end
@@ -394,5 +440,10 @@ MinimapCoords.options = {
 	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
+	{ key = "zoomReset", type = "toggle", name = L.MINIMAP_ZOOM_RESET, desc = L.MINIMAP_ZOOM_RESET_DESC },
+	{ key = "zoomDelay", type = "slider", name = L.MINIMAP_ZOOM_DELAY, desc = L.MINIMAP_ZOOM_DELAY_DESC, parent = "zoomReset", min = 5, max = 60, step = 5,
+		format = function(value)
+			return ("%d s"):format(value)
+		end },
 	{ key = "campfires", type = "toggle", name = L.MINIMAP_CAMPFIRES, desc = L.MINIMAP_CAMPFIRES_DESC, new = true },
 }

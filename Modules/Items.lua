@@ -11,6 +11,7 @@ local Items = ns:NewModule("Items", {
 		sellButton = true,
 		autoSort = false,
 		bagMenu = true,
+		sortMarkedJunk = true,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
@@ -1537,6 +1538,158 @@ local function SortOnOpen()
 	WatchSort()
 end
 
+-- After any sort (own or Blizzard's button) marked junk joins the grey
+-- items, which the game's cleanup puts together. Waits until the bags are
+-- quiet, then moves one item at a time.
+local PLACE_QUIET = 0.7  -- seconds without bag updates: the sort is done
+local SORT_TIMEOUT = 10
+local MOVE_INTERVAL = 0.1
+local placing -- state while waiting for the sort or moving items
+
+-- Slots that take part in the cleanup, in bag order.
+local function SortedSlots()
+	local slots = {}
+	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+		local disabled
+		if bag == BACKPACK_CONTAINER then
+			disabled = C_Container.GetBackpackAutosortDisabled and C_Container.GetBackpackAutosortDisabled()
+		else
+			disabled = C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.DisableAutoSort)
+		end
+		local _, family = C_Container.GetContainerNumFreeSlots(bag)
+		if not disabled and (family or 0) == 0 then
+			for slot = 1, C_Container.GetContainerNumSlots(bag) do
+				slots[#slots + 1] = { bag, slot }
+			end
+		end
+	end
+	return slots
+end
+
+local function AnySlotLocked(slots)
+	for _, position in ipairs(slots) do
+		local info = C_Container.GetContainerItemInfo(position[1], position[2])
+		if info and info.isLocked then
+			return true
+		end
+	end
+	return false
+end
+
+-- Moves (from, to) that put the marked items right next to the grey ones:
+-- before them when the greys lie at the end, after them when at the start.
+local function PlanJunkMoves(slots)
+	local isGrey, isMarked = {}, {}
+	local firstGrey, lastGrey, markedCount = nil, nil, 0
+	for index, position in ipairs(slots) do
+		local info = C_Container.GetContainerItemInfo(position[1], position[2])
+		if info and info.quality == Enum.ItemQuality.Poor then
+			isGrey[index] = true
+			firstGrey = firstGrey or index
+			lastGrey = index
+		elseif info and IsMarked(info) then
+			isMarked[index] = true
+			markedCount = markedCount + 1
+		end
+	end
+	if markedCount == 0 then
+		return {}
+	end
+	local block = {}
+	if firstGrey and firstGrey == 1 and lastGrey < #slots then
+		for index = lastGrey + 1, math.min(#slots, lastGrey + markedCount) do
+			block[#block + 1] = index
+		end
+	else
+		local stop = (firstGrey or #slots + 1) - 1
+		for index = stop, math.max(1, stop - markedCount + 1), -1 do
+			block[#block + 1] = index
+		end
+	end
+	local inBlock = {}
+	for _, index in ipairs(block) do
+		inBlock[index] = true
+	end
+	-- Marked items outside the block, farthest first.
+	local outside = {}
+	for index in pairs(isMarked) do
+		if not inBlock[index] then
+			outside[#outside + 1] = index
+		end
+	end
+	local reference = block[1] or 1
+	table.sort(outside, function(a, b)
+		return math.abs(a - reference) > math.abs(b - reference)
+	end)
+	local moves = {}
+	for _, index in ipairs(block) do
+		if not isMarked[index] and not isGrey[index] then
+			local from = table.remove(outside)
+			if not from then
+				break
+			end
+			moves[#moves + 1] = { slots[from], slots[index] }
+		end
+	end
+	return moves
+end
+
+local function StopPlacing()
+	if placing and placing.ticker then
+		placing.ticker:Cancel()
+	end
+	placing = nil
+end
+
+local function PlacingStep()
+	local state = placing
+	if not state or InCombatLockdown() or GetCursorInfo() then
+		StopPlacing()
+		return
+	end
+	local now = GetTime()
+	if now - state.started > SORT_TIMEOUT then
+		StopPlacing()
+		return
+	end
+	if not state.moves then
+		-- Waiting for the sort to finish.
+		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) then
+			return
+		end
+		state.moves = PlanJunkMoves(state.slots)
+		state.next = 1
+	end
+	local move = state.moves[state.next]
+	if not move then
+		StopPlacing()
+		return
+	end
+	if AnySlotLocked({ move[1], move[2] }) then
+		return
+	end
+	C_Container.PickupContainerItem(move[1][1], move[1][2])
+	C_Container.PickupContainerItem(move[2][1], move[2][2])
+	ClearCursor()
+	state.next = state.next + 1
+end
+
+local function OnSortStarted()
+	-- Not in combat and not in windows in which other things move items (merchant, bank, mail, trade).
+	if not Items.db.sortMarkedJunk or InCombatLockdown() or OtherWindowOpen() then
+		return
+	end
+	StopPlacing()
+	placing = { started = GetTime(), lastUpdate = GetTime(), slots = SortedSlots() }
+	placing.ticker = C_Timer.NewTicker(MOVE_INTERVAL, PlacingStep)
+end
+
+function Items:BAG_UPDATE()
+	if placing and not placing.moves then
+		placing.lastUpdate = GetTime()
+	end
+end
+
 -- Opening all bags opens each frame; one sort after the last of them.
 local function QueueSort()
 	if Items.db.autoSort and not sortQueued then
@@ -1988,6 +2141,7 @@ function Items:Refresh()
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
 	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
+	self:ToggleEvent("BAG_UPDATE", db.sortMarkedJunk)
 	self:ToggleEvent("BAG_UPDATE_DELAYED", db.upgradePopup, ns.Measured("Items: upgrade popup", ScanNewItems))
 	-- Equipping is not possible in combat: hidden meanwhile, shown again after.
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", db.upgradePopup, function()
@@ -2028,6 +2182,9 @@ function Items:OnLogin()
 	HookContainerFrames()
 	hooksecurefunc("StaticPopup_Show", FillDeleteText)
 	HookRollFrames()
+	if C_Container.SortBags then
+		hooksecurefunc(C_Container, "SortBags", OnSortStarted)
+	end
 	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
 	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
@@ -2077,6 +2234,7 @@ Items.options = {
 	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
 	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
 	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
+	{ key = "sortMarkedJunk", type = "toggle", name = L.ITEMS_SORT_JUNK, desc = L.ITEMS_SORT_JUNK_DESC },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

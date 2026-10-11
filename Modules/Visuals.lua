@@ -791,9 +791,9 @@ end
 ---------------------------------------------------------------------------
 -- Elite/rare dragon around the player portrait (target frame art, mirrored)
 ---------------------------------------------------------------------------
--- Tint on the desaturated gold dragon: the ratio of the portrait ring in the player frame, measured on a screenshot
--- (ring about 190/145/89, lights up to 237/200/140), i.e. light bronze, less orange than before (0.86/0.55/0.28).
-local BRONZE = { 0.93, 0.72, 0.46 }
+-- Tint on the desaturated gold dragon: the bronze of the game's portrait frame, a little redder than the first
+-- try (frame mid tones 162/117/70 to 180/133/77, lights 231/192/132; green/blue per cent ratio about 0.73 / 0.45).
+local BRONZE = { 0.93, 0.69, 0.40 }
 local GOLD = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"
 local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
 local SILVER = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver"

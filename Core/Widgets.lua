@@ -37,9 +37,10 @@ function ns.FadeIn(frame, duration)
 	return group
 end
 
--- Light bronze like the rim of the minimap (measured on a screenshot: about 150/127/96 with highlights up to
--- 176/150/112); the border art is light grey, so the tint is a little brighter than the colour that shows.
-ns.PANEL_BORDER = { 0.72, 0.62, 0.48 }
+-- The bronze of the game's portrait frame (measured on a screenshot: mid tones 162/117/70 to 180/133/77, lights up
+-- to 231/192/132), the same colour as the bronze dragon; the border art is light grey, so the tint is a little
+-- brighter than the colour that shows.
+ns.PANEL_BORDER = { 0.88, 0.65, 0.40 }
 
 function ns.CreatePanel(name, options)
 	options = options or {}

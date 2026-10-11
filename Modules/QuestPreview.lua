@@ -420,9 +420,23 @@ local function Anchor(owner)
 	end
 end
 
+-- The model of a quest is built once and kept until the quest log changes:
+-- moving the mouse over the same title again costs nothing.
+local modelCache = {}
+local cacheWatching = false
+
 function Preview.Show(owner, questID)
 	questID = ns.Number(questID)
-	local model = questID and questID > 0 and Build(questID)
+	if not cacheWatching then
+		cacheWatching = true
+		ns:RegisterEvent("QUEST_LOG_UPDATE", modelCache, function()
+			wipe(modelCache)
+		end)
+	end
+	local model = questID and questID > 0 and (modelCache[questID] or Build(questID))
+	if model then
+		modelCache[questID] = model
+	end
 	if not model then
 		Preview.Hide()
 		return

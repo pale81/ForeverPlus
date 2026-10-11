@@ -37,7 +37,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Beute-Popup mit Alt + Rechtsklick entsperren und an den gewünschten Platz ziehen; ohne gespeicherten Platz erscheint es am Mauszeiger | ja |
 | Tooltip | Gesundheitsleiste unten im Tooltip | – |
 | | Herkunft im Gegenstands-Tooltip (Beute von, Objekte, Behälter, Händler, startet Quest; je max. 3 Namen) und Quests im NPC-Tooltip (Gegenstands- und Questnamen in der Sprache des Clients, soweit er sie kennt; annehmbar laut Daten: nicht erledigt, Stufe, Rasse, Klasse, Vorquests; Abgabe für Quests im Log) | ja |
-| | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Tooltip-Farbe); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt; auch für Objekte (Schilder, Briefkästen, Rohstoffe, Truhen) in der Farbe der ersten Tooltip-Zeile (ihr Tooltip wandert dann vom Zeiger in die übliche Ecke), einzeln abschaltbar (Tooltip-Typ `Object`, im Spiel ungeprüft) | ja |
+| | Name (optional mit Nachname und Stufe) der Einheit unter der Maus mittig über dem Zeiger (Farbe der ersten Tooltip-Zeile, also auch bei Begleitern und Spielertieren wie im Tooltip); optional nach Gesundheit: verbleibender Anteil farbig, Rest entsättigt; auch für Objekte (Schilder, Briefkästen, Rohstoffe, Truhen) in der Farbe der ersten Tooltip-Zeile (ihr Tooltip wandert dann vom Zeiger in die übliche Ecke), einzeln abschaltbar (Tooltip-Typ `Object`, im Spiel ungeprüft) | ja |
 | | Spieler im Tooltip: Name und Klasse in Klassenfarbe | ja |
 | | Stückpreis bei Stapeln direkt hinter dem Verkaufspreis | ja |
 | | Stapelgröße bei stapelbaren Gegenständen | ja |
@@ -120,7 +120,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher, Zauberbuch – bleibt ohne) | – |
 | Einstellungen | Neue Optionen, Abschnitte und Seiten tragen drei Ansichten lang die Marke „NEU“; die Einstellungssuche findet auch Beschreibungen und Schlüsselwörter | – |
-| | Eigene Popups und Fenster (Listen, Text- und Eingabefenster, Fehlerliste, Upgrade-Hinweis, „Taschen voll“, Questvorschau) einheitlich im Stil der Questvorschau: Tooltip-Hintergrund und -Rahmen, Titel oben links, kleines X zum Schließen, Esc schließt | – |
+| | Eigene Popups und Fenster (Listen mit Abstand vor und Linie unter jedem Abschnittstitel, Text- und Eingabefenster, Fehlerliste, Upgrade-Hinweis, „Taschen voll“, Questvorschau) einheitlich im Stil der Questvorschau: Tooltip-Hintergrund und -Rahmen, Titel oben links, kleines X zum Schließen, Esc schließt | – |
 | Schrift | Globale Schriftart und -größe; je Gruppe (klein, normal, Überschriften, Zahlen, Tooltip, Questtext, Chat) eigene Schriftart und Größe; Schriften aus SharedMedia (LibSharedMedia-3.0) werden angeboten | ja |
 | Helfer | Alt: verarbeitbare Taschengegenstände leuchten (lila Entzaubern, gelb Schlossknacken), Alt + Rechtsklick führt es aus | ja |
 | | Knopf für öffnbare Gegenstände (Muscheln, Beutel, geknackte Kassetten), Bearbeitungsmodus | ja |
@@ -135,6 +135,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 ## Technik / CPU
 
 - Nur offizielle API des Forever-Clients (geprüft gegen den Blizzard-UI-Quellcode, Branch `forever`, Build 1.60.1.70291).
+- Einmalige Durchläufe laufen in Scheiben (bei unter 40 Bildern pro Sekunde mit halbem Budget); Questvorschau-Modelle werden bis zur nächsten Änderung des Questlogs gemerkt; Nameplate-CVar wird nur gesetzt, wenn sie sich ändert.
 - Ausschließlich `hooksecurefunc`/`HookScript`, `TooltipDataProcessor`, Settings-API, `EventRegistry` (Bearbeitungsmodus) – keine Ersetzung von Blizzard-Funktionen.
 - Ereignisse werden nur registriert, solange eine Funktion aktiv ist. Dauerhafte `OnUpdate`-Schleifen gibt es nur für das Mouseover-Ausblenden (Prüfung alle 0,1 s, Überblendung nur während des Übergangs). Koordinaten und Minimap-Pins aktualisieren nur während der Bewegung, der Skalierungs-Fänger nur bei gedrückter Strg-Taste.
 - Lua-Fehler werden aus Blizzards eigenem `ScriptErrorsFrame` gelesen (kein eigener Error-Handler); das Popup wird über die CVar `scriptErrors` unterdrückt und beim Deaktivieren wiederhergestellt.

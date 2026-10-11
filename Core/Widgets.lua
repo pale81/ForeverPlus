@@ -625,6 +625,9 @@ local FRAME_STYLES = {
 	bar = { atlas = "UI-HUD-ActionBar-IconFrame", width = 46 / 45, height = 1 },
 	-- Blizzard anchors this art at the top left too; its shadow lies bottom right.
 	standalone = { atlas = "UI-HUD-ActionBar-IconFrame-AddRow", width = 51 / 45, height = 51 / 45 },
+	-- Item buttons of the bags and the character: the frame is anchored to both corners of the icon, so it follows
+	-- every change of the button's size (no stale size, nothing unanchored while the icon has no size yet).
+	item = { atlas = "UI-HUD-ActionBar-IconFrame", fill = true },
 }
 local MASK_ATLAS = "UI-HUD-ActionBar-IconFrame-Mask"
 local maskRatio
@@ -647,6 +650,12 @@ function ns.SizeActionFrame(owner, style)
 	end
 	local data = FRAME_STYLES[style or art.style] or FRAME_STYLES.bar
 	art.style = style or art.style
+	if data.fill then
+		art.frame:SetAtlas(data.atlas)
+		art.frame:ClearAllPoints()
+		art.frame:SetPoint("TOPLEFT", art.icon, "TOPLEFT")
+		art.frame:SetPoint("BOTTOMRIGHT", art.icon, "BOTTOMRIGHT")
+	end
 	local width, height = art.icon:GetSize()
 	-- During some layout passes the client reports protected sizes; keep the
 	-- previous sizing then (the mask is only attached once it has a size).
@@ -657,6 +666,9 @@ function ns.SizeActionFrame(owner, style)
 	if not art.masked then
 		art.masked = true
 		art.icon:AddMaskTexture(art.mask)
+	end
+	if data.fill then
+		return
 	end
 	art.frame:SetAtlas(data.atlas)
 	art.frame:ClearAllPoints()
@@ -679,6 +691,11 @@ function ns.ApplyActionFrame(owner, icon, style, subLevel)
 	mask:SetPoint("CENTER", icon, "CENTER")
 	local frame = owner:CreateTexture(nil, "OVERLAY", nil, subLevel or -1)
 	actionFrames[owner] = { icon = icon, mask = mask, frame = frame, style = style or "bar" }
+	if style == "item" and owner.HookScript then
+		owner:HookScript("OnSizeChanged", function()
+			ns.SizeActionFrame(owner)
+		end)
+	end
 	ns.SizeActionFrame(owner)
 	return actionFrames[owner]
 end

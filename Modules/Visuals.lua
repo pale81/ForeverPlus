@@ -43,7 +43,7 @@ local function UpdateBagFrame(button, quality)
 	local want = Visuals.db.bagActionFrame and quality ~= nil and quality <= Enum.ItemQuality.Common
 	local normal = button.NormalTexture or (button.GetNormalTexture and button:GetNormalTexture())
 	if want then
-		ns.ApplyActionFrame(button, button.icon, "bar", 3)
+		ns.ApplyActionFrame(button, button.icon, "item", 3)
 		ns.SetActionFrameEnabled(button, true)
 		if not bagFramed[button] then
 			bagFramed[button] = { alpha = normal and normal:GetAlpha() or 1 }

@@ -1513,6 +1513,12 @@ end)()
 	ns.Print = function(msg) printed = msg end
 	onClick(nil, bs[3], "RightButton")
 	assert(not plan2[3], "row 1 needs 5 points")
+	-- the restriction shows in the tooltip of that talent, in the colour of the plan
+	lines = {}
+	GameTooltip = { GetOwner = function() return bs[3] end, Show = function() end }
+	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(bs[3])
+	print("  restriction tooltip", table.concat(lines, " | "))
+	assert(#lines >= 1 and lines[#lines]:find("Plan:") and lines[#lines]:find("5"), "restriction in the tooltip")
 	for _ = 1, 4 do onClick(nil, bs[1], "RightButton") end
 	onClick(nil, bs[3], "RightButton")
 	assert(not plan2[3], "needs node 1 at full rank / 5 points")

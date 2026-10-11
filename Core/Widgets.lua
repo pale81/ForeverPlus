@@ -444,6 +444,33 @@ function ns.ShowPopupList(owner, build, key)
 end
 
 ---------------------------------------------------------------------------
+-- Art of the players' chat bubbles (dark rounded box, light border, tail):
+-- a nine-slice frame around `frame`, `inset` pixels outside it, drawn under
+-- the frame's own texts. Returns art, tail (nil when the client lacks the art).
+---------------------------------------------------------------------------
+function ns.CreateBubbleArt(frame, inset, tailOffsetX)
+	local layout = NineSliceLayouts and NineSliceLayouts.ChatBubble
+	if not layout then
+		return nil
+	end
+	local art = CreateFrame("Frame", nil, frame, "NineSliceCodeTemplate")
+	art:SetPoint("TOPLEFT", -inset, inset)
+	art:SetPoint("BOTTOMRIGHT", inset, -inset)
+	art:SetFrameLevel(math.max(frame:GetFrameLevel() - 1, 0))
+	if not pcall(NineSliceUtil.ApplyLayout, art, layout) then
+		art:Hide()
+		return nil
+	end
+	local tail = art:CreateTexture(nil, "ARTWORK", nil, 7)
+	if pcall(tail.SetAtlas, tail, "ChatBubble-Tail", true) then
+		tail:SetPoint("TOP", frame, "BOTTOM", tailOffsetX or -10, -inset + 3)
+	else
+		tail = nil
+	end
+	return art, tail
+end
+
+---------------------------------------------------------------------------
 -- Crisp pixel border with slightly rounded (stepped) corners
 ---------------------------------------------------------------------------
 local BorderMixin = {}

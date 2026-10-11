@@ -14,8 +14,7 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
-local QUEST_DARKEN = 0.7 -- the quest part is a little darker than the bar, still easy to see
-local QUEST_MIN = 0.45 -- brightest channel at least this strong
+local QUEST_COLOR = { 0.34, 0.1, 0.46 } -- dark purple, clearly lighter than the black bar background
 local SCAN_DELAY = 0.3
 
 local expBars = {}
@@ -84,33 +83,9 @@ local function UpdateOverlay(bar)
 		return
 	end
 	local fraction = min(current + questXP, maximum) / maximum
-	-- Same texture as the fill (purple normally, blue while rested), darker.
-	local fill = bar.StatusBar:GetStatusBarTexture()
-	local atlas = fill and fill:GetAtlas()
-	if atlas then
-		overlay:SetAtlas(atlas)
-	elseif fill and fill:GetTexture() then
-		overlay:SetTexture(fill:GetTexture())
-	else
-		overlay:SetColorTexture(1, 1, 1)
-	end
-	-- The status bar colour is the vertex colour of its fill: use it once (using both
-	-- squared the colour and the part came out black).
-	local r, g, b
-	if fill then
-		r, g, b = fill:GetVertexColor()
-	end
-	if not r then
-		r, g, b = bar.StatusBar:GetStatusBarColor()
-	end
-	r, g, b = (r or 1) * QUEST_DARKEN, (g or 1) * QUEST_DARKEN, (b or 1) * QUEST_DARKEN
-	-- Never nearly black: raised until the brightest channel reaches a minimum.
-	local peak = math.max(r, g, b)
-	if peak < QUEST_MIN then
-		local lift = peak > 0 and QUEST_MIN / peak or 0
-		r, g, b = peak > 0 and r * lift or QUEST_MIN, peak > 0 and g * lift or QUEST_MIN, peak > 0 and b * lift or QUEST_MIN
-	end
-	overlay:SetVertexColor(r, g, b, 1)
+	-- A plain dark purple (the fill's own colour changes with rested state and, on
+	-- the reputation bar, is green).
+	overlay:SetColorTexture(QUEST_COLOR[1], QUEST_COLOR[2], QUEST_COLOR[3], 1)
 	local width = ns.Number(bar.StatusBar:GetWidth())
 	if not width then
 		overlay:Hide()

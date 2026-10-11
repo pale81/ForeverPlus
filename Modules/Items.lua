@@ -15,6 +15,7 @@ local Items = ns:NewModule("Items", {
 		repairGuild = true,
 		questReward = true,
 		upgradeArrow = true,
+		rewardUpgrade = true,
 		upgradeScore = false,
 		upgradePopup = true,
 		fastLoot = true,
@@ -432,6 +433,42 @@ local function IsUpgrade(bag, slot, link)
 	return result
 end
 
+-- The same check for an item that is not in the bags (quest rewards, merchant): usable by the
+-- red lines of its tooltip.
+local function CanUseLink(link)
+	local data = C_TooltipInfo.GetHyperlink(link)
+	if not data or not data.lines then
+		return false
+	end
+	for _, line in ipairs(data.lines) do
+		if IsRed(line.leftColor) or IsRed(line.rightColor) then
+			return false
+		end
+	end
+	return true
+end
+
+local rewardRetries = {}
+
+-- True if the item (a link) beats what is worn, false if not or if it is no equipment, nil while its
+-- data loads (onLoaded is called again a little later, at most three times per item).
+function ns.IsRewardUpgrade(link, onLoaded)
+	if not Items.db or not Items.db.rewardUpgrade or type(link) ~= "string" or (issecretvalue and issecretvalue(link))
+		or not C_Item.IsEquippableItem(link) then
+		return false
+	end
+	local score, equippedScore = CompareScores(link)
+	if score == nil then
+		local tries = rewardRetries[link] or 0
+		if onLoaded and tries < 3 then
+			rewardRetries[link] = tries + 1
+			C_Timer.After(1, onLoaded)
+		end
+		return nil
+	end
+	return score and score > equippedScore + 0.01 and CanUseLink(link) or false
+end
+
 -- Optional tooltip line with both values, to check the rating.
 local function AddScoreLine(tooltip)
 	if not Items.db.upgradeScore or tooltip:IsForbidden() or (tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip) then
@@ -811,7 +848,7 @@ end
 local MENU_SECTIONS_BAG = {
 	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
 	{ L.ITEMS_DISPLAY, {
-		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
+		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "rewardUpgrade", "ITEMS_REWARD_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
 		{ "Items", "upgradePopup", "ITEMS_UPGRADE_POPUP" },
 	} },
 	{ L.ITEMS_MERCHANT, {
@@ -1241,6 +1278,42 @@ local function MarkBestReward()
 	end
 end
 
+-- Green arrow on the items of a quest (offered choices and sure rewards, also in the quest log) that
+-- are better than the worn ones.
+local rewardArrows = {}
+
+local function GetRewardArrow(button)
+	local arrow = rewardArrows[button]
+	if not arrow then
+		arrow = CreateFrame("Frame", nil, button)
+		arrow:SetAllPoints(button.Icon or button.icon or button)
+		arrow:SetFrameLevel(button:GetFrameLevel() + 6)
+		local texture = arrow:CreateTexture(nil, "OVERLAY", nil, 3)
+		texture:SetAtlas("bags-greenarrow", true)
+		texture:SetPoint("TOPRIGHT", 0, 0)
+		rewardArrows[button] = arrow
+	end
+	return arrow
+end
+
+local function MarkRewardUpgrades()
+	for _, arrow in pairs(rewardArrows) do
+		arrow:Hide()
+	end
+	if not Items.db.rewardUpgrade then
+		return
+	end
+	local rewardsFrame = QuestInfoFrame.rewardsFrame
+	local getLink = QuestInfoFrame.questLog and GetQuestLogItemLink or GetQuestItemLink
+	for _, button in ipairs(rewardsFrame and rewardsFrame.RewardButtons or {}) do
+		if button:IsShown() and button.objectType == "item" and (button.type == "choice" or button.type == "reward") then
+			if ns.IsRewardUpgrade(getLink(button.type, button:GetID()), MarkRewardUpgrades) then
+				GetRewardArrow(button):Show()
+			end
+		end
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Fast loot: take every slot as soon as the loot window is ready
 ---------------------------------------------------------------------------
@@ -1571,7 +1644,7 @@ function Items:Refresh()
 			upgradeFrame:Hide()
 		end
 	end
-	local weighs = db.upgradeArrow or db.upgradePopup or db.upgradeScore
+	local weighs = db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", weighs, function()
 		wipe(upgradeCache)
 		UpdateAllBags()
@@ -1603,6 +1676,7 @@ function Items:OnLogin()
 	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
 	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
+	hooksecurefunc("QuestInfo_Display", MarkRewardUpgrades)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	self:Refresh()
 end
@@ -1618,6 +1692,7 @@ function Items:OnOptionChanged(key)
 	UpdateAllBags()
 	if QuestInfoFrame:IsVisible() then
 		MarkBestReward()
+		MarkRewardUpgrades()
 	end
 end
 
@@ -1644,6 +1719,7 @@ Items.options = {
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
+	{ key = "rewardUpgrade", type = "toggle", name = L.ITEMS_REWARD_UPGRADE, desc = L.ITEMS_REWARD_UPGRADE_DESC, new = true },
 	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
 	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
 	{ type = "header", name = L.ITEMS_LOOT },

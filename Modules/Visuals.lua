@@ -186,6 +186,17 @@ local function FrameQuestRewards()
 				ns.ApplyActionFrame(button, button.Icon, ICON_FRAME_STYLE, REWARD_FRAME_LEVEL)
 			end
 			ns.SizeActionFrame(button)
+			-- Quality colour of the item on the frame.
+			local quality
+			if button.objectType == "item" and (button.type == "choice" or button.type == "reward") then
+				local link = (QuestInfoFrame.questLog and GetQuestLogItemLink or GetQuestItemLink)(button.type, button:GetID())
+				quality = link and not (issecretvalue and issecretvalue(link)) and select(3, C_Item.GetItemInfo(link))
+			end
+			local r, g, b
+			if quality and quality >= 1 then
+				r, g, b = C_Item.GetItemQualityColor(quality)
+			end
+			ns.SetActionFrameColor(button, r, g, b)
 		end
 	end
 end

@@ -234,7 +234,7 @@ read_globals = {
 	"GetProfessionInfo",
 	"GetProfessions",
 	"GetQuestItemInfo",
-	"GetQuestItemLink",
+	"GetQuestItemLink", "GetQuestLogItemLink",
 	"GetRepairAllCost",
 	"GetTime",
 	"INVSLOT_MAINHAND",

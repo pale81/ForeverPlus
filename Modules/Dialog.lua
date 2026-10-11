@@ -186,7 +186,12 @@ local function CreateItem(frame)
 	item.Icon:SetAllPoints()
 	item.Count = item:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 	item.Count:SetPoint("BOTTOMRIGHT", -2, 2)
-	item.Border = ns.CreatePixelBorder(item, item, 2, "OVERLAY", 6)
+	-- Action button frame, tinted in the item quality; green arrow when it beats the worn item.
+	ns.ApplyActionFrame(item, item.Icon, "standalone", 3)
+	item.Upgrade = item:CreateTexture(nil, "OVERLAY", nil, 6)
+	item.Upgrade:SetAtlas("bags-greenarrow", true)
+	item.Upgrade:SetPoint("TOPRIGHT", 0, 0)
+	item.Upgrade:Hide()
 	item.Chosen = item:CreateTexture(nil, "OVERLAY", nil, 7)
 	item.Chosen:SetPoint("TOPLEFT", -3, 3)
 	item.Chosen:SetPoint("BOTTOMRIGHT", 3, -3)
@@ -300,14 +305,16 @@ Render = function(view)
 				item.Icon:SetTexture(info.icon)
 				item.Count:SetText((info.count or 1) > 1 and info.count or "")
 				local r, g, b
-				if info.quality then
+				if info.quality and info.quality >= 1 then
 					r, g, b = C_Item.GetItemQualityColor(info.quality)
 				end
-				if r and info.quality > 1 then
-					item.Border:ShowColor(r, g, b)
-				else
-					item.Border:Hide()
-				end
+				ns.SizeActionFrame(item)
+				ns.SetActionFrameColor(item, r, g, b)
+				item.Upgrade:SetShown(ns.IsRewardUpgrade and ns.IsRewardUpgrade(info.link, function()
+					if bubble:IsShown() and current then
+						Render(current.view)
+					end
+				end) and true or false)
 				item.tooltip = info.tooltip
 				item.Chosen:SetShown(block.choose and current and current.selected == info.choice or false)
 				item.action = block.choose and function()
@@ -572,6 +579,7 @@ local function ItemInfos(kind, count, choiceOffset)
 		local name, texture, number, quality = GetQuestItemInfo(kind, i)
 		infos[#infos + 1] = {
 			icon = texture, count = number, quality = quality, choice = choiceOffset and i or nil,
+			link = GetQuestItemLink(kind, i),
 			tooltip = function(tooltip)
 				tooltip:SetQuestItem(kind, i)
 			end,

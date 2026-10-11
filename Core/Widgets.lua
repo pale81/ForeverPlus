@@ -633,6 +633,15 @@ function ns.ApplyActionFrame(owner, icon, style, subLevel)
 	return actionFrames[owner]
 end
 
+-- Tints the frame (item quality); nil gives the neutral frame back. A coloured frame is drawn
+-- desaturated first so the colour is not dulled by the metal of the art.
+function ns.SetActionFrameColor(owner, r, g, b)
+	local art = actionFrames[owner]
+	if not art then return end
+	art.frame:SetDesaturated(r ~= nil)
+	art.frame:SetVertexColor(r or 1, g or 1, b or 1)
+end
+
 -- Lets an optional visual style be switched off again without discarding the
 -- reusable art or leaving its rounded mask on the icon.
 function ns.SetActionFrameEnabled(owner, enabled)

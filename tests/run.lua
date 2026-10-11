@@ -1745,6 +1745,38 @@ end)()
 	end
 end)()
 ;(function()
+	-- Talent plan as Blizzard's loadout text: same bit layout the game reads back.
+	local talents = ns:GetModule("Talents")
+	local menu = uv(talents.OnLogin, "CreateButtons") and uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")
+	local ExportRanks = menu and uv(menu, "ExportRanks")
+	local LoadoutString = ExportRanks and uv(uv(ExportRanks, "ShowLoadout"), "LoadoutString")
+	assert(LoadoutString, "loadout writer reachable")
+	local bits = {}
+	ExportUtil = { MakeExportDataStream = function()
+		return { AddValue = function(_, width, value) bits[#bits + 1] = { width, value } end, GetExportString = function() return "ok" end }
+	end }
+	C_Traits = { GetLoadoutSerializationVersion = function() return 2 end, GetTreeHash = function() return { 1, 2 } end,
+		GetTreeNodes = function() return { 10, 11, 12, 13 } end,
+		GetNodeInfo = function(_, id)
+			local nodes = {
+				[10] = { maxRanks = 5, ranksPurchased = 0, activeRank = 1 },   -- granted
+				[11] = { maxRanks = 5, ranksPurchased = 0, activeRank = 0 },   -- wanted 5: full
+				[12] = { maxRanks = 3, ranksPurchased = 0, activeRank = 0 },   -- wanted 2: partial
+				[13] = { maxRanks = 1, ranksPurchased = 0, activeRank = 0 },   -- not wanted
+			}
+			return nodes[id]
+		end }
+	PlayerUtil = { GetCurrentSpecID = function() return 7 end }
+	local frame = { GetConfigID = function() return 1 end, GetTreeInfo = function() return { ID = 77 } end }
+	assert(LoadoutString(frame, { [11] = 5, [12] = 2 }) == "ok")
+	-- header: version, spec, two hash bytes; then per node: selected [purchased [partial [ranks] choice]]
+	local flat = {}
+	for _, bit in ipairs(bits) do flat[#flat + 1] = bit[1] .. ":" .. bit[2] end
+	local text = table.concat(flat, " ")
+	assert(text == "8:2 16:7 8:1 8:2 1:1 1:0 1:1 1:1 1:0 1:0 1:1 1:1 1:1 6:2 1:0 1:0", text)
+	print("talent loadout string OK")
+end)()
+;(function()
 	-- Space in the quest window: accept, continue or complete without Blizzard's dialogs.
 	local q = ns:GetModule("Quests")
 	q.db.questParchment = true

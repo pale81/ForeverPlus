@@ -11,6 +11,7 @@ local RepFlash = ns:NewModule("RepFlash", {
 		enabled = false, -- reputation
 		xp = false,
 		honor = false,
+		hideChat = true, -- the chat line of a kind that flashes is hidden
 	},
 })
 
@@ -211,7 +212,33 @@ local function BuildHonorPatterns()
 	end
 end
 
+-- Chat lines of the kinds that flash (reputation, experience, honor) are hidden when wanted: the
+-- flash shows the same information.
+local CHAT_EVENTS = {
+	CHAT_MSG_COMBAT_FACTION_CHANGE = "enabled",
+	CHAT_MSG_COMBAT_XP_GAIN = "xp",
+	CHAT_MSG_COMBAT_HONOR_GAIN = "honor",
+}
+
+-- Filter: hides a line when its kind flashes.
+local function HideFilter(_, event, message)
+	if issecretvalue and issecretvalue(message) then
+		return false
+	end
+	local db = RepFlash.db
+	return db.hideChat and db[CHAT_EVENTS[event]] and true or false
+end
+
+local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
+local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+
 function RepFlash:Apply()
+	for event in pairs(CHAT_EVENTS) do
+		RemoveFilter(event, HideFilter)
+		if self.db.hideChat and (self.db.enabled or self.db.xp or self.db.honor) then
+			AddFilter(event, HideFilter)
+		end
+	end
 	self:ToggleEvent("CHAT_MSG_COMBAT_FACTION_CHANGE", self.db.enabled, OnReputation)
 	self:ToggleEvent("PLAYER_XP_UPDATE", self.db.xp, OnExperience)
 	self:ToggleEvent("CHAT_MSG_COMBAT_HONOR_GAIN", self.db.honor, OnHonor)
@@ -236,4 +263,5 @@ RepFlash.options = {
 	{ key = "enabled", type = "toggle", name = L.REPFLASH_ENABLE, desc = L.REPFLASH_ENABLE_DESC, new = true },
 	{ key = "xp", type = "toggle", name = L.REPFLASH_XP_OPTION, desc = L.REPFLASH_XP_OPTION_DESC, new = true },
 	{ key = "honor", type = "toggle", name = L.REPFLASH_HONOR_OPTION, desc = L.REPFLASH_HONOR_OPTION_DESC, new = true },
+	{ key = "hideChat", type = "toggle", name = L.REPFLASH_HIDE_CHAT, desc = L.REPFLASH_HIDE_CHAT_DESC, new = true },
 }

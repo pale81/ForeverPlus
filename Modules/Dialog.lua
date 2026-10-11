@@ -18,7 +18,7 @@ local Dialog = ns:NewModule("Dialog", {
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
 		trainer = true,        -- the trainer's list in the bubble too
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
-		merchantTalk = true,   -- the merchant speaks first, the wares come with the next step
+		merchantTalk = false,  -- the merchant speaks first, the wares come with the next step (the saying is above the list otherwise)
 		merchantHide = false,  -- hide wares that cannot be used or are known already
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 	},
@@ -141,6 +141,7 @@ local function CreateBubble()
 	end)
 	frame:SetWidth(WIDTH)
 	frame:Hide()
+	ns.FadeIn(frame, 0.25)
 	-- Dark variant: one plain pane.
 	frame.Dark = frame:CreateTexture(nil, "BACKGROUND")
 	frame.Dark:SetPoint("TOPLEFT", -INSET / 2, INSET / 2)
@@ -229,23 +230,33 @@ local function CreateBubble()
 	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
 	filter.Icon:SetAllPoints()
 	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Bag_08]])
-	filter.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	filter.Border = ns.CreatePixelBorder(filter, filter, 1, "OVERLAY", 5)
+	filter.Icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
+	filter.Icon:SetDesaturated(true)
+	-- A thin strike through the item: there when unusable and known wares are hidden.
 	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
-	filter.Cross:SetAtlas("common-icon-redx")
-	filter.Cross:SetSize(14, 14)
+	filter.Cross:SetColorTexture(0.85, 0.3, 0.3, 1)
+	filter.Cross:SetSize(2, 22)
 	filter.Cross:SetPoint("CENTER")
+	filter.Cross:SetRotation(math.rad(45))
+	filter:SetScript("OnEnter", function(self)
+		self.hover = true
+		Dialog.UpdateFilter()
+	end)
+	filter:SetScript("OnLeave", function(self)
+		self.hover = nil
+		Dialog.UpdateFilter()
+	end)
 	filter:SetScript("OnClick", function()
 		Settings.SetValue("ForeverPlus_Dialog_merchantHide", not Dialog.db.merchantHide)
 		Dialog.OnConversation(Dialog, "MERCHANT_UPDATE")
 	end)
-	filter:SetScript("OnEnter", function(self)
+	filter:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip_SetTitle(GameTooltip, L.DIALOG_MERCHANT_HIDE)
 		GameTooltip_AddNormalLine(GameTooltip, Dialog.db.merchantHide and L.DIALOG_FILTER_ON or L.DIALOG_FILTER_OFF)
 		GameTooltip:Show()
 	end)
-	filter:SetScript("OnLeave", GameTooltip_Hide)
+	filter:HookScript("OnLeave", GameTooltip_Hide)
 	filter:Hide()
 	frame.Filter = filter
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
@@ -291,13 +302,6 @@ local function CreateRow(frame)
 	row.Highlight:SetPoint("BOTTOMRIGHT", 3, -1)
 	row.Highlight:SetColorTexture(0, 0, 0, 0.1)
 	row.Highlight:Hide()
-	-- The arrow of the chosen option (the one Space takes; moved with Tab, the arrow keys or a click).
-	row.Cursor = row:CreateFontString(nil, "OVERLAY")
-	row.Cursor:SetFontObject(TextFont())
-	row.Cursor:SetPoint("TOPRIGHT", row, "TOPLEFT", -3, 0)
-	row.Cursor:SetText(">")
-	row.Cursor:SetTextColor(0.33, 1, 0.47)
-	row.Cursor:Hide()
 	-- The option Space takes (changed with Tab): lightly lit.
 	row.Selected = row:CreateTexture(nil, "BACKGROUND")
 	row.Selected:SetPoint("TOPLEFT", -4, 2)
@@ -318,9 +322,9 @@ local function CreateRow(frame)
 	end)
 	row:SetScript("OnClick", function(button)
 		-- A click moves the arrow to the row, then does what the row does.
-		if button.number and bubble then
+		if button.number and bubble and bubble.selectedRow ~= button.number then
 			bubble.selectedRow = button.number
-			Dialog.ShowSelection()
+			Dialog.Rerender()
 		end
 		if button.action then
 			button.action()
@@ -451,7 +455,7 @@ Render = function(view)
 					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
 				end
 				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
-				local emphasised = info.selected or (info.action and #frame.rowActions == frame.selectedRow and #frame.rowActions > 1)
+				local emphasised = info.selected or (info.action and #frame.rowActions == frame.selectedRow)
 				-- Always set the font itself: a font object set again would not undo an earlier size.
 				local baseFont = _G[TextFont()]
 				local file, size, flags
@@ -464,9 +468,11 @@ Render = function(view)
 					row.Text:SetFontObject(TextFont())
 				end
 				row.Text:SetText(label)
+				-- The chosen text stands out: brighter and warm next to the rest.
+				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
 				row.Selected:SetShown(row.number ~= nil and row.number == frame.selectedRow)
-				row.Cursor:SetShown(row.number ~= nil and row.number == frame.selectedRow)
+
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
 				row.action, row.tooltip = info.action, info.tooltip
@@ -541,13 +547,7 @@ Render = function(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
-	if view.filter then
-		local on = Dialog.db.merchantHide
-		frame.Filter.Icon:SetDesaturated(not on)
-		frame.Filter.Icon:SetAlpha(on and 1 or 0.7)
-		frame.Filter.Cross:SetAlpha(on and 1 or 0.55)
-		frame.Filter.Border:ShowColor(on and 1 or 0.6, on and 0.82 or 0.6, on and 0.2 or 0.6)
-	end
+	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
 	frame.Abandon.questID = view.abandonQuestID
 	frame.Abandon.armed = false
@@ -685,6 +685,19 @@ local function UseBlizzard()
 	ns.ShowFriendlyPlates(false)
 end
 
+-- The small grey item at the top right of the merchant list: dull, brighter under the mouse, struck through
+-- while unusable and known wares are hidden.
+function Dialog.UpdateFilter()
+	local filter = bubble and bubble.Filter
+	if not filter then
+		return
+	end
+	local on = Dialog.db.merchantHide
+	filter.Icon:SetAlpha(filter.hover and 0.95 or 0.5)
+	filter.Cross:SetShown(on and true or false)
+	filter.Cross:SetAlpha(filter.hover and 1 or 0.8)
+end
+
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
 function Dialog.Rerender()
 	if current and bubble and bubble:IsShown() then
@@ -700,7 +713,7 @@ function Dialog.ShowSelection()
 	for _, row in pairs(bubble.pools.row) do
 		local isCursor = row:IsShown() and row.number ~= nil and row.number == bubble.selectedRow
 		row.Selected:SetShown(isCursor)
-		row.Cursor:SetShown(isCursor)
+
 	end
 end
 
@@ -1477,6 +1490,11 @@ function Dialog:OnInitialize()
 	if self.db.onByDefault == nil then
 		self.db.onByDefault = true
 		self.db.enabled = true
+	end
+	-- The saying belongs above the list of wares, not in a step of its own (changed default, once).
+	if not self.db.merchantTalkReset then
+		self.db.merchantTalkReset = true
+		self.db.merchantTalk = false
 	end
 end
 

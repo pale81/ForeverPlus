@@ -1061,3 +1061,5 @@ L.DIALOG_ONSCREEN_DESC = "Keeps the bubble on the screen: while it is open the u
 L.DIALOG_FILTER_ON = "On: unusable and known wares are hidden. Click to show everything."
 L.DIALOG_FILTER_OFF = "Off: everything is shown. Click to hide unusable and known wares."
 L.QUESTS_LOGO_STATUS = "Logo: %d atlases in the game, %d with forever in the name: %s. Used: %s."
+L.FADE_IN = "Fade windows in softly"
+L.FADE_IN_DESC = "Windows and window menus of ForeverPlus (lists, input windows, the dialog bubble and others) appear with a short soft fade instead of at once."

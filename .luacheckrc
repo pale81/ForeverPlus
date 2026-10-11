@@ -263,6 +263,7 @@ read_globals = {
 	"MinimapCluster",
 	"NORMAL_FONT_COLOR",
 	"DISABLED_FONT_COLOR",
+	"BAG_CLEANUP_BAGS", "BAG_CLEANUP_BAGS_DESCRIPTION",
 	"HIGHLIGHT_FONT_COLOR",
 	"CampaignQuestObjectiveTracker",
 	"NUM_BAG_SLOTS",

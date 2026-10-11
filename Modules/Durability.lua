@@ -95,11 +95,13 @@ local PARTS = {
 	{ "Ranged", 28, 38, "TOP", "Shield", "BOTTOM", 0, 5, 0.1875, 0.3984375, 0.5546875, 0.84375, 18 },
 }
 local FIGURE_TEXTURE = [[Interface\Durability\UI-Durability-Icons]]
+local FIGURE_SCALE = 0.55 -- the figure of the repair warning is far bigger than an item slot
 local figure
 
 local function CreateFigure(parent)
 	local frame = CreateFrame("Button", nil, parent)
 	frame:SetSize(80, 80)
+	frame:SetScale(FIGURE_SCALE)
 	frame:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 20)
 	frame.parts = {}
 	for _, part in ipairs(PARTS) do
@@ -137,11 +139,11 @@ local function CreateFigure(parent)
 	return frame
 end
 
--- Right of the rightmost slot of the weapon row, at its lower edge.
+-- Right of the rightmost slot of the weapon row (the ammunition slot), vertically centred on it.
 local function PlaceFigure()
 	figure:ClearAllPoints()
 	local best, right
-	for _, name in ipairs({ "CharacterMainHandSlot", "CharacterSecondaryHandSlot", "CharacterRangedSlot" }) do
+	for _, name in ipairs({ "CharacterMainHandSlot", "CharacterSecondaryHandSlot", "CharacterRangedSlot", "CharacterAmmoSlot" }) do
 		local slot = _G[name]
 		local edge = slot and ns.Number(slot:GetRight())
 		if edge and (not right or edge > right) then
@@ -149,7 +151,7 @@ local function PlaceFigure()
 		end
 	end
 	if best then
-		figure:SetPoint("BOTTOMLEFT", best, "BOTTOMRIGHT", 14, -4)
+		figure:SetPoint("LEFT", best, "RIGHT", 10 / FIGURE_SCALE, 0)
 	else
 		figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
 	end

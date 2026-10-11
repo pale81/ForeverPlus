@@ -2605,10 +2605,10 @@ end)()
 	local SortOnOpen = uv(uv(items.OnLogin, "QueueSort"), "SortOnOpen")
 	assert(SortOnOpen, "sort function")
 	local saved = { C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo }
-	local sorts, locked, now, ticker = 0, false, 100, nil
+	local sorts, locked, now, ticker, itemId = 0, false, 100, nil, 1
 	C_Container.SortBags = function() sorts = sorts + 1 end
 	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and 2 or 0 end
-	C_Container.GetContainerItemInfo = function(bag, slot) return bag == 0 and slot == 1 and { isLocked = locked } or nil end
+	C_Container.GetContainerItemInfo = function(bag, slot) return bag == 0 and slot == 1 and { isLocked = locked, itemID = itemId, stackCount = 1 } or nil end
 	C_Timer.NewTicker = function(_, fn) ticker = { fn = fn, Cancel = function(self) self.dead = true end } return ticker end
 	GetTime = function() return now end
 	InCombatLockdown = function() return false end
@@ -2642,6 +2642,9 @@ end)()
 	assert(sorts == 1, "no sort at a merchant")
 	MerchantFrame = false
 	now = 130
+	SortOnOpen()
+	assert(sorts == 1, "no new sort while the sorted bags are unchanged (the junk must not jump to and fro)")
+	itemId = 2
 	SortOnOpen()
 	assert(sorts == 2, "next sort afterwards")
 	items.db.autoSort = false

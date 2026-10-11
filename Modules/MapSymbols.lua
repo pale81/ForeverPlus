@@ -19,7 +19,8 @@ local INNKEEPER_TITLE = "Innkeeper"
 local FLIGHT_ATLAS = { A = "taxinode_alliance", H = "taxinode_horde", AH = "taxinode_neutral" }
 local ROUND_MASK = [[Interface\CharacterFrame\TempPortraitAlphaMask]]
 
-local layer
+local layer, currentMap
+local PositionOne -- below
 local frames, used = {}, 0
 local sources = {}
 local entrances  -- uiMapID -> { { x, y, names = { { name, kind } } } } (x, y: 0–100)
@@ -516,8 +517,20 @@ end)
 -- Frames
 ---------------------------------------------------------------------------
 local function OnEnter(frame)
+	local tooltip = frame.symbol.tooltip
+	local movable = frame.offsetKey and Options().labelsMovable
+	if not (tooltip or movable) then
+		return
+	end
 	GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-	frame.symbol.tooltip(GameTooltip, frame.symbol)
+	if tooltip then
+		tooltip(GameTooltip, frame.symbol)
+	else
+		GameTooltip_SetTitle(GameTooltip, frame.symbol.label)
+	end
+	if movable then
+		GameTooltip_AddInstructionLine(GameTooltip, L.WORLDMAP_LABEL_DRAG)
+	end
 	GameTooltip:Show()
 end
 
@@ -525,6 +538,52 @@ local function OnMouseUp(frame, button)
 	if frame.symbol.click then
 		frame.symbol.click(frame.symbol, button)
 	end
+end
+
+-- Names can be dragged while "movable" is on (WorldMap option); the place is kept per map and name.
+local function DragUpdate(frame)
+	local drag = frame.drag
+	local canvas = WorldMapFrame:GetCanvas()
+	local scale, width, height = ns.Number(canvas:GetEffectiveScale(), 0), canvas:GetWidth(), canvas:GetHeight()
+	if not drag or scale <= 0 or width <= 0 or height <= 0 then
+		return
+	end
+	local cx, cy = GetCursorPosition()
+	frame.ox = drag.ox + (cx - drag.cx) / scale / width
+	frame.oy = drag.oy - (cy - drag.cy) / scale / height
+	PositionOne(frame)
+end
+
+local function DragStart(frame)
+	if not (frame.offsetKey and Options().labelsMovable) then
+		return
+	end
+	local cx, cy = GetCursorPosition()
+	frame.drag = { cx = cx, cy = cy, ox = ns.Number(frame.ox, 0), oy = ns.Number(frame.oy, 0) }
+	GameTooltip:Hide()
+	ns.SetUpdate(frame, "Map names: drag", DragUpdate)
+end
+
+local function DragStop(frame)
+	ns.SetUpdate(frame, "Map names: drag", nil)
+	if not frame.drag then
+		return
+	end
+	frame.drag = nil
+	local db = Options()
+	db.labelOffsets = db.labelOffsets or {}
+	local ox, oy = ns.Number(frame.ox, 0), ns.Number(frame.oy, 0)
+	if math.abs(ox) < 0.0005 and math.abs(oy) < 0.0005 then
+		db.labelOffsets[frame.offsetKey] = nil
+	else
+		db.labelOffsets[frame.offsetKey] = { math.floor(ox * 10000 + 0.5) / 10000, math.floor(oy * 10000 + 0.5) / 10000 }
+	end
+end
+
+-- All moved names back to their places.
+function Symbols.ResetNames()
+	Options().labelOffsets = {}
+	Symbols.Refresh()
 end
 
 local function Acquire()
@@ -542,6 +601,8 @@ local function Acquire()
 		frame:SetScript("OnEnter", OnEnter)
 		frame:SetScript("OnLeave", GameTooltip_Hide)
 		frame:SetScript("OnMouseUp", OnMouseUp)
+		frame:SetScript("OnDragStart", DragStart)
+		frame:SetScript("OnDragStop", DragStop)
 		frames[used] = frame
 	end
 	frame:SetFrameLevel(layer:GetFrameLevel() + 1)
@@ -564,11 +625,23 @@ local function Setup(frame, symbol)
 		frame:SetFrameLevel(layer:GetFrameLevel())
 		frame.Label:SetScale(scale)
 		frame:SetSize(frame.Label:GetStringWidth() * scale, frame.Label:GetStringHeight() * scale)
-		-- A name with a text shows it on hover; clicks still reach the map.
-		frame:EnableMouse(symbol.tooltip ~= nil)
-		frame:SetMouseClickEnabled(false)
+		-- A name with a text shows it on hover; clicks still reach the map, except while the names are movable.
+		local db = Options()
+		local movable = db.labelsMovable and true or false
+		frame.offsetKey = tostring(currentMap) .. ":" .. symbol.label
+		local offset = db.labelOffsets and db.labelOffsets[frame.offsetKey]
+		frame.ox, frame.oy = offset and ns.Number(offset[1]), offset and ns.Number(offset[2])
+		frame:EnableMouse(movable or symbol.tooltip ~= nil)
+		frame:SetMouseClickEnabled(movable)
+		if movable then
+			frame:RegisterForDrag("LeftButton")
+		else
+			frame:RegisterForDrag()
+		end
 		return
 	end
+	frame.offsetKey, frame.ox, frame.oy = nil, nil, nil
+	frame:RegisterForDrag()
 	frame.Label:Hide()
 	frame.Icon:Show()
 	if symbol.atlas then
@@ -590,19 +663,25 @@ local function Setup(frame, symbol)
 	frame:SetMouseClickEnabled(symbol.click ~= nil)
 end
 
--- Positions in the canvas; the symbols keep their size while zooming.
+-- Position in the canvas; the symbols keep their size while zooming. Names can be moved by the player
+-- (offset in parts of the canvas, so it stays with the name while zooming).
+function PositionOne(frame, canvas, scale)
+	canvas = canvas or WorldMapFrame:GetCanvas()
+	scale = scale or 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
+	local width, height = canvas:GetWidth(), canvas:GetHeight()
+	frame:SetScale(scale)
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", canvas, "TOPLEFT", width * (frame.x + ns.Number(frame.ox, 0)) / scale, -height * (frame.y + ns.Number(frame.oy, 0)) / scale)
+end
+
 local function Position()
 	if used == 0 then
 		return
 	end
 	local canvas = WorldMapFrame:GetCanvas()
-	local width, height = canvas:GetWidth(), canvas:GetHeight()
 	local scale = 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
 	for i = 1, used do
-		local frame = frames[i]
-		frame:SetScale(scale)
-		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", canvas, "TOPLEFT", width * frame.x / scale, -height * frame.y / scale)
+		PositionOne(frames[i], canvas, scale)
 	end
 end
 
@@ -629,6 +708,7 @@ local function Draw()
 	if not mapID then
 		return
 	end
+	currentMap = mapID
 	for _, symbol in ipairs(Collect(mapID)) do
 		local frame = Acquire()
 		frame.x, frame.y = symbol.x, symbol.y

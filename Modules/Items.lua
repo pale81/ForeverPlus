@@ -1589,6 +1589,11 @@ local SORT_CHECK = 0.4 -- seconds between looks at the bags while a sort runs
 local SORT_QUIET = 2 -- looks without a locked item that end a sort
 local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the bags show
 local lastSort, sortQueued, sorting = 0, false, false
+-- Layout of the bags after the last finished sort (items, counts, junk marks). While it is unchanged, opening the
+-- bags sorts nothing: the game's cleanup would put the marked items back in their place and ForeverPlus would
+-- move them away again, so the junk jumped to and fro on every opening.
+local sortedLayout
+local RecordLayout -- below
 
 -- Windows in which items are moved by other things: no sorting in them.
 local TRADE_WINDOWS = { "MerchantFrame", "MailFrame", "TradeFrame", "BankFrame", "GuildBankFrame", "AuctionHouseFrame",
@@ -1631,6 +1636,7 @@ local function WatchSort()
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
+			RecordLayout()
 		end
 	end)
 end
@@ -1645,6 +1651,9 @@ local function SortOnOpen()
 	if now - lastSort < SORT_PAUSE or AnyLocked() then
 		return
 	end
+	if sortedLayout and sortedLayout == Items.LayoutSignature() then
+		return
+	end
 	lastSort = now
 	C_Container.SortBags()
 	WatchSort()
@@ -1657,6 +1666,24 @@ local PLACE_QUIET = 0.7  -- seconds without bag updates: the sort is done
 local SORT_TIMEOUT = 10
 local MOVE_INTERVAL = 0.1
 local placing -- state while waiting for the sort or moving items
+
+function Items.LayoutSignature()
+	local parts = {}
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			parts[#parts + 1] = info and (tostring(info.itemID) .. "x" .. tostring(info.stackCount) .. (IsMarked(info) and "m" or "")) or "-"
+		end
+	end
+	return table.concat(parts, ",")
+end
+
+-- Called when a sort and the placing of the marked items are over.
+function RecordLayout()
+	if not sorting and not placing and not InCombatLockdown() then
+		sortedLayout = Items.LayoutSignature()
+	end
+end
 
 -- Slots that take part in the cleanup, in bag order.
 local function SortedSlots()
@@ -1746,11 +1773,14 @@ local function PlanJunkMoves(slots)
 	return moves
 end
 
-local function StopPlacing()
+local function StopPlacing(finished)
 	if placing and placing.ticker then
 		placing.ticker:Cancel()
 	end
 	placing = nil
+	if finished then
+		RecordLayout()
+	end
 end
 
 local function PlacingStep()
@@ -1774,7 +1804,7 @@ local function PlacingStep()
 	end
 	local move = state.moves[state.next]
 	if not move then
-		StopPlacing()
+		StopPlacing(true)
 		return
 	end
 	if AnySlotLocked({ move[1], move[2] }) then

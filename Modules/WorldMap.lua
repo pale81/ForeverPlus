@@ -21,6 +21,8 @@ local WorldMap = ns:NewModule("WorldMap", {
 		placeInfo = true,
 		symbolScale = 100,
 		labelScale = 100,
+		labelsMovable = false,
+		labelOffsets = {}, -- "map:name" -> { dx, dy } in parts of the canvas
 		questStarts = true,
 		filterMenu = true,
 	},
@@ -265,6 +267,7 @@ ns.AddMapFilterEntry(function(root)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_QUEST_STARTS, "WorldMap", "questStarts", L.WORLDMAP_QUEST_STARTS_DESC)
 	ns.CreateSizeMenu(root, L.WORLDMAP_SYMBOL_SCALE, "WorldMap", "symbolScale")
 	ns.CreateSizeMenu(root, L.WORLDMAP_LABEL_SCALE, "WorldMap", "labelScale")
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_LABELS_MOVABLE, "WorldMap", "labelsMovable", L.WORLDMAP_LABELS_MOVABLE_DESC)
 end)
 
 -- The section of the map's filter menu (Blizzard's "Show" menu): a title and
@@ -338,6 +341,10 @@ WorldMap.options = {
 		format = function(value)
 			return ("%d %%"):format(value)
 		end },
+	{ key = "labelsMovable", type = "toggle", name = L.WORLDMAP_LABELS_MOVABLE, desc = L.WORLDMAP_LABELS_MOVABLE_DESC, new = true },
+	{ type = "button", name = L.WORLDMAP_LABELS_RESET, text = L.WORLDMAP_LABELS_RESET_TEXT, desc = L.WORLDMAP_LABELS_RESET_DESC, func = function()
+		ns.MapSymbols.ResetNames()
+	end },
 	{ key = "labelScale", type = "slider", name = L.WORLDMAP_LABEL_SCALE, desc = L.WORLDMAP_LABEL_SCALE_DESC, min = 50, max = 200, step = 5, new = true,
 		format = function(value)
 			return ("%d %%"):format(value)

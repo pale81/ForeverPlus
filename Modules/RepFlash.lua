@@ -365,6 +365,29 @@ local function GameXPSettings()
 	return found
 end
 
+-- /fp xpzahl: every console setting about floating text and experience with its value, to find the game's number.
+function RepFlash.PrintGameXPSettings()
+	local ok, list = pcall(C_Console and C_Console.GetAllCommands or function() end)
+	local lines = {}
+	for _, entry in ipairs(ok and type(list) == "table" and list or {}) do
+		local name = type(entry) == "table" and entry.command
+		if type(name) == "string" then
+			local lower = name:lower()
+			if lower:find("floatingcombat") or lower:find("xp") or lower:find("experience") then
+				local value = GetCVar(name)
+				if value ~= nil then
+					lines[#lines + 1] = ("%s = %s"):format(name, tostring(value))
+				end
+			end
+		end
+	end
+	table.sort(lines)
+	ns.PrintAlways(L.REPFLASH_GAMEXP_LIST, #lines)
+	for _, line in ipairs(lines) do
+		ns.PrintAlways(line)
+	end
+end
+
 function RepFlash:ApplyGameXP(announce)
 	local db = self.db
 	db.gameXPOld = db.gameXPOld or {}

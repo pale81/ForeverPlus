@@ -32,6 +32,8 @@ local pending = {}   -- frames to re-apply after combat
 local displays = {}  -- ForeverPlus displays (coordinates, FPS/MS, …)
 local displayOf = {} -- display frame -> entry
 local movingKey
+local editModeCenter -- the Center button of Blizzard's Edit Mode dialog
+local SetupEditModeDialog
 
 -- Everything starts locked; Alt + right-click unlocks single elements and
 -- one switch locks everything again.
@@ -232,6 +234,23 @@ end
 ---------------------------------------------------------------------------
 -- Alt + drag
 ---------------------------------------------------------------------------
+-- Puts a window or display on the vertical centre line of the screen (its height stays).
+local function CenterWindow(frame, key)
+	if InCombatLockdown() and frame:IsProtected() then
+		ns.Print(L.MOVER_CENTER_COMBAT)
+		return
+	end
+	local width, bottom = frame:GetWidth(), frame:GetBottom()
+	local scale = ns.Number(frame:GetEffectiveScale())
+	if not (width and bottom and scale and scale > 0) then
+		return
+	end
+	local screen = UIParent:GetWidth() * UIParent:GetEffectiveScale() / scale
+	frame:ClearAllPoints()
+	frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", (screen - width) / 2, bottom)
+	Save(frame, key)
+end
+
 local function StartMoving(frame, key)
 	if not frame:IsMovable() then
 		frame:SetMovable(true)
@@ -329,6 +348,13 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 		if IsAltKeyDown() then
 			altToggled = true
 			ToggleLock(key)
+		end
+	elseif button == "MiddleButton" and IsAltKeyDown() then
+		-- Alt + middle click: centre on the vertical middle line (only while unlocked).
+		if IsLocked(key) then
+			ns.Print(L.MOVER_CENTER_LOCKED)
+		else
+			CenterWindow(frame, key)
 		end
 	elseif button == "LeftButton" and not IsLocked(key) then
 		StartMoving(frame, key)
@@ -573,6 +599,7 @@ local function FreeWindows()
 end
 
 function Mover:OnLogin()
+	ns.OnAddOnLoaded("Blizzard_EditMode", SetupEditModeDialog)
 	-- The panel manager's delegate frame is local and forbidden; its public entry
 	-- points position the panels synchronously, so re-apply right after them.
 	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
@@ -614,6 +641,9 @@ function Mover:OnOptionChanged(key, value)
 			if entry.selection then
 				entry.selection.Center:SetShown(value)
 			end
+		end
+		if editModeCenter then
+			editModeCenter:SetShown(value)
 		end
 	end
 	self:Refresh()
@@ -872,6 +902,60 @@ function ns:RegisterEditFrame(frame, key, label, defaultPoint, onEditMode)
 		SetEditMode(true)
 	end
 	return entry
+end
+
+-- Blizzard's own Edit Mode systems (cast bar, action bars, unit frames, …): a
+-- "Center" button below the settings dialog moves the selected one to the
+-- vertical middle line, the way the arrow keys nudge it.
+local function CenterEditModeSystem(system)
+	if not system or InCombatLockdown() then
+		ns.Print(L.MOVER_CENTER_COMBAT)
+		return
+	end
+	local scale = ns.Number(system:GetEffectiveScale())
+	local center = system:GetCenter()
+	center = ns.Number(center)
+	if not (scale and scale > 0 and center) then
+		return
+	end
+	local delta = (UIParent:GetWidth() * UIParent:GetEffectiveScale() / 2 - center * scale) / scale
+	local ok = pcall(function()
+		if system.isManagedFrame and system:IsInDefaultPosition() then
+			system:BreakFromFrameManager()
+		end
+		if system == PlayerCastingBarFrame and Enum.EditModeCastBarSetting then
+			EditModeManagerFrame:OnSystemSettingChange(system, Enum.EditModeCastBarSetting.LockToPlayerFrame, 0)
+		end
+		system:ClearFrameSnap()
+		system:StopMovingOrSizing()
+		system:BreakFrameSnap(delta, 0)
+	end)
+	if not ok then
+		ns.Print(L.MOVER_CENTER_FAILED)
+	end
+end
+
+SetupEditModeDialog = function()
+	local dialog = EditModeSystemSettingsDialog
+	if not dialog or editModeCenter then
+		return
+	end
+	local button = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+	button:SetSize(110, 22)
+	button:SetPoint("TOP", dialog, "BOTTOM", 0, -3)
+	button:SetText(L.MOVER_CENTER)
+	button:SetScript("OnClick", function()
+		CenterEditModeSystem(dialog.attachedToSystem)
+	end)
+	button:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip_SetTitle(GameTooltip, L.MOVER_CENTER)
+		GameTooltip:AddLine(L.MOVER_CENTER_TIP, nil, nil, nil, true)
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", GameTooltip_Hide)
+	button:SetShown(Mover.db.centerButton)
+	editModeCenter = button
 end
 
 EventRegistry:RegisterCallback("EditMode.Enter", function()

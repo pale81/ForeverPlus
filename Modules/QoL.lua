@@ -329,6 +329,12 @@ local function UpdateBagSlots(button)
 	end
 	button.FreeSlots:SetFormattedText("%d/%d", free, total)
 	button.FreeSlots:Show()
+	-- Any other text on the button (item count, stock) would overlap the numbers.
+	for _, region in ipairs({ button:GetRegions() }) do
+		if region ~= button.FreeSlots and region.IsObjectType and region:IsObjectType("FontString") then
+			region:SetAlpha(0)
+		end
+	end
 end
 
 function QoL:UpdateBagSlotsOption()
@@ -339,6 +345,11 @@ function QoL:UpdateBagSlotsOption()
 	if self.db.bagSlots then
 		UpdateBagSlots(button)
 	else
+		for _, region in ipairs({ button:GetRegions() }) do
+			if region ~= button.FreeSlots and region.IsObjectType and region:IsObjectType("FontString") then
+				region:SetAlpha(1)
+			end
+		end
 		button:UpdateFreeSlots()
 		button:SetCountShown(GetCVar("displayFreeBagSlots") == "1")
 	end

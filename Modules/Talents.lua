@@ -810,9 +810,9 @@ end
 -- border, a soft shine on the upper half.
 local BLUE_BACK, BLUE_BORDER, BLUE_HOVER = { 0.04, 0.14, 0.3, 0.95 }, { 0.3, 0.65, 1, 1 }, { 0.08, 0.26, 0.5, 0.98 }
 
-local function CreateBlueButton(parent, text, width, tooltip, onClick)
+local function CreateBlueButton(parent, text, width, tooltip, onClick, icon)
 	local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
-	button:SetSize(width, 22)
+	button:SetSize(icon and 24 or width, 22)
 	button:SetBackdrop({ bgFile = [[Interface\Buttons\WHITE8X8]], edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1 })
 	local shine = button:CreateTexture(nil, "ARTWORK")
 	shine:SetPoint("TOPLEFT", 1, -1)
@@ -821,7 +821,14 @@ local function CreateBlueButton(parent, text, width, tooltip, onClick)
 	shine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0), CreateColor(0.6, 0.8, 1, 0.22))
 	button.Label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	button.Label:SetPoint("CENTER", 0, 0)
-	button.Label:SetText(text)
+	button.Label:SetText(icon and "" or text)
+	-- A small button carries a symbol instead of the text (the text is its tooltip title).
+	if icon then
+		button.Symbol = button:CreateTexture(nil, "OVERLAY")
+		button.Symbol:SetSize(14, 14)
+		button.Symbol:SetPoint("CENTER")
+		button.Symbol:SetAtlas(icon)
+	end
 	local function Paint()
 		local enabled, hovered, pressed = button:IsEnabled(), button:IsMouseOver(), button.pressed
 		local back = hovered and BLUE_HOVER or BLUE_BACK
@@ -833,6 +840,10 @@ local function CreateBlueButton(parent, text, width, tooltip, onClick)
 			button.Label:SetTextColor(0.5, 0.55, 0.6)
 		end
 		shine:SetShown(enabled)
+		if button.Symbol then
+			button.Symbol:SetDesaturated(not enabled)
+			button.Symbol:SetAlpha(enabled and (hovered and 1 or 0.85) or 0.45)
+		end
 	end
 	button:SetScript("OnEnter", function(self)
 		Paint()
@@ -861,22 +872,26 @@ local function CreateBlueButton(parent, text, width, tooltip, onClick)
 	return button
 end
 
--- Top right of the talent window: counter, "apply" and "clear" in the colour of the plan.
+-- Bottom left of the talent window, in the empty part of the bottom bar: two small
+-- symbol buttons ("apply" tick, "clear" cross) and the counter, in the colour of the plan.
+local PLAN_BAR_POINT = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 26, 9 }
+
 local function CreatePlanBar(frame)
 	local bar = CreateFrame("Frame", nil, frame)
 	bar:SetSize(330, 24)
 	bar:SetFrameLevel(ns.Number(frame:GetFrameLevel(), 0) + 1010)
 	bar:SetFrameStrata("HIGH")
-	bar.Apply = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, 90, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
+	bar.Apply = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, 24, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
 		ApplyPlan()
-	end)
-	bar.Apply:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
-	bar.Clear = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, 70, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
+	end, "common-icon-checkmark")
+	bar.Apply:SetPoint("LEFT", bar, "LEFT", 0, 0)
+	bar.Clear = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, 24, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
 		ClearPlan()
-	end)
-	bar.Clear:SetPoint("RIGHT", bar.Apply, "LEFT", -6, 0)
+	end, "common-icon-redx")
+	bar.Clear:SetPoint("LEFT", bar.Apply, "RIGHT", 4, 0)
 	bar.Counter = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	bar.Counter:SetPoint("RIGHT", bar.Clear, "LEFT", -10, 0)
+	bar.Counter:SetPoint("LEFT", bar.Clear, "RIGHT", 10, 0)
+	bar.Counter:SetJustifyH("LEFT")
 	bar.Counter:SetTextColor(PLAN_COLOR:GetRGB())
 	return bar
 end
@@ -886,9 +901,9 @@ local function SetupPlanner(frame)
 	-- follows the talent tab: UpdatePlan shows it only while that is open.
 	local parent = PlayerSpellsFrame or frame
 	planBar = CreatePlanBar(parent)
-	planBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -14, -30)
+	planBar:SetPoint(PLAN_BAR_POINT[1], parent, PLAN_BAR_POINT[3], PLAN_BAR_POINT[4], PLAN_BAR_POINT[5])
 	planBar:Hide()
-	ns:RegisterEditFrame(planBar, "TalentPlan", L.TALENTS_PLAN, { "TOPRIGHT", parent, "TOPRIGHT", -14, -30 })
+	ns:RegisterEditFrame(planBar, "TalentPlan", L.TALENTS_PLAN, { PLAN_BAR_POINT[1], parent, PLAN_BAR_POINT[3], PLAN_BAR_POINT[4], PLAN_BAR_POINT[5] })
 	frame:HookScript("OnHide", function()
 		planBar:Hide()
 	end)

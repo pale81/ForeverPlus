@@ -11,8 +11,8 @@ local Teleports = ns:NewModule("Teleports", {
 		menu = true,
 		portals = true,
 		-- Position of the triangle in the frame of the minimap (see /fp nord).
-		northWidth = 28,
-		northHeight = 18,
+		northWidth = 64,
+		northHeight = 40,
 		northOffset = 0,
 	},
 })

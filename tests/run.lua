@@ -1859,6 +1859,26 @@ end)()
 	assert(bought[1] == "1x1" and #bought == 1, "button buys once: " .. table.concat(bought, ","))
 	view = dialog.MerchantView()
 	assert(view.buttons[1].enabled == false, "basket empty after buying")
+	-- A pack of 200: quantity 2 means two packs, 400 items, bought pack by pack.
+	local savedMerchant = C_MerchantFrame
+	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Pfeil", texture = 1, price = 10, stackCount = 200, numAvailable = -1, isPurchasable = true, isUsable = true } end }
+	GetMerchantNumItems = function() return 1 end
+	GetMoney = function() return 150 end
+	local savedShift = IsShiftKeyDown
+	IsShiftKeyDown = function() return false end
+	view = dialog.MerchantView()
+	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
+	rows[1].action("LeftButton")
+	view = dialog.MerchantView()
+	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
+	rows[1].action("LeftButton") -- counts up to 2
+	view = dialog.MerchantView()
+	wipe(bought)
+	view.buttons[1].action()
+	assert(#bought == 2 and bought[1] == "1x200" and bought[2] == "1x200", "two packs of 200: " .. table.concat(bought, ","))
+	IsShiftKeyDown = savedShift
+	C_MerchantFrame = savedMerchant
+	GetMerchantNumItems = function() return 2 end
 	-- Restock at the merchant: a marked item sold singly is bought up to a full stack, capped by the purse.
 	local restock = ns:GetModule("Restock")
 	local savedDb, savedCdb = restock.db, restock.cdb

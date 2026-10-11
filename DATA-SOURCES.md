@@ -57,3 +57,8 @@ The build fetches the three Everything Quests files at the pinned commit; with `
 Observation capture is off by default. `/fp daten an` saves client-visible quest titles and objective snapshots to `ForeverPlusDB` under `observations`; `/fp daten aus` stops it, `/fp daten` reports status, and `/fp daten löschen` clears it. Entries include quest IDs, time and capture method. Repeated identical objectives are deduplicated; history is capped at 20 snapshots per quest and 200 quests. This is local user state and is not sent anywhere or included by the build.
 
 The validator checks sorted unique IDs, row shapes, counts, source metadata, response hashes, and that quest point lists contain valid map coordinates. Lua syntax and the addon's host API still need separate checks; no live-client test is implied by a successful data build.
+
+
+## Place texts
+
+`Data/PlaceInfo.lua` holds short texts (German and English) about 22 towns and capitals of the Eastern Kingdoms, shown when the place name is hovered on the world map. The texts were written for this addon from general knowledge of the game world, in its own words, and state facts only; nothing was copied from a wiki or from game text. They are not checked against a source. The Warcraft Wiki (CC BY-SA, share-alike) was considered and not used so that no share-alike duty attaches to the data.

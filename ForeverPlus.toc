@@ -32,6 +32,7 @@ Modules\Teleports.lua
 Data\MapOverlays.lua
 Data\Instances.lua
 Data\Places.lua
+Data\PlaceInfo.lua
 Data\Transports.lua
 Data\Library.lua
 Data\Radar.lua

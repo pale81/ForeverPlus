@@ -240,6 +240,11 @@ local function CreateBubble()
 	frame:EnableKeyboard(true)
 	frame:SetPropagateKeyboardInput(true)
 	frame:SetScript("OnKeyDown", function(self, key)
+		-- In combat the game does not let an addon change what a key does (SetPropagateKeyboardInput): the keys
+		-- stay with the game, and each key that was taken is given back when it is released (OnKeyUp below).
+		if InCombatLockdown() then
+			return
+		end
 		local action
 		if current and not InCombatLockdown() and (key == "TAB" or not (IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown())) then
 			-- Lists that spend money (merchant, trainer) are never bought from with a key: Space is also the jump
@@ -284,6 +289,11 @@ local function CreateBubble()
 		self:SetPropagateKeyboardInput(not action)
 		if action then
 			action()
+		end
+	end)
+	frame:SetScript("OnKeyUp", function(self)
+		if not InCombatLockdown() then
+			self:SetPropagateKeyboardInput(true)
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
@@ -382,6 +392,12 @@ local function CreateBubble()
 		end
 		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
 	end)
+	-- Merchant list: what the mouse does, small, at the top right (where the x used to be).
+	frame.Help = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	frame.Help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+	frame.Help:SetJustifyH("RIGHT")
+	frame.Help:SetText(L.DIALOG_MERCHANT_HELP)
+	frame.Help:Hide()
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
 	frame.maxRowNumber = 0
@@ -466,23 +482,19 @@ local function CreateRow(frame)
 			Dialog.MerchantScroll(delta)
 		end
 	end)
-	-- The chosen text glows: warm copies of it around it in two rings (one and two pixels out, eight directions
-	-- each), under the text itself; where they overlap the glow gets denser close to the letters and fades outwards.
+	-- The chosen text is a little fuller: warm copies of it one pixel around it (eight directions), very faint, under
+	-- the text itself; no wider halo, so it reads as weight, not as shine.
 	row.Glow = {}
-	local RING = { { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } }
-	for ring = 1, 2 do
-		for _, direction in ipairs(RING) do
-			local glow = row:CreateFontString(nil, "ARTWORK", nil)
-			local x, y = direction[1] * ring, direction[2] * ring
-			glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", x, y)
-			glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", x, y)
-			glow:SetJustifyH("LEFT")
-			glow:SetJustifyV("TOP")
-			glow:SetNonSpaceWrap(true)
-			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.15 or 0.05)
-			glow:Hide()
-			row.Glow[#row.Glow + 1] = glow
-		end
+	for _, direction in ipairs({ { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } }) do
+		local glow = row:CreateFontString(nil, "ARTWORK", nil)
+		glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", direction[1], direction[2])
+		glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", direction[1], direction[2])
+		glow:SetJustifyH("LEFT")
+		glow:SetJustifyV("TOP")
+		glow:SetNonSpaceWrap(true)
+		glow:SetTextColor(1, 0.72, 0.2, 0.1)
+		glow:Hide()
+		row.Glow[#row.Glow + 1] = glow
 	end
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
@@ -787,6 +799,7 @@ Render = function(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
+	frame.Help:SetShown(view.kind == "MERCHANT_SHOW" and view.filter and true or false)
 	Dialog.UpdateTools(view)
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)

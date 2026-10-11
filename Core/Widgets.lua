@@ -19,6 +19,24 @@ local function OnCloseLeave(button)
 	button.Icon:SetVertexColor(0.7, 0.7, 0.7)
 end
 
+-- Soft fade-in every time the frame is shown (one switch in the main options; nil counts as on).
+function ns.FadeIn(frame, duration)
+	local group = frame:CreateAnimationGroup()
+	local alpha = group:CreateAnimation("Alpha")
+	alpha:SetFromAlpha(0)
+	alpha:SetToAlpha(1)
+	alpha:SetDuration(duration or 0.25)
+	alpha:SetSmoothing("OUT")
+	group:SetToFinalAlpha(true)
+	frame:HookScript("OnShow", function()
+		group:Stop()
+		if not (ns.db and ns.db.fadeIn == false) then
+			group:Play()
+		end
+	end)
+	return group
+end
+
 function ns.CreatePanel(name, options)
 	options = options or {}
 	local panel = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
@@ -55,15 +73,7 @@ function ns.CreatePanel(name, options)
 	if name and options.escape ~= false then
 		tinsert(UISpecialFrames, name)
 	end
-	local fade = panel:CreateAnimationGroup()
-	local alpha = fade:CreateAnimation("Alpha")
-	alpha:SetFromAlpha(0)
-	alpha:SetToAlpha(1)
-	alpha:SetDuration(0.12)
-	panel.Fade = fade
-	panel:HookScript("OnShow", function()
-		fade:Play()
-	end)
+	panel.Fade = ns.FadeIn(panel)
 	return panel
 end
 

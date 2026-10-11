@@ -1060,3 +1060,5 @@ L.DIALOG_ONSCREEN_DESC = "Hält die Blase im Bildschirm: Solange sie offen ist, 
 L.DIALOG_FILTER_ON = "Ist an: Unbenutzbares und Bekanntes ist ausgeblendet. Klicken zeigt alles."
 L.DIALOG_FILTER_OFF = "Ist aus: alles wird gezeigt. Klicken blendet Unbenutzbares und Bekanntes aus."
 L.QUESTS_LOGO_STATUS = "Logo: %d Atlanten im Spiel, %d mit „forever“ im Namen: %s. Genommen: %s."
+L.FADE_IN = "Fenster sanft einblenden"
+L.FADE_IN_DESC = "Fenster und Fenster-Menüs von ForeverPlus (Listen, Eingabefenster, Gesprächsblase und andere) erscheinen mit einem kurzen, weichen Einblenden statt sofort."

@@ -938,6 +938,32 @@ function Chat:UpdateChannelNames()
 	SetFilter({ "CHAT_MSG_CHANNEL" }, self.db.channelShort, ChannelFilter)
 end
 
+-- Pointing at a shortened channel name shows the whole name.
+local channelTipOwner
+local function OnChannelLinkEnter(_, chatFrame, link)
+	if not Chat.db.channelShort or type(link) ~= "string" or (issecretvalue and issecretvalue(link)) then
+		return
+	end
+	local number = tonumber(link:match("^channel:channel:(%d+)$"))
+	if not number then
+		return
+	end
+	local _, name = GetChannelName(number)
+	if type(name) == "string" and name ~= "" then
+		channelTipOwner = chatFrame
+		GameTooltip:SetOwner(chatFrame, "ANCHOR_CURSOR")
+		GameTooltip:SetText(("%d. %s"):format(number, name), 1, 1, 1)
+		GameTooltip:Show()
+	end
+end
+
+local function OnChannelLinkLeave(_, chatFrame)
+	if channelTipOwner and channelTipOwner == chatFrame then
+		channelTipOwner = nil
+		GameTooltip:Hide()
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Coloured timestamps: the colour code is written into Blizzard's timestamp
 -- format (CVar showTimestamps). Switching off restores the plain format.
@@ -1006,6 +1032,8 @@ local function RegisterKeywordAlertMenuItem()
 end
 
 function Chat:OnLogin()
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkEnter", ns.Measured("Chat: channel tooltip", OnChannelLinkEnter), self)
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkLeave", OnChannelLinkLeave, self)
 	-- The saved lines come first, then this session's lines are recorded.
 	if self.db.chatLog then
 		RestoreLog()

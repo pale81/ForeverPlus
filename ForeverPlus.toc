@@ -34,6 +34,7 @@ Data\MapOverlays.lua
 Data\Instances.lua
 Data\Places.lua
 Data\PlaceInfo.lua
+Data\EditModeLayouts.lua
 Data\Transports.lua
 Data\Library.lua
 Data\Radar.lua
@@ -58,6 +59,7 @@ Modules\Transports.lua
 Modules\Library.lua
 Modules\Innkeepers.lua
 Modules\Companion.lua
+Modules\EditLayouts.lua
 Modules\LootSources.lua
 Modules\Observations.lua
 Modules\GroupFinder.lua

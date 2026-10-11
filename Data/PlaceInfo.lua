@@ -14,7 +14,8 @@ local MAPS = {
 	[1433] = "Redridge Mountains", [1434] = "Stranglethorn Vale", [1435] = "Swamp of Sorrows", [1436] = "Westfall",
 	[1437] = "Wetlands", [1439] = "Darkshore", [1440] = "Ashenvale", [1441] = "Thousand Needles", [1442] = "Stonetalon Mountains",
 	[1443] = "Desolace", [1444] = "Feralas", [1445] = "Dustwallow Marsh", [1446] = "Tanaris", [1451] = "Silithus",
-	[1452] = "Winterspring", [1438] = "Teldrassil", [1423] = "Eastern Plaguelands",
+	[1452] = "Winterspring", [1438] = "Teldrassil", [1423] = "Eastern Plaguelands", [1422] = "Western Plaguelands",
+	[1430] = "Deadwind Pass", [1450] = "Moonglade", [1448] = "Felwood", [1428] = "Burning Steppes", [1427] = "Searing Gorge",
 }
 local INSTANCES = {
 	[36] = "The Deadmines", [34] = "The Stockade", [33] = "Shadowfang Keep", [43] = "Wailing Caverns", [48] = "Blackfathom Deeps",
@@ -282,6 +283,83 @@ ns.PlaceInfo = {
 	[3425] = {
 		de = "Lager des Cenarion-Kreises in der Region {m1451}, dessen Druiden hier über das Gleichgewicht der Natur wachen. Die Tore von Ahn'Qiraj liegen nicht weit.",
 		en = "Camp of the Cenarion Circle in the {m1451} region, whose druids watch over the balance of nature here. The gates of Ahn'Qiraj are not far.",
+	},
+}
+
+-- Places and areas that are no town of their own: shown under the name of the area while the mouse is over it on
+-- the world map. Key: area ID (AreaTable of the client).
+ns.AreaInfo = {
+	[2268] = {
+		de = "Stützpunkt der Argent Dawn in der Region {m1423}, die von hier aus den Kampf gegen die Geißel führt.",
+		en = "Stronghold of the Argent Dawn in the {m1423} region, which fights the Scourge from here.",
+	},
+	[2298] = {
+		de = "Die Insel im Darrowmere Lake in der Region {m1422}. Unter dem Anwesen der Familie Barov liegt die Nekromantenschule {i289}.",
+		en = "The island in Darrowmere Lake in the {m1422} region. The school of necromancy {i289} lies below the manor of the Barov family.",
+	},
+	[190] = {
+		de = "Festung der Scarlet Crusade in der Region {m1422}.",
+		en = "Fortress of the Scarlet Crusade in the {m1422} region.",
+	},
+	[2562] = {
+		de = "Der Turm des Magiers Medivh in der Region {m1430}, des letzten Wächters von Tirisfal.",
+		en = "The tower of the mage Medivh in the {m1430} region, the last Guardian of Tirisfal.",
+	},
+	[368] = {
+		de = "Inselgruppe vor der Küste der Region {m1411}, Heimat der Darkspear-Trolle.",
+		en = "Island group off the coast of the {m1411} region, home of the Darkspear trolls.",
+	},
+	[2361] = {
+		de = "Dorf am Lake Elune'ara in der Region {m1450}, Sitz des Cenarion-Kreises.",
+		en = "Village at Lake Elune'ara in the {m1450} region, seat of the Cenarion Circle.",
+	},
+	[2300] = {
+		de = "Die Höhlen der Zeit in der Region {m1446}: Nozdormu und die Bronzenen Drachen wachen hier über den Lauf der Zeit.",
+		en = "The Caverns of Time in the {m1446} region: Nozdormu and the Bronze Dragonflight watch over the flow of time here.",
+	},
+	[146] = {
+		de = "Mächtiger Staudamm der Zwerge in der Region {m1432}.",
+		en = "A mighty dam of the dwarves in the {m1432} region.",
+	},
+	[100] = {
+		de = "Jagdlager des Großwildjägers Hemet Nesingwary in der Region {m1434}.",
+		en = "Camp of the big-game hunter Hemet Nesingwary in the {m1434} region.",
+	},
+	[354] = {
+		de = "Stadt der Vilebranch-Trolle in der Region {m1425}.",
+		en = "City of the Vilebranch trolls in the {m1425} region.",
+	},
+	[1769] = {
+		de = "Die Heimat der Timbermaw-Furbolgs in der Region {m1448}.",
+		en = "The home of the Timbermaw furbolgs in the {m1448} region.",
+	},
+	[2418] = {
+		de = "Stützpunkt der Allianz in der Region {m1428}, nahe dem Blackrock Mountain.",
+		en = "Alliance base in the {m1428} region, near Blackrock Mountain.",
+	},
+	[1446] = {
+		de = "Stützpunkt der Thorium Brotherhood in der Region {m1427}.",
+		en = "Base of the Thorium Brotherhood in the {m1427} region.",
+	},
+	[19] = {
+		de = "Die Dschungelstadt der Gurubashi-Trolle in der Region {m1434}, in der Hakkar der Seelenschinder herrscht.",
+		en = "The jungle city of the Gurubashi trolls in the {m1434} region, where Hakkar the Soulflayer rules.",
+	},
+	[2279] = {
+		de = "Die Stadt in der Region {m1423}, in der Arthas einst die Bevölkerung töten ließ.",
+		en = "The city in the {m1423} region where Arthas once had the population killed.",
+	},
+	[236] = {
+		de = "Die Festung von Archmage Arugal in der Region {m1421}; von hier aus verbreiteten sich seine Worgen.",
+		en = "The fortress of Archmage Arugal in the {m1421} region; his worgen spread from here.",
+	},
+	[34] = {
+		de = "Mine im Tal von Northshire, in der Kobolde nach Erz graben.",
+		en = "Mine in the valley of Northshire where kobolds dig for ore.",
+	},
+	[88] = {
+		de = "Holzfällerlager in der Region {m1429}.",
+		en = "Logging camp in the {m1429} region.",
 	},
 }
 

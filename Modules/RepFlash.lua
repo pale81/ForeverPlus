@@ -12,7 +12,7 @@ local RepFlash = ns:NewModule("RepFlash", {
 		xp = false,
 		honor = false,
 		hideChat = true, -- the chat line of a kind that flashes is hidden
-		hideGameXP = false, -- the game's own number for experience in the middle of the screen is switched off
+		hideGameXP = true, -- the game's own number for experience in the middle of the screen is switched off
 		gameXPOld = {},
 		xpClassColor = true, -- the experience in the colour of the class
 		xpSparkle = true,    -- and with sparks in that colour
@@ -73,7 +73,9 @@ local function BuildText()
 		local color = change.total >= 0 and "ff40ff40" or "ffff4040"
 		if change.kind == "xp" and RepFlash.db.xpClassColor then
 			color = ClassHex() or color
-			lines[i] = ("|c%s%s %+d|r"):format(color, change.name, change.total)
+			lines[i] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
+		elseif change.kind == "xp" then
+			lines[i] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
 		else
 			lines[i] = ("%s |c%s%+d|r"):format(change.name, color, change.total)
 		end

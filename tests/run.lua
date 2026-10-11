@@ -2669,6 +2669,7 @@ end)()
 	end
 	Check(ns.PlaceInfo, false)
 	Check(ns.InstanceInfo, true)
+	Check(ns.AreaInfo, true)
 	local keepZone = GetRealZoneText
 	GetRealZoneText = function() end
 	assert(ns.PlaceText("in {m1431} / {a42} / {i36}") == "in Duskwood / Darkshire / The Deadmines", "english fallback names: " .. ns.PlaceText("in {m1431} / {a42} / {i36}"))

@@ -329,6 +329,7 @@ local PAGES = {
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
 	},
+	{ group = 1, title = L.EDITLAYOUT_TITLE, new = true, { "EditLayouts" } },
 	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
 	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },
 }

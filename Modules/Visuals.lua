@@ -32,9 +32,24 @@ local Visuals = ns:NewModule("Visuals", {
 ---------------------------------------------------------------------------
 local borders = setmetatable({}, { __mode = "k" })
 
--- Grey and white items in the bags and on the character get the same crisp frame in a soft neutral colour (option),
--- so all items are framed alike; from green upwards the frame has the quality colour.
-local NEUTRAL = { [0] = { 0.5, 0.5, 0.5 }, [1] = { 0.75, 0.75, 0.75 } } -- poor, common
+-- Grey and white items in the bags and on the character: no frame is laid over the game's own slot art, only a
+-- thin, translucent line a little inside the picture (option); from green upwards the crisp quality frame.
+local soft = setmetatable({}, { __mode = "k" })
+local NEUTRAL = { [0] = { 0.6, 0.6, 0.6, 0.3 }, [1] = { 1, 1, 1, 0.3 } } -- poor, common
+
+local function SoftBorder(button)
+	local line = soft[button]
+	if not line then
+		local icon = button.Icon or button.icon or button
+		local inner = CreateFrame("Frame", nil, button)
+		inner:SetPoint("TOPLEFT", icon, "TOPLEFT", 3, -3)
+		inner:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -3, 3)
+		inner:SetFrameLevel(button:GetFrameLevel() + 1)
+		line = ns.CreatePixelBorder(inner, inner, 1, "OVERLAY", 7)
+		soft[button] = line
+	end
+	return line
+end
 
 local function UpdateGlow(button, quality, forced)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
@@ -42,8 +57,18 @@ local function UpdateGlow(button, quality, forced)
 	end
 	local border = borders[button]
 	local low = quality and quality <= Enum.ItemQuality.Common and (forced or button.GetBagID) and Visuals.db.bagActionFrame
+	if low and not button.CircleMask then
+		local color = NEUTRAL[quality] or NEUTRAL[1]
+		SoftBorder(button):ShowColor(color[1], color[2], color[3], color[4])
+		if border then
+			border:Hide()
+		end
+		return
+	elseif soft[button] then
+		soft[button]:Hide()
+	end
 	-- Round buttons (profession output) already get Blizzard's round quality ring.
-	if quality and ((quality >= Enum.ItemQuality.Uncommon) or low) and not button.CircleMask then
+	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
 		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
 		local icon = button.Icon or button.icon
 		local anchor = button
@@ -53,12 +78,7 @@ local function UpdateGlow(button, quality, forced)
 		end
 		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
 		borders[button] = border
-		if low then
-			local color = NEUTRAL[quality] or NEUTRAL[1]
-			border:ShowColor(color[1], color[2], color[3])
-		else
-			border:ShowColor(C_Item.GetItemQualityColor(quality))
-		end
+		border:ShowColor(C_Item.GetItemQualityColor(quality))
 	elseif border then
 		border:Hide()
 	end

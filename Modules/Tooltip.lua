@@ -423,7 +423,7 @@ local function OnObjectTooltip(tooltip)
 	end
 	local first = GameTooltipTextLeft1
 	local name = first and first:GetText()
-	if type(name) ~= "string" or name == "" or Secret(name) then
+	if type(name) ~= "string" or Secret(name) or name == "" then
 		return
 	end
 	local r, g, b = first:GetTextColor()

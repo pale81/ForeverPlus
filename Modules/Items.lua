@@ -965,9 +965,43 @@ end
 -- opens the currency tab as before. Own click areas lie on the coin buttons.
 local moneyAreas = {}
 
+-- "12g 5s 3k", "12 g", "5s" or a bare number (gold) in copper; nil when it cannot be read.
+local function ParseMoney(text)
+	local total, found = 0, false
+	for number, unit in (text or ""):lower():gsub(",", "."):gmatch("(%d+%.?%d*)%s*([gsk]?)") do
+		local value = tonumber(number)
+		if value then
+			found = true
+			total = total + value * (unit == "s" and 100 or unit == "k" and 1 or 10000)
+		end
+	end
+	return found and math.floor(total + 0.5) or nil
+end
+
+-- Own window for the amount, when Blizzard's window does not come up.
+local function AskMoney()
+	ns.ShowEditWindow("MoneyPickup", L.ITEMS_MONEY_TIP, "", ACCEPT, function(text)
+		local copper = ParseMoney(text)
+		if not copper or copper <= 0 then
+			return
+		end
+		if copper > GetMoney() then
+			ns.Print(L.ITEMS_MONEY_TOO_MUCH)
+			return
+		end
+		local ok, err = pcall(PickupPlayerMoney, copper)
+		if not ok then
+			ns.Print(L.ITEMS_MONEY_ERROR, tostring(err))
+		end
+	end, L.ITEMS_MONEY_HINT)
+end
+
 local function MoneyClick(moneyFrame)
 	if GetCursorMoney() > 0 then
-		DropCursorMoney()
+		local ok, err = pcall(DropCursorMoney)
+		if not ok then
+			ns.Print(L.ITEMS_MONEY_ERROR, tostring(err))
+		end
 		return
 	end
 	if IsShiftKeyDown() or not (MoneyInputFrame_OpenPopup and MoneyTypeInfo and MoneyTypeInfo.PLAYER) then
@@ -977,8 +1011,17 @@ local function MoneyClick(moneyFrame)
 		end
 		return
 	end
-	-- A stand-in without the currency flag: the window asks how much to take up.
-	MoneyInputFrame_OpenPopup({ info = MoneyTypeInfo.PLAYER })
+	-- A stand-in without the currency flag: Blizzard's window asks how much to take up.
+	local ok, err = pcall(MoneyInputFrame_OpenPopup, { info = MoneyTypeInfo.PLAYER })
+	if not ok then
+		ns.Print(L.ITEMS_MONEY_ERROR, tostring(err))
+	end
+	-- If the window did not come up, the own one does.
+	C_Timer.After(0.3, function()
+		if not (StaticPopup_Visible and StaticPopup_Visible("PICKUP_MONEY")) then
+			AskMoney()
+		end
+	end)
 end
 
 local function HookMoneyFrame(moneyFrame)

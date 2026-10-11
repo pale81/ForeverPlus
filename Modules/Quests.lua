@@ -23,6 +23,8 @@ local Quests = ns:NewModule("Quests", {
 		questParchment = false,
 		foreverMark = true,
 		foreverMarkStyle = "ICON",
+		shareDone = false,
+		sharePartial = false,
 	},
 	charDefaults = {
 		trackerTab = "world",
@@ -68,8 +70,19 @@ local function Play(key)
 	end
 end
 
-local state = {} -- questID -> { done = fulfilled objectives, complete = bool }
+local state = {} -- questID -> { done = fulfilled objectives, complete = bool, counts = { [objective] = fulfilled } }
 local scanPending, initialized = false, false
+
+-- A line to the group chat (party, raid or instance group); nothing outside a group.
+local function ShareLine(text)
+	if (issecretvalue and issecretvalue(text)) or type(text) ~= "string" or text == "" then
+		return
+	end
+	local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or (IsInGroup() and "PARTY")
+	if channel then
+		pcall(C_ChatInfo.SendChatMessage, text, channel)
+	end
+end
 
 local function ScanQuests()
 	scanPending = false
@@ -79,20 +92,32 @@ local function ScanQuests()
 		local info = C_QuestLog.GetInfo(index)
 		if info and not info.isHeader and info.questID and info.questID > 0 then
 			local questID = info.questID
-			local done = 0
-			for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
-				done = done + (objective.numFulfilled or 0)
+			local done, counts = 0, {}
+			local old = state[questID]
+			for objectiveIndex, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
+				local fulfilled = objective.numFulfilled or 0
+				done = done + fulfilled
+				counts[objectiveIndex] = fulfilled
+				-- Objectives that moved on, for the group: every step, or only the finished ones.
+				if initialized and old and fulfilled > (old.counts[objectiveIndex] or 0) then
+					local finished = fulfilled >= (objective.numRequired or math.huge)
+					if Quests.db.sharePartial or (finished and Quests.db.shareDone) then
+						ShareLine(L.QUESTS_SHARE_LINE:format(info.title or "?", objective.text or ""))
+					end
+				end
 			end
 			local complete = ns.IsQuestReady(questID, index)
-			local old = state[questID]
 			if initialized and old then
 				if complete and not old.complete then
 					completed = true
+					if Quests.db.shareDone or Quests.db.sharePartial then
+						ShareLine(L.QUESTS_SHARE_READY:format(info.title or "?"))
+					end
 				elseif done > old.done then
 					progressed = true
 				end
 			end
-			state[questID] = { done = done, complete = complete }
+			state[questID] = { done = done, complete = complete, counts = counts }
 			seen[questID] = true
 		end
 	end
@@ -1137,6 +1162,9 @@ Quests.options = {
 	{ key = "readyOnly", type = "toggle", name = L.QUESTS_READY_ONLY, desc = L.QUESTS_READY_ONLY_DESC },
 	{ key = "readyButton", type = "toggle", name = L.QUESTS_READY_BUTTON, desc = L.QUESTS_READY_BUTTON_DESC },
 	{ key = "trackerPreview", type = "toggle", name = L.QUESTS_TRACKER_PREVIEW, desc = L.QUESTS_TRACKER_PREVIEW_DESC },
+	{ type = "header", name = L.QUESTS_SHARE_HEADER },
+	{ key = "shareDone", type = "toggle", name = L.QUESTS_SHARE_DONE, desc = L.QUESTS_SHARE_DONE_DESC, new = true },
+	{ key = "sharePartial", type = "toggle", name = L.QUESTS_SHARE_PARTIAL, desc = L.QUESTS_SHARE_PARTIAL_DESC, new = true },
 	{ type = "header", name = L.QUESTS_FOREVER_HEADER },
 	{ key = "foreverMark", type = "toggle", name = L.QUESTS_FOREVER_MARK, desc = L.QUESTS_FOREVER_MARK_DESC },
 	{ key = "foreverMarkStyle", type = "dropdown", name = L.QUESTS_FOREVER_STYLE, parent = "foreverMark", values = {

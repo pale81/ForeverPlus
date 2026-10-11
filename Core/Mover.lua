@@ -10,6 +10,7 @@ local Mover = ns:NewModule("Mover", {
 	defaults = {
 		enabled = true,
 		multiWindow = true,
+		centerButton = true,
 	},
 })
 
@@ -608,6 +609,13 @@ function Mover:OnLogin()
 end
 
 function Mover:OnOptionChanged(key, value)
+	if key == "centerButton" then
+		for _, entry in pairs(ns.editFrames) do
+			if entry.selection then
+				entry.selection.Center:SetShown(value)
+			end
+		end
+	end
 	self:Refresh()
 	if key == "multiWindow" then
 		if value then
@@ -717,6 +725,7 @@ end
 Mover.options = {
 	{ key = "enabled", type = "toggle", name = L.MOVER_ENABLE, desc = L.MOVER_ENABLE_DESC },
 	{ key = "multiWindow", type = "toggle", name = L.MOVER_MULTI, desc = L.MOVER_MULTI_DESC },
+	{ key = "centerButton", type = "toggle", name = L.MOVER_CENTER_OPTION, desc = L.MOVER_CENTER_OPTION_DESC },
 }
 
 ---------------------------------------------------------------------------
@@ -745,6 +754,22 @@ local function ApplyEditPosition(entry)
 	else
 		frame:SetPoint(unpack(entry.defaultPoint))
 	end
+end
+
+-- Puts the frame on the vertical centre line of the screen (its height stays).
+local function CenterEntry(entry)
+	local frame = entry.frame
+	if InCombatLockdown() and frame:IsProtected() then
+		ns.Print(L.MOVER_CENTER_COMBAT)
+		return
+	end
+	local width, top = frame:GetWidth(), entry.db.y or frame:GetTop()
+	if not (width and top) then
+		return
+	end
+	local screen = UIParent:GetWidth() * UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+	entry.db.x, entry.db.y = (screen - width) / 2, top
+	ApplyEditPosition(entry)
 end
 
 local function CreateSelection(entry)
@@ -779,6 +804,23 @@ local function CreateSelection(entry)
 	sel:SetScript("OnMouseUp", function(self)
 		NineSliceUtil.ApplyLayout(self, SelectionLayout, "editmode-actionbar-highlight")
 	end)
+	-- Below the frame: "centre" puts it on the vertical centre line of the screen.
+	local center = CreateFrame("Button", nil, sel, "UIPanelButtonTemplate")
+	center:SetSize(76, 20)
+	center:SetPoint("TOP", sel, "BOTTOM", 0, -4)
+	center:SetText(L.MOVER_CENTER)
+	center:SetScript("OnClick", function()
+		CenterEntry(entry)
+	end)
+	center:SetScript("OnEnter", function(button)
+		GameTooltip:SetOwner(button, "ANCHOR_BOTTOM")
+		GameTooltip_SetTitle(GameTooltip, L.MOVER_CENTER)
+		GameTooltip:AddLine(L.MOVER_CENTER_TIP, nil, nil, nil, true)
+		GameTooltip:Show()
+	end)
+	center:SetScript("OnLeave", GameTooltip_Hide)
+	center:SetShown(Mover.db.centerButton)
+	sel.Center = center
 	sel:Hide()
 	entry.selection = sel
 end

@@ -134,7 +134,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | Optik | Qualitätsrahmen (2 Pixel, leicht runde Ecken, wie beim Tooltip) auf Gegenstandsknöpfen ab „Ungewöhnlich“; runde Knöpfe (Berufe) behalten Blizzards runden Ring | – |
 | | iSquidMod-Endkappen (mit Autorenangabe) | ja |
 | | Aktionstasten: außer Reichweite rot, kein Mana blau, nicht verwendbar grau, aktive Selbstbuffs (Siegel, Aspekte, Rüstungen, Schilde) entsättigt, je Zauber abschaltbar (einzeln); optional verbleibende Zauber mit dem aktuellen Mana als kleine blaue Zahl | ja |
-| | Drache um das eigene Porträt: Gold, Silber, Bronze, jeweils mit/ohne Flügel; am Porträt ausgerichtet, Größe einstellbar | ja |
+| | Drache um das eigene Porträt: Gold, Silber, Bronze (helles Bronze im Farbverhältnis des Porträtrings, an einem Screenshot gemessen), jeweils mit/ohne Flügel; am Porträt ausgerichtet, Größe einstellbar | ja |
 | | Buff- und Debuff-Symbole (optional), Questgegenstände im Questtracker und Questbelohnungen mit Aktionstasten-Rahmen und abgerundeten Ecken (Stil: freistehend/Aktionsleiste) | ja |
 | | Erfahrungs-, Ruf- und Tooltip-Gesundheitsleiste mit der Leistentextur der Einheitenfenster | ja |
 | | Outline für alle Schriften (bereits umrandete werden übersprungen; dunkle Schrift auf Pergament – Quests, Gespräche, Bücher, Zauberbuch – bleibt ohne) | – |

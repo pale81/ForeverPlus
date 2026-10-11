@@ -10,6 +10,7 @@ local Items = ns:NewModule("Items", {
 		autoSell = true,
 		sellButton = true,
 		autoSort = false,
+		bagMenu = true,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
@@ -803,6 +804,100 @@ function Items:ShowJunkMenu(owner)
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Right-click on the bag symbol (portrait) of an open bag: menu with the
+-- settings that concern the bags.
+---------------------------------------------------------------------------
+local BAG_MENU_SECTIONS = {
+	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
+	{ L.ITEMS_DISPLAY, {
+		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
+		{ "Items", "upgradePopup", "ITEMS_UPGRADE_POPUP" },
+	} },
+	{ L.ITEMS_MERCHANT, {
+		{ "Items", "autoSell", "ITEMS_AUTOSELL" }, { "Items", "sellButton", "ITEMS_SELL_BUTTON" },
+		{ "Items", "autoRepair", "ITEMS_AUTOREPAIR" },
+	} },
+}
+
+local function BagMenuItems(owner)
+	local items = {}
+	for _, section in ipairs(BAG_MENU_SECTIONS) do
+		items[#items + 1] = { text = section[1] }
+		for _, entry in ipairs(section[2]) do
+			local module = ns:GetModule(entry[1])
+			local key, name, desc = entry[2], L[entry[3]], L[entry[3] .. "_DESC"]
+			if module and module.db and name then
+				items[#items + 1] = {
+					text = name,
+					checked = module.db[key] and true or false,
+					onClick = function()
+						module.db[key] = not module.db[key]
+						if module.OnOptionChanged then
+							module:OnOptionChanged(key, module.db[key])
+						end
+					end,
+					tooltip = desc and function(tooltip)
+						tooltip:SetText(name, 1, 1, 1)
+						tooltip:AddLine(desc, nil, nil, nil, true)
+					end,
+				}
+			end
+		end
+	end
+	items[#items + 1] = { text = L.ITEMS_JUNK_LIST }
+	items[#items + 1] = { text = L.ITEMS_JUNK_SHOW, onClick = function()
+		local menu = _G.ForeverPlusPopupBagMenu
+		if menu then
+			menu:Hide()
+		end
+		C_Timer.After(0, function()
+			Items:ShowJunkMenu(owner)
+		end)
+	end }
+	items[#items + 1] = { text = L.ITEMS_BAG_MENU_ALL, onClick = function()
+		ns:OpenSettings(Items)
+	end }
+	return items
+end
+
+function Items:ShowBagMenu(owner)
+	ns.ShowPopupList(owner, function()
+		return { title = L.ITEMS_BAG_MENU_TITLE, items = BagMenuItems(owner), width = 340 }
+	end, "BagMenu")
+end
+
+local bagMenuHooked = {}
+
+local function HookBagMenu(owner, frame)
+	if not owner or bagMenuHooked[owner] then
+		return
+	end
+	bagMenuHooked[owner] = true
+	owner:HookScript("OnMouseDown", function(self, button)
+		if button ~= "RightButton" or not Items.db.bagMenu then
+			return
+		end
+		-- Blizzard's own menu (opened by any button on the title bar) makes room for ours.
+		if frame.PortraitButton and frame.PortraitButton.CloseMenu then
+			frame.PortraitButton:CloseMenu()
+		end
+		Items:ShowBagMenu(frame.PortraitButton or self)
+	end)
+end
+
+local function HookBagFrameMenu(frame)
+	if not frame or not frame.PortraitButton then
+		return
+	end
+	HookBagMenu(frame.PortraitButton, frame)
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if child.routeToSibling == "PortraitButton" then
+			HookBagMenu(child, frame)
+		end
+	end
+end
+
 local function PostUpdateItems(frame)
 	for _, button in frame:EnumerateValidItems() do
 		if not hookedButtons[button] then
@@ -819,6 +914,7 @@ local function HookContainerFrames()
 		frames[#frames + 1] = frame
 	end
 	for _, frame in ipairs(frames) do
+		HookBagFrameMenu(frame)
 		if frame and frame.UpdateItems then
 			hooksecurefunc(frame, "UpdateItems", ns.Measured("Items: bag update", PostUpdateItems))
 		end
@@ -1522,6 +1618,7 @@ Items.options = {
 	end },
 	{ type = "header", name = L.ITEMS_BAGS },
 	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
+	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

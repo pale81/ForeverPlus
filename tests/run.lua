@@ -2307,6 +2307,21 @@ end)()
 	C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo = unpack(saved, 1, 7)
 	print("bag sort OK")
 end)()
+-- Speech bubbles
+;(function()
+	local sb = ns:GetModule("SpeechBubbles")
+	UnitExists = function() return false end
+	C_NamePlate = { GetNamePlateForUnit = function() return nil end }
+	sb.db.fallback = true
+	sb.Show("Willkommen, Reisender.")
+	assert(sb.Show and sb.Hide, "bubble functions")
+	sb.Hide()
+	sb.db.fallback = false
+	sb.Show("Kein Platz am Bildschirm.")
+	sb.Hide()
+	UnitExists = function() return true end
+	print("speech bubbles OK")
+end)()
 -- Diagnosis report
 ;(function()
 	local dc = ns:GetModule("DataCapture")

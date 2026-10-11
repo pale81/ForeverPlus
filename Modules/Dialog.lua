@@ -20,6 +20,7 @@ local Dialog = ns:NewModule("Dialog", {
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
 		merchantTalk = true,   -- the merchant speaks first, the wares come with the next step
 		merchantHide = false,  -- hide wares that cannot be used or are known already
+		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 	},
 })
 
@@ -222,6 +223,8 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
+	-- While it is shown the place is checked now and then (camera and plate move).
+	frame.Fitter = CreateFrame("Frame", nil, frame)
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.selectedRow = 1
 	return frame
@@ -414,13 +417,14 @@ Render = function(view)
 				end
 				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
 				local emphasised = info.selected or (info.action and #frame.rowActions == frame.selectedRow and #frame.rowActions > 1)
+				-- Always set the font itself: a font object set again would not undo an earlier size.
 				local baseFont = _G[TextFont()]
-				local file, size
+				local file, size, flags
 				if baseFont then
-					file, size = baseFont:GetFont()
+					file, size, flags = baseFont:GetFont()
 				end
-				if emphasised and file and size then
-					row.Text:SetFont(file, size * 1.18, "OUTLINE")
+				if file and size then
+					row.Text:SetFont(file, emphasised and size * 1.18 or size, emphasised and "OUTLINE" or flags or "")
 				else
 					row.Text:SetFontObject(TextFont())
 				end
@@ -539,11 +543,40 @@ local function NpcNameplate()
 	end
 end
 
+-- A big bubble must not leave the screen (camera angle, a plate high up): the offsets above the plate
+-- are worked out from the plate's place each time, so the bubble slides down or aside as needed.
+local function FitOffsets(plate, x, y)
+	local scale = ns.Number(plate:GetEffectiveScale(), 1) / ns.Number(UIParent:GetEffectiveScale(), 1)
+	local top, centerX = ns.Number(plate:GetTop()), ns.Number((plate:GetCenter()))
+	if not (top and centerX) then
+		return x, y
+	end
+	top, centerX = top * scale, centerX * scale
+	local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
+	local margin = INSET + 10
+	local over = top + y + bubble:GetHeight() + margin - screenHeight
+	if over > 0 then
+		y = y - over
+	end
+	local half = WIDTH / 2 + margin
+	local left, right = centerX + x - half, centerX + x + half
+	if left < 0 then
+		x = x - left
+	elseif right > screenWidth then
+		x = x - (right - screenWidth)
+	end
+	return x, y
+end
+
 local function Place()
 	bubble:ClearAllPoints()
 	local nameplate = NpcNameplate()
 	if nameplate then
-		bubble:SetPoint("BOTTOM", nameplate, "TOP", 0, INSET + 22)
+		local x, y = 0, INSET + 22
+		if Dialog.db.onScreen then
+			x, y = FitOffsets(nameplate, x, y)
+		end
+		bubble:SetPoint("BOTTOM", nameplate, "TOP", x, y)
 	else
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
@@ -625,6 +658,14 @@ end
 local function Show(view, fromBack)
 	if not bubble then
 		bubble = CreateBubble()
+		local sinceCheck = 0
+		ns.SetUpdate(bubble.Fitter, "Dialog: keep on screen", function(_, elapsed)
+			sinceCheck = sinceCheck + elapsed
+			if sinceCheck > 0.03 and Dialog.db.onScreen and current and NpcNameplate() then
+				sinceCheck = 0
+				Place()
+			end
+		end)
 	end
 	bubble.selectedRow = 1
 	showToken = showToken + 1
@@ -654,6 +695,11 @@ end
 ---------------------------------------------------------------------------
 local function NpcName()
 	return Readable(UnitName("npc")) or ""
+end
+
+-- The arrow of a chosen row: its own bright colour, apart from the rest of the text.
+local function PickMarker()
+	return "|cff55ff77>|r "
 end
 
 local function Marker(symbol)
@@ -903,7 +949,7 @@ function Dialog.TrainerView()
 		end
 		local selected = isAvailable and trainerSelected == entry.index
 		rows[#rows + 1] = {
-			text = Marker(selected and ">" or " ") .. table.concat(parts, "   "),
+			text = (selected and PickMarker() or "  ") .. table.concat(parts, "   "),
 			icon = entry.icon,
 			dim = not isAvailable,
 			action = isAvailable and function()
@@ -986,7 +1032,9 @@ end
 -- Hides what cannot be used and what is known already when wanted; buy-back is a list of its own.
 ---------------------------------------------------------------------------
 local MERCHANT_ROWS = 14
-local merchantSelected, merchantOffset, merchantMode, merchantSaying = nil, 0, "wares", nil
+local merchantPicked, merchantOffset, merchantMode, merchantSaying = {}, 0, "wares", nil
+local merchantQuantity = 1 -- 1, 5, 10 or "stack": how many of each chosen ware "Buy" takes
+local QUANTITIES = { 1, 5, 10, "stack" }
 local knownWares = {} -- ware index -> known already (read from the tooltip once per visit)
 
 local function IsKnownWare(index)
@@ -1109,21 +1157,46 @@ function Dialog.MerchantView()
 	local entries = buyback and BuybackEntries() or MerchantEntries()
 	local total = #entries
 	merchantOffset = math.max(0, math.min(merchantOffset, math.max(0, total - MERCHANT_ROWS)))
-	local rows, selection = {}, nil
+	-- Several wares can be chosen: a click on a row picks it or puts it back.
+	local byIndex = {}
+	for _, entry in ipairs(entries) do
+		byIndex[entry.index] = entry.info
+	end
+	for index in pairs(merchantPicked) do
+		if not byIndex[index] then
+			merchantPicked[index] = nil
+		end
+	end
+	local function QuantityOf(index)
+		if merchantQuantity == "stack" then
+			return math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1)
+		end
+		return buyback and 1 or merchantQuantity
+	end
+	local picks, cost, payable = {}, 0, true
+	for index in pairs(merchantPicked) do
+		local info = byIndex[index]
+		picks[#picks + 1] = index
+		local amount = QuantityOf(index)
+		if info.isPurchasable == false or (info.numAvailable or -1) == 0 then
+			payable = false
+		elseif not info.hasExtendedCost then
+			cost = cost + (info.price or 0) * amount
+		end
+	end
+	table.sort(picks)
+	local rows = {}
 	for position = merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS) do
 		local entry = entries[position]
 		local index, info = entry.index, entry.info
-		local isSelected = merchantSelected == index
-		if isSelected then
-			selection = info
-		end
+		local isPicked = merchantPicked[index] and true or false
 		rows[#rows + 1] = {
-			text = Marker(isSelected and ">" or " ") .. (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
+			text = (isPicked and PickMarker() or "  ") .. (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
 			dim = info.isPurchasable == false,
-			selected = isSelected, -- the chosen row is shown a little larger and bold, like under a magnifying glass
+			selected = isPicked, -- chosen rows are shown a little larger and bold, like under a magnifying glass
 			action = function()
-				merchantSelected = index
+				merchantPicked[index] = not isPicked or nil
 				RefreshMerchant()
 			end,
 			tooltip = function(tooltip)
@@ -1145,27 +1218,54 @@ function Dialog.MerchantView()
 	if total > MERCHANT_ROWS then
 		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_RANGE:format(merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS), total), dim = true }
 	end
-	blocks[#blocks + 1] = { money = L.DIALOG_MONEY:format(GetMoneyString(money, true)) }
-	local canBuy = selection and selection.isPurchasable ~= false and (selection.numAvailable or -1) ~= 0
-		and (selection.hasExtendedCost or (selection.price or 0) <= money)
+	local moneyText = L.DIALOG_MONEY:format(GetMoneyString(money, true))
+	if #picks > 0 then
+		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, GetMoneyString(cost, true))
+	end
+	blocks[#blocks + 1] = { money = moneyText }
+	local canBuy = #picks > 0 and payable and cost <= money
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy and true or false, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, action = function()
 			if buyback then
-				BuybackItem(merchantSelected)
+				-- Buy-back numbers shift with every purchase: from the back to the front.
+				for position = #picks, 1, -1 do
+					BuybackItem(picks[position])
+				end
+				wipe(merchantPicked)
 			else
-				BuyMerchantItem(merchantSelected, 1)
+				for _, index in ipairs(picks) do
+					local remaining, chunk = QuantityOf(index), math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1)
+					while remaining > 0 do
+						BuyMerchantItem(index, math.min(remaining, chunk))
+						remaining = remaining - chunk
+					end
+				end
 			end
 		end },
 	}
+	if not buyback then
+		local label = merchantQuantity == "stack" and L.DIALOG_QUANTITY_STACK or tostring(merchantQuantity)
+		buttons[#buttons + 1] = { text = L.DIALOG_QUANTITY:format(label), action = function()
+			for position, value in ipairs(QUANTITIES) do
+				if value == merchantQuantity then
+					merchantQuantity = QUANTITIES[position % #QUANTITIES + 1]
+					break
+				end
+			end
+			RefreshMerchant()
+		end }
+	end
 	if buyback then
 		buttons[#buttons + 1] = { text = L.DIALOG_WARES, action = function()
-			merchantMode, merchantSelected, merchantOffset = "wares", nil, 0
+			merchantMode, merchantOffset = "wares", 0
+			wipe(merchantPicked)
 			RefreshMerchant()
 		end }
 	else
 		if GetNumBuybackItems and GetNumBuybackItems() > 0 then
 			buttons[#buttons + 1] = { text = L.DIALOG_BUYBACK, action = function()
-				merchantMode, merchantSelected, merchantOffset = "buyback", nil, 0
+				merchantMode, merchantOffset = "buyback", 0
+				wipe(merchantPicked)
 				RefreshMerchant()
 			end }
 		end
@@ -1177,9 +1277,9 @@ function Dialog.MerchantView()
 			end
 		end
 		if CanMerchantRepair and CanMerchantRepair() then
-			local cost, canRepair = GetRepairAllCost()
-			if canRepair and cost > 0 then
-				buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = cost <= money, action = function()
+			local repairCost, canRepair = GetRepairAllCost()
+			if canRepair and repairCost > 0 then
+				buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = repairCost <= money, action = function()
 					RepairAllItems(false)
 				end }
 			end
@@ -1256,7 +1356,8 @@ function Dialog:OnConversation(event)
 			return
 		end
 		if event == "MERCHANT_SHOW" then
-			merchantSelected, merchantOffset, merchantSaying = nil, 0, PickSaying()
+			wipe(merchantPicked)
+			merchantOffset, merchantSaying = 0, PickSaying()
 			merchantMode = self.db.merchantTalk and "talk" or "wares"
 			wipe(knownWares)
 		end
@@ -1375,6 +1476,7 @@ Dialog.options = {
 	{ key = "style", type = "dropdown", name = L.DIALOG_STYLE, desc = L.DIALOG_STYLE_DESC, parent = "enabled", values = {
 		{ "PLAYER", L.DIALOG_STYLE_PLAYER }, { "DARK", L.DIALOG_STYLE_DARK },
 	} },
+	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
 	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },

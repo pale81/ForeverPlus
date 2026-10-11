@@ -1398,6 +1398,32 @@ end)()
 	print("durability OK")
 end)()
 ;(function()
+	-- talent plan summary and the suggested distributions
+	local lines, other = ns.TalentSummary.Build({
+		"Erhöht Eure Chance, einen kritischen Treffer zu erzielen, um 3%.",
+		"Erhöht die Chance auf kritische Treffer um 2%. Erhöht Eure Bewegungsgeschwindigkeit um 3%.",
+		"Erhöht Eure Ausdauer um 10. Verringert die Abklingzeit um 15 Sek.",
+	}, true)
+	local text = {}
+	for _, line in ipairs(lines) do text[#text + 1] = line.text end
+	assert(table.concat(text, "|") == "+5 % Kritische Trefferchance|+3 % Bewegungsgeschwindigkeit|+10 Ausdauer", table.concat(text, "|"))
+	assert(other == 1, "the cooldown sentence is only counted: " .. other)
+	lines = ns.TalentSummary.Build({ "Increases your attack speed by 5%. Reduces threat caused by 10%." }, false)
+	assert(#lines == 2 and lines[1].text == "+5 % Attack speed" and lines[2].text == "-10 % Threat", lines[1].text .. " / " .. lines[#lines].text)
+	local classes = 0
+	for class, builds in pairs(ns.TalentPresets) do
+		classes = classes + 1
+		assert(#builds >= 4, class .. " has at least three standards and one special")
+		for _, build in ipairs(builds) do
+			local points, count = 0, 0
+			for rank in build.ranks:gmatch("%d+:(%d+)") do points, count = points + tonumber(rank), count + 1 end
+			assert(points == 51 and count > 10, class .. " " .. build.en .. " " .. points)
+		end
+	end
+	assert(classes == 9, "all nine classes")
+	print("talent summary and presets OK")
+end)()
+;(function()
 	local tp = ns:GetModule("Teleports")
 	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
 	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end

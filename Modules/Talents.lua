@@ -291,7 +291,7 @@ local function TalentsFrame()
 	return PlayerSpellsFrame and PlayerSpellsFrame.TalentsFrame
 end
 
-local ApplyPlan, ClearPlan -- planner, defined below
+local ApplyPlan, ClearPlan, ApplyTemplate -- planner, defined below
 local PLAN_BUTTON_SIZE = 26
 
 local function ClassBuilds()
@@ -431,6 +431,21 @@ local function ShowBuildMenu(owner)
 		root:CreateTitle(L.TALENTS_BUILDS)
 		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
 		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
+		-- Suggested distributions (Data/TalentPresets.lua) go into the plan.
+		local presets = Talents.db.planner and ns.TalentPresets and ns.TalentPresets[playerClass]
+		if presets and #presets > 0 then
+			local sub = root:CreateButton(L.TALENTS_TEMPLATE)
+			sub:SetTooltip(function(tooltip)
+				GameTooltip_SetTitle(tooltip, L.TALENTS_TEMPLATE)
+				GameTooltip_AddNormalLine(tooltip, L.TALENTS_TEMPLATE_NOTE)
+			end)
+			for _, preset in ipairs(presets) do
+				local name = GetLocale() == "deDE" and preset.de or preset.en
+				sub:CreateButton(("%s (%s)"):format(name, preset.points), function()
+					ApplyTemplate(preset, name)
+				end)
+			end
+		end
 		local builds = ClassBuilds()
 		if #builds > 0 then
 			root:CreateDivider()
@@ -503,7 +518,8 @@ end
 -- it in the same tree, and a talent behind an arrow needs its source talent
 -- at full rank. Rows come from the node positions of the whole tree.
 local POINTS_PER_ROW = 5
-local REQUIRED_EDGES = { [Enum.TraitEdgeType.SufficientForAvailability] = true, [Enum.TraitEdgeType.RequiredForAvailability] = true }
+local ROW_TOLERANCE = 50 -- node positions of one row may differ by a few units
+local SUFFICIENT_EDGE, REQUIRED_EDGE = Enum.TraitEdgeType.SufficientForAvailability, Enum.TraitEdgeType.RequiredForAvailability
 
 local function TreeState(frame, configID)
 	local nodes, rowsY, names = {}, {}, {}
@@ -523,9 +539,14 @@ local function TreeState(frame, configID)
 		sorted[#sorted + 1] = y
 	end
 	table.sort(sorted)
-	local rowOf = {}
-	for index, y in ipairs(sorted) do
-		rowOf[y] = index - 1
+	-- Positions that differ by a few units belong to one row (some trees have 2120 next to 2130).
+	local rowOf, row, previous = {}, -1, nil
+	for _, y in ipairs(sorted) do
+		if not previous or y - previous > ROW_TOLERANCE then
+			row = row + 1
+		end
+		rowOf[y] = row
+		previous = y
 	end
 	return nodes, rowOf, names
 end
@@ -550,12 +571,28 @@ local function CheckNode(nodes, rowOf, names, plan, node, rank)
 	if spent < row * POINTS_PER_ROW then
 		return L.TALENTS_PLAN_NEED_POINTS:format(row * POINTS_PER_ROW - spent)
 	end
+	-- Arrows: every "required" source needs its full rank, of the "sufficient" ones one is enough
+	-- (some trees have an arrow in both directions between two talents).
+	local hasSufficient, satisfied, firstSource = false, false, nil
 	for _, source in pairs(nodes) do
 		for _, edge in ipairs(source.visibleEdges or {}) do
-			if edge.targetNode == node.ID and REQUIRED_EDGES[edge.type] and Effective(source, plan) < source.maxRanks then
-				return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
+			if edge.targetNode == node.ID then
+				local full = Effective(source, plan) >= source.maxRanks
+				if edge.type == REQUIRED_EDGE and not full then
+					return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
+				elseif edge.type == SUFFICIENT_EDGE then
+					hasSufficient = true
+					satisfied = satisfied or full
+					-- The one a player means is the talent above.
+					if not firstSource or (source.posY or 0) < (firstSource.posY or 0) then
+						firstSource = source
+					end
+				end
 			end
 		end
+	end
+	if hasSufficient and not satisfied then
+		return L.TALENTS_PLAN_NEED_TALENT:format(names[firstSource.ID] or "?")
 	end
 	return nil
 end
@@ -708,6 +745,42 @@ local function QueuePlanUpdate()
 	end
 end
 
+-- Puts a suggested distribution into the plan of the current specialisation:
+-- only when all its talents exist in this tree and the rules allow it.
+function ApplyTemplate(preset, name)
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local nodes, rowOf, names = TreeState(frame, configID)
+	local plan, points = {}, 0
+	for nodeText, rankText in preset.ranks:gmatch("(%d+):(%d+)") do
+		local nodeID, rank = tonumber(nodeText), tonumber(rankText)
+		local node = nodes[nodeID]
+		if not node then
+			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
+			return
+		end
+		plan[nodeID] = math.min(rank, node.maxRanks)
+		points = points + plan[nodeID]
+	end
+	local problem = CheckPlan(nodes, rowOf, names, plan)
+	if problem then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(problem))
+		return
+	end
+	local current = CurrentPlan()
+	wipe(current)
+	for nodeID, rank in pairs(plan) do
+		current[nodeID] = rank
+	end
+	QueuePlanUpdate()
+	ns.Print(L.TALENTS_TEMPLATE_DONE:format(name, points))
+end
+
+
 local function OnTalentClick(_, button, mouseButton)
 	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
 		return
@@ -840,6 +913,44 @@ local function CreatePlanButton(parent, atlas, title, tooltip, onClick)
 	return button
 end
 
+-- Mouse-over on the plan bar: the effects of everything planned and learned, added up per kind.
+local function ShowPlanSummary(owner)
+	local frame = TalentsFrame()
+	local configID = frame and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		return
+	end
+	local nodes = TreeState(frame, configID)
+	local plan = CurrentPlan()
+	local descriptions, talents, points = {}, 0, 0
+	for _, node in pairs(nodes) do
+		local rank = Effective(node, plan)
+		local entryID = node.activeEntry and node.activeEntry.entryID or (node.entryIDs and node.entryIDs[1])
+		if rank > 0 and entryID then
+			talents, points = talents + 1, points + rank
+			local ok, description = pcall(C_Traits.GetTraitDescription, entryID, rank)
+			if ok and type(description) == "string" and not (issecretvalue and issecretvalue(description)) then
+				descriptions[#descriptions + 1] = description
+			end
+		end
+	end
+	local lines, other = ns.TalentSummary.Build(descriptions, GetLocale() == "deDE")
+	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+	GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_SUMMARY_TITLE:format(talents, points), PLAN_COLOR)
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	for _, line in ipairs(lines) do
+		GameTooltip:AddLine(line.text, 0.55, 1, 0.55)
+	end
+	if #lines == 0 then
+		GameTooltip_AddNormalLine(GameTooltip, L.TALENTS_SUMMARY_NONE)
+	end
+	if other > 0 then
+		GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		GameTooltip:AddLine(L.TALENTS_SUMMARY_OTHER:format(other), 0.62, 0.62, 0.62, true)
+	end
+	GameTooltip:Show()
+end
+
 -- Top centre of the talent window, between the title and the tabs: two small
 -- symbol buttons ("apply" tick, "clear" cross) and the counter, in the colour of the plan.
 local PLAN_BAR_POINT = { "TOP", nil, "TOP", 0, -62 }
@@ -861,6 +972,9 @@ local function CreatePlanBar(frame)
 	bar.Counter:SetPoint("LEFT", bar.Clear, "RIGHT", 10, 0)
 	bar.Counter:SetJustifyH("LEFT")
 	bar.Counter:SetTextColor(PLAN_COLOR:GetRGB())
+	bar:EnableMouse(true)
+	bar:SetScript("OnEnter", ShowPlanSummary)
+	bar:SetScript("OnLeave", GameTooltip_Hide)
 	return bar
 end
 

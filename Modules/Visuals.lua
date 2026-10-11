@@ -19,6 +19,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorActiveBuff = true,
 		castsLeft = false,
 		auraActionFrame = true,
+		bagActionFrame = true,
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerDragon = "none",
@@ -31,10 +32,39 @@ local Visuals = ns:NewModule("Visuals", {
 ---------------------------------------------------------------------------
 local borders = setmetatable({}, { __mode = "k" })
 
+-- Grey and white items in the bags (no quality frame) get the action button frame, like the buffs; from green
+-- upwards the crisp quality frame below stays.
+local bagFramed = setmetatable({}, { __mode = "k" })
+
+local function UpdateBagFrame(button, quality)
+	if not (button.GetBagID and button.icon) then
+		return
+	end
+	local want = Visuals.db.bagActionFrame and quality ~= nil and quality <= Enum.ItemQuality.Common
+	local normal = button.NormalTexture or (button.GetNormalTexture and button:GetNormalTexture())
+	if want then
+		ns.ApplyActionFrame(button, button.icon, "bar", 3)
+		ns.SetActionFrameEnabled(button, true)
+		if not bagFramed[button] then
+			bagFramed[button] = { alpha = normal and normal:GetAlpha() or 1 }
+		end
+		if normal then
+			normal:SetAlpha(0)
+		end
+	elseif bagFramed[button] then
+		ns.SetActionFrameEnabled(button, false)
+		if normal then
+			normal:SetAlpha(bagFramed[button].alpha)
+		end
+		bagFramed[button] = nil
+	end
+end
+
 local function UpdateGlow(button, quality)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
+	UpdateBagFrame(button, quality)
 	local border = borders[button]
 	-- Round buttons (profession output) already get Blizzard's round quality ring.
 	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
@@ -872,11 +902,29 @@ function Visuals:OnLogin()
 	ApplyPlayerDragon()
 end
 
+-- All open bag buttons again (after switching the option).
+local function RefreshBagFrames()
+	local frames = { ContainerFrameCombinedBags }
+	for _, frame in ipairs(ContainerFrameContainer and ContainerFrameContainer.ContainerFrames or {}) do
+		frames[#frames + 1] = frame
+	end
+	for _, frame in ipairs(frames) do
+		if frame and frame.EnumerateValidItems then
+			for _, button in frame:EnumerateValidItems() do
+				local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
+				UpdateBagFrame(button, info and info.quality)
+			end
+		end
+	end
+end
+
 function Visuals:OnOptionChanged(key)
 	if key == "squid" then
 		ApplySquid()
 	elseif key == "auraActionFrame" then
 		FrameBuffs()
+	elseif key == "bagActionFrame" then
+		RefreshBagFrames()
 	elseif key == "playerDragon" or key == "dragonScale" then
 		ApplyPlayerDragon()
 	elseif key == "castsLeft" then
@@ -918,6 +966,7 @@ Visuals.options = {
 	{ key = "squid", type = "dropdown", name = L.VISUALS_SQUID, desc = L.VISUALS_SQUID_CREDIT, values = SquidValues },
 	{ type = "header", name = L.VISUALS_ACTION_HEADER },
 	{ key = "auraActionFrame", type = "toggle", name = L.VISUALS_AURA_ACTION_FRAME, desc = L.VISUALS_AURA_ACTION_FRAME_DESC, new = true },
+	{ key = "bagActionFrame", type = "toggle", name = L.VISUALS_BAG_ACTION_FRAME, desc = L.VISUALS_BAG_ACTION_FRAME_DESC, new = true },
 	{ key = "actionColors", type = "toggle", name = L.VISUALS_ACTION_COLORS, desc = L.VISUALS_ACTION_COLORS_DESC },
 	{ key = "colorRange", type = "toggle", name = L.VISUALS_COLOR_RANGE, parent = "actionColors" },
 	{ key = "colorMana", type = "toggle", name = L.VISUALS_COLOR_MANA, parent = "actionColors" },

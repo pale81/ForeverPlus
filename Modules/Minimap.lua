@@ -328,40 +328,24 @@ local function AddIconInitializers(description)
 	end
 end
 
--- Only one of the class's tracking spells (hunter: humanoids, beasts ...) works at a time. The game switches the
--- tracking after the click, but the open menu keeps the check marks it drew before, so two seem to be on. Choosing
--- one of these closes the menu (opened again it shows the real state). The submenu of the class is the one whose
--- title starts with the class name and a colon ("Hunter: ...").
-local function CloseMenuSoon(menu)
-	C_Timer.After(0.05, function()
-		if menu and type(menu.Close) == "function" then
-			menu:Close()
-		elseif Menu and Menu.GetManager and Menu.GetManager().CloseMenus then
-			Menu.GetManager():CloseMenus()
-		end
-	end)
-end
-
-local function ClassTrackingCloses(rootDescription)
-	local _, classFile = UnitClass("player")
-	local className = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classFile]
-	if not className then
-		return
-	end
-	for _, element in rootDescription:EnumerateElementDescriptions() do
-		local title = element.GetText and element:GetText()
-		if type(title) == "string" and title:find(className .. ":", 1, true) == 1 and element.EnumerateElementDescriptions then
-			for _, child in element:EnumerateElementDescriptions() do
-				child:AddInitializer(function(button, _, menu)
-					if not button.fpClassTracking then
-						button.fpClassTracking = true
-						button:HookScript("OnClick", function(self)
-							CloseMenuSoon(self.fpMenu)
-						end)
-					end
-					button.fpMenu = menu
-				end)
+-- /fp verfolgung: what the game says about every tracking type (name, kind, active, spell), to see why two
+-- tracking spells of a class show a check mark at once. Run it with one and with the other tracking on.
+function MinimapCoords.PrintTracking()
+	local count = C_Minimap.GetNumTrackingTypes and C_Minimap.GetNumTrackingTypes() or 0
+	ns.PrintAlways("Tracking: %d", count)
+	for index = 1, count do
+		local info = C_Minimap.GetTrackingInfo(index)
+		if type(info) == "table" then
+			local parts = {}
+			for _, key in ipairs({ "name", "type", "subType", "active", "spellID", "texture", "isSpell", "isActive" }) do
+				local value = info[key]
+				if value ~= nil then
+					parts[#parts + 1] = key .. "=" .. tostring(value)
+				end
 			end
+			ns.PrintAlways("%d: %s", index, table.concat(parts, ", "))
+		else
+			ns.PrintAlways("%d: %s", index, tostring(info))
 		end
 	end
 end
@@ -442,7 +426,6 @@ function MinimapCoords:OnLogin()
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
 			AddIconInitializers(rootDescription)
-			pcall(ClassTrackingCloses, rootDescription)
 			AddForeverPlusEntries(rootDescription)
 		end)
 	end

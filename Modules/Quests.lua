@@ -149,6 +149,19 @@ local function QuestProgress(unit)
 	return found
 end
 
+-- Units of an active quest. The game's own flag misses some, for example
+-- creatures whose drop a quest asks for; their tooltip still lists the objective.
+local function IsQuestUnit(unit)
+	local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
+	if related and not Secret(related) then
+		return true
+	end
+	if Secret(related) or UnitIsPlayer(unit) or not UnitCanAttack("player", unit) then
+		return false
+	end
+	return QuestProgress(unit) ~= nil
+end
+
 local function GetMarker(nameplate)
 	local marker = markers[nameplate]
 	if not marker then
@@ -187,8 +200,7 @@ local function UpdateNameplate(unit)
 	if not nameplate or nameplate:IsForbidden() then
 		return
 	end
-	local related = Quests.db.nameplateIcons and C_QuestLog.UnitIsRelatedToActiveQuest(unit)
-	if related and not Secret(related) then
+	if Quests.db.nameplateIcons and IsQuestUnit(unit) then
 		local marker = GetMarker(nameplate)
 		PlaceMarker(marker, nameplate)
 		marker.Text:SetText(QuestProgress(unit) or "")

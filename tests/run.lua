@@ -2307,6 +2307,27 @@ end)()
 	C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo = unpack(saved, 1, 7)
 	print("bag sort OK")
 end)()
+-- Nameplate quest marker: creatures whose drop a quest asks for
+;(function()
+	local quests = ns:GetModule("Quests")
+	local plate = { IsForbidden = function() return false end, UnitFrame = {} }
+	local isQuestUnit = uv(uv(quests.RefreshNameplates, "UpdateNameplate"), "IsQuestUnit")
+	assert(isQuestUnit, "quest unit check")
+	C_QuestLog.UnitIsRelatedToActiveQuest = function() return false end
+	UnitIsPlayer = function() return false end
+	UnitCanAttack = function() return true end
+	Enum.TooltipDataLineType = { QuestObjective = 8 }
+	C_TooltipInfo.GetUnit = function() return { lines = { { type = 8, leftText = "Klippeneberrippchen: 2/6" } } } end
+	assert(isQuestUnit("nameplate1"), "found by the tooltip objective")
+	C_TooltipInfo.GetUnit = function() return { lines = { { type = 0, leftText = "Wildtier" } } } end
+	assert(not isQuestUnit("nameplate1"), "no objective, no marker")
+	C_QuestLog.UnitIsRelatedToActiveQuest = function() return true end
+	assert(isQuestUnit("nameplate1"), "the game's flag still counts")
+	UnitIsPlayer = function() return true end
+	C_QuestLog.UnitIsRelatedToActiveQuest = function() return false end
+	assert(not isQuestUnit("nameplate1"), "players are never quest units")
+	print("nameplate quest marker OK", plate ~= nil)
+end)()
 -- Speech bubbles
 ;(function()
 	local sb = ns:GetModule("SpeechBubbles")

@@ -101,6 +101,7 @@ end
 
 local foldHeights = {} -- chat window -> height it takes when folded (the lines of its last message)
 local shown = {}       -- chat window -> height set at the moment
+local anchors = {}     -- chat window anchored at its top -> its anchor, so the bottom edge can stay where it is
 
 local function FoldHeight(frame)
 	local _, height = LastMessageSize(frame)
@@ -141,6 +142,12 @@ local function MoveHeights(elapsed, eased)
 		end
 		shown[frame] = current
 		frame:SetHeight(current)
+		-- A window anchored at its top shrinks upwards; the last message belongs at the bottom edge, so the
+		-- window moves down by what it shrank.
+		local anchor = anchors[frame]
+		if anchor then
+			frame:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5] - (full - current))
+		end
 		frame:ScrollToBottom()
 	end
 	return moving
@@ -164,6 +171,7 @@ local function Step(_, elapsed)
 			wipe(heights)
 			wipe(foldHeights)
 			wipe(shown)
+			wipe(anchors)
 		end
 	end
 end
@@ -189,6 +197,11 @@ local function SetFold(value)
 			heights[frame] = frame:GetHeight()
 			foldHeights[frame] = FoldHeight(frame)
 			shown[frame] = heights[frame]
+			local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
+			x, y = ns.Number(x), ns.Number(y)
+			if frame:GetNumPoints() == 1 and type(point) == "string" and point:find("TOP") and x and y then
+				anchors[frame] = { point, relativeTo, relativePoint, x, y }
+			end
 		end
 		if not next(heights) then
 			return
@@ -258,10 +271,15 @@ local function Restore()
 	ns.SetUpdate(driver, "ChatMinimize: animation", nil)
 	for frame, full in pairs(heights) do
 		frame:SetHeight(full)
+		local anchor = anchors[frame]
+		if anchor then
+			frame:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5])
+		end
 	end
 	wipe(heights)
 	wipe(foldHeights)
 	wipe(shown)
+	wipe(anchors)
 	ApplyAlpha()
 end
 

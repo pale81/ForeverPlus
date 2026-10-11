@@ -32,6 +32,8 @@ local QoL = ns:NewModule("QoL", {
 		nameplatesFadeCombat = true, -- the plates of units that are not the target stay transparent in combat too
 		nameplatesTargetFull = true, -- the plate of the target is always fully visible
 		hideErrors = true,
+		hideWorldText = false,
+		worldTextOld = {},
 		actionText = true,
 		hideHotkeys = true,
 		hideMacroNames = true,
@@ -165,6 +167,32 @@ function QoL:UpdateMouseover()
 	SetFaded(Minimap, fadeMinimap)
 	SetFaded(MinimapBackdrop, fadeMinimap)
 	UpdateIndependentMinimapOverlays(fadeMinimap)
+end
+
+---------------------------------------------------------------------------
+-- Floating numbers over targets and corpses (damage, healing, the experience of a kill) are drawn by the game
+-- itself and have no switch for single kinds. Scale, smallest size and smallest opacity at 0 make all of them
+-- tiny; the old values come back when the option is switched off.
+---------------------------------------------------------------------------
+local WORLD_TEXT = { "WorldTextScale_v2", "WorldTextMinSize", "WorldTextMinAlpha_v2" }
+
+function QoL:UpdateWorldText()
+	local db = self.db
+	db.worldTextOld = db.worldTextOld or {}
+	for _, name in ipairs(WORLD_TEXT) do
+		if db.hideWorldText then
+			local value = GetCVar(name)
+			if value ~= nil and db.worldTextOld[name] == nil then
+				db.worldTextOld[name] = value
+			end
+			if value ~= nil then
+				SetCVar(name, 0)
+			end
+		elseif db.worldTextOld[name] ~= nil then
+			SetCVar(name, db.worldTextOld[name])
+			db.worldTextOld[name] = nil
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -490,6 +518,9 @@ function QoL:OnInitialize()
 end
 
 function QoL:OnLogin()
+	if self.db.hideWorldText then
+		self:UpdateWorldText()
+	end
 	self:UpdateRankUp()
 	-- Addons create their minimap buttons during their own login handling.
 	local function ScanMinimapButtons()
@@ -533,6 +564,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideErrors" then
 		self:UpdateErrorMessages()
+	elseif key == "hideWorldText" then
+		self:UpdateWorldText()
 	elseif key == "nameplatesCombat" or key == "nameplatesFade" or key == "nameplatesFadeAmount"
 		or key == "nameplatesFadeCombat" or key == "nameplatesTargetFull" then
 		self:UpdateNameplates()
@@ -567,6 +600,7 @@ QoL.options = {
 	{ key = "mouseoverMinimap", type = "toggle", name = L.QOL_MOUSEOVER_MINIMAP, desc = L.QOL_MOUSEOVER_MINIMAP_DESC, parent = "mouseover" },
 	{ type = "header", name = L.QOL_ERRORS_HEADER },
 	{ key = "hideErrors", type = "toggle", name = L.QOL_HIDE_ERRORS, desc = L.QOL_HIDE_ERRORS_DESC },
+	{ key = "hideWorldText", type = "toggle", name = L.QOL_WORLDTEXT, desc = L.QOL_WORLDTEXT_DESC, new = true },
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
 	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
 	{ key = "nameplatesFade", type = "toggle", name = L.QOL_NAMEPLATES_FADE, desc = L.QOL_NAMEPLATES_FADE_DESC },

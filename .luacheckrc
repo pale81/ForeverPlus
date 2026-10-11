@@ -57,7 +57,7 @@ read_globals = {
 	"ProfessionsBookFrame",
 	"UnitHealthPercent",
 	"IsInInstance",
-	"UnitHealthMax", "UnitIsPlayer", "GameTooltipTextLeft1",
+	"UnitHealthMax", "UnitIsPlayer", "UnitCanAttack", "GameTooltipTextLeft1",
 	"strsplit",
 	"SELL_PRICE",
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",

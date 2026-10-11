@@ -286,7 +286,7 @@ read_globals = {
 	"StanceBar",
 	"TRACKER_HEADER_QUESTS",
 	"TooltipDataProcessor",
-	"UIParent", "HideUIPanel", "CharacterFrame",
+	"UIParent", "HideUIPanel", "GeneralDockManager", "CharacterFrame",
 	"UIPanelWindows",
 	"UISpecialFrames",
 	"tContains",

@@ -244,7 +244,7 @@ local MOUSEOVER_BAR_KEYS = Keys("mouseover", "mouseoverCombat", "mouseoverMicro"
 local MOUSEOVER_FRAME_KEYS = Keys("mouseoverXP", "mouseoverRep", "mouseoverPlayer", "mouseoverTarget", "mouseoverMinimap")
 
 local PAGES = {
-	{ title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE }, { "Trivial", header = L.TRIVIAL_TITLE }, { "ChatIndent", header = L.CHATINDENT_TITLE } },
+	{ title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE }, { "Trivial", header = L.TRIVIAL_TITLE }, { "ChatIndent", header = L.CHATINDENT_TITLE }, { "ChatMinimize", header = L.CHATMIN_TITLE } },
 	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "Observations", header = L.OBS_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
 	{ title = L.ITEMS_TITLE,
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",

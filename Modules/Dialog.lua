@@ -102,8 +102,34 @@ local function RevealStep(_, elapsed)
 	end
 end
 
+-- The state of the reveal on the font strings again (after the step was drawn anew): read paragraphs stay
+-- whole, the one being read keeps its place, the rest is hidden.
+local function ApplyReveal()
+	for index, fontString in ipairs(reveal.list) do
+		if index < reveal.index then
+			fontString:SetAlphaGradient(100000, 1)
+			fontString:SetAlpha(1)
+		elseif index == reveal.index then
+			fontString:SetAlphaGradient(reveal.position, REVEAL_SOFT)
+			fontString:SetAlpha(1)
+		else
+			fontString:SetAlpha(0)
+			fontString:SetAlphaGradient(0, REVEAL_SOFT)
+		end
+	end
+end
+
 -- texts: the font strings of the paragraphs, in reading order. Each view is revealed once.
 local function StartReveal(view, texts)
+	-- The same step drawn again while it is being read (a list refreshed itself, rewards arrived): the reading goes
+	-- on where it was instead of showing the whole text for a moment.
+	if view.revealed and reveal.active and #texts == #reveal.list then
+		for index, fontString in ipairs(texts) do
+			reveal.list[index] = fontString
+		end
+		ApplyReveal()
+		return
+	end
 	if reveal.active then
 		FinishReveal()
 	end
@@ -825,6 +851,33 @@ local function CollapseAll(on)
 	Collapse(QuestFrame, on)
 	Collapse(ClassTrainerFrame, on)
 	Collapse(MerchantFrame, on)
+end
+
+-- The game's windows are made invisible the moment they show (their own OnShow, before the next picture), not
+-- only when our step arrives: no frame with the window of the game at full size in between.
+local hookedWindows = {}
+
+-- handled: tells whether the bubble takes this window over at the moment (else it stays as the game shows it).
+local function HideWindowAtOnce(window, handled)
+	if hookedWindows[window] or not window or window:IsForbidden() then
+		return
+	end
+	hookedWindows[window] = true
+	window:HookScript("OnShow", function(self)
+		if Dialog.db.enabled and handled() and not InCombatLockdown() then
+			Collapse(self, true)
+		end
+	end)
+	window:HookScript("OnHide", function(self)
+		Collapse(self, false)
+	end)
+end
+
+local function HookWindows()
+	HideWindowAtOnce(GossipFrame, function() return true end)
+	HideWindowAtOnce(QuestFrame, function() return true end)
+	HideWindowAtOnce(MerchantFrame, function() return Dialog.db.merchant end)
+	HideWindowAtOnce(ClassTrainerFrame, function() return Dialog.db.trainer end)
 end
 
 -- The nameplate of the NPC cannot be measured or clamped by an addon (it is a restricted region), but
@@ -1817,6 +1870,8 @@ function Dialog:OnLogin()
 			end)
 		end
 	end
+	HookWindows()
+	ns.OnAddOnLoaded("Blizzard_TrainerUI", HookWindows)
 	self:Apply()
 end
 

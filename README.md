@@ -3,6 +3,8 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
+Aktualisieren aus dem Projekt (macOS, Git-Clone im AddOns-Ordner): `sh tools/autopull.sh install` richtet einmalig einen Hintergrundauftrag ein, der alle 30 Sekunden `git pull --ff-only` ausführt; danach genügt `/rl` im Spiel (`status` und `uninstall` gehören dazu; ungeprüft).
+
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Mouseover, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Karten & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Meldung beim Sperren“, „Klick beim Sperren und Entsperren“ (kurzer Blizzard-Klang), „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.
 
 Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Weltkarten-Koordinaten) wird gleich bedient und ist anfangs gesperrt: **Alt + Rechtsklick** entsperrt/sperrt einzeln, dann verschiebt **Alt + Ziehen** und **Strg + Mausrad** skaliert. Gesperrte Fenster lassen das Mausrad in Ruhe (Kamera-Zoom, Aktionsleisten-Blättern); „Zurücksetzen“ sperrt alles wieder. ForeverPlus-Anzeigen gehen zusätzlich ohne Taste (Ziehen, Mausrad, Rechtsklick); bei Blizzard-Fenstern würde das mit Gegenstände-Ziehen, Listen-Scrollen und Rechtsklick-Menüs kollidieren.

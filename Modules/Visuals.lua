@@ -37,7 +37,7 @@ local borders = setmetatable({}, { __mode = "k" })
 local bagFramed = setmetatable({}, { __mode = "k" })
 
 local function UpdateBagFrame(button, quality)
-	if not (button.GetBagID and button.icon) then
+	if not button.icon then
 		return
 	end
 	local want = Visuals.db.bagActionFrame and quality ~= nil and quality <= Enum.ItemQuality.Common
@@ -60,11 +60,16 @@ local function UpdateBagFrame(button, quality)
 	end
 end
 
+-- For the bag buttons (Items.lua) and the character slots (below).
+ns.FrameItemButton = UpdateBagFrame
+
 local function UpdateGlow(button, quality)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
-	UpdateBagFrame(button, quality)
+	if button.GetBagID then
+		UpdateBagFrame(button, quality)
+	end
 	local border = borders[button]
 	-- Round buttons (profession output) already get Blizzard's round quality ring.
 	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
@@ -876,6 +881,25 @@ local function ApplyPlayerDragon()
 	dragon:Show()
 end
 
+-- The equipped items: grey and white ones get the frame as well.
+local EQUIPMENT_SLOTS = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
+	"Finger0", "Finger1", "Trinket0", "Trinket1", "Back", "MainHand", "SecondaryHand", "Ranged", "Tabard" }
+
+local function FrameCharacterSlot(button)
+	if not button or (button.IsForbidden and button:IsForbidden()) then
+		return
+	end
+	local slotID = button:GetID()
+	local quality = slotID and GetInventoryItemQuality("player", slotID)
+	UpdateBagFrame(button, quality)
+end
+
+local function FrameCharacterSlots()
+	for _, name in ipairs(EQUIPMENT_SLOTS) do
+		FrameCharacterSlot(_G["Character" .. name .. "Slot"])
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
@@ -886,6 +910,10 @@ function Visuals:OnInitialize()
 end
 
 function Visuals:OnLogin()
+	if PaperDollItemSlotButton_Update then
+		hooksecurefunc("PaperDollItemSlotButton_Update", FrameCharacterSlot)
+	end
+	FrameCharacterSlots()
 	OutlineFonts()
 	HookParchmentWindows()
 	if MainActionBar and MainActionBar.UpdateEndCaps then
@@ -902,8 +930,9 @@ function Visuals:OnLogin()
 	ApplyPlayerDragon()
 end
 
--- All open bag buttons again (after switching the option).
+-- All open bag buttons and character slots again (after switching the option).
 local function RefreshBagFrames()
+	FrameCharacterSlots()
 	local frames = { ContainerFrameCombinedBags }
 	for _, frame in ipairs(ContainerFrameContainer and ContainerFrameContainer.ContainerFrames or {}) do
 		frames[#frames + 1] = frame

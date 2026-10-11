@@ -211,14 +211,14 @@ local function ColorBorder(tooltip, data)
 	end
 end
 
--- Tooltips without a quality colour (quests, units, spells, the quest tracker) get the bronze of the game's frames
--- as a crisp frame along the edge, the colour that shows (Core/Widgets.lua).
+-- Tooltips without a quality colour (quests, the quest tracker) get the border colour of the game's normal tooltips
+-- (TOOLTIP_DEFAULT_COLOR), so they look alike; the game's border art stays, nothing is drawn on top.
 local BRONZE_TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2",
 	"ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2" }
 
 local function BronzeBorder(tooltip)
 	local nineSlice = tooltip.NineSlice
-	if not Tooltip.db.bronzeBorder or not nineSlice or tooltip.IsEmbedded or tooltip:IsForbidden() then
+	if not Tooltip.db.bronzeBorder or not nineSlice or tooltip.IsEmbedded or tooltip:IsForbidden() or not TOOLTIP_DEFAULT_COLOR then
 		return
 	end
 	-- An item already has its quality frame.
@@ -229,10 +229,7 @@ local function BronzeBorder(tooltip)
 		defaultBorder[tooltip] = { nineSlice:GetBorderColor() }
 		tooltip:HookScript("OnTooltipCleared", ResetBorder)
 	end
-	local bgR, bgG, bgB = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
-	nineSlice:SetBorderColor(bgR, bgG, bgB, 1)
-	local color = ns.PANEL_BORDER_SHOWN
-	ShowBorderFrame(tooltip, color[1], color[2], color[3])
+	nineSlice:SetBorderColor(TOOLTIP_DEFAULT_COLOR:GetRGBA())
 end
 
 local function HookBronzeBorders()

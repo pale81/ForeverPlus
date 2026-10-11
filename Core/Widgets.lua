@@ -41,8 +41,6 @@ end
 -- to 231/192/132), the same colour as the bronze dragon; the border art is light grey, so the tint is a little
 -- brighter than the colour that shows.
 ns.PANEL_BORDER = { 0.88, 0.65, 0.40 }
--- The colour that shows (drawn as is, e.g. as the frame of tooltips): the mid tone of that bronze.
-ns.PANEL_BORDER_SHOWN = { 0.71, 0.52, 0.30 }
 
 function ns.CreatePanel(name, options)
 	options = options or {}

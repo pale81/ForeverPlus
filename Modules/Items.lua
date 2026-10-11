@@ -798,6 +798,12 @@ local function UpdateButton(button)
 	local bag, slot = button:GetBagID(), button:GetID()
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 
+	-- Grey and white items: the action button frame (Visuals, option); the hook on the quality alone does not
+	-- reach the bag buttons, this loop does.
+	if ns.FrameItemButton then
+		ns.FrameItemButton(button, info and info.quality)
+	end
+
 	if button.JunkIcon then
 		-- Coin on everything that will be sold: grey items (unless kept) and marked items.
 		local show = info and not info.hasNoValue and IsJunkItem(info) and not BagExcludesJunk(bag)

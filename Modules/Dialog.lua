@@ -149,8 +149,9 @@ local function CreateBubble()
 	frame.Dark:SetPoint("BOTTOMRIGHT", INSET / 2, -INSET / 2)
 	frame.Dark:SetTexture([[Interface\Tooltips\UI-Tooltip-Background]])
 	frame.Dark:SetVertexColor(0.08, 0.08, 0.1, 0.94)
+	frame.DarkBorder = ns.CreatePixelBorder(frame, frame.Dark, 1, "BORDER")
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
-	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, -10)
+	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, -10, ns.PANEL_BORDER)
 	frame.hasArt = frame.Art ~= nil
 	frame.hasTail = frame.Tail ~= nil
 	frame.Abandon = CreateFrame("Button", nil, frame)
@@ -364,18 +365,23 @@ local function CreateRow(frame)
 			Dialog.MerchantScroll(delta)
 		end
 	end)
-	-- The chosen text glows softly: warm copies of it one pixel around it, under the text itself.
+	-- The chosen text glows: warm copies of it around it in two rings (one and two pixels out, eight directions
+	-- each), under the text itself; where they overlap the glow gets denser close to the letters and fades outwards.
 	row.Glow = {}
-	for index, offset in ipairs({ { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 } }) do
-		local glow = row:CreateFontString(nil, "ARTWORK", nil)
-		glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", offset[1], offset[2])
-		glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", offset[1], offset[2])
-		glow:SetJustifyH("LEFT")
-		glow:SetJustifyV("TOP")
-		glow:SetNonSpaceWrap(true)
-		glow:SetTextColor(1, 0.8, 0.35, 0.28)
-		glow:Hide()
-		row.Glow[index] = glow
+	local RING = { { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } }
+	for ring = 1, 2 do
+		for _, direction in ipairs(RING) do
+			local glow = row:CreateFontString(nil, "ARTWORK", nil)
+			local x, y = direction[1] * ring, direction[2] * ring
+			glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", x, y)
+			glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", x, y)
+			glow:SetJustifyH("LEFT")
+			glow:SetJustifyV("TOP")
+			glow:SetNonSpaceWrap(true)
+			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.34 or 0.17)
+			glow:Hide()
+			row.Glow[#row.Glow + 1] = glow
+		end
 	end
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
@@ -461,6 +467,11 @@ Render = function(view)
 	local palette = Palette()
 	local usePlayer = Dialog.db.style == "PLAYER" and frame.hasArt
 	frame.Dark:SetShown(not usePlayer)
+	if usePlayer then
+		frame.DarkBorder:Hide()
+	else
+		frame.DarkBorder:ShowColor(unpack(ns.PANEL_BORDER))
+	end
 	if frame.Art then
 		frame.Art:SetShown(usePlayer)
 	end
@@ -532,7 +543,7 @@ Render = function(view)
 					file, size, flags = baseFont:GetFont()
 				end
 				if file and size then
-					row.Text:SetFont(file, emphasised and size * 1.2 or size, emphasised and "OUTLINE" or flags or "")
+					row.Text:SetFont(file, emphasised and size * 1.2 or size, emphasised and "" or flags or "")
 				else
 					row.Text:SetFontObject(TextFont())
 				end
@@ -558,7 +569,9 @@ Render = function(view)
 							glow:SetFont(file, size * 1.2, "")
 						end
 						glow:SetWordWrap(not info.reserve)
-						glow:SetText(label)
+						-- No colour codes (the glow has its own colour) and no icons (blank spaces of the same size).
+						glow:SetText((label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T[^|]*|t", "|TInterface\\Common\\Spacer:14:14|t")
+							:gsub("|A[^|]*|a", "|TInterface\\Common\\Spacer:14:14|t")))
 					end
 				end
 

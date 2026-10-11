@@ -37,7 +37,9 @@ function ns.FadeIn(frame, duration)
 	return group
 end
 
-ns.PANEL_BORDER = { 0.78, 0.62, 0.32 }
+-- Light bronze like the rim of the minimap (measured on a screenshot: about 150/127/96 with highlights up to
+-- 176/150/112); the border art is light grey, so the tint is a little brighter than the colour that shows.
+ns.PANEL_BORDER = { 0.72, 0.62, 0.48 }
 
 function ns.CreatePanel(name, options)
 	options = options or {}
@@ -469,7 +471,7 @@ end
 -- a nine-slice frame around `frame`, `inset` pixels outside it, drawn under
 -- the frame's own texts. Returns art, tail (nil when the client lacks the art).
 ---------------------------------------------------------------------------
-function ns.CreateBubbleArt(frame, inset, tailOffsetX)
+function ns.CreateBubbleArt(frame, inset, tailOffsetX, tint)
 	local layout = NineSliceLayouts and NineSliceLayouts.ChatBubble
 	if not layout then
 		return nil
@@ -487,6 +489,17 @@ function ns.CreateBubbleArt(frame, inset, tailOffsetX)
 		tail:SetPoint("TOP", frame, "BOTTOM", tailOffsetX or -10, -inset + 3)
 	else
 		tail = nil
+	end
+	-- Tinted (the border of the dialog bubble in bronze): every piece but the dark centre, and the tail.
+	if tint then
+		for _, region in ipairs({ art:GetRegions() }) do
+			if region ~= art.Center and region.SetVertexColor then
+				region:SetVertexColor(tint[1], tint[2], tint[3], 1)
+			end
+		end
+		if tail then
+			tail:SetVertexColor(tint[1], tint[2], tint[3], 1)
+		end
 	end
 	return art, tail
 end

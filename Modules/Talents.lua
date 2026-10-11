@@ -806,69 +806,45 @@ function ClearPlan()
 	QueuePlanUpdate()
 end
 
--- A flat button in the blue of the plan: dark blue ground, thin light-blue
--- border, a soft shine on the upper half.
-local BLUE_BACK, BLUE_BORDER, BLUE_HOVER = { 0.04, 0.14, 0.3, 0.95 }, { 0.3, 0.65, 1, 1 }, { 0.08, 0.26, 0.5, 0.98 }
-
-local function CreateBlueButton(parent, text, width, tooltip, onClick, icon)
-	local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
-	button:SetSize(icon and 24 or width, 22)
-	button:SetBackdrop({ bgFile = [[Interface\Buttons\WHITE8X8]], edgeFile = [[Interface\Buttons\WHITE8X8]], edgeSize = 1 })
-	local shine = button:CreateTexture(nil, "ARTWORK")
-	shine:SetPoint("TOPLEFT", 1, -1)
-	shine:SetPoint("BOTTOMRIGHT", -1, 11)
-	shine:SetColorTexture(1, 1, 1, 1)
-	shine:SetGradient("VERTICAL", CreateColor(1, 1, 1, 0), CreateColor(0.6, 0.8, 1, 0.22))
-	button.Label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	button.Label:SetPoint("CENTER", 0, 0)
-	button.Label:SetText(icon and "" or text)
-	-- A small button carries a symbol instead of the text (the text is its tooltip title).
-	if icon then
-		button.Symbol = button:CreateTexture(nil, "OVERLAY")
-		button.Symbol:SetSize(14, 14)
-		button.Symbol:SetPoint("CENTER")
-		button.Symbol:SetAtlas(icon)
-	end
-	local function Paint()
-		local enabled, hovered, pressed = button:IsEnabled(), button:IsMouseOver(), button.pressed
-		local back = hovered and BLUE_HOVER or BLUE_BACK
-		button:SetBackdropColor(unpack(enabled and (pressed and { 0.02, 0.08, 0.2, 0.98 } or back) or { 0.1, 0.12, 0.16, 0.8 }))
-		button:SetBackdropBorderColor(unpack(enabled and BLUE_BORDER or { 0.35, 0.4, 0.45, 1 }))
-		if enabled then
-			button.Label:SetTextColor(hovered and 1 or 0.65, hovered and 1 or 0.85, 1)
-		else
-			button.Label:SetTextColor(0.5, 0.55, 0.6)
-		end
-		shine:SetShown(enabled)
-		if button.Symbol then
-			button.Symbol:SetDesaturated(not enabled)
-			button.Symbol:SetAlpha(enabled and (hovered and 1 or 0.85) or 0.45)
-		end
-	end
+-- Small buttons in the game's own look: the golden arrow of the spell book
+-- ("apply") and the red close cross ("clear"), with a tooltip.
+local function AddButtonTip(button, title, text)
 	button:SetScript("OnEnter", function(self)
-		Paint()
-		if tooltip then
-			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-			GameTooltip_AddColoredLine(GameTooltip, text, PLAN_COLOR)
-			GameTooltip_AddNormalLine(GameTooltip, tooltip)
-			GameTooltip:Show()
-		end
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip_AddColoredLine(GameTooltip, title, PLAN_COLOR)
+		GameTooltip_AddNormalLine(GameTooltip, text)
+		GameTooltip:Show()
 	end)
-	button:SetScript("OnLeave", function()
-		Paint()
-		GameTooltip:Hide()
+	button:SetScript("OnLeave", GameTooltip_Hide)
+	hooksecurefunc(button, "SetEnabled", function(self, enabled)
+		self:SetAlpha(enabled and 1 or 0.45)
 	end)
-	button:SetScript("OnMouseDown", function(self)
-		self.pressed = true
-		Paint()
-	end)
-	button:SetScript("OnMouseUp", function(self)
-		self.pressed = false
-		Paint()
-	end)
+end
+
+local function CreateApplyButton(parent, title, tooltip, onClick)
+	local button = CreateFrame("Button", nil, parent)
+	button:SetSize(28, 28)
+	button:SetNormalTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Up]])
+	button:SetPushedTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Down]])
+	button:SetDisabledTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled]])
+	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
 	button:SetScript("OnClick", onClick)
-	hooksecurefunc(button, "SetEnabled", Paint)
-	Paint()
+	AddButtonTip(button, title, tooltip)
+	return button
+end
+
+local function CreateClearButton(parent, title, tooltip, onClick)
+	-- The game's red close button; its own click would hide the bar.
+	local ok, button = pcall(CreateFrame, "Button", nil, parent, "UIPanelCloseButton")
+	if not ok then
+		button = CreateFrame("Button", nil, parent)
+		button:SetNormalTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Up]])
+		button:SetPushedTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Down]])
+		button:SetHighlightTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Highlight]], "ADD")
+	end
+	button:SetSize(24, 24)
+	button:SetScript("OnClick", onClick)
+	AddButtonTip(button, title, tooltip)
 	return button
 end
 
@@ -881,14 +857,14 @@ local function CreatePlanBar(frame)
 	bar:SetSize(330, 24)
 	bar:SetFrameLevel(ns.Number(frame:GetFrameLevel(), 0) + 1010)
 	bar:SetFrameStrata("HIGH")
-	bar.Apply = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, 24, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
+	bar.Apply = CreateApplyButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
 		ApplyPlan()
-	end, "common-icon-checkmark")
+	end)
 	bar.Apply:SetPoint("LEFT", bar, "LEFT", 0, 0)
-	bar.Clear = CreateBlueButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, 24, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
+	bar.Clear = CreateClearButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
 		ClearPlan()
-	end, "common-icon-redx")
-	bar.Clear:SetPoint("LEFT", bar.Apply, "RIGHT", 4, 0)
+	end)
+	bar.Clear:SetPoint("LEFT", bar.Apply, "RIGHT", 2, 0)
 	bar.Counter = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	bar.Counter:SetPoint("LEFT", bar.Clear, "RIGHT", 10, 0)
 	bar.Counter:SetJustifyH("LEFT")

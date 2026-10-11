@@ -1060,7 +1060,6 @@ L.DIALOG_FILTER_OFF = "Off: everything is shown. Click to hide unusable and know
 L.QUESTS_LOGO_STATUS = "Logo: %d atlases in the game, %d with forever in the name: %s. Used: %s."
 L.FADE_IN = "Fade windows in softly"
 L.FADE_IN_DESC = "Windows and window menus of ForeverPlus (lists, input windows, the dialog bubble and others) appear with a short soft fade instead of at once."
-L.DIALOG_COUNTER_TIP = "Mouse wheel: change the quantity. Click: type a number."
 L.DIALOG_MERCHANT_CHOSEN = "In the basket: %d wares (%d pieces), %s"
 L.DIALOG_HIDE_PLATE = "Hide the nameplate under the bubble"
 L.DIALOG_HIDE_PLATE_DESC = "The bubble sits on the lower edge of the nameplate of the NPC (lower than above it) and covers it; the plate is made invisible meanwhile and shown again after."

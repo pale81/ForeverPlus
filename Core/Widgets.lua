@@ -46,13 +46,14 @@ function ns.CreatePanel(name, options)
 	options = options or {}
 	local panel = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
 	panel:SetFrameStrata(options.strata or "DIALOG")
-	-- Bronze border and a dark blue ground like the game's own frames (the tracker pop-ups), not the grey default.
+	-- Bronze border and a blue-grey ground as bright as the game's own tooltips (measured on a screenshot: about 38/43/59
+	-- under the 0.96 alpha), not the grey default and not darker than the other tooltips.
 	if panel.NineSlice then
 		if panel.NineSlice.SetBorderColor then
 			panel.NineSlice:SetBorderColor(ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3], 1)
 		end
 		if panel.NineSlice.SetCenterColor then
-			panel.NineSlice:SetCenterColor(0.04, 0.06, 0.12, 0.96)
+			panel.NineSlice:SetCenterColor(0.15, 0.17, 0.23, 0.96)
 		end
 	end
 	panel:SetToplevel(true)
@@ -104,6 +105,48 @@ function ns.SetRoundGreyIcon(button, texture)
 	button.Mask:SetAllPoints(button.Icon)
 	button.Mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 	button.Icon:AddMaskTexture(button.Mask)
+end
+
+-- A small bright yellow "NEW" label with rays turning slowly behind it and a soft pulse; parent: the button or tab it
+-- marks. Shown or hidden by the caller.
+function ns.CreateNewBadge(parent, label)
+	local badge = CreateFrame("Frame", nil, parent)
+	badge:SetSize(30, 14)
+	badge:SetFrameLevel(parent:GetFrameLevel() + 10)
+	badge:EnableMouse(false)
+	badge.Rays = badge:CreateTexture(nil, "BACKGROUND")
+	badge.Rays:SetTexture([[Interface\Cooldown\star4]])
+	badge.Rays:SetBlendMode("ADD")
+	badge.Rays:SetVertexColor(1, 0.9, 0.2)
+	badge.Rays:SetSize(40, 40)
+	badge.Rays:SetPoint("CENTER")
+	badge.Text = badge:CreateFontString(nil, "OVERLAY")
+	badge.Text:SetFont(ns.GetFontFace(), 10, "THICKOUTLINE")
+	badge.Text:SetPoint("CENTER")
+	badge.Text:SetTextColor(1, 0.92, 0.15)
+	badge.Text:SetText(label or "NEW")
+	badge.Turn = badge.Rays:CreateAnimationGroup()
+	badge.Turn:SetLooping("REPEAT")
+	local turn = badge.Turn:CreateAnimation("Rotation")
+	turn:SetDegrees(-360)
+	turn:SetDuration(6)
+	badge.Pulse = badge:CreateAnimationGroup()
+	badge.Pulse:SetLooping("BOUNCE")
+	local pulse = badge.Pulse:CreateAnimation("Alpha")
+	pulse:SetFromAlpha(1)
+	pulse:SetToAlpha(0.6)
+	pulse:SetDuration(0.8)
+	pulse:SetSmoothing("IN_OUT")
+	badge:SetScript("OnShow", function(self)
+		self.Turn:Play()
+		self.Pulse:Play()
+	end)
+	badge:SetScript("OnHide", function(self)
+		self.Turn:Stop()
+		self.Pulse:Stop()
+	end)
+	badge:Hide()
+	return badge
 end
 
 -- Copy symbol in the colour of the tab labels (gold), white while hovered;

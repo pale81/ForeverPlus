@@ -162,6 +162,109 @@ function Capture.Export()
 	ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, function() end, L.DATA_EXPORT_HINT)
 end
 
+---------------------------------------------------------------------------
+-- /fp diagnose: one text with everything needed to find a problem
+---------------------------------------------------------------------------
+-- Runs fn and returns what it printed with ns.PrintAlways (the status commands).
+local function CapturePrints(fn)
+	local original, lines = ns.PrintAlways, {}
+	ns.PrintAlways = function(msg, ...)
+		if select("#", ...) > 0 then
+			msg = msg:format(...)
+		end
+		lines[#lines + 1] = (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	end
+	local ok = pcall(fn)
+	ns.PrintAlways = original
+	return ok and table.concat(lines, "\n") or "(failed)"
+end
+
+local function OptionsChanged()
+	local lines = {}
+	for _, module in ipairs(ns.modules) do
+		local keys = {}
+		for key, value in pairs(module.db or {}) do
+			local default = (module.defaults or {})[key]
+			if type(value) ~= "table" and value ~= default then
+				keys[#keys + 1] = ("%s=%s"):format(key, tostring(value))
+			end
+		end
+		table.sort(keys)
+		if #keys > 0 then
+			lines[#lines + 1] = ("%s: %s"):format(module.name, table.concat(keys, ", "))
+		end
+	end
+	return #lines > 0 and table.concat(lines, "\n") or "(all defaults)"
+end
+
+local function ProfilerLine()
+	local profiler = C_AddOnProfiler
+	if not (profiler and profiler.IsEnabled and profiler.IsEnabled()) then
+		return "profiler off"
+	end
+	local metrics = Enum.AddOnProfilerMetric
+	local parts = {}
+	for _, name in ipairs({ "PeakTime", "SessionAverageTime", "CountTimeOver5Ms", "CountTimeOver10Ms", "CountTimeOver50Ms" }) do
+		parts[#parts + 1] = ("%s=%.2f"):format(name, profiler.GetAddOnMetric(ns.name, metrics[name]) or 0)
+	end
+	return table.concat(parts, ", ")
+end
+
+function Capture.DiagnoseText()
+	local out = {}
+	local function Section(title, body)
+		out[#out + 1] = ("== %s =="):format(title)
+		out[#out + 1] = body ~= "" and body or "-"
+		out[#out + 1] = ""
+	end
+	local version, build = GetBuildInfo()
+	local _, className = UnitClass("player")
+	Section("ForeverPlus", ("version %s, client %s (%s), locale %s, %s level %s, %s"):format(
+		tostring(ns.version), tostring(version), tostring(build), GetLocale(), tostring(className), tostring(UnitLevel("player")), date("%Y-%m-%d %H:%M")))
+	local errors = ns:GetModule("Errors")
+	local count, report = 0, ""
+	if errors and errors.Report then
+		count, report = errors.Report(5)
+	end
+	Section(("Errors (%d)"):format(count), report)
+	Section("Options that differ from the defaults", OptionsChanged())
+	Section("CPU of the addon (ms)", ProfilerLine())
+	local timings = {}
+	for _, item in ipairs(ns.TopTimings(12)) do
+		timings[#timings + 1] = ("%s: %.1f ms (%d / %d)"):format(item.name, item.entry.max, item.entry.slow, item.entry.count)
+	end
+	if ns.spikes and ns.spikes.count > 0 then
+		timings[#timings + 1] = ("frames over 4 ms: %d, worst %.1f ms (measured %.1f ms, %s)"):format(
+			ns.spikes.count, ns.spikes.worst, ns.spikes.measured, tostring(ns.spikes.name))
+	end
+	Section("Longest calls", table.concat(timings, "\n"))
+	local status = {}
+	for _, entry in ipairs({ { "Loot", "Loot" }, { "Talents", "Talents" }, { "RecipeRadar", "RecipeRadar" }, { "WorldMap", "WorldMap" } }) do
+		local module = ns:GetModule(entry[2])
+		if module and module.PrintStatus then
+			status[#status + 1] = ("%s: %s"):format(entry[1], CapturePrints(function()
+				module:PrintStatus()
+			end))
+		end
+	end
+	Section("Status", table.concat(status, "\n"))
+	local addons = {}
+	for i = 1, C_AddOns.GetNumAddOns() do
+		if C_AddOns.IsAddOnLoaded(i) then
+			local name = C_AddOns.GetAddOnInfo(i)
+			if name and not name:find("^Blizzard_") then
+				addons[#addons + 1] = name
+			end
+		end
+	end
+	Section("Other addons loaded", table.concat(addons, ", "))
+	return table.concat(out, "\n")
+end
+
+function Capture.Diagnose()
+	ns.ShowEditWindow("Diagnose", L.DIAG_TITLE, Capture.DiagnoseText(), CLOSE, function() end, L.DIAG_HINT)
+end
+
 -- /fp daten [an|aus|export|löschen], /fp datenbank
 function Capture.Command(msg)
 	if msg == "daten an" or msg == "data on" then

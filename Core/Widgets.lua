@@ -37,10 +37,21 @@ function ns.FadeIn(frame, duration)
 	return group
 end
 
+ns.PANEL_BORDER = { 0.78, 0.62, 0.32 }
+
 function ns.CreatePanel(name, options)
 	options = options or {}
 	local panel = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
 	panel:SetFrameStrata(options.strata or "DIALOG")
+	-- Bronze border and a dark blue ground like the game's own frames (the tracker pop-ups), not the grey default.
+	if panel.NineSlice then
+		if panel.NineSlice.SetBorderColor then
+			panel.NineSlice:SetBorderColor(ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3], 1)
+		end
+		if panel.NineSlice.SetCenterColor then
+			panel.NineSlice:SetCenterColor(0.04, 0.06, 0.12, 0.96)
+		end
+	end
 	panel:SetToplevel(true)
 	panel:SetClampedToScreen(true)
 	panel:EnableMouse(true)

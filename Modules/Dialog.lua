@@ -88,13 +88,13 @@ local function RevealStep(_, elapsed)
 	reveal.position = reveal.position + elapsed * speed
 	local length = reveal.lengths[reveal.index]
 	fontString:SetAlphaGradient(reveal.position, REVEAL_SOFT)
+	fontString:SetAlpha(1) -- only after the gradient is set: no frame with the whole text
 	if reveal.position >= length + REVEAL_SOFT then
 		fontString:SetAlphaGradient(100000, 1)
 		reveal.index = reveal.index + 1
 		reveal.position = 0
 		local nextOne = reveal.list[reveal.index]
 		if nextOne then
-			nextOne:SetAlpha(1)
 			nextOne:SetAlphaGradient(0, REVEAL_SOFT)
 		else
 			FinishReveal()
@@ -116,7 +116,7 @@ local function StartReveal(view, texts)
 	for index, fontString in ipairs(texts) do
 		reveal.list[index] = fontString
 		reveal.lengths[index] = strlenutf8 and strlenutf8(fontString:GetText() or "") or #(fontString:GetText() or "")
-		fontString:SetAlpha(index == 1 and 1 or 0)
+		fontString:SetAlpha(0)
 		fontString:SetAlphaGradient(0, REVEAL_SOFT)
 	end
 	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
@@ -224,25 +224,19 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
-	-- Merchant list, in the line of the name at the right edge: a small tool button (item, struck through while
-	-- unusable and known wares are hidden) with a soft plate behind it.
+	-- Merchant list: a small grey book at the lower right corner, struck through while unusable and known wares
+	-- are hidden (no frame, no plate).
 	local filter = CreateFrame("Button", nil, frame)
-	filter:SetSize(30, 22)
-	filter:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 3)
-	filter.Back = filter:CreateTexture(nil, "BACKGROUND")
-	filter.Back:SetAllPoints()
-	filter.Back:SetColorTexture(1, 1, 1, 0.08)
-	filter.Border = ns.CreatePixelBorder(filter, filter, 1, "BORDER", 2)
+	filter:SetSize(18, 18)
+	filter:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
 	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
-	filter.Icon:SetSize(16, 16)
-	filter.Icon:SetPoint("CENTER")
-	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Bag_08]])
+	filter.Icon:SetAllPoints()
+	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Book_09]])
 	filter.Icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
 	filter.Icon:SetDesaturated(true)
-	-- A thin strike through the item: there when unusable and known wares are hidden.
 	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
-	filter.Cross:SetColorTexture(0.9, 0.35, 0.35, 1)
-	filter.Cross:SetSize(2, 20)
+	filter.Cross:SetColorTexture(0.75, 0.75, 0.75, 1)
+	filter.Cross:SetSize(2, 22)
 	filter.Cross:SetPoint("CENTER")
 	filter.Cross:SetRotation(math.rad(45))
 	filter:SetScript("OnEnter", function(self)
@@ -266,6 +260,26 @@ local function CreateBubble()
 	filter:HookScript("OnLeave", GameTooltip_Hide)
 	filter:Hide()
 	frame.Filter = filter
+	-- A grey x at the top right closes merchant and trainer windows (they have no "close" button).
+	local close = CreateFrame("Button", nil, frame)
+	close:SetSize(14, 14)
+	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
+	close.Icon = close:CreateTexture(nil, "ARTWORK")
+	close.Icon:SetAllPoints()
+	close.Icon:SetAtlas("uitools-icon-close")
+	close.Icon:SetDesaturated(true)
+	close.Icon:SetAlpha(0.6)
+	close:SetScript("OnEnter", function(self)
+		self.Icon:SetAlpha(1)
+	end)
+	close:SetScript("OnLeave", function(self)
+		self.Icon:SetAlpha(0.6)
+	end)
+	close:SetScript("OnClick", function()
+		Dialog.CloseCurrent()
+	end)
+	close:Hide()
+	frame.Close = close
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.selectedRow = 1
 	return frame
@@ -386,12 +400,16 @@ local function CreateRow(frame)
 			Dialog.MerchantScroll(delta)
 		end
 	end)
-	-- The option Space takes (changed with Tab): lightly lit.
-	row.Selected = row:CreateTexture(nil, "BACKGROUND")
-	row.Selected:SetPoint("TOPLEFT", -4, 2)
-	row.Selected:SetPoint("BOTTOMRIGHT", 4, -2)
-	row.Selected:SetColorTexture(1, 0.82, 0.2, 0.2)
-	row.Selected:Hide()
+	-- The chosen text breathes: slowly a little smaller and larger, from its left edge.
+	local pulse = row.Text:CreateAnimationGroup()
+	pulse:SetLooping("BOUNCE")
+	local breathe = pulse:CreateAnimation("Scale")
+	breathe:SetScaleFrom(1, 1)
+	breathe:SetScaleTo(1.07, 1.07)
+	breathe:SetDuration(1.1)
+	breathe:SetSmoothing("IN_OUT")
+	breathe:SetOrigin("LEFT", 0, 0)
+	row.Pulse = pulse
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
 		if button.tooltip then
@@ -547,7 +565,7 @@ Render = function(view)
 					file, size, flags = baseFont:GetFont()
 				end
 				if file and size then
-					row.Text:SetFont(file, emphasised and size * 1.18 or size, emphasised and "OUTLINE" or flags or "")
+					row.Text:SetFont(file, emphasised and size * 1.1 or size, emphasised and "OUTLINE" or flags or "")
 				else
 					row.Text:SetFontObject(TextFont())
 				end
@@ -567,7 +585,10 @@ Render = function(view)
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
-				row.Selected:SetShown(row.number ~= nil and row.number == frame.selectedRow)
+				row.Pulse:Stop()
+				if emphasised then
+					row.Pulse:Play()
+				end
 
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
@@ -647,6 +668,7 @@ Render = function(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
+	frame.Close:SetShown(view.kind == "MERCHANT_SHOW" or view.kind == "TRAINER_SHOW")
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
 	frame.Abandon.questID = view.abandonQuestID
@@ -823,10 +845,9 @@ function Dialog.UpdateFilter()
 		return
 	end
 	local on = Dialog.db.merchantHide
-	filter.Back:SetColorTexture(1, 1, 1, filter.hover and 0.18 or 0.08)
-	filter.Icon:SetAlpha(filter.hover and 1 or 0.7)
-	filter.Border:ShowColor(on and 0.85 or 0.55, on and 0.7 or 0.55, on and 0.3 or 0.55)
+	filter.Icon:SetAlpha(filter.hover and 0.95 or 0.55)
 	filter.Cross:SetShown(on and true or false)
+	filter.Cross:SetAlpha(filter.hover and 1 or 0.7)
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -836,16 +857,22 @@ function Dialog.Rerender()
 	end
 end
 
+-- The grey x at the top right: closes the merchant or trainer window and with it the bubble.
+function Dialog.CloseCurrent()
+	local kind = current and current.view.kind
+	if kind == "MERCHANT_SHOW" and CloseMerchant then
+		CloseMerchant()
+	elseif kind == "TRAINER_SHOW" and CloseTrainer then
+		CloseTrainer()
+	end
+end
+
 -- Lights the option Space takes.
 function Dialog.ShowSelection()
 	if not bubble then
 		return
 	end
-	for _, row in pairs(bubble.pools.row) do
-		local isCursor = row:IsShown() and row.number ~= nil and row.number == bubble.selectedRow
-		row.Selected:SetShown(isCursor)
-
-	end
+	Dialog.Rerender()
 end
 
 local function Show(view, fromBack)
@@ -1208,11 +1235,6 @@ function Dialog.TrainerView()
 					end
 				end
 			end },
-			{ text = L.DIALOG_CLOSE, action = function()
-				if CloseTrainer then
-					CloseTrainer()
-				end
-			end },
 		},
 	}
 end
@@ -1334,12 +1356,8 @@ function Dialog.MerchantView()
 					merchantMode = "wares"
 					RefreshMerchant()
 				end },
-				{ text = L.DIALOG_CLOSE, action = function()
-					if CloseMerchant then
-						CloseMerchant()
-					end
-				end },
 			},
+			filter = false,
 		}
 	end
 	local buyback = merchantMode == "buyback"
@@ -1486,15 +1504,6 @@ function Dialog.MerchantView()
 			end
 		end
 	end
-	-- Everything else: the game's own window.
-	buttons[#buttons + 1] = { text = L.DIALOG_ORIGINAL_WINDOW, action = function()
-		UseBlizzard()
-	end }
-	buttons[#buttons + 1] = { text = L.DIALOG_CLOSE, action = function()
-		if CloseMerchant then
-			CloseMerchant()
-		end
-	end }
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
 	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback }
 end

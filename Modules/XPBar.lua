@@ -180,6 +180,20 @@ local function ShimmerOn(bar)
 	end
 end
 
+-- A short glint when the game is entered or reloaded (3 seconds), as a hint that there is rested bonus.
+local function ShimmerPulse(bar, seconds)
+	local tick = bar.ExhaustionTick
+	if not (XPBar.db.restedShimmer and tick and tick:IsShown()) then
+		return
+	end
+	GetShimmer(tick):Show()
+	C_Timer.After(seconds, function()
+		if shimmers[tick] and not bar:IsMouseOver() then
+			shimmers[tick]:Hide()
+		end
+	end)
+end
+
 local function ShimmerOff(bar)
 	local tick = bar.ExhaustionTick
 	if tick and shimmers[tick] then
@@ -225,6 +239,16 @@ end
 
 function XPBar:OnLogin()
 	self:ApplyTextSetting()
+	-- After the bars had their first update: a glint on the rested pin.
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, _, isInitialLogin, isReloadingUi)
+		if isInitialLogin or isReloadingUi then
+			C_Timer.After(2, function()
+				for bar in pairs(expBars) do
+					ShimmerPulse(bar, 3)
+				end
+			end)
+		end
+	end)
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookBars)
 	self:RegisterEvent("QUEST_LOG_UPDATE", QueueScan)
 	self:RegisterEvent("PLAYER_XP_UPDATE", UpdateBars)

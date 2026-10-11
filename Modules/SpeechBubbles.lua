@@ -136,7 +136,7 @@ local function Show(text)
 end
 
 local function OnGossip()
-	if SpeechBubbles.db.gossip then
+	if SpeechBubbles.db.gossip and not ns.dialogBubbles then
 		local text = GossipText()
 		if text then
 			Show(text)
@@ -145,7 +145,7 @@ local function OnGossip()
 end
 
 local function OnQuestText(_, event)
-	if SpeechBubbles.db.quests then
+	if SpeechBubbles.db.quests and not ns.dialogBubbles then
 		local text = QuestText(event)
 		if text then
 			Show(text)

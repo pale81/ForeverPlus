@@ -65,6 +65,7 @@ Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\SpeechBubbles.lua
+Modules\Dialog.lua
 Modules\Talents.lua
 Modules\Visuals.lua
 Modules\XPBar.lua

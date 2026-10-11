@@ -1298,6 +1298,49 @@ end
 	print("loot popup OK")
 end)()
 ;(function()
+	-- dialog bubble: views and rendering
+	local dialog = ns:GetModule("Dialog")
+	dialog.db.enabled = true
+	issecretvalue = function() return false end
+	UnitName = function() return "Torwächter" end
+	UnitExists = function() return false end
+	InCombatLockdown = function() return false end
+	C_GossipInfo = {
+		GetText = function() return "Seid gegrüßt, Reisender." end,
+		GetOptions = function() return { { gossipOptionID = 5, name = "Ich möchte reisen.", icon = 1 } } end,
+		GetActiveQuests = function() return { { title = "Fertig", questID = 1, isComplete = true } } end,
+		GetAvailableQuests = function() return { { title = "Neu", questID = 2 } } end,
+	}
+	local view = dialog.GossipView()
+	assert(view.name == "Torwächter" and #view.blocks == 2 and #view.blocks[2].rows == 3, "gossip view rows " .. tostring(view.name) .. " " .. #view.blocks)
+	GetTitleText = function() return "Die Jagd" end
+	GetQuestText = function() return "Erlegt zehn Eber." end
+	GetObjectiveText = function() return "Tötet 10 Eber." end
+	GetProgressText = function() return "Habt Ihr sie?" end
+	GetRewardText = function() return "Gut gemacht." end
+	GetNumQuestChoices = function() return 2 end
+	GetNumQuestRewards = function() return 1 end
+	GetNumQuestItems = function() return 1 end
+	GetQuestItemInfo = function() return "Ding", 134400, 2, 2 end
+	GetRewardMoney = function() return 250 end
+	GetRewardXP = function() return 100 end
+	GetQuestMoneyToGet = function() return 0 end
+	IsQuestCompletable = function() return true end
+	QuestFlagsPVP = function() return false end
+	QuestGetAutoAccept = function() return false end
+	C_Item.GetItemQualityColor = function() return 0, 1, 0 end
+	for event in pairs({ GOSSIP_SHOW = 1, QUEST_DETAIL = 1, QUEST_PROGRESS = 1, QUEST_COMPLETE = 1 }) do
+		local ok, err = pcall(dialog.OnConversation, dialog, event)
+		assert(ok, event .. ": " .. tostring(err))
+	end
+	local reward = dialog.RewardView()
+	assert(#reward.buttons == 2 and reward.blocks[3].choose, "reward choice")
+	dialog.db.style = "DARK"
+	assert(pcall(dialog.OnConversation, dialog, "QUEST_DETAIL"), "dark style")
+	dialog.db.enabled = false
+	print("dialog OK")
+end)()
+;(function()
 	local tp = ns:GetModule("Teleports")
 	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
 	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end

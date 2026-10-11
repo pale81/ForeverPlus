@@ -15,6 +15,7 @@ local Trivial = ns:NewModule("Trivial", {
 		afk = false,
 		trade = false,
 		explore = false,
+		quest = true,
 	},
 })
 
@@ -31,6 +32,7 @@ local FORMATS = {
 	afk = { "MARKED_AFK", "MARKED_AFK_MESSAGE", "MARKED_DND", "CLEARED_AFK", "CLEARED_DND" },
 	trade = { "ERR_TRADE_COMPLETE", "ERR_TRADE_CANCELLED" },
 	explore = { "ERR_ZONE_EXPLORED", "ERR_ZONE_EXPLORED_XP" },
+	quest = { "ERR_QUEST_ACCEPTED_S" },
 }
 
 -- Plain texts (lower case) for lines the game has no named format for.
@@ -102,7 +104,7 @@ local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or
 
 function Trivial:Apply()
 	-- Filtered only while at least one kind is on.
-	local any = self.db.enabled and (self.db.rested or self.db.drunk or self.db.afk or self.db.trade or self.db.explore)
+	local any = self.db.enabled and (self.db.rested or self.db.drunk or self.db.afk or self.db.trade or self.db.explore or self.db.quest)
 	for _, event in ipairs(EVENTS) do
 		RemoveFilter(event, Filter)
 		if any then
@@ -132,4 +134,5 @@ Trivial.options = {
 	{ key = "afk", type = "toggle", name = L.TRIVIAL_AFK, desc = L.TRIVIAL_AFK_DESC, parent = "enabled", new = true },
 	{ key = "trade", type = "toggle", name = L.TRIVIAL_TRADE, desc = L.TRIVIAL_TRADE_DESC, parent = "enabled", new = true },
 	{ key = "explore", type = "toggle", name = L.TRIVIAL_EXPLORE, desc = L.TRIVIAL_EXPLORE_DESC, parent = "enabled", new = true },
+	{ key = "quest", type = "toggle", name = L.TRIVIAL_QUEST, desc = L.TRIVIAL_QUEST_DESC, parent = "enabled", new = true },
 }

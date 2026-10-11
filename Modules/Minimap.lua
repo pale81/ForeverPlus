@@ -328,25 +328,47 @@ local function AddIconInitializers(description)
 	end
 end
 
--- /fp verfolgung: what the game says about every tracking type (name, kind, active, spell), to see why two
--- tracking spells of a class show a check mark at once. Run it with one and with the other tracking on.
-function MinimapCoords.PrintTracking()
-	local count = C_Minimap.GetNumTrackingTypes and C_Minimap.GetNumTrackingTypes() or 0
-	ns.PrintAlways("Tracking: %d", count)
-	for index = 1, count do
-		local info = C_Minimap.GetTrackingInfo(index)
-		if type(info) == "table" then
-			local parts = {}
-			for _, key in ipairs({ "name", "type", "subType", "active", "spellID", "texture", "isSpell", "isActive" }) do
-				local value = info[key]
-				if value ~= nil then
-					parts[#parts + 1] = key .. "=" .. tostring(value)
-				end
+-- Hunter tracking (Find Beasts, Find Humanoids, …): the game keeps only one of them active. Blizzard's menu
+-- remembers its own state and does not read the game again while it is open, so a second check mark stayed
+-- and the next click switched the wrong way. These entries read the live state instead and remember what
+-- was clicked until the menu is built again.
+local forced = {} -- tracking index -> shown as checked (true) or unchecked (false)
+
+local function IsHunterTracking(info)
+	local _, class = UnitClass("player")
+	return class == "HUNTER" and type(info) == "table" and info.subType == (HUNTER_TRACKING or 1)
+end
+
+local function HunterSelected(info)
+	local value = forced[info.index]
+	if value ~= nil then
+		return value
+	end
+	local live = C_Minimap.GetTrackingInfo(info.index)
+	return type(live) == "table" and live.active == true
+end
+
+local function HunterClicked(info)
+	local selected = not HunterSelected(info)
+	forced[info.index] = selected
+	if selected then
+		for index = 1, C_Minimap.GetNumTrackingTypes() do
+			if index ~= info.index and IsHunterTracking(C_Minimap.GetTrackingInfo(index)) then
+				forced[index] = false
 			end
-			ns.PrintAlways("%d: %s", index, table.concat(parts, ", "))
-		else
-			ns.PrintAlways("%d: %s", index, tostring(info))
 		end
+	end
+	MinimapUtil.SetTrackingFilterByFilterIndex(info.index, selected)
+end
+
+local function FixHunterTracking(description)
+	for _, element in description:EnumerateElementDescriptions() do
+		local info = element:GetData()
+		if type(info) == "table" and info.index and IsHunterTracking(info) then
+			element:SetIsSelected(HunterSelected)
+			element:SetResponder(HunterClicked)
+		end
+		FixHunterTracking(element)
 	end
 end
 
@@ -423,8 +445,15 @@ function MinimapCoords:OnLogin()
 	campfireHolder:SetAllPoints()
 	campfireHolder:SetFrameLevel(Minimap:GetFrameLevel() + 6)
 	self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
+	if C_Minimap.ClearAllTracking then
+		hooksecurefunc(C_Minimap, "ClearAllTracking", function()
+			wipe(forced)
+		end)
+	end
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
+			wipe(forced)
+			pcall(FixHunterTracking, rootDescription)
 			AddIconInitializers(rootDescription)
 			AddForeverPlusEntries(rootDescription)
 		end)

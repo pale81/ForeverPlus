@@ -286,7 +286,7 @@ local function UpdateOpenButton()
 end
 
 local function CreateOpenButton()
-	local button = CreateFrame("Button", "ForeverPlusOpenButton", UIParent, "SecureActionButtonTemplate, ActionButtonTemplate")
+	local button = CreateFrame("Button", "ForeverPlusOpenButton", UIParent, "ActionButtonTemplate, SecureActionButtonTemplate")
 	button:SetSize(36, 36)
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:SetAttribute("type", "item")

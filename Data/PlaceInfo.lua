@@ -5,8 +5,8 @@ local _, ns = ...
 
 ns.PlaceInfo = {
 	[77] = {
-		de = "Das Startdorf junger Zwerge in Dun Morogh. Von hier führt der Weg durch die verschneiten Berge nach Kharanos und weiter nach Ironforge.",
-		en = "The starting village of young dwarves in Dun Morogh. From here the road leads through the snowy mountains to Kharanos and on to Ironforge.",
+		de = "Das Dorf junger Zwerge in den verschneiten Bergen von Dun Morogh. Von hier führt der Weg nach Kharanos und weiter nach Ironforge.",
+		en = "The village of young dwarves in the snowy mountains of Dun Morogh. From here the road leads to Kharanos and on to Ironforge.",
 	},
 	[131] = {
 		de = "Zwergensiedlung am Eingang von Dun Morogh, an der Straße nach Ironforge. Berühmt für die Thunderbrew Distillery; in der Nähe leben Frostmane-Trolle.",
@@ -21,8 +21,8 @@ ns.PlaceInfo = {
 		en = "Capital of the Kingdom of Stormwind and the main seat of the Alliance. The city by the sea has a large harbour, a prison (the Stockade) and districts for traders, mages and dwarves.",
 	},
 	[24] = {
-		de = "Die Abtei im Elwynn Forest, Startpunkt der Menschen. Erzbischof Benedictus lehrt hier die Kraft des Lichts.",
-		en = "The abbey in Elwynn Forest, starting point of the humans. Archbishop Benedictus teaches the power of the Light here.",
+		de = "Die Abtei im Elwynn Forest, Heimat vieler junger Menschen. Erzbischof Benedictus lehrt hier die Kraft des Lichts.",
+		en = "The abbey in Elwynn Forest, home of many young humans. Archbishop Benedictus teaches the power of the Light here.",
 	},
 	[87] = {
 		de = "Das Hauptdorf im Elwynn Forest an der Straße nach Stormwind, mit einem Gasthaus, in dem Abenteurer rasten. Marschall Dughan hält mit seinen Wachen die Gegend sicher.",
@@ -57,8 +57,8 @@ ns.PlaceInfo = {
 		en = "Alliance town in the Hillsbrad Foothills. It lies only a short way from Tarren Mill, and the two towns have always fought skirmishes.",
 	},
 	[272] = {
-		de = "Siedlung in den Hillsbrad Foothills, heute in der Hand der Horde und der Verlassenen. Das nahe Southshore ist ihr Gegenstück der Allianz; in Classic sind die Schlachten zwischen beiden berühmt.",
-		en = "Settlement in the Hillsbrad Foothills, now held by the Horde and the Forsaken. Nearby Southshore is its Alliance counterpart; in Classic the battles between the two are famous.",
+		de = "Siedlung in den Hillsbrad Foothills, heute in der Hand der Horde und der Verlassenen. Das nahe Southshore ist ihr Gegenstück der Allianz; die Gefechte zwischen beiden sind berüchtigt.",
+		en = "Settlement in the Hillsbrad Foothills, now held by the Horde and the Forsaken. Nearby Southshore is its Alliance counterpart; the skirmishes between the two are notorious.",
 	},
 	[320] = {
 		de = "Allianz-Dorf in den Arathi Highlands, einst Heimat des ersten Menschenreiches Arathor. Gegenüber liegt der Horde-Posten Hammerfall.",
@@ -81,8 +81,8 @@ ns.PlaceInfo = {
 		en = "Capital of the Forsaken, beneath the ruins of the capital of Lordaeron. The Dark Lady, Sylvanas Windrunner, rules here; the Forsaken have broken free from the Lich King.",
 	},
 	[154] = {
-		de = "Das Startdorf der Verlassenen in den Tirisfal Glades, mit einer zerstörten Kirche und einem Friedhof. Hier beginnt der Weg der Untoten nach dem Erwachen.",
-		en = "The starting village of the Forsaken in Tirisfal Glades, with a ruined church and a graveyard. This is where the undead begin their path after awakening.",
+		de = "Das Dorf der Verlassenen in den Tirisfal Glades, mit einer zerstörten Kirche und einem Friedhof. Hier erwachen die Untoten und finden ihren Weg.",
+		en = "The village of the Forsaken in Tirisfal Glades, with a ruined church and a graveyard. Here the undead awaken and find their way.",
 	},
 	[159] = {
 		de = "Dorf in den Tirisfal Glades, einst eine Siedlung der Menschen von Lordaeron und heute in der Hand der Verlassenen. Es liegt an der Straße zur Undercity.",

@@ -29,6 +29,7 @@ Modules\Tooltip.lua
 Modules\QuestieInfo.lua
 Modules\Minimap.lua
 Modules\Teleports.lua
+Modules\InstanceStats.lua
 Data\MapOverlays.lua
 Data\Instances.lua
 Data\Places.lua
@@ -51,7 +52,6 @@ Modules\Helpers.lua
 Modules\QoL.lua
 Modules\Info.lua
 Modules\Quests.lua
-Modules\Parchment.lua
 Modules\QuestPreview.lua
 Modules\DataCapture.lua
 Modules\Transports.lua

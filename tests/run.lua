@@ -1665,47 +1665,6 @@ end)()
 	print("world map OK")
 end)()
 ;(function()
-	-- Quest window as parchment page: buttons become text links in the page corners and come back.
-	local q = ns:GetModule("Quests")
-	local function Button(name)
-		local b = { alpha = {}, points = { { "BOTTOMLEFT", "QuestFrame", "BOTTOMLEFT", 6, 4 } }, width = 78, fonts = { "GameFontNormal", "GameFontHighlight", "GameFontDisable" } }
-		for _, key in ipairs({ "Left", "Middle", "Right" }) do
-			b[key] = { SetAlpha = function(_, a) b.alpha[key] = a end }
-		end
-		b.hl = { SetAlpha = function(_, a) b.alpha.hl = a end }
-		function b:GetHighlightTexture() return self.hl end
-		function b:GetNormalFontObject() return self.fonts[1] end
-		function b:GetHighlightFontObject() return self.fonts[2] end
-		function b:GetDisabledFontObject() return self.fonts[3] end
-		function b:SetNormalFontObject(f) self.fonts[1] = f end
-		function b:SetHighlightFontObject(f) self.fonts[2] = f end
-		function b:SetDisabledFontObject(f) self.fonts[3] = f end
-		function b:GetWidth() return self.width end
-		function b:SetWidth(w) self.width = w end
-		function b:GetTextWidth() return 50 end
-		function b:GetNumPoints() return #self.points end
-		function b:GetPoint(i) return unpack(self.points[i]) end
-		function b:ClearAllPoints() self.points = {} end
-		function b:SetPoint(...) self.points[#self.points + 1] = { ... } end
-		_G[name] = b
-		return b
-	end
-	local accept, decline = Button("QuestFrameAcceptButton"), Button("QuestFrameDeclineButton")
-	for _, n in ipairs({ "QuestFrameCompleteButton", "QuestFrameCompleteQuestButton", "QuestFrameGoodbyeButton", "QuestFrameGreetingGoodbyeButton" }) do Button(n) end
-	QuestFrame, GossipFrame = CreateFrame("Frame"), CreateFrame("Frame")
-	GossipFrame.GreetingPanel.GoodbyeButton = Button("GossipGoodbye")
-	q.db.questParchment = true
-	q:OnOptionChanged("questParchment", true)
-	assert(accept.points[1][1] == "BOTTOMLEFT" and accept.points[1][4] == 8 and decline.points[1][1] == "BOTTOMRIGHT", "links in the page corners")
-	assert(accept.width == 62 and accept.alpha.Left == 0 and accept.alpha.hl == 0 and accept.fonts[1] ~= "GameFontNormal", "text link look")
-	assert(GossipFrame.GreetingPanel.GoodbyeButton.points[1][1] == "BOTTOMRIGHT", "gossip goodbye as link")
-	q.db.questParchment = false
-	q:OnOptionChanged("questParchment", false)
-	assert(accept.points[1][2] == "QuestFrame" and accept.points[1][5] == 4 and accept.width == 78, "anchors back")
-	assert(accept.alpha.Left == 1 and accept.fonts[1] == "GameFontNormal" and accept.fonts[3] == "GameFontDisable", "look back")
-	print("quest parchment OK")
-end)()
-;(function()
 	-- Talent planner in Blizzard's window: right-click plans, Shift + right-click removes, classic rules.
 	local talents = ns:GetModule("Talents")
 	talents.db.enabled, talents.db.planner = true, true
@@ -1976,67 +1935,6 @@ end)()
 	assert(printed and printed[2] == 7 and printed[3] == 2 and printed[4] == 16, "report: points, talents, level")
 	ns.ShowEditWindow, ns.Print = oldShow, oldPrint
 	print("talent loadout string OK")
-end)()
-;(function()
-	-- Space in the quest window: accept, continue or complete without Blizzard's dialogs.
-	local q = ns:GetModule("Quests")
-	q.db.questParchment = true
-	q:UpdateQuestParchment()
-	local keys = uv(ns.Parchment.Update, "questKeys")
-	assert(keys and keys.scripts.OnKeyDown, "key frame")
-	local propagate
-	keys.SetPropagateKeyboardInput = function(_, value) propagate = value end
-	local calls = {}
-	local function panel(visible) return { IsVisible = function() return visible end } end
-	local function button(enabled) return { IsEnabled = function() return enabled end } end
-	local saved = { QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton }
-	QuestFrameDetailPanel, QuestFrameProgressPanel, QuestFrameRewardPanel = panel(true), panel(false), panel(false)
-	QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton = button(true), button(true), button(true)
-	AcceptQuest = function() calls[#calls + 1] = "accept" end
-	CompleteQuest = function() calls[#calls + 1] = "complete" end
-	GetQuestReward = function(choice) calls[#calls + 1] = "reward" .. choice end
-	PlaySound = function() end
-	SOUNDKIT = { IG_QUEST_LIST_OPEN = 1 }
-	QuestFlagsPVP = function() return false end
-	rawset(QuestFrame, "autoQuest", false)
-	keys.scripts.OnKeyDown(keys, "SPACE")
-	assert(calls[1] == "accept" and propagate == false, "space accepts")
-	keys.scripts.OnKeyDown(keys, "W")
-	assert(propagate == true and #calls == 1, "other keys pass")
-	QuestFlagsPVP = function() return true end
-	keys.scripts.OnKeyDown(keys, "SPACE")
-	assert(#calls == 1 and propagate == true, "PvP quest stays with Blizzard's button")
-	QuestFrameDetailPanel, QuestFrameRewardPanel = panel(false), panel(true)
-	GetNumQuestChoices = function() return 2 end
-	GetQuestMoneyToGet = function() return 0 end
-	QuestInfoFrame = { itemChoice = 0 }
-	keys.scripts.OnKeyDown(keys, "SPACE")
-	assert(#calls == 1 and propagate == true, "reward not chosen yet")
-	QuestInfoFrame.itemChoice = 2
-	keys.scripts.OnKeyDown(keys, "SPACE")
-	assert(calls[2] == "reward2" and propagate == false, "chosen reward taken")
-	QuestFrameAcceptButton, QuestFrameCompleteButton, QuestFrameCompleteQuestButton = unpack(saved)
-	q.db.questParchment = false
-	q:UpdateQuestParchment()
-	print("quest space key OK")
-end)()
-;(function()
-	-- Books as parchment page: own page links instead of Blizzard's buttons.
-	ItemTextFrame = CreateFrame("Frame")
-	ItemTextFrame.HandlePagingDisplay = function() end
-	local page, more = 2, false
-	ItemTextGetPage = function() return page end
-	ItemTextHasNextPage = function() return more end
-	local placed
-	ItemTextScrollFrame = CreateFrame("Frame")
-	ItemTextScrollFrame.SetPoint = function(_, point, _, _, x, y) placed = { point, x, y } end
-	ns.Parchment.Update(true)
-	local book = uv(ns.Parchment.Update, "pages")[ItemTextFrame]
-	assert(book and book.Prev.shown and not book.Next.shown, "page 2 of 2: back only")
-	assert(placed[1] == "BOTTOMLEFT" and placed[3] == 36, "book text leaves room for the links")
-	ns.Parchment.Update(false)
-	assert(placed[3] == 6 and not book.shown, "book back to Blizzard's look")
-	print("book page OK")
 end)()
 ;(function()
 	-- Restock: tops up a marked item to a full stack from the bank.

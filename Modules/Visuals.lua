@@ -190,11 +190,12 @@ end
 local framedQuestItems = {}
 
 local function FrameQuestItem(button)
-	if framedQuestItems[button] or not button.icon then
+	if not button.icon then
 		return
 	end
-	framedQuestItems[button] = true
-	-- Blizzard's round quest item frame is replaced by the action button art.
+	-- Blizzard's own art (the round quest item ring, the action button
+	-- template frame) is replaced by the action button art. The client can
+	-- show it again when the button updates, so it is hidden on every call.
 	if button.NormalTexture then
 		button.NormalTexture:SetAlpha(0)
 	end
@@ -202,7 +203,18 @@ local function FrameQuestItem(button)
 	if pushed then
 		pushed:SetAlpha(0)
 	end
-	ns.ApplyActionFrame(button, button.icon, ICON_FRAME_STYLE)
+	-- A standalone action button (no bar) does not show the empty slot art.
+	if button.SlotArt then
+		button.SlotArt:Hide()
+	end
+	if not framedQuestItems[button] then
+		framedQuestItems[button] = true
+		ns.ApplyActionFrame(button, button.icon, ICON_FRAME_STYLE)
+	end
+	-- The icon of a fresh action button has no size yet (the client anchors
+	-- it during the first layout pass); only the repeated sizing, like the
+	-- buffs get, lets the frame appear in every case.
+	ns.SizeActionFrame(button, ICON_FRAME_STYLE)
 end
 
 -- ForeverPlus' own action-style buttons (quest item, openables) get the same frame.

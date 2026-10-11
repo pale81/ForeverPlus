@@ -260,6 +260,8 @@ local function UpdateOpenButton()
 		return
 	end
 	local button = openButton
+	-- Same as the quest item button: refresh the frame and hide template art.
+	ns.FrameActionButton(button)
 	local bag, slot, info
 	if Helpers.db.openButton then
 		bag, slot, info = FindLootable()

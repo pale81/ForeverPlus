@@ -328,6 +328,14 @@ local function EntranceTooltip(tooltip, symbol)
 		if info then
 			tooltip:AddLine(GetLocale() == "deDE" and info.de or info.en, 0.8, 0.8, 0.8, true)
 		end
+		-- How often this character went through and died in it (counted by ForeverPlus).
+		local stats = entry[3] and ns:GetModule("InstanceStats")
+		if stats then
+			local runs, deaths = stats.Get(entry[3])
+			if runs then
+				tooltip:AddLine(L.INSTSTATS_LINE:format(runs, deaths), 0.6, 0.8, 1)
+			end
+		end
 	end
 	tooltip:AddLine(L.WORLDMAP_ENTRANCE, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
 end
@@ -551,7 +559,9 @@ local function Setup(frame, symbol)
 		frame.Label:SetFontObject(symbol.font)
 		frame.Label:SetText(symbol.label)
 		frame.Label:Show()
-		local scale = (Options().symbolScale or 100) / 100
+		-- Names have their own size and lie behind all symbols (they would cover everything else).
+		local scale = (Options().labelScale or 100) / 100
+		frame:SetFrameLevel(layer:GetFrameLevel())
 		frame.Label:SetScale(scale)
 		frame:SetSize(frame.Label:GetStringWidth() * scale, frame.Label:GetStringHeight() * scale)
 		-- A name with a text shows it on hover; clicks still reach the map.
@@ -572,6 +582,7 @@ local function Setup(frame, symbol)
 		frame.Icon:RemoveMaskTexture(frame.Mask)
 	end
 	local size = symbol.size * (Options().symbolScale or 100) / 100
+	frame:SetFrameLevel(layer:GetFrameLevel() + 2)
 	frame:SetSize(size, size)
 	-- Hover shows the tooltip; clicks go on to the map unless the symbol
 	-- has its own.

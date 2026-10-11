@@ -20,7 +20,6 @@ local Quests = ns:NewModule("Quests", {
 		readyOnly = false,
 		readyButton = true,
 		trackerPreview = true,
-		questParchment = false,
 		foreverMark = true,
 		foreverMarkStyle = "ICON",
 		foreverWatermark = true,
@@ -281,6 +280,9 @@ end
 -- secure code. Item and visibility can only change out of combat.
 local function UpdateItemButton()
 	local button = itemButton
+	-- The frame needs a refresh on every update: the icon gets its size late,
+	-- and the client can show the template's own frame art again.
+	ns.FrameActionButton(button)
 	local inCombat = InCombatLockdown()
 	local index = button.questLogIndex
 	if not inCombat then
@@ -1121,13 +1123,7 @@ local function HookPreview()
 	end
 end
 
--- Quest, gossip and book windows as a parchment page (Modules/Parchment.lua).
-function Quests:UpdateQuestParchment()
-	ns.Parchment.Update(self.db.questParchment)
-end
-
 function Quests:OnLogin()
-	self:UpdateQuestParchment()
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
 	end
@@ -1197,8 +1193,6 @@ function Quests:OnOptionChanged(key, value)
 		end
 	elseif (key == "completeSound" or key == "progressSound") and value ~= "none" and not self.db.sounds then
 		Settings.SetValue("ForeverPlus_Quests_sounds", true)
-	elseif key == "questParchment" then
-		self:UpdateQuestParchment()
 	elseif key == "trackerPreview" and not value then
 		ns.QuestPreview.Hide()
 	elseif key == "nameplateIcons" then
@@ -1259,7 +1253,6 @@ Quests.options = {
 	} },
 	{ key = "foreverWatermark", type = "toggle", name = L.QUESTS_FOREVER_WATERMARK, desc = L.QUESTS_FOREVER_WATERMARK_DESC, new = true },
 	{ type = "header", name = L.QUESTS_WINDOW },
-	{ key = "questParchment", type = "toggle", name = L.QUESTS_PARCHMENT, desc = L.QUESTS_PARCHMENT_DESC },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },
 	{ type = "header", name = L.QUESTS_NAMEPLATES },

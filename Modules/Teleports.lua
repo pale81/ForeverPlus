@@ -11,9 +11,10 @@ local Teleports = ns:NewModule("Teleports", {
 		menu = true,
 		portals = true,
 		-- Position of the triangle in the frame of the minimap (see /fp nord).
-		northWidth = 64,
-		northHeight = 40,
+		northWidth = 110,
+		northHeight = 62,
 		northOffset = 0,
+		northSized = false,
 	},
 })
 
@@ -313,6 +314,11 @@ function Teleports.Command(msg)
 end
 
 function Teleports:OnLogin()
+	-- Once: the area is the new, larger size (it only covered the tip of the triangle).
+	if not self.db.northSized then
+		self.db.northSized = true
+		self.db.northWidth, self.db.northHeight, self.db.northOffset = 110, 62, 0
+	end
 	self:CreateTrigger()
 end
 
@@ -323,4 +329,6 @@ end
 Teleports.options = {
 	{ key = "menu", type = "toggle", name = L.TELEPORTS_MENU, desc = L.TELEPORTS_MENU_DESC, new = true },
 	{ key = "portals", type = "toggle", name = L.TELEPORTS_PORTALS, desc = L.TELEPORTS_PORTALS_DESC, parent = "menu", new = true },
+	{ key = "northWidth", type = "slider", name = L.TELEPORTS_WIDTH, desc = L.TELEPORTS_AREA_DESC, parent = "menu", min = 40, max = 220, step = 2, new = true },
+	{ key = "northHeight", type = "slider", name = L.TELEPORTS_HEIGHT, desc = L.TELEPORTS_AREA_DESC, parent = "menu", min = 20, max = 140, step = 2, new = true },
 }

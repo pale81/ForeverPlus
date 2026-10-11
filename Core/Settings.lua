@@ -76,16 +76,37 @@ local function TrackNew(initializer, id, hover, enabled)
 	if not enabled then
 		return initializer
 	end
+	-- The marks sit on the initializer (the row asks it, so a row reused for other settings counts nothing wrong).
+	initializer.fpNewID, initializer.fpNewHover = id, hover and true or false
 	local initFrame = initializer.InitFrame
-	local function Seen(row)
-		if row.fpNewID and IsNew(row.fpNewID, true) then
-			CountAsSeen(row.fpNewID)
-			if not IsNew(row.fpNewID, true) then
-				ShowRowBadge(row, false)
-				if RefreshBadges then
-					RefreshBadges()
-				end
+	local function Seen(row, byMouse)
+		local data = row.GetElementData and row:GetElementData()
+		local rowID = type(data) == "table" and data.fpNewID
+		if not rowID or data.fpNewHover ~= byMouse or not IsNew(rowID, true) then
+			return
+		end
+		-- Row and control report the same pass of the mouse: once a second at most.
+		if byMouse then
+			if GetTime() - (row.fpNewLast or 0) < 1 then
+				return
 			end
+			row.fpNewLast = GetTime()
+		end
+		CountAsSeen(rowID)
+		if not IsNew(rowID, true) then
+			ShowRowBadge(row, false)
+			if RefreshBadges then
+				RefreshBadges()
+			end
+		end
+	end
+	-- Mouse over the row or one of the controls on it (the control may cover the row).
+	local function HookHover(row, region)
+		if not region.fpNewHooked and region.HookScript then
+			region.fpNewHooked = true
+			region:HookScript("OnEnter", function()
+				Seen(row, true)
+			end)
 		end
 	end
 	function initializer:InitFrame(frame)
@@ -94,21 +115,15 @@ local function TrackNew(initializer, id, hover, enabled)
 		if not frame.foreverPlusNewTracked then
 			frame.foreverPlusNewTracked = true
 			frame:HookScript("OnShow", function(row)
-				if not row.fpNewHover then
-					Seen(row)
-				end
-			end)
-			frame:HookScript("OnEnter", function(row)
-				if row.fpNewHover then
-					Seen(row)
-				end
-			end)
-			-- The row is reused for other settings.
-			frame:HookScript("OnHide", function(row)
-				row.fpNewID, row.fpNewHover = nil, nil
+				Seen(row, false)
 			end)
 		end
-		frame.fpNewID, frame.fpNewHover = id, hover and true or false
+		if hover then
+			HookHover(frame, frame)
+			for _, child in ipairs({ frame:GetChildren() }) do
+				HookHover(frame, child)
+			end
+		end
 	end
 	return initializer
 end
@@ -257,9 +272,9 @@ local MOUSEOVER_BAR_KEYS = Keys("mouseover", "mouseoverCombat", "mouseoverMicro"
 local MOUSEOVER_FRAME_KEYS = Keys("mouseoverXP", "mouseoverRep", "mouseoverPlayer", "mouseoverTarget", "mouseoverMinimap")
 
 local PAGES = {
-	{ title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE }, { "Trivial", header = L.TRIVIAL_TITLE }, { "ChatIndent", header = L.CHATINDENT_TITLE }, { "ChatMinimize", header = L.CHATMIN_TITLE } },
-	{ title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "Observations", header = L.OBS_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
-	{ title = L.ITEMS_TITLE,
+	{ group = 1, title = L.CHAT_TITLE, { "Chat", exclude = Keys("tabFade") }, { "Loot", header = L.LOOT_TITLE }, { "Trivial", header = L.TRIVIAL_TITLE }, { "ChatIndent", header = L.CHATINDENT_TITLE }, { "ChatMinimize", header = L.CHATMIN_TITLE } },
+	{ group = 1, title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "Observations", header = L.OBS_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
+	{ group = 3, title = L.ITEMS_TITLE,
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",
 			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "junkList") },
 		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "bagMenu") },
@@ -272,52 +287,62 @@ local PAGES = {
 		{ "Services", header = L.SERVICES_TITLE },
 		{ "Helpers", header = L.HELPERS_TITLE },
 	},
-	{ title = L.QUESTS_TITLE, { "Quests" }, { "SpeechBubbles", header = L.SPEECH_TITLE },
+	{ group = 2, title = L.QUESTS_TITLE, { "Quests" }, { "SpeechBubbles", header = L.SPEECH_TITLE },
 		{ "Dialog", header = L.DIALOG_TITLE } },
-	{ title = L.GROUPFINDER_TITLE, { "GroupFinder" } },
-	{ title = L.PAGE_MOUSEOVER,
+	{ group = 2, title = L.GROUPFINDER_TITLE, { "GroupFinder" } },
+	{ group = 1, title = L.PAGE_MOUSEOVER,
 		{ "QoL", header = L.QOL_MOUSEOVER_HEADER, keys = MOUSEOVER_BAR_KEYS },
 		{ "QoL", header = L.QOL_MOUSEOVER_FRAMES_HEADER, keys = MOUSEOVER_FRAME_KEYS },
 		{ "XPBar", header = L.XP_TITLE, keys = Keys("textMode") },
 		{ "Chat", header = L.CHAT_TITLE, keys = Keys("tabFade") },
 	},
-	{ title = L.PAGE_BARS,
+	{ group = 1, title = L.PAGE_BARS,
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },
 		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft", "buffExceptions") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
 	},
-	{ title = L.PAGE_COMBAT,
+	{ group = 3, title = L.PAGE_COMBAT,
 		{ "QoL", header = L.QOL_NAMEPLATES_HEADER, keys = Keys("nameplatesCombat", "nameplatesFade", "nameplatesTargetFull", "nameplatesFadeCombat", "nameplatesFadeAmount") },
 		{ "QoL", header = L.QOL_ERRORS_HEADER, keys = Keys("hideErrors") },
 		{ "MeterReset", header = L.METER_TITLE },
 	},
-	{ title = L.BUFFS_TITLE, { "Buffs" } },
-	{ title = L.TALENTS_TITLE, { "Talents" } },
-	{ title = L.PAGE_INFO,
+	{ group = 3, title = L.BUFFS_TITLE, { "Buffs" } },
+	{ group = 3, title = L.TALENTS_TITLE, { "Talents" } },
+	{ group = 2, title = L.PAGE_INFO,
+		-- By sense, then alphabetical: minimap, world map, places and routes, data and displays, errors.
 		{ "QoL", header = L.QOL_MINIMAP_HEADER, keys = Keys("hideMinimapButtons") },
 		{ "Minimap", exclude = Keys("worldMapCoords") },
 		{ "Teleports", header = L.TELEPORTS_TITLE },
 		{ "WorldMap", header = L.WORLDMAP_TITLE },
 		{ "Minimap", keys = Keys("worldMapCoords") },
-		{ "Info", header = L.INFO_TITLE },
-		{ "DataCapture", header = L.DATA_TITLE },
-		{ "Transports", header = L.TRANSPORTS_TITLE },
 		{ "Library", header = L.LIBRARY_TITLE },
-		{ "Innkeepers", header = L.INNS_TITLE },
+		{ "InstanceStats", header = L.INSTSTATS_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
+		{ "Innkeepers", header = L.INNS_TITLE },
+		{ "Transports", header = L.TRANSPORTS_TITLE },
+		{ "DataCapture", header = L.DATA_TITLE },
+		{ "Info", header = L.INFO_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},
-	{ title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
-	{ title = L.VISUALS_TITLE, new = true,
+	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
+	{ group = 1, title = L.VISUALS_TITLE, new = true,
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame") },
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
 	},
-	{ title = L.FONTS_TITLE, { "Fonts" } },
-	{ title = L.RADAR_TITLE, { "RecipeRadar" } },
+	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
+	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },
 }
+
+-- The pages by sense (what is shown, the world, the character), each group alphabetical.
+table.sort(PAGES, function(a, b)
+	if a.group ~= b.group then
+		return a.group < b.group
+	end
+	return a.title:lower() < b.title:lower()
+end)
 
 local function ModuleOptions(module)
 	return type(module.options) == "function" and module:options() or module.options or {}

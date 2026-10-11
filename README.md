@@ -82,6 +82,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Tastenbelegungs-Nummern und Makronamen auf Aktionstasten ausblenden (einzeln) | ja |
 | | Neuer Zauberrang ersetzt auf den Aktionsleisten den Rang direkt darunter; bewusst gesetzte niedrigere Ränge bleiben | ja |
 | | Freie/gesamte Taschenplätze am Rucksack | ja |
+| | Rechtsklick auf das Taschensymbol (Symbol oben links an einer geöffneten Tasche, Rucksack) öffnet ein Menü mit den Taschen-Einstellungen als Haken (Beim Öffnen sortieren, Taschenplätze am Rucksack, Upgrade-Pfeil, Wertung, Anlege-Angebot, Schrott verkaufen, Schrott-Knopf, Reparatur), den Schrottmarkierungen und einem Link zu allen Einstellungen; Blizzards Menü beim Linksklick bleibt (Rechtsklick wird an der Titelleiste und am Symbol abgefangen; im Spiel ungeprüft) | ja |
 | | Taschen beim Öffnen mit Blizzards Aufräumfunktion sortieren (nur eine Sortierung zugleich: nach dem Ende, wenn keine Gegenstände mehr gesperrt sind, frühestens 3 s später; nicht im Kampf, beim Schrottverkauf, bei Händler, Post, Handel, Bank oder Auktionshaus) | ja |
 | | Minimap-Buttons anderer Addons ausblenden (Karten-Pins bleiben) | ja |
 | | Gespielte Zeit aller Charaktere im Uhr-Tooltip (ohne Chatmeldung erfasst) | ja |

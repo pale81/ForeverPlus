@@ -1279,6 +1279,24 @@ do
 	print("show upgrade empty slot", ok, err)
 end
 ;(function()
+	local items = ns:GetModule("Items")
+	local built, original = nil, ns.ShowPopupList
+	ns.ShowPopupList = function(_, build) built = build() end
+	items:ShowBagMenu({})
+	ns.ShowPopupList = original
+	assert(built and #built.items > 8, "bag menu items")
+	local toggle
+	for _, item in ipairs(built.items) do
+		if item.checked ~= nil and item.text == ns.L.ITEMS_AUTOSORT then toggle = item end
+	end
+	assert(toggle, "autoSort entry")
+	local before = items.db.autoSort
+	toggle.onClick()
+	assert(items.db.autoSort == not before, "toggle flips option")
+	toggle.onClick()
+	print("bag menu OK")
+end)()
+;(function()
 	SKILL_RANK_UP = "Eure Fertigkeit '%s' hat sich auf %d erhöht."
 	FACTION_STANDING_INCREASED = "Euer Ruf bei der Fraktion '%s' hat sich um %d verbessert."
 	FACTION_STANDING_DECREASED = "Euer Ruf bei der Fraktion '%s' hat sich um %d verschlechtert."

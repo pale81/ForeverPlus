@@ -593,7 +593,7 @@ function BorderMixin:ShowColor(r, g, b, a)
 		LayoutBorder(self, size)
 	end
 	for _, part in ipairs(self.parts) do
-		part:SetVertexColor(r, g, b, a or 1)
+		part:SetVertexColor(r, g, b, type(a) == "number" and a or 1)
 		part:Show()
 	end
 end

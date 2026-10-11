@@ -78,7 +78,9 @@ local function UpdateGlow(button, quality, forced)
 		end
 		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
 		borders[button] = border
-		border:ShowColor(C_Item.GetItemQualityColor(quality))
+		-- GetItemQualityColor also returns the colour as text: only the three numbers go on.
+		local r, g, b = C_Item.GetItemQualityColor(quality)
+		border:ShowColor(r, g, b)
 	elseif border then
 		border:Hide()
 	end

@@ -9,6 +9,7 @@ local Info = ns:NewModule("Info", {
 	defaults = {
 		played = true,
 		performance = true,
+		perfColors = true,
 		levelTime = true,
 		characters = {}, -- "Realm" -> { name -> { total, class, level, time } }
 	},
@@ -348,13 +349,35 @@ local function ShowCpuTooltip(owner)
 	GameTooltip:Show()
 end
 
+-- FPS and latency in the colour of the class while they are good; orange when they get poor, red when bad.
+local FPS_POOR, FPS_BAD = 30, 15
+local MS_POOR, MS_BAD = 150, 300
+
+local function ValueColor(value, poor, bad, lowIsBad)
+	if not Info.db.perfColors then
+		return ClassColor(playerClass)
+	end
+	local isBad, isPoor
+	if lowIsBad then
+		isBad, isPoor = value < bad, value < poor
+	else
+		isBad, isPoor = value > bad, value > poor
+	end
+	if isBad then
+		return RED_FONT_COLOR
+	elseif isPoor then
+		return ORANGE_FONT_COLOR
+	end
+	return ClassColor(playerClass)
+end
+
 local function UpdatePerformance()
 	local _, _, latencyHome, latencyWorld = GetNetStats()
-	local color = ClassColor(playerClass)
 	local label = NORMAL_FONT_COLOR
+	local fps, ms = ns.Number(GetFramerate(), 0), max(ns.Number(latencyHome, 0), ns.Number(latencyWorld, 0))
 	perfFrame.Text:SetFormattedText("%s %s   %s %s",
-		label:WrapTextInColorCode("FPS"), color:WrapTextInColorCode(("%d"):format(GetFramerate())),
-		label:WrapTextInColorCode("MS"), color:WrapTextInColorCode(("%d"):format(max(latencyHome, latencyWorld))))
+		label:WrapTextInColorCode("FPS"), ValueColor(fps, FPS_POOR, FPS_BAD, true):WrapTextInColorCode(("%d"):format(fps)),
+		label:WrapTextInColorCode("MS"), ValueColor(ms, MS_POOR, MS_BAD, false):WrapTextInColorCode(("%d"):format(ms)))
 	perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
 	if GameTooltip:GetOwner() == perfFrame and GetTime() - lastCpuTooltipUpdate >= CPU_TOOLTIP_INTERVAL then
 		ShowCpuTooltip(perfFrame)
@@ -446,5 +469,6 @@ end
 Info.options = {
 	{ key = "played", type = "toggle", name = L.INFO_PLAYED_OPT, desc = L.INFO_PLAYED_DESC },
 	{ key = "performance", type = "toggle", name = L.INFO_PERF, desc = L.INFO_PERF_DESC },
+	{ key = "perfColors", type = "toggle", name = L.INFO_PERF_COLORS, desc = L.INFO_PERF_COLORS_DESC, parent = "performance", new = true },
 	{ key = "levelTime", type = "toggle", name = L.INFO_LEVEL_TIME_OPT, desc = L.INFO_LEVEL_TIME_DESC, new = true },
 }

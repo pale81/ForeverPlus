@@ -224,19 +224,32 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
-	-- Merchant list: a small grey book at the lower right corner, struck through while unusable and known wares
-	-- are hidden (no frame, no plate).
+	-- Merchant list: a small plain grey page (an outline with three lines) at the lower right corner, mirror
+	-- image of the x at the top right (same size, same distance); struck through while unusable and known
+	-- wares are hidden. No frame, no plate.
 	local filter = CreateFrame("Button", nil, frame)
-	filter:SetSize(18, 18)
+	filter:SetSize(14, 14)
 	filter:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
-	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
-	filter.Icon:SetAllPoints()
-	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Book_09]])
-	filter.Icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-	filter.Icon:SetDesaturated(true)
+	filter.Parts = {}
+	local function Bar(width, height, point, x, y)
+		local bar = filter:CreateTexture(nil, "ARTWORK")
+		bar:SetColorTexture(1, 1, 1, 1)
+		bar:SetSize(width, height)
+		bar:SetPoint(point, filter, "CENTER", x, y)
+		filter.Parts[#filter.Parts + 1] = bar
+	end
+	-- outline 10 x 12 (1 px), centred
+	Bar(10, 1, "TOP", 0, 6)
+	Bar(10, 1, "BOTTOM", 0, -6)
+	Bar(1, 12, "LEFT", -5, 0)
+	Bar(1, 12, "RIGHT", 5, 0)
+	-- three lines of text
+	Bar(6, 1, "CENTER", 0, 3)
+	Bar(6, 1, "CENTER", 0, 0)
+	Bar(6, 1, "CENTER", 0, -3)
 	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
-	filter.Cross:SetColorTexture(0.75, 0.75, 0.75, 1)
-	filter.Cross:SetSize(2, 22)
+	filter.Cross:SetColorTexture(1, 1, 1, 1)
+	filter.Cross:SetSize(2, 18)
 	filter.Cross:SetPoint("CENTER")
 	filter.Cross:SetRotation(math.rad(45))
 	filter:SetScript("OnEnter", function(self)
@@ -308,49 +321,6 @@ local function CreateText(frame)
 	return text
 end
 
--- A "glitter frame": a thin gold line and two sparks that run around a row (what is chosen).
-local function AddSparkle(button, size)
-	local holder = CreateFrame("Frame", nil, button)
-	holder:SetAllPoints()
-	holder:EnableMouse(false)
-	holder.Border = ns.CreatePixelBorder(holder, button, 1, "OVERLAY", 6)
-	holder.sparks = {}
-	for index = 1, 2 do
-		local spark = holder:CreateTexture(nil, "OVERLAY", nil, 7)
-		spark:SetTexture([[Interface\Cooldown\star4]])
-		spark:SetBlendMode("ADD")
-		spark:SetSize(size or 16, size or 16)
-		spark:SetVertexColor(1, 0.9, 0.5)
-		holder.sparks[index] = spark
-	end
-	holder.t = 0
-	ns.SetUpdate(holder, "Dialog: button sparkle", function(self, elapsed)
-		self.t = (self.t + elapsed * 0.4) % 1
-		local width, height = button:GetWidth(), button:GetHeight()
-		local perimeter = 2 * (width + height)
-		for index, spark in ipairs(self.sparks) do
-			local p = ((self.t + (index - 1) * 0.5) % 1) * perimeter
-			local x, y
-			if p < width then
-				x, y = p, 0
-			elseif p < width + height then
-				x, y = width, -(p - width)
-			elseif p < 2 * width + height then
-				x, y = width - (p - width - height), -height
-			else
-				x, y = 0, -(height - (p - 2 * width - height))
-			end
-			spark:ClearAllPoints()
-			spark:SetPoint("CENTER", button, "TOPLEFT", x, y)
-		end
-	end)
-	holder:SetScript("OnShow", function(self)
-		self.Border:ShowColor(1, 0.82, 0.3)
-	end)
-	holder:Hide()
-	button.Sparkle = holder
-end
-
 local function CreateRow(frame)
 	local row = CreateFrame("Button", nil, frame)
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
@@ -392,7 +362,6 @@ local function CreateRow(frame)
 		self:ClearFocus()
 	end)
 	row.Qty:Hide()
-	AddSparkle(row, 14)
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	row:EnableMouseWheel(true)
 	row:SetScript("OnMouseWheel", function(_, delta)
@@ -400,16 +369,19 @@ local function CreateRow(frame)
 			Dialog.MerchantScroll(delta)
 		end
 	end)
-	-- The chosen text breathes: slowly a little smaller and larger, from its left edge.
-	local pulse = row.Text:CreateAnimationGroup()
-	pulse:SetLooping("BOUNCE")
-	local breathe = pulse:CreateAnimation("Scale")
-	breathe:SetScaleFrom(1, 1)
-	breathe:SetScaleTo(1.07, 1.07)
-	breathe:SetDuration(1.1)
-	breathe:SetSmoothing("IN_OUT")
-	breathe:SetOrigin("LEFT", 0, 0)
-	row.Pulse = pulse
+	-- The chosen text glows softly: warm copies of it one pixel around it, under the text itself.
+	row.Glow = {}
+	for index, offset in ipairs({ { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 } }) do
+		local glow = row:CreateFontString(nil, "ARTWORK", nil)
+		glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", offset[1], offset[2])
+		glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", offset[1], offset[2])
+		glow:SetJustifyH("LEFT")
+		glow:SetJustifyV("TOP")
+		glow:SetNonSpaceWrap(true)
+		glow:SetTextColor(1, 0.8, 0.35, 0.28)
+		glow:Hide()
+		row.Glow[index] = glow
+	end
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
 		if button.tooltip then
@@ -565,7 +537,7 @@ Render = function(view)
 					file, size, flags = baseFont:GetFont()
 				end
 				if file and size then
-					row.Text:SetFont(file, emphasised and size * 1.1 or size, emphasised and "OUTLINE" or flags or "")
+					row.Text:SetFont(file, emphasised and size * 1.2 or size, emphasised and "OUTLINE" or flags or "")
 				else
 					row.Text:SetFontObject(TextFont())
 				end
@@ -578,16 +550,21 @@ Render = function(view)
 				if info.counter and not row.Qty:HasFocus() then
 					row.Qty:SetText(tostring(info.counter))
 				end
-				row.Sparkle:SetShown(info.picked and true or false)
 				-- Lists with a quantity field keep one line and a free column on the right: nothing wraps or shifts.
 				row.Text:SetWordWrap(not info.reserve)
 				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.95, 0.62 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
-				row.Pulse:Stop()
-				if emphasised then
-					row.Pulse:Play()
+				for _, glow in ipairs(row.Glow) do
+					glow:SetShown(emphasised and true or false)
+					if emphasised then
+						if file and size then
+							glow:SetFont(file, size * 1.2, "")
+						end
+						glow:SetWordWrap(not info.reserve)
+						glow:SetText(label)
+					end
 				end
 
 				local height = math.max(row.Text:GetStringHeight(), 16)
@@ -845,9 +822,12 @@ function Dialog.UpdateFilter()
 		return
 	end
 	local on = Dialog.db.merchantHide
-	filter.Icon:SetAlpha(filter.hover and 0.95 or 0.55)
+	local grey = filter.hover and 0.95 or 0.6
+	for _, bar in ipairs(filter.Parts) do
+		bar:SetVertexColor(grey, grey, grey, 1)
+	end
 	filter.Cross:SetShown(on and true or false)
-	filter.Cross:SetAlpha(filter.hover and 1 or 0.7)
+	filter.Cross:SetVertexColor(grey, grey, grey, 1)
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -1292,7 +1272,18 @@ end
 local function MerchantRowText(info, index)
 	local parts = { WareName(info, GetMerchantItemLink and GetMerchantItemLink(index)) }
 	if info.hasExtendedCost then
-		parts[#parts + 1] = L.DIALOG_MERCHANT_SPECIAL
+		-- Special price (honor, currencies, items): the icons and amounts of the game's own cost list.
+		local costs = {}
+		for item = 1, GetMerchantItemCostInfo and GetMerchantItemCostInfo(index) or 0 do
+			local texture, value = GetMerchantItemCostItem(index, item)
+			if texture and value and value > 0 then
+				costs[#costs + 1] = ("%d |T%s:14:14|t"):format(value, tostring(texture))
+			end
+		end
+		if (info.price or 0) > 0 then
+			costs[#costs + 1] = GetMoneyString(info.price, true)
+		end
+		parts[#parts + 1] = #costs > 0 and table.concat(costs, " ") or L.DIALOG_MERCHANT_SPECIAL
 	elseif (info.price or 0) > 0 then
 		parts[#parts + 1] = GetMoneyString(info.price, true)
 	end

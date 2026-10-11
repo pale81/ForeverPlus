@@ -625,6 +625,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("DataCapture").Diagnose()
 	elseif msg == "talente" or msg == "talents" then
 		ns:GetModule("Talents"):PrintStatus()
+	elseif msg:find("^geld") or msg:find("^money") then
+		ns:GetModule("Items").MoneyCommand(msg:match("^%S+%s*(.*)"))
 	elseif msg == "haltbarkeit" or msg == "durability" then
 		ns:GetModule("Durability"):PrintStatus()
 	elseif msg == "beute" or msg == "loot" then

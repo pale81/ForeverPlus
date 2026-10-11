@@ -738,10 +738,60 @@ function Symbols.Refresh()
 	Draw()
 end
 
+-- The text of an area (Data/PlaceInfo.lua) under the name that the map shows while the mouse is over it.
+local areaTexts -- localized area name -> { de, en }
+
+local function AreaText(name)
+	if not areaTexts then
+		areaTexts = {}
+		for _, source in ipairs({ ns.PlaceInfo or {}, ns.AreaInfo or {} }) do
+			for id, info in pairs(source) do
+				local areaName = C_Map.GetAreaInfo(id)
+				if type(areaName) == "string" and areaName ~= "" and not (issecretvalue and issecretvalue(areaName)) then
+					areaTexts[areaName] = info
+				end
+			end
+		end
+	end
+	local info = areaTexts[name]
+	return info and ns.PlaceText(GetLocale() == "deDE" and info.de or info.en)
+end
+
+local function UpdateAreaText(label)
+	local db = Options()
+	local name = db.placeInfo and db.areaInfo and label.Name:GetText() or nil
+	if name == label.fpName then
+		return
+	end
+	label.fpName = name
+	local text
+	if type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
+		text = AreaText((name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s*%(%d+%-?%d*%)$", "")))
+	end
+	label.fpInfo:SetText(text or "")
+end
+
+-- The area label of the map is Blizzard's; our line is added below it.
+local function HookAreaLabel()
+	for provider in pairs(WorldMapFrame.dataProviders or {}) do
+		local label = type(provider) == "table" and provider.Label
+		if label and label.EvaluateLabels and label.Description and not label.fpInfo then
+			local line = label:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+			line:SetPoint("TOP", label.Description, "BOTTOM", 0, -6)
+			line:SetWidth(560)
+			line:SetJustifyH("CENTER")
+			line:SetShadowOffset(1, -1)
+			label.fpInfo = line
+			hooksecurefunc(label, "EvaluateLabels", ns.Measured("Map: area text", UpdateAreaText))
+		end
+	end
+end
+
 function Symbols.Setup()
 	if layer or not (WorldMapFrame and WorldMapFrame.GetCanvas) then
 		return
 	end
+	HookAreaLabel()
 	local canvas = WorldMapFrame:GetCanvas()
 	layer = CreateFrame("Frame", nil, canvas)
 	layer:SetAllPoints(canvas)
@@ -762,6 +812,7 @@ function Symbols.Setup()
 		end
 	end
 	WorldMapFrame:HookScript("OnShow", Symbols.Refresh)
+	WorldMapFrame:HookScript("OnShow", HookAreaLabel)
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")

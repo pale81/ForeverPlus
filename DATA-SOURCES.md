@@ -62,3 +62,11 @@ The validator checks sorted unique IDs, row shapes, counts, source metadata, res
 ## Place texts
 
 `Data/PlaceInfo.lua` holds short texts (German and English) about 55 towns and capitals of the Eastern Kingdoms and Kalimdor (names of regions, places and dungeons are filled in from the client at runtime, so they read in the client's language), shown when the place name is hovered on the world map. The texts were written for this addon from general knowledge of the game world, in its own words, and state facts only; nothing was copied from a wiki or from game text. They are not checked against a source. The Warcraft Wiki (CC BY-SA, share-alike) was considered and not used so that no share-alike duty attaches to the data.
+
+## Edit Mode layouts
+
+`Data/EditModeLayouts.lua` holds layout texts as the game's Edit Mode exports them (layout menu: share). The text of "Base layout" was made and handed in by the project owner; it contains only positions and settings of the game's own interface elements.
+
+## Area texts
+
+`ns.AreaInfo` in `Data/PlaceInfo.lua` is keyed by area IDs of the AreaTable (wago.tools/db2, build 1.60.1.70291, checked against the same CSV as `tools/places.py` uses: AreaPOI, AreaTable, UiMapAssignment; regenerating `Data/Places.lua` from them gives the same 59 places). Texts are the authors' own, from general knowledge, unchecked against a source.

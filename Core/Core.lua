@@ -221,6 +221,14 @@ local SPIKE_MS = 4
 ns.spikes = { count = 0, worst = 0, measured = 0, name = nil }
 local frameMeasured, frameTop, frameTopTime = 0, nil, 0
 
+-- Work done once while loading (OnInitialize, OnLogin, the settings pages): kept apart from the timings of play, so
+-- the list of the longest calls shows what costs while playing.
+ns.loadTimings = {} -- name -> ms
+
+function ns.RecordLoad(name, elapsed)
+	ns.loadTimings[name] = elapsed
+end
+
 function ns.RecordTiming(name, elapsed)
 	if ns.measuring then
 		frameMeasured = frameMeasured + elapsed
@@ -387,6 +395,16 @@ function ns.PrintTimings()
 		local color = max >= 2 and "|cffff0000" or max >= 0.5 and "|cffff8800" or "|cff00ff00"
 		ns.PrintAlways(color .. ns.L.TIMINGS_LINE .. "|r", item.name, max, item.entry.slow, item.entry.count)
 	end
+	local total, longest, longestName = 0, 0, nil
+	for name, elapsed in pairs(ns.loadTimings) do
+		total = total + elapsed
+		if elapsed > longest then
+			longest, longestName = elapsed, name
+		end
+	end
+	if longestName then
+		ns.PrintAlways(ns.L.TIMINGS_LOAD, total, longestName, longest)
+	end
 	local spikes = ns.spikes
 	if spikes.count > 0 then
 		ns.PrintAlways(ns.L.TIMINGS_SPIKES, SPIKE_MS, spikes.count, spikes.worst, spikes.measured, spikes.name or "-")
@@ -475,25 +493,25 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 			if module.OnInitialize then
 				local start = debugprofilestop()
 				securecallfunction(module.OnInitialize, module)
-				ns.RecordTiming(module.name .. ": OnInitialize", debugprofilestop() - start)
+				ns.RecordLoad(module.name .. ": OnInitialize", debugprofilestop() - start)
 			end
 		end
 		local start = debugprofilestop()
 		ns:BuildSettings()
-		ns.RecordTiming("Settings", debugprofilestop() - start)
+		ns.RecordLoad("Settings", debugprofilestop() - start)
 	elseif event == "PLAYER_LOGIN" then
 		-- Select the installed data provider while the loading screen is up,
 		-- instead of on the first tooltip.
 		if ns.QuestieDB then
 			local start = debugprofilestop()
 			ns.QuestieDB.Get()
-			ns.RecordTiming("Database: provider", debugprofilestop() - start)
+			ns.RecordLoad("Database: provider", debugprofilestop() - start)
 		end
 		for _, module in ipairs(ns.modules) do
 			if module.OnLogin then
 				local start = debugprofilestop()
 				securecallfunction(module.OnLogin, module)
-				ns.RecordTiming(module.name .. ": OnLogin", debugprofilestop() - start)
+				ns.RecordLoad(module.name .. ": OnLogin", debugprofilestop() - start)
 			end
 		end
 		self:UnregisterEvent("PLAYER_LOGIN")
@@ -608,6 +626,7 @@ SlashCmdList.FOREVERPLUS = function(msg)
 	elseif msg == "messen" or msg == "profile" then
 		ns.measuring = not ns.measuring
 		if ns.measuring then
+			wipe(ns.timings)
 			ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
 			ns.PrintAlways(ns.L.TIMINGS_ON)
 		else

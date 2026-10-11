@@ -17,6 +17,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		hoverObjects = true,
 		classColors = true,
 		qualityBorder = true,
+		bronzeBorder = true,
 	},
 })
 
@@ -207,6 +208,48 @@ local function ColorBorder(tooltip, data)
 		local bgR, bgG, bgB = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
 		nineSlice:SetBorderColor(bgR, bgG, bgB, 1)
 		ShowBorderFrame(tooltip, r, g, b)
+	end
+end
+
+-- Tooltips without a quality colour (quests, units, spells, the quest tracker) get the bronze of the game's frames
+-- as a crisp frame along the edge, the colour that shows (Core/Widgets.lua).
+local BRONZE_TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2",
+	"ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2" }
+
+local function BronzeBorder(tooltip)
+	local nineSlice = tooltip.NineSlice
+	if not Tooltip.db.bronzeBorder or not nineSlice or tooltip.IsEmbedded or tooltip:IsForbidden() then
+		return
+	end
+	-- An item already has its quality frame.
+	if borderFrames[tooltip] and borderFrames[tooltip]:IsShown() then
+		return
+	end
+	if not defaultBorder[tooltip] then
+		defaultBorder[tooltip] = { nineSlice:GetBorderColor() }
+		tooltip:HookScript("OnTooltipCleared", ResetBorder)
+	end
+	local bgR, bgG, bgB = TOOLTIP_DEFAULT_BACKGROUND_COLOR:GetRGB()
+	nineSlice:SetBorderColor(bgR, bgG, bgB, 1)
+	local color = ns.PANEL_BORDER_SHOWN
+	ShowBorderFrame(tooltip, color[1], color[2], color[3])
+end
+
+local function HookBronzeBorders()
+	for _, name in ipairs(BRONZE_TOOLTIPS) do
+		local tooltip = _G[name]
+		if tooltip and tooltip.HookScript then
+			tooltip:HookScript("OnShow", ns.Measured("Tooltip: bronze border", BronzeBorder))
+		end
+	end
+end
+
+local function ResetBronzeBorders()
+	for _, name in ipairs(BRONZE_TOOLTIPS) do
+		local tooltip = _G[name]
+		if tooltip and defaultBorder[tooltip] then
+			ResetBorder(tooltip)
+		end
 	end
 end
 
@@ -673,6 +716,9 @@ function Tooltip:OnLogin()
 end
 
 function Tooltip:OnOptionChanged(key)
+	if key == "bronzeBorder" and not self.db.bronzeBorder then
+		ResetBronzeBorders()
+	end
 	if key == "shiftInfo" then
 		self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
 	end
@@ -690,6 +736,7 @@ function Tooltip:OnInitialize()
 		HideCompareTips()
 	end)
 	GameTooltip:HookScript("OnHide", HideCompareTips)
+	HookBronzeBorders()
 	if GameTooltip.SetTrainerService then
 		hooksecurefunc(GameTooltip, "SetTrainerService", ns.Measured("Tooltip: trainer compare", ShowTrainerCompare))
 	end
@@ -714,4 +761,5 @@ Tooltip.options = {
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
 	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
+	{ key = "bronzeBorder", type = "toggle", name = L.TOOLTIP_BRONZE_BORDER, desc = L.TOOLTIP_BRONZE_BORDER_DESC, new = true },
 }

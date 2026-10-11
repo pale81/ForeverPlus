@@ -43,6 +43,17 @@ end
 
 local RefreshDisplays
 
+-- A clear sound on the Master channel (the quiet checkbox click was easy to miss): a lock snapping
+-- shut when locking, an opening sound when unlocking. Also for the switch "lock everything".
+local function PlayLockSound(locked)
+	if not (ns.db.lockSound and SOUNDKIT) then
+		return
+	end
+	local kit = locked and (SOUNDKIT.UI_PROFESSION_SPEC_PIP_LOCKIN or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
+		or (SOUNDKIT.IG_CHARACTER_INFO_OPEN or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+	PlaySound(kit, "Master")
+end
+
 local function ToggleLock(key)
 	if ns.db.lockAll then
 		ns.Print(L.LOCK_ALL_ACTIVE)
@@ -53,10 +64,7 @@ local function ToggleLock(key)
 	if ns.db.lockMessage then
 		ns.Print(locked and L.DISPLAY_LOCKED or L.DISPLAY_UNLOCKED)
 	end
-	-- A short click like a lock: on when unlocking, off when locking.
-	if ns.db.lockSound and SOUNDKIT then
-		PlaySound(locked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-	end
+	PlayLockSound(locked)
 	RefreshDisplays()
 end
 
@@ -728,6 +736,7 @@ function ns:HasSavedPosition(entry)
 end
 
 function ns:SetAllLocked(locked)
+	PlayLockSound(locked)
 	RefreshDisplays()
 	ns.Print(locked and L.LOCK_ALL_DONE or L.UNLOCK_ALL_DONE)
 end

@@ -289,7 +289,7 @@ local historyHooked = {}
 local historyPos = {}
 
 local function RecordSent(_, text)
-	if type(text) ~= "string" or text == "" or (issecretvalue and issecretvalue(text)) then
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) or text == "" then
 		return
 	end
 	local list = Chat.cdb.sentHistory

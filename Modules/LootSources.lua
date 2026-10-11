@@ -117,7 +117,7 @@ local function LearnName(unit)
 		return
 	end
 	local name = UnitName(unit)
-	if type(name) ~= "string" or name == "" or (issecretvalue and issecretvalue(name)) then
+	if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) or name == "" then
 		return
 	end
 	if LootSources.nameCount < MAX_NAMES and (known or ns.db.lootSources[key]) then

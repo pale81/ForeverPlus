@@ -151,6 +151,33 @@ end
 ---------------------------------------------------------------------------
 -- The bubble
 ---------------------------------------------------------------------------
+-- Digits typed one after the other make one number (1 then 4 within half a second is 14). The row is taken at once
+-- when no longer number can follow, else when the half second is over.
+local TYPE_WAIT = 0.5
+
+function Dialog.TypeNumber(frame, digit)
+	frame.typed = (frame.typed or "") .. digit
+	frame.typedToken = (frame.typedToken or 0) + 1
+	local token = frame.typedToken
+	local function Take()
+		if frame.typedToken ~= token then
+			return
+		end
+		local number = tonumber(frame.typed)
+		frame.typed = nil
+		local index = number and frame.numberIndex[number]
+		local action = index and frame.rowActions[index]
+		if action then
+			action()
+		end
+	end
+	if tonumber(frame.typed) * 10 > frame.maxRowNumber or #frame.typed >= 3 then
+		Take()
+	else
+		C_Timer.After(TYPE_WAIT, Take)
+	end
+end
+
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
@@ -243,10 +270,15 @@ local function CreateBubble()
 					self:SetPropagateKeyboardInput(false)
 					return
 				end
-			elseif not spends then
-				-- 1 to 9 (also on the number block) choose the numbered options.
-				local number = tonumber(key:match("^NUMPAD(%d)$") or key:match("^(%d)$"))
-				action = number and self.rowActions[number] or nil
+			else
+				-- The digits (also on the number block) choose the numbered options; for lists with more than nine rows
+				-- two digits in a row (14) make one number. Choosing never buys or learns, that is the button's.
+				local digit = tonumber(key:match("^NUMPAD(%d)$") or key:match("^(%d)$"))
+				if digit and digit <= (self.maxRowNumber or 0) then
+					action = function()
+						Dialog.TypeNumber(self, digit)
+					end
+				end
 			end
 		end
 		self:SetPropagateKeyboardInput(not action)
@@ -351,6 +383,8 @@ local function CreateBubble()
 		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
 	end)
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
+	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
+	frame.maxRowNumber = 0
 	frame.selectedRow = 1
 	return frame
 end
@@ -575,6 +609,8 @@ Render = function(view)
 	local y = 0
 	local paragraphs = {}
 	wipe(frame.rowActions)
+	wipe(frame.numberIndex)
+	frame.maxRowNumber = 0
 	local function AddText(text, color, font)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
@@ -620,7 +656,11 @@ Render = function(view)
 				local label = info.text
 				if info.action then
 					frame.rowActions[#frame.rowActions + 1] = info.action
-					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
+					-- The number of a row is its place in the whole list (a scrolled list goes on counting).
+					local number = info.number or #frame.rowActions
+					frame.numberIndex[number] = #frame.rowActions
+					frame.maxRowNumber = math.max(frame.maxRowNumber, number)
+					label = ("|cff9a9a9a%d.|r %s"):format(number, info.text)
 				end
 				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
 				local emphasised = info.action and #frame.rowActions == frame.selectedRow
@@ -784,12 +824,30 @@ end
 ---------------------------------------------------------------------------
 -- Placement and Blizzard's windows
 ---------------------------------------------------------------------------
+-- Who the talk is with, remembered when the bubble opens: the target changes during the talk and the plate of
+-- the NPC must not be taken for another one (nor a plate frame the game gave to another unit).
+local npcGuid
+
 local function NpcNameplate()
-	if UnitExists("npc") then
-		local nameplate = C_NamePlate.GetNamePlateForUnit("npc")
-		if nameplate and not nameplate:IsForbidden() then
-			return nameplate
+	if not UnitExists("npc") and not npcGuid then
+		return
+	end
+	local function Matches(token)
+		local guid = UnitGUID(token)
+		return guid and not (issecretvalue and issecretvalue(guid)) and guid == npcGuid
+	end
+	if npcGuid then
+		for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
+			local token = plate.namePlateUnitToken
+			if token and not plate:IsForbidden() and Matches(token) then
+				return plate
+			end
 		end
+		return nil
+	end
+	local nameplate = C_NamePlate.GetNamePlateForUnit("npc")
+	if nameplate and not nameplate:IsForbidden() then
+		return nameplate
 	end
 end
 
@@ -827,6 +885,7 @@ local function Place()
 			RestorePlate()
 		end
 	else
+		RestorePlate()
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
 		if Dialog.db.plates then
@@ -926,6 +985,7 @@ local function Hide()
 		end
 	end
 	current = nil
+	npcGuid = nil
 	wipe(history)
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false)
@@ -940,6 +1000,7 @@ local function UseBlizzard()
 		bubble:Hide()
 	end
 	current = nil
+	npcGuid = nil
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false)
 end
@@ -1026,6 +1087,10 @@ local function Show(view, fromBack)
 		if #history > 8 then
 			table.remove(history, 1)
 		end
+	end
+	if not current and UnitExists("npc") then
+		local guid = UnitGUID("npc")
+		npcGuid = guid and not (issecretvalue and issecretvalue(guid)) and guid or nil
 	end
 	current = { view = view }
 	Render(view)
@@ -1579,6 +1644,7 @@ function Dialog.MerchantView()
 		rows[#rows + 1] = {
 			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
+			number = position,
 			arrowSlot = arrowSlot,
 			upgrade = not buyback and info.isUsable ~= false and ns.IsRewardUpgrade
 				and ns.IsRewardUpgrade(GetMerchantItemLink(index), RefreshMerchant) or false,
@@ -1840,6 +1906,13 @@ function Dialog:Apply()
 	-- The plate of the NPC appears after the start of the talk: the bubble moves onto it.
 	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
 		if current and bubble and bubble:IsShown() and NpcNameplate() then
+			Place()
+		end
+	end)
+	-- A plate that goes away may be given to another unit: the bubble is placed again (on the plate of the NPC,
+	-- else at the top of the screen) instead of staying on a frame that now belongs to someone else.
+	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, function()
+		if current and bubble and bubble:IsShown() then
 			Place()
 		end
 	end)

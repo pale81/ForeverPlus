@@ -12,6 +12,8 @@ local RepFlash = ns:NewModule("RepFlash", {
 		xp = false,
 		honor = false,
 		hideChat = true, -- the chat line of a kind that flashes is hidden
+		hideGameXP = false, -- the game's own number for experience in the middle of the screen is switched off
+		gameXPOld = {},
 		xpClassColor = true, -- the experience in the colour of the class
 		xpSparkle = true,    -- and with sparks in that colour
 		xpSound = false,     -- and a sound
@@ -341,12 +343,61 @@ function RepFlash:Apply()
 	end
 end
 
+-- The game's own number for experience in the middle of the screen: its settings are found by their names
+-- among the console settings (floating text, pop-up or toast with xp or experience in the name) and switched to 0;
+-- the old values come back when the option is switched off. A line in the chat says what was found.
+local function GameXPSettings()
+	local found = {}
+	local ok, list = pcall(C_Console and C_Console.GetAllCommands or function() end)
+	for _, entry in ipairs(ok and type(list) == "table" and list or {}) do
+		local name = type(entry) == "table" and entry.command
+		if type(name) == "string" then
+			local lower = name:lower()
+			if (lower:find("xp") or lower:find("experience")) and (lower:find("float") or lower:find("popup") or lower:find("toast"))
+				and not lower:find("xpbar") and GetCVar(name) ~= nil then
+				found[#found + 1] = name
+			end
+		end
+	end
+	table.sort(found)
+	return found
+end
+
+function RepFlash:ApplyGameXP(announce)
+	local db = self.db
+	db.gameXPOld = db.gameXPOld or {}
+	if db.hideGameXP then
+		local found = GameXPSettings()
+		for _, name in ipairs(found) do
+			local value = GetCVar(name)
+			if value ~= "0" then
+				db.gameXPOld[name] = value
+				SetCVar(name, "0")
+			end
+		end
+		if announce then
+			ns.PrintAlways(#found > 0 and L.REPFLASH_GAMEXP_FOUND:format(table.concat(found, ", ")) or L.REPFLASH_GAMEXP_NONE)
+		end
+	else
+		for name, value in pairs(db.gameXPOld) do
+			SetCVar(name, value)
+			db.gameXPOld[name] = nil
+		end
+	end
+end
+
 function RepFlash:OnLogin()
 	BuildHonorPatterns()
 	self:Apply()
+	if self.db.hideGameXP then
+		self:ApplyGameXP(false)
+	end
 end
 
-function RepFlash:OnOptionChanged()
+function RepFlash:OnOptionChanged(key)
+	if key == "hideGameXP" then
+		self:ApplyGameXP(true)
+	end
 	self:Apply()
 end
 
@@ -355,6 +406,7 @@ RepFlash.options = {
 	{ key = "xp", type = "toggle", name = L.REPFLASH_XP_OPTION, desc = L.REPFLASH_XP_OPTION_DESC, new = true },
 	{ key = "honor", type = "toggle", name = L.REPFLASH_HONOR_OPTION, desc = L.REPFLASH_HONOR_OPTION_DESC, new = true },
 	{ key = "hideChat", type = "toggle", name = L.REPFLASH_HIDE_CHAT, desc = L.REPFLASH_HIDE_CHAT_DESC, new = true },
+	{ key = "hideGameXP", type = "toggle", name = L.REPFLASH_GAMEXP, desc = L.REPFLASH_GAMEXP_DESC, new = true },
 	{ key = "xpClassColor", type = "toggle", name = L.REPFLASH_XP_COLOR, desc = L.REPFLASH_XP_COLOR_DESC, parent = "xp", new = true },
 	{ key = "xpSparkle", type = "toggle", name = L.REPFLASH_XP_SPARKLE, desc = L.REPFLASH_XP_SPARKLE_DESC, parent = "xp", new = true },
 	{ key = "xpSound", type = "toggle", name = L.REPFLASH_XP_SOUND, desc = L.REPFLASH_XP_SOUND_DESC, parent = "xp", new = true },

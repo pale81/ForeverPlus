@@ -28,6 +28,7 @@ Modules\Loot.lua
 Modules\Tooltip.lua
 Modules\QuestieInfo.lua
 Modules\Minimap.lua
+Modules\Teleports.lua
 Data\MapOverlays.lua
 Data\Instances.lua
 Data\Places.lua

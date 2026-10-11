@@ -278,6 +278,7 @@ local PAGES = {
 	{ title = L.PAGE_INFO,
 		{ "QoL", header = L.QOL_MINIMAP_HEADER, keys = Keys("hideMinimapButtons") },
 		{ "Minimap" },
+		{ "Teleports", header = L.TELEPORTS_TITLE },
 		{ "WorldMap", header = L.WORLDMAP_TITLE },
 		{ "Info", header = L.INFO_TITLE },
 		{ "DataCapture", header = L.DATA_TITLE },

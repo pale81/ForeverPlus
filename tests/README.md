@@ -10,6 +10,8 @@ QUESTIEDB=/pfad/QuestieDB/ lua5.1 run.lua ..
 
 Ohne `QUESTIEDB` wird `../../QuestieDB/` (neben dem Addon-Ordner) erwartet. Ein Fehler bricht mit `lua5.1: run.lua:<Zeile>: <Meldung>` ab; sonst endet die Ausgabe mit den letzten `… OK`-Zeilen.
 
+`sh tools/check.sh` führt Tests und luacheck zusammen aus (Voraussetzungen: `sh tools/setup-local.sh`).
+
 Weitere Prüfungen:
 
 - `luacheck .` im Addon-Ordner: 0 Warnungen. Neue Blizzard-Globale gehören in `read_globals` in `.luacheckrc`.

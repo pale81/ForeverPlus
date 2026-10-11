@@ -12,6 +12,7 @@ local XPBar = ns:NewModule("XPBar", {
 		repFormat = "full",
 		questXP = true,
 		restedShimmer = true,
+		hideBar = false,
 	},
 })
 
@@ -230,6 +231,35 @@ function XPBar:ApplyTextSetting()
 	SetCVar("xpBarText", self.db.textMode == "always" and "1" or "0")
 end
 
+-- Blizzard's experience bar hidden completely (it stays where it is; its alpha is kept at 0).
+local alphaHooked, keepAlpha, hiddenByUs = false, false, false
+
+local function ApplyHidden()
+	local container = MainStatusTrackingBarContainer
+	if not container then
+		return
+	end
+	if not alphaHooked then
+		alphaHooked = true
+		hooksecurefunc(container, "SetAlpha", function(frame)
+			if XPBar.db.hideBar and not keepAlpha and ns.Number(frame:GetAlpha(), 0) > 0 then
+				keepAlpha = true
+				frame:SetAlpha(0)
+				keepAlpha = false
+			end
+		end)
+	end
+	if XPBar.db.hideBar then
+		hiddenByUs = true
+		keepAlpha = true
+		container:SetAlpha(0)
+		keepAlpha = false
+	elseif hiddenByUs then
+		hiddenByUs = false
+		container:SetAlpha(1)
+	end
+end
+
 function XPBar:OnInitialize()
 	if self.db.alwaysText ~= nil then
 		self.db.textMode = self.db.alwaysText and "always" or "mouseover"
@@ -250,6 +280,7 @@ function XPBar:OnLogin()
 		end
 	end)
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookBars)
+	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", ApplyHidden)
 	self:RegisterEvent("QUEST_LOG_UPDATE", QueueScan)
 	self:RegisterEvent("PLAYER_XP_UPDATE", UpdateBars)
 	QueueScan()
@@ -260,6 +291,8 @@ function XPBar:OnOptionChanged(key)
 		self:ApplyTextSetting()
 	elseif key == "questXP" then
 		QueueScan()
+	elseif key == "hideBar" then
+		ApplyHidden()
 	end
 	UpdateBars()
 	for bar in pairs(expBars) do
@@ -271,6 +304,7 @@ function XPBar:OnOptionChanged(key)
 end
 
 XPBar.options = {
+	{ key = "hideBar", type = "toggle", name = L.XP_HIDE_BAR, desc = L.XP_HIDE_BAR_DESC, new = true },
 	{ key = "restedShimmer", type = "toggle", name = L.XP_SHIMMER, desc = L.XP_SHIMMER_DESC, new = true },
 	{ key = "textMode", type = "dropdown", name = L.XP_TEXT_MODE, desc = L.XP_TEXT_MODE_DESC, values = {
 		{ "mouseover", L.XP_TEXT_MOUSEOVER }, { "always", L.XP_TEXT_ALWAYS },

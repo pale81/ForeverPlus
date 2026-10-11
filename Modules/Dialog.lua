@@ -18,7 +18,6 @@ local Dialog = ns:NewModule("Dialog", {
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
 		trainer = true,        -- the trainer's list in the bubble too
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
-		merchantTalk = false,  -- the merchant speaks first, the wares come with the next step (the saying is above the list otherwise)
 		merchantHide = false,  -- hide wares that cannot be used or are known already
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
@@ -1620,20 +1619,6 @@ end
 
 function Dialog.MerchantView()
 	local money = GetMoney()
-	-- First the merchant talks (option): "look at the wares" goes on to the list.
-	if merchantMode == "talk" then
-		return {
-			name = NpcName(), blocks = { { text = merchantSaying or PickSaying() } },
-			buttons = {
-				{ text = GOODBYE or CLOSE, action = Dialog.CloseCurrent },
-				{ text = L.DIALOG_MERCHANT_LOOK, primary = true, action = function()
-					merchantMode = "wares"
-					RefreshMerchant()
-				end },
-			},
-			filter = false,
-		}
-	end
 	local buyback = merchantMode == "buyback"
 	local entries = buyback and BuybackEntries() or MerchantEntries()
 	local total = #entries
@@ -1894,7 +1879,7 @@ function Dialog:OnConversation(event)
 			wipe(merchantPicked)
 			wipe(merchantQty)
 			merchantOffset, merchantSaying = 0, PickSaying()
-			merchantMode = self.db.merchantTalk and "talk" or "wares"
+			merchantMode = "wares"
 			wipe(knownWares)
 		end
 		event = "MERCHANT_SHOW"
@@ -1975,11 +1960,6 @@ function Dialog:OnInitialize()
 		self.db.onByDefault = true
 		self.db.enabled = true
 	end
-	-- The saying belongs above the list of wares, not in a step of its own (changed default, once).
-	if not self.db.merchantTalkReset then
-		self.db.merchantTalkReset = true
-		self.db.merchantTalk = false
-	end
 end
 
 -- /fp blase: state of the bubble and of what the conversation offers.
@@ -2032,7 +2012,6 @@ Dialog.options = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
-	{ key = "merchantTalk", type = "toggle", name = L.DIALOG_MERCHANT_TALK, desc = L.DIALOG_MERCHANT_TALK_DESC, parent = "merchant", new = true },
 	{ key = "merchantHide", type = "toggle", name = L.DIALOG_MERCHANT_HIDE, desc = L.DIALOG_MERCHANT_HIDE_DESC, parent = "merchant", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },
 }

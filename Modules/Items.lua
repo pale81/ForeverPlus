@@ -10,6 +10,7 @@ local Items = ns:NewModule("Items", {
 		autoSell = true,
 		sellButton = true,
 		autoSort = false,
+		sortSkip = true,
 		bagMenu = true,
 		sortMarkedJunk = true,
 		autoRepair = true,
@@ -1651,7 +1652,7 @@ local function SortOnOpen()
 	if now - lastSort < SORT_PAUSE or AnyLocked() then
 		return
 	end
-	if sortedLayout and sortedLayout == Items.LayoutSignature() then
+	if Items.db.sortSkip and sortedLayout and sortedLayout == Items.LayoutSignature() then
 		return
 	end
 	lastSort = now
@@ -1804,6 +1805,13 @@ local function PlacingStep()
 	end
 	local move = state.moves[state.next]
 	if not move then
+		-- The game's cleanup can still be moving things: after moves, look once more (up to three rounds).
+		if #state.moves > 0 and (state.rounds or 1) < 3 then
+			state.rounds = (state.rounds or 1) + 1
+			state.moves = nil
+			state.lastUpdate = now
+			return
+		end
 		StopPlacing(true)
 		return
 	end
@@ -1824,6 +1832,46 @@ local function OnSortStarted()
 	StopPlacing()
 	placing = { started = GetTime(), lastUpdate = GetTime(), slots = SortedSlots() }
 	placing.ticker = C_Timer.NewTicker(MOVE_INTERVAL, PlacingStep)
+end
+
+-- The game's cleanup button: while nothing changed since the last finished sort it does nothing (the cleanup
+-- would shuffle everything and ForeverPlus would move the marked items back).
+local sortOverlay
+
+local function BagsUnchanged()
+	return Items.db.sortSkip and sortedLayout and not sorting and not placing and not InCombatLockdown()
+		and sortedLayout == Items.LayoutSignature()
+end
+
+local function UpdateSortOverlay()
+	local parent = _G.BagItemAutoSortButton
+	if not parent then
+		return
+	end
+	if not sortOverlay then
+		sortOverlay = CreateFrame("Button", nil, parent)
+		sortOverlay:SetAllPoints()
+		sortOverlay:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 1) + 2)
+		sortOverlay:RegisterForClicks("LeftButtonUp")
+		sortOverlay:SetScript("OnClick", function()
+			if BagsUnchanged() then
+				return
+			end
+			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
+			C_Container.SortBags()
+		end)
+		sortOverlay:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self)
+			GameTooltip_SetTitle(GameTooltip, BAG_CLEANUP_BAGS, HIGHLIGHT_FONT_COLOR)
+			GameTooltip_AddNormalLine(GameTooltip, BAG_CLEANUP_BAGS_DESCRIPTION)
+			if BagsUnchanged() then
+				GameTooltip_AddInstructionLine(GameTooltip, L.ITEMS_SORT_DONE)
+			end
+			GameTooltip:Show()
+		end)
+		sortOverlay:SetScript("OnLeave", GameTooltip_Hide)
+	end
+	sortOverlay:SetShown(Items.db.sortSkip and true or false)
 end
 
 function Items:BAG_UPDATE()
@@ -2327,6 +2375,7 @@ function Items:OnLogin()
 	if C_Container.SortBags then
 		hooksecurefunc(C_Container, "SortBags", OnSortStarted)
 	end
+	UpdateSortOverlay()
 	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
 	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
@@ -2336,6 +2385,9 @@ function Items:OnLogin()
 end
 
 function Items:OnOptionChanged(key)
+	if key == "sortSkip" then
+		UpdateSortOverlay()
+	end
 	-- A character list starts as a copy of the account list.
 	if key == "junkPerCharacter" and self.db.junkPerCharacter
 		and next(self.cdb.junk) == nil and next(self.cdb.keep) == nil then
@@ -2374,6 +2426,7 @@ Items.options = {
 	end },
 	{ type = "header", name = L.ITEMS_BAGS },
 	{ key = "autoSort", type = "toggle", name = L.ITEMS_AUTOSORT, desc = L.ITEMS_AUTOSORT_DESC },
+	{ key = "sortSkip", type = "toggle", name = L.ITEMS_SORT_SKIP, desc = L.ITEMS_SORT_SKIP_DESC, new = true },
 	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
 	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
 	{ key = "sortMarkedJunk", type = "toggle", name = L.ITEMS_SORT_JUNK, desc = L.ITEMS_SORT_JUNK_DESC },

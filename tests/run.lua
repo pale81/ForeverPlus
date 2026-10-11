@@ -2963,7 +2963,7 @@ end)()
 	assert(#texts == 0, "option off: no entries")
 	WM.db.filterMenu = true
 	WM.AddFilterMenu(node(0))
-	assert(texts[1] == "# " .. ns.L.MENU_EXTRAS, "own section under a title")
+	assert(texts[1] == "# ForeverPlus", "own section under the addon name")
 	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
 		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
 	assert(nested >= 3, "recipe radar options as a submenu")

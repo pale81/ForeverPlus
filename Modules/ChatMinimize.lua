@@ -1,7 +1,7 @@
--- Minimize the chat: a small button above the chat window folds it away with a smooth fade (and lets it back in
--- the same way), a little like the chat addon Glass. While minimized, new messages are counted on the button and
--- make it pulse. The chat window itself keeps its size, position and settings; only its transparency (and its
--- mouse) is changed, so Blizzard's layout is not touched. Nothing is copied from Glass.
+-- Chat that folds away by itself: when nothing was written for a few seconds and the mouse is not over it, the
+-- chat window and its tabs fade out smoothly; a new message, the mouse over the chat or typing brings it back the
+-- same way, a little like the chat addon Glass. The window keeps its size, position and settings; only its
+-- transparency (and its mouse) changes, so Blizzard's layout is untouched. Nothing is copied from Glass.
 local _, ns = ...
 local L = ns.L
 
@@ -10,136 +10,107 @@ local Minimize = ns:NewModule("ChatMinimize", {
 	order = 5.96,
 	defaults = {
 		enabled = false,
-	},
-	charDefaults = {
-		minimized = false,
+		delay = 8, -- seconds without a message before the chat folds away
 	},
 })
 
-local DURATION = 0.28 -- seconds of the fade
+local FADE_OUT, FADE_IN = 0.6, 0.2 -- seconds
+local CHECK = 0.25                 -- seconds between looks at the mouse and the idle time
 
-local button, driver
-local progress = 0       -- 0: chat shown, 1: chat folded away
-local target = 0
-local unread = 0
+local driver, ticker
+local alpha = 1          -- shown alpha, 1 = chat fully shown
+local target = 1
+local lastActivity = 0
 
--- The parts of the chat that fold away: the window with its text and buttons, and the row of tabs.
+-- The windows that fold: every chat window and the row of tabs.
 local function Parts()
-	return { ChatFrame1, GeneralDockManager }
-end
-
-local function Ease(t) -- slow end
-	return 1 - (1 - t) * (1 - t) * (1 - t)
+	local parts = { GeneralDockManager }
+	for index = 1, ns.Number(NUM_CHAT_WINDOWS, 10) do
+		local frame = _G["ChatFrame" .. index]
+		if frame and frame ~= COMBATLOG then
+			parts[#parts + 1] = frame
+		end
+	end
+	return parts
 end
 
 local function Apply()
-	local alpha = 1 - Ease(progress)
+	local folded = alpha <= 0.01
 	for _, part in ipairs(Parts()) do
-		if part and part.SetAlpha then
-			part:SetAlpha(alpha)
+		part:SetAlpha(alpha)
+		-- Folded away the chat does not catch the mouse (clicks reach the world); the mouse over the place it
+		-- covers is still noticed by looking at the geometry.
+		if part.SetMouseClickEnabled then
+			part:SetMouseClickEnabled(not folded)
 		end
 	end
-	local hidden = progress >= 1
-	for _, part in ipairs(Parts()) do
-		if part and part.SetMouseClickEnabled then
-			part:SetMouseClickEnabled(not hidden)
-			part:SetMouseMotionEnabled(not hidden)
-		end
-	end
-end
-
-local function UpdateButton()
-	if not button then
-		return
-	end
-	local folded = target >= 1
-	button.Icon:SetTexture(folded and [[Interface\Buttons\UI-PlusButton-Up]] or [[Interface\Buttons\UI-MinusButton-Up]])
-	button.Count:SetText(folded and unread > 0 and tostring(unread) or "")
-	button.Chat:SetShown(folded)
 end
 
 local function Step(_, elapsed)
-	local step = elapsed / DURATION
-	if progress < target then
-		progress = math.min(target, progress + step)
-	elseif progress > target then
-		progress = math.max(target, progress - step)
+	local change = elapsed / (target > alpha and FADE_IN or FADE_OUT)
+	if alpha < target then
+		alpha = math.min(target, alpha + change)
+	else
+		alpha = math.max(target, alpha - change)
 	end
 	Apply()
-	if progress == target then
-		driver:SetScript("OnUpdate", nil)
+	if alpha == target then
+		ns.SetUpdate(driver, "ChatMinimize: fade", nil)
 	end
 end
 
-local function SetFolded(folded, instant)
-	target = folded and 1 or 0
-	Minimize.cdb.minimized = folded and true or false
-	if not folded then
-		unread = 0
+local function FadeTo(value)
+	if target == value then
+		return
 	end
-	UpdateButton()
-	if instant or not Minimize.db.enabled then
-		progress = target
-		Apply()
-		driver:SetScript("OnUpdate", nil)
-	else
-		ns.SetUpdate(driver, "ChatMinimize: fade", Step)
-	end
+	target = value
+	ns.SetUpdate(driver, "ChatMinimize: fade", Step)
 end
 
-local function Create()
-	driver = CreateFrame("Frame")
-	button = CreateFrame("Button", "ForeverPlusChatMinimizeButton", UIParent)
-	button:SetSize(18, 18)
-	button:SetFrameStrata("MEDIUM")
-	button:RegisterForClicks("LeftButtonUp")
-	button.Icon = button:CreateTexture(nil, "ARTWORK")
-	button.Icon:SetAllPoints()
-	button.Highlight = button:CreateTexture(nil, "HIGHLIGHT")
-	button.Highlight:SetAllPoints()
-	button.Highlight:SetTexture([[Interface\Buttons\UI-Common-MouseHilight]])
-	button.Highlight:SetBlendMode("ADD")
-	-- While folded away: a chat bubble beside the button and the number of new messages.
-	button.Chat = button:CreateTexture(nil, "ARTWORK")
-	button.Chat:SetTexture([[Interface\ChatFrame\UI-ChatIcon-Chat-Up]])
-	button.Chat:SetSize(18, 18)
-	button.Chat:SetPoint("LEFT", button, "RIGHT", 2, 0)
-	button.Count = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	button.Count:SetPoint("LEFT", button.Chat, "RIGHT", 2, 0)
-	button.Pulse = button.Chat:CreateAnimationGroup()
-	local up = button.Pulse:CreateAnimation("Alpha")
-	up:SetFromAlpha(1)
-	up:SetToAlpha(0.25)
-	up:SetDuration(0.25)
-	up:SetOrder(1)
-	local down = button.Pulse:CreateAnimation("Alpha")
-	down:SetFromAlpha(0.25)
-	down:SetToAlpha(1)
-	down:SetDuration(0.25)
-	down:SetOrder(2)
-	button:SetScript("OnClick", function()
-		SetFolded(target < 1)
-	end)
-	button:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip_SetTitle(GameTooltip, target >= 1 and L.CHATMIN_SHOW or L.CHATMIN_HIDE)
-		if target >= 1 and unread > 0 then
-			GameTooltip_AddNormalLine(GameTooltip, L.CHATMIN_UNREAD:format(unread))
+local function Wake()
+	lastActivity = GetTime()
+	FadeTo(1)
+end
+
+local function MouseOverChat()
+	if GeneralDockManager and GeneralDockManager:IsMouseOver() then
+		return true
+	end
+	for _, part in ipairs(Parts()) do
+		if part:IsShown() and part:IsMouseOver() then
+			return true
 		end
-		GameTooltip:Show()
-	end)
-	button:SetScript("OnLeave", GameTooltip_Hide)
-	-- Above the row of tabs, at its left end.
-	button:SetPoint("BOTTOMLEFT", GeneralDockManager or ChatFrame1, "TOPLEFT", 0, 2)
-	if ChatFrame1 and ChatFrame1.AddMessage then
-		hooksecurefunc(ChatFrame1, "AddMessage", ns.Measured("ChatMinimize: message", function()
-			if Minimize.db.enabled and target >= 1 then
-				unread = unread + 1
-				UpdateButton()
-				button.Pulse:Stop()
-				button.Pulse:Play()
-			end
-		end))
+	end
+	return false
+end
+
+local function Check()
+	if not Minimize.db.enabled then
+		return
+	end
+	-- Typing keeps it open.
+	local getActive = ChatFrameUtil and ChatFrameUtil.GetActiveWindow or ChatEdit_GetActiveWindow
+	local editing = getActive and getActive()
+	if editing or MouseOverChat() then
+		Wake()
+	elseif target >= 1 and GetTime() - lastActivity >= Minimize.db.delay then
+		FadeTo(0)
+	end
+end
+
+local hooked = {}
+
+local function HookFrames()
+	for index = 1, ns.Number(NUM_CHAT_WINDOWS, 10) do
+		local frame = _G["ChatFrame" .. index]
+		if frame and frame ~= COMBATLOG and not hooked[frame] and type(frame.AddMessage) == "function" then
+			hooked[frame] = true
+			hooksecurefunc(frame, "AddMessage", ns.Measured("ChatMinimize: message", function()
+				if Minimize.db.enabled then
+					Wake()
+				end
+			end))
+		end
 	end
 end
 
@@ -147,17 +118,20 @@ function Minimize:Apply()
 	if not ChatFrame1 then
 		return
 	end
-	if not button then
-		Create()
+	driver = driver or CreateFrame("Frame")
+	HookFrames()
+	if ticker then
+		ticker:Cancel()
+		ticker = nil
 	end
-	button:SetShown(self.db.enabled and true or false)
 	if self.db.enabled then
-		SetFolded(self.cdb.minimized, true)
+		lastActivity = GetTime()
+		ticker = C_Timer.NewTicker(CHECK, Check)
 	else
-		-- Off: the chat is shown again.
-		target, progress, unread = 0, 0, 0
+		-- Off: the chat is shown again at once.
+		target, alpha = 1, 1
+		ns.SetUpdate(driver, "ChatMinimize: fade", nil)
 		Apply()
-		UpdateButton()
 	end
 end
 
@@ -171,4 +145,8 @@ end
 
 Minimize.options = {
 	{ key = "enabled", type = "toggle", name = L.CHATMIN_ENABLE, desc = L.CHATMIN_DESC, new = true },
+	{ key = "delay", type = "slider", name = L.CHATMIN_DELAY, parent = "enabled", min = 3, max = 60, step = 1,
+		format = function(value)
+			return ("%d s"):format(value)
+		end },
 }

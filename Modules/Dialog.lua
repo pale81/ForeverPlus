@@ -324,26 +324,6 @@ local function CreateBubble()
 		end
 		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
 	end)
-	-- A grey x at the top right closes merchant and trainer windows (they have no "close" button).
-	local close = CreateFrame("Button", nil, frame)
-	close:SetSize(14, 14)
-	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 2, 2)
-	close.Icon = close:CreateTexture(nil, "ARTWORK")
-	close.Icon:SetAllPoints()
-	close.Icon:SetAtlas("uitools-icon-close")
-	close.Icon:SetDesaturated(true)
-	close.Icon:SetAlpha(0.6)
-	close:SetScript("OnEnter", function(self)
-		self.Icon:SetAlpha(1)
-	end)
-	close:SetScript("OnLeave", function(self)
-		self.Icon:SetAlpha(0.6)
-	end)
-	close:SetScript("OnClick", function()
-		Dialog.CloseCurrent()
-	end)
-	close:Hide()
-	frame.Close = close
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.selectedRow = 1
 	return frame
@@ -377,6 +357,12 @@ local function CreateRow(frame)
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
 	row.Icon:SetSize(16, 16)
 	row.Icon:SetPoint("TOPLEFT", 0, -1)
+	-- Small green arrow between the icon and the number: the ware beats what is worn.
+	row.Arrow = row:CreateTexture(nil, "OVERLAY")
+	row.Arrow:SetAtlas("bags-greenarrow")
+	row.Arrow:SetSize(12, 12)
+	row.Arrow:SetPoint("TOPLEFT", 21, -2)
+	row.Arrow:Hide()
 	row.Text = row:CreateFontString(nil, "OVERLAY")
 	row.Text:SetFontObject(TextFont())
 	row.Text:SetJustifyH("LEFT")
@@ -481,10 +467,21 @@ local function CreateItem(frame)
 	item.Upgrade:SetAtlas("bags-greenarrow", true)
 	item.Upgrade:SetPoint("TOPRIGHT", 0, 0)
 	item.Upgrade:Hide()
+	-- The chosen item glows like the buttons the game points out (the classic gold glow around an action button,
+	-- added on top of the picture, breathing softly); no square behind it.
 	item.Chosen = item:CreateTexture(nil, "OVERLAY", nil, 7)
-	item.Chosen:SetPoint("TOPLEFT", -3, 3)
-	item.Chosen:SetPoint("BOTTOMRIGHT", 3, -3)
-	item.Chosen:SetColorTexture(1, 0.82, 0, 0.35)
+	item.Chosen:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+	item.Chosen:SetBlendMode("ADD")
+	item.Chosen:SetPoint("CENTER")
+	item.Chosen:SetSize(ITEM_SIZE * 1.75, ITEM_SIZE * 1.75)
+	item.Chosen:SetVertexColor(1, 0.85, 0.4)
+	item.Chosen.Pulse = item.Chosen:CreateAnimationGroup()
+	item.Chosen.Pulse:SetLooping("BOUNCE")
+	local pulse = item.Chosen.Pulse:CreateAnimation("Alpha")
+	pulse:SetFromAlpha(1)
+	pulse:SetToAlpha(0.45)
+	pulse:SetDuration(0.8)
+	pulse:SetSmoothing("IN_OUT")
 	item.Chosen:Hide()
 	item:SetScript("OnEnter", function(self)
 		if self.tooltip then
@@ -574,7 +571,8 @@ Render = function(view)
 				row:ClearAllPoints()
 				row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
 				row:SetWidth(WIDTH)
-				local iconWidth = info.icon and 20 or 0
+				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
+				row.Arrow:SetShown(info.upgrade and true or false)
 				row.Icon:SetShown(info.icon ~= nil)
 				if info.icon then
 					row.Icon:SetTexture(info.icon)
@@ -670,7 +668,13 @@ Render = function(view)
 					end
 				end) and true or false)
 				item.tooltip = info.tooltip
-				item.Chosen:SetShown(block.choose and current and current.selected == info.choice or false)
+				local chosen = block.choose and current and current.selected == info.choice or false
+				item.Chosen:SetShown(chosen)
+				if chosen then
+					item.Chosen.Pulse:Play()
+				else
+					item.Chosen.Pulse:Stop()
+				end
 				item.action = block.choose and function()
 					current.selected = info.choice
 					Render(view)
@@ -709,7 +713,6 @@ Render = function(view)
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
 	Dialog.UpdateTools(view)
-	frame.Close:SetShown(view.kind == "MERCHANT_SHOW" or view.kind == "TRAINER_SHOW")
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
 	frame.Abandon.questID = view.abandonQuestID
@@ -982,10 +985,6 @@ local function NpcName()
 	return Readable(UnitName("npc")) or ""
 end
 
-local function Marker(symbol)
-	return ("|c%s%s|r "):format(Palette().marker, symbol)
-end
-
 local function CloseConversation()
 	if C_GossipInfo and C_GossipInfo.CloseGossip and GossipFrame and GossipFrame:IsShown() then
 		C_GossipInfo.CloseGossip()
@@ -998,6 +997,14 @@ local function GoodbyeButton()
 	return { text = GOODBYE or CLOSE, action = CloseConversation }
 end
 
+-- The game's own quest symbols in front of the quests of a gossip or greeting step: ! available, ? to hand in,
+-- grey ? not finished yet.
+local QUEST_ICON = {
+	available = [[Interface\GossipFrame\AvailableQuestIcon]],
+	turnin = [[Interface\GossipFrame\ActiveQuestIcon]],
+	incomplete = [[Interface\GossipFrame\IncompleteQuestIcon]],
+}
+
 function Dialog.GossipView()
 	local blocks, rows = {}, {}
 	local text = Readable(C_GossipInfo.GetText())
@@ -1006,7 +1013,8 @@ function Dialog.GossipView()
 	end
 	for _, info in ipairs(C_GossipInfo.GetActiveQuests() or {}) do
 		rows[#rows + 1] = {
-			text = Marker(info.isComplete and "?" or "…") .. (Readable(info.title) or ""),
+			text = Readable(info.title) or "",
+			icon = info.isComplete and QUEST_ICON.turnin or QUEST_ICON.incomplete,
 			dim = not info.isComplete,
 			action = function()
 				C_GossipInfo.SelectActiveQuest(info.questID)
@@ -1015,7 +1023,8 @@ function Dialog.GossipView()
 	end
 	for _, info in ipairs(C_GossipInfo.GetAvailableQuests() or {}) do
 		rows[#rows + 1] = {
-			text = Marker("!") .. (Readable(info.title) or ""),
+			text = Readable(info.title) or "",
+			icon = QUEST_ICON.available,
 			dim = info.isTrivial,
 			action = function()
 				C_GossipInfo.SelectAvailableQuest(info.questID)
@@ -1055,7 +1064,8 @@ function Dialog.GreetingView()
 	for i = 1, GetNumActiveQuests() do
 		local title, isComplete = GetActiveTitle(i)
 		rows[#rows + 1] = {
-			text = Marker(isComplete and "?" or "…") .. (Readable(title) or ""),
+			text = Readable(title) or "",
+			icon = isComplete and QUEST_ICON.turnin or QUEST_ICON.incomplete,
 			dim = not isComplete,
 			action = function()
 				SelectActiveQuest(i)
@@ -1065,7 +1075,8 @@ function Dialog.GreetingView()
 	for i = 1, GetNumAvailableQuests() do
 		local isTrivial = GetAvailableQuestInfo(i)
 		rows[#rows + 1] = {
-			text = Marker("!") .. (Readable(GetAvailableTitle(i)) or ""),
+			text = Readable(GetAvailableTitle(i)) or "",
+			icon = QUEST_ICON.available,
 			dim = isTrivial,
 			action = function()
 				SelectAvailableQuest(i)
@@ -1285,6 +1296,7 @@ function Dialog.TrainerView()
 	return {
 		name = NpcName(), blocks = blocks, revealed = true,
 		buttons = {
+			{ text = GOODBYE or CLOSE, action = Dialog.CloseCurrent },
 			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, spends = true, enabled = selection ~= nil, action = function()
 				BuyTrainerService(selection.index)
 			end },
@@ -1427,6 +1439,7 @@ function Dialog.MerchantView()
 		return {
 			name = NpcName(), blocks = { { text = merchantSaying or PickSaying() } },
 			buttons = {
+				{ text = GOODBYE or CLOSE, action = Dialog.CloseCurrent },
 				{ text = L.DIALOG_MERCHANT_LOOK, primary = true, action = function()
 					merchantMode = "wares"
 					RefreshMerchant()
@@ -1469,6 +1482,8 @@ function Dialog.MerchantView()
 	end
 	table.sort(picks)
 	local rows = {}
+	-- All rows leave room for the arrow when the option for upgrade arrows is on (so the texts stay aligned).
+	local arrowSlot = not buyback and ns.IsRewardUpgrade ~= nil and ns:GetModule("Items").db.rewardUpgrade
 	for position = merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS) do
 		local entry = entries[position]
 		local index, info = entry.index, entry.info
@@ -1477,6 +1492,9 @@ function Dialog.MerchantView()
 		rows[#rows + 1] = {
 			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
 			icon = info.texture,
+			arrowSlot = arrowSlot,
+			upgrade = not buyback and info.isUsable ~= false and ns.IsRewardUpgrade
+				and ns.IsRewardUpgrade(GetMerchantItemLink(index), RefreshMerchant) or false,
 			dim = info.isPurchasable == false,
 			picked = isPicked, -- in the basket: a tick, a green tint, a glitter frame and the quantity field
 			counter = isPicked and not buyback and QuantityOf(index) or nil,
@@ -1623,6 +1641,8 @@ function Dialog.MerchantView()
 		end
 	end
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
+	-- "Goodbye" at the lower left (the first button), like at every other step.
+	table.insert(buttons, 1, { text = GOODBYE or CLOSE, action = Dialog.CloseCurrent })
 	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback, tools = available }
 end
 

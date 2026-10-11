@@ -586,14 +586,14 @@ local function LayoutBorder(border, size)
 end
 
 -- Shows the border in the given colour, exactly `pixels` screen pixels wide.
-function BorderMixin:ShowColor(r, g, b)
+function BorderMixin:ShowColor(r, g, b, a)
 	local size = PixelUtil.GetNearestPixelSize(self.pixels, self.anchor:GetEffectiveScale(), self.pixels)
 	if self.size ~= size then
 		self.size = size
 		LayoutBorder(self, size)
 	end
 	for _, part in ipairs(self.parts) do
-		part:SetVertexColor(r, g, b, 1)
+		part:SetVertexColor(r, g, b, a or 1)
 		part:Show()
 	end
 end

@@ -1816,7 +1816,7 @@ end)()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
 	assert(rows and #rows == 2 and rows[1].action and not rows[2].action and rows[2].dim, "available first, locked dimmed, used left out")
-	assert(view.buttons[1].enabled == false and view.buttons[2].enabled == true, "train needs a selection, train all is possible")
+	assert(view.buttons[2].enabled == false and view.buttons[3].enabled == true, "train needs a selection, train all is possible (button 1 says goodbye)")
 	print("trainer view OK")
 end)()
 ;(function()
@@ -1835,13 +1835,13 @@ end)()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
 	assert(rows and #rows == 2 and rows[1].text:find("100c") and rows[2].text:find("200c"), "two wares with prices")
-	assert(view.buttons[1].enabled == false, "nothing selected: no purchase")
+	assert(view.buttons[2].enabled == false, "nothing selected: no purchase")
 	-- A ware in the basket: Space and the number keys never buy (they are jump and action bar); the button does,
 	-- and the basket is empty afterwards.
 	rows[1].action("LeftButton")
 	view = dialog.MerchantView()
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
-	assert(rows[1].picked and view.buttons[1].enabled and view.buttons[1].spends, "picked ware can be bought, button marked as spending")
+	assert(rows[1].picked and view.buttons[2].enabled and view.buttons[2].spends, "picked ware can be bought, button marked as spending")
 	local bought = {}
 	BuyMerchantItem = function(index, quantity) bought[#bought + 1] = index .. "x" .. quantity end
 	GetMerchantItemMaxStack = function() return 20 end
@@ -1855,10 +1855,10 @@ end)()
 		current.view = saved
 		assert(#bought == 0, "keys do not buy")
 	end
-	view.buttons[1].action()
+	view.buttons[2].action()
 	assert(bought[1] == "1x1" and #bought == 1, "button buys once: " .. table.concat(bought, ","))
 	view = dialog.MerchantView()
-	assert(view.buttons[1].enabled == false, "basket empty after buying")
+	assert(view.buttons[2].enabled == false, "basket empty after buying")
 	-- A pack of 200: quantity 2 means two packs, 400 items, bought pack by pack.
 	local savedMerchant = C_MerchantFrame
 	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Pfeil", texture = 1, price = 10, stackCount = 200, numAvailable = -1, isPurchasable = true, isUsable = true } end }
@@ -1874,7 +1874,7 @@ end)()
 	rows[1].action("LeftButton") -- counts up to 2
 	view = dialog.MerchantView()
 	wipe(bought)
-	view.buttons[1].action()
+	view.buttons[2].action()
 	assert(#bought == 2 and bought[1] == "1x200" and bought[2] == "1x200", "two packs of 200: " .. table.concat(bought, ","))
 	IsShiftKeyDown = savedShift
 	C_MerchantFrame = savedMerchant

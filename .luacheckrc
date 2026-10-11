@@ -132,7 +132,7 @@ read_globals = {
 	"Ambiguate",
 	"LANGUAGE",
 	"ChatFrameMenuButton",
-	"ChatFrame1", "GameMenuFrame", "ADDONS", "ScrollBoxListMixin", "NUM_CHAT_WINDOWS", "ChatEdit_GetActiveWindow",
+	"ChatFrame1", "GameMenuFrame", "OPTIONS", "ScrollBoxListMixin", "NUM_CHAT_WINDOWS", "ChatEdit_GetActiveWindow",
 	"TOOLTIP_DEFAULT_BACKGROUND_COLOR", "TOOLTIP_DEFAULT_COLOR", "PaperDollItemSlotButton_Update", "GetInventoryItemQuality",
 	"RequestTimePlayed",
 	"GetNetStats",

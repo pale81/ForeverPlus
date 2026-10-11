@@ -20,13 +20,6 @@ local function CountAsSeen(id)
 	counts[id] = math.min(NEW_SEEN_LIMIT, (counts[id] or 0) + 1)
 end
 
-local function SetFrameLabel(frame, text)
-	local label = frame.Text or frame.Label or frame.Name
-	if label and label.SetText then
-		label:SetText(text)
-	end
-end
-
 local function AddSearchTags(initializer, ...)
 	if not initializer or not initializer.AddSearchTags then
 		return
@@ -46,20 +39,52 @@ end
 -- Count a feature each time its settings row is displayed. Settings rows are
 -- hidden and shown again when switching pages, so revisiting the page counts
 -- as another view. The count is account-wide and survives reloads.
-local function TrackNew(initializer, id, text, enabled)
+-- The glowing "NEW" label behind the name of a settings row (checkbox, slider, section title) while it is new.
+local function RowLabel(frame)
+	return frame.Text or frame.Label or frame.Title or frame.Name
+end
+
+local function ShowRowBadge(frame, on)
+	local badge = frame.fpNewBadge
+	if on then
+		if not badge then
+			badge = ns.CreateNewBadge(frame, L.SETTINGS_NEW or _G.NEW or "NEW")
+			frame.fpNewBadge = badge
+			-- Rows are reused for other settings: the label goes away with the row.
+			frame:HookScript("OnHide", function(row)
+				if row.fpNewBadge then
+					row.fpNewBadge:Hide()
+				end
+			end)
+		end
+		local label = RowLabel(frame)
+		badge:ClearAllPoints()
+		if label and label.GetStringWidth then
+			badge:SetPoint("LEFT", label, "LEFT", ns.Number(label:GetStringWidth(), 0) + 8, 0)
+		else
+			badge:SetPoint("RIGHT", frame, "RIGHT", -10, 0)
+		end
+		badge:Show()
+	elseif badge then
+		badge:Hide()
+	end
+end
+
+local function TrackNew(initializer, id, _, enabled)
 	if not enabled then
 		return initializer
 	end
 	local initFrame = initializer.InitFrame
 	function initializer:InitFrame(frame)
 		initFrame(self, frame)
+		ShowRowBadge(frame, IsNew(id, true))
 		if not frame.foreverPlusNewTracked then
 			frame.foreverPlusNewTracked = true
 			frame:HookScript("OnShow", function(row)
-				if IsNew(id, true) then
-					CountAsSeen(id)
-					if not IsNew(id, true) then
-						SetFrameLabel(row, text)
+				if row.fpNewID and IsNew(row.fpNewID, true) then
+					CountAsSeen(row.fpNewID)
+					if not IsNew(row.fpNewID, true) then
+						ShowRowBadge(row, false)
 						if RefreshBadges then
 							RefreshBadges()
 						end
@@ -67,14 +92,13 @@ local function TrackNew(initializer, id, text, enabled)
 				end
 			end)
 		end
+		frame.fpNewID = id
 	end
 	return initializer
 end
 
+-- New options carry the glowing label (see ShowRowBadge) instead of a coloured word in the name.
 local function OptionName(opt)
-	if IsNew(opt._newID, opt.new) then
-		return ("%s  |cff00ff00%s|r"):format(opt.name, L.SETTINGS_NEW or _G.NEW or "NEW")
-	end
 	return opt.name
 end
 
@@ -139,11 +163,7 @@ end
 
 local function AddOption(module, category, layout, opt, initializers)
 	if opt.type == "header" then
-		local name = opt.name
-		if IsNew(opt._newID, opt.new) then
-			name = name .. "  |cff00ff00" .. (L.SETTINGS_NEW or _G.NEW or "NEW") .. "|r"
-		end
-		local header = CreateSettingsListSectionHeaderInitializer(name, opt.desc)
+		local header = CreateSettingsListSectionHeaderInitializer(opt.name, opt.desc)
 		AddSearchTags(header, opt.name, opt.desc, "ForeverPlus")
 		if opt.new then
 			header = TrackNew(header, opt._newID, opt.name, true)
@@ -306,12 +326,8 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		end
 	end
 	if entry.header then
-		local sectionName = entry.header
 		local sectionID = "section:" .. tostring(entry._pageID) .. ":" .. module.name .. ":" .. tostring(entry.header)
-		if IsNew(sectionID, hasNew) then
-			sectionName = sectionName .. "  |cff00ff00" .. (L.SETTINGS_NEW or _G.NEW or "NEW") .. "|r"
-		end
-		local header = CreateSettingsListSectionHeaderInitializer(sectionName, entry.headerDesc)
+		local header = CreateSettingsListSectionHeaderInitializer(entry.header, entry.headerDesc)
 		AddSearchTags(header, entry.header, entry.headerDesc, pageTitle, "ForeverPlus")
 		if hasNew then
 			header = TrackNew(header, sectionID, entry.header, true)
@@ -320,9 +336,6 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 	elseif hasNew then
 		local sectionName = module.title or module.name
 		local sectionID = "section:" .. tostring(entry._pageID) .. ":" .. module.name
-		if IsNew(sectionID, true) then
-			sectionName = sectionName .. "  |cff00ff00" .. (L.SETTINGS_NEW or _G.NEW or "NEW") .. "|r"
-		end
 		local header = CreateSettingsListSectionHeaderInitializer(sectionName)
 		AddSearchTags(header, module.title, module.name, pageTitle, "ForeverPlus")
 		header = TrackNew(header, sectionID, module.title or module.name, true)
@@ -374,7 +387,7 @@ local function PageStillNew(page)
 	return false
 end
 
-local function Mark(owner, on, point, x, y)
+local function Mark(owner, on, place)
 	if not owner or (owner.IsForbidden and owner:IsForbidden()) then
 		return
 	end
@@ -385,10 +398,33 @@ local function Mark(owner, on, point, x, y)
 			ownBadges[owner] = badge
 		end
 		badge:ClearAllPoints()
-		badge:SetPoint(point, owner, point, x, y)
+		place(badge, owner)
 		badge:Show()
 	elseif badge then
 		badge:Hide()
+	end
+end
+
+local function LabelOf(button)
+	return button.Label or button.Text or button.Name
+end
+
+-- Beside the name of an entry in the list: behind it (the entry "ForeverPlus"), in front of it (the pages).
+local function BehindLabel(badge, button)
+	local label = LabelOf(button)
+	if label and label.GetStringWidth then
+		badge:SetPoint("LEFT", label, "LEFT", ns.Number(label:GetStringWidth(), 0) + 8, 0)
+	else
+		badge:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+	end
+end
+
+local function BeforeLabel(badge, button)
+	local label = LabelOf(button)
+	if label then
+		badge:SetPoint("RIGHT", label, "LEFT", 6, 0)
+	else
+		badge:SetPoint("LEFT", button, "LEFT", 2, 0)
 	end
 end
 
@@ -404,7 +440,9 @@ function RefreshBadges()
 		end
 	end
 	newIDs[mainCategory:GetID()] = any
-	Mark(SettingsPanel.AddOnsTab, any, "TOPRIGHT", -2, 6)
+	Mark(SettingsPanel.AddOnsTab, any, function(badge, tab)
+		badge:SetPoint("TOPRIGHT", tab, "TOPRIGHT", -6, -3)
+	end)
 	local list = SettingsPanel.CategoryList
 	local scrollBox = list and (list.ScrollBox or list.scrollBox)
 	if scrollBox and type(scrollBox.ForEachFrame) == "function" then
@@ -414,13 +452,16 @@ function RefreshBadges()
 			if data and data.category and data.category.GetID then
 				id = data.category:GetID()
 			end
-			Mark(button, id and newIDs[id] or false, "RIGHT", -8, 0)
+			Mark(button, id and newIDs[id] or false, id == mainCategory:GetID() and BehindLabel or BeforeLabel)
 		end)
 	end
 	if GameMenuFrame and GameMenuFrame:IsShown() and GameMenuFrame.buttonPool and type(GameMenuFrame.buttonPool.EnumerateActive) == "function" then
 		for button in GameMenuFrame.buttonPool:EnumerateActive() do
-			local isAddons = button == _G.GameMenuButtonAddons or (button.GetText and button:GetText() == ADDONS)
-			Mark(button, isAddons and any or false, "TOPLEFT", 10, -1)
+			-- On "Options": the settings of ForeverPlus are in there (Options > Addons).
+			local isOptions = button == _G.GameMenuButtonOptions or (button.GetText and button:GetText() == OPTIONS)
+			Mark(button, isOptions and any or false, function(badge, owner)
+				badge:SetPoint("TOPRIGHT", owner, "TOPRIGHT", -10, -1)
+			end)
 		end
 	end
 end

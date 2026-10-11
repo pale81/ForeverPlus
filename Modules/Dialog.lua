@@ -693,6 +693,30 @@ function Dialog:Apply()
 	end
 end
 
+-- The bubble is meant to be the conversation window: on once, then the player's choice stays.
+function Dialog:OnInitialize()
+	if self.db.onByDefault == nil then
+		self.db.onByDefault = true
+		self.db.enabled = true
+	end
+end
+
+-- /fp blase: state of the bubble and of what the conversation offers.
+function Dialog.PrintStatus()
+	local options = C_GossipInfo and C_GossipInfo.GetOptions and C_GossipInfo.GetOptions() or {}
+	local available = C_GossipInfo and C_GossipInfo.GetAvailableQuests and C_GossipInfo.GetAvailableQuests() or {}
+	local active = C_GossipInfo and C_GossipInfo.GetActiveQuests and C_GossipInfo.GetActiveQuests() or {}
+	local point, relativeTo, relativePoint, x, y
+	if bubble then
+		point, relativeTo, relativePoint, x, y = bubble:GetPoint(1)
+	end
+	ns.PrintAlways(L.DIALOG_STATUS, Dialog.db.enabled and "ja" or "nein", bubble and "ja" or "nein",
+		bubble and bubble:IsShown() and "ja" or "nein", bubble and ns.Number(bubble:GetHeight(), 0) or 0,
+		tostring(point), tostring(relativeTo and relativeTo.GetName and relativeTo:GetName() or relativeTo),
+		tostring(relativePoint), ns.Number(x, 0), ns.Number(y, 0), #options, #available, #active,
+		GossipFrame and GossipFrame:IsShown() and "ja" or "nein", GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)
+end
+
 function Dialog:OnLogin()
 	for _, window in ipairs({ GossipFrame, QuestFrame }) do
 		if window then

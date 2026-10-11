@@ -639,7 +639,7 @@ function Mover:OnOptionChanged(key, value)
 	if key == "centerButton" then
 		for _, entry in pairs(ns.editFrames) do
 			if entry.selection then
-				entry.selection.Center:SetShown(value)
+				entry.selection.CenterButton:SetShown(value)
 			end
 		end
 		if editModeCenter then
@@ -850,7 +850,7 @@ local function CreateSelection(entry)
 	end)
 	center:SetScript("OnLeave", GameTooltip_Hide)
 	center:SetShown(Mover.db.centerButton)
-	sel.Center = center
+	sel.CenterButton = center
 	sel:Hide()
 	entry.selection = sel
 end

@@ -188,18 +188,21 @@ local function CreateBubble()
 	frame:SetScript("OnKeyDown", function(self, key)
 		local action
 		if current and not InCombatLockdown() and (key == "TAB" or not (IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown())) then
+			-- Lists that spend money (merchant, trainer) are never bought from with a key: Space is also the jump
+			-- key and the number keys are the action bar. There Space only takes a row the cursor was moved to.
+			local spends = current.view.kind == "MERCHANT_SHOW" or current.view.kind == "TRAINER_SHOW"
 			if key == "SPACE" then
 				for _, info in ipairs(current.view.buttons or {}) do
-					if info.primary and info.enabled ~= false then
+					if info.primary and info.enabled ~= false and not info.spends then
 						action = info.action
 					end
 				end
 				-- Otherwise the chosen option (the first one, or the one picked with Tab).
-				if not action then
+				if not action and (not spends or self.cursorMoved) then
 					action = self.rowActions[self.selectedRow or 1]
 				end
 				-- Only a "goodbye" to choose: Space says it.
-				if not action and #self.rowActions == 0 and #(current.view.buttons or {}) == 1 then
+				if not action and not spends and #self.rowActions == 0 and #(current.view.buttons or {}) == 1 then
 					local only = current.view.buttons[1]
 					action = only.enabled ~= false and only.action or nil
 				end
@@ -208,11 +211,12 @@ local function CreateBubble()
 				if count > 1 then
 					local step = (key == "UP" or (key == "TAB" and IsShiftKeyDown())) and -1 or 1
 					self.selectedRow = ((self.selectedRow or 1) - 1 + step) % count + 1
+					self.cursorMoved = true
 					Dialog.Rerender()
 					self:SetPropagateKeyboardInput(false)
 					return
 				end
-			else
+			elseif not spends then
 				-- 1 to 9 (also on the number block) choose the numbered options.
 				local number = tonumber(key:match("^NUMPAD(%d)$") or key:match("^(%d)$"))
 				action = number and self.rowActions[number] or nil
@@ -224,34 +228,25 @@ local function CreateBubble()
 		end
 	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
-	-- Merchant list: a small plain grey page (an outline with three lines) at the lower right corner, mirror
-	-- image of the x at the top right (same size, same distance); struck through while unusable and known
-	-- wares are hidden. No frame, no plate.
+	-- Merchant list: a small grey book icon of the game (round, like the buttons at the minimap) at the lower right
+	-- corner, mirror image of the x at the top right (same size, same distance); a small red x over it while
+	-- unusable and known wares are hidden.
 	local filter = CreateFrame("Button", nil, frame)
 	filter:SetSize(14, 14)
 	filter:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
-	filter.Parts = {}
-	local function Bar(width, height, point, x, y)
-		local bar = filter:CreateTexture(nil, "ARTWORK")
-		bar:SetColorTexture(1, 1, 1, 1)
-		bar:SetSize(width, height)
-		bar:SetPoint(point, filter, "CENTER", x, y)
-		filter.Parts[#filter.Parts + 1] = bar
-	end
-	-- outline 10 x 12 (1 px), centred
-	Bar(10, 1, "TOP", 0, 6)
-	Bar(10, 1, "BOTTOM", 0, -6)
-	Bar(1, 12, "LEFT", -5, 0)
-	Bar(1, 12, "RIGHT", 5, 0)
-	-- three lines of text
-	Bar(6, 1, "CENTER", 0, 3)
-	Bar(6, 1, "CENTER", 0, 0)
-	Bar(6, 1, "CENTER", 0, -3)
-	filter.Cross = filter:CreateTexture(nil, "OVERLAY", nil, 7)
-	filter.Cross:SetColorTexture(1, 1, 1, 1)
-	filter.Cross:SetSize(2, 18)
+	filter.Icon = filter:CreateTexture(nil, "ARTWORK")
+	filter.Icon:SetAllPoints()
+	filter.Icon:SetTexture([[Interface\Icons\INV_Misc_Book_09]])
+	filter.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	filter.Icon:SetDesaturated(true)
+	filter.Mask = filter:CreateMaskTexture()
+	filter.Mask:SetAllPoints(filter.Icon)
+	filter.Mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	filter.Icon:AddMaskTexture(filter.Mask)
+	filter.Cross = filter:CreateTexture(nil, "OVERLAY")
+	filter.Cross:SetAtlas("common-icon-redx")
+	filter.Cross:SetSize(10, 10)
 	filter.Cross:SetPoint("CENTER")
-	filter.Cross:SetRotation(math.rad(45))
 	filter:SetScript("OnEnter", function(self)
 		self.hover = true
 		Dialog.UpdateFilter()
@@ -814,7 +809,7 @@ local function UseBlizzard()
 	ns.ShowFriendlyPlates(false)
 end
 
--- The small grey item at the top right of the merchant list: dull, brighter under the mouse, struck through
+-- The small grey book at the lower right of the merchant list: dull, brighter under the mouse, a red x over it
 -- while unusable and known wares are hidden.
 function Dialog.UpdateFilter()
 	local filter = bubble and bubble.Filter
@@ -822,12 +817,8 @@ function Dialog.UpdateFilter()
 		return
 	end
 	local on = Dialog.db.merchantHide
-	local grey = filter.hover and 0.95 or 0.6
-	for _, bar in ipairs(filter.Parts) do
-		bar:SetVertexColor(grey, grey, grey, 1)
-	end
+	filter.Icon:SetAlpha(filter.hover and 1 or 0.6)
 	filter.Cross:SetShown(on and true or false)
-	filter.Cross:SetVertexColor(grey, grey, grey, 1)
 end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
@@ -863,6 +854,7 @@ local function Show(view, fromBack)
 	local keepCursor = current and current.view.kind == view.kind and (view.kind == "TRAINER_SHOW" or view.kind == "MERCHANT_SHOW")
 	if not keepCursor then
 		bubble.selectedRow = 1
+		bubble.cursorMoved = false
 	end
 	showToken = showToken + 1
 	-- Gossip is over once a merchant or trainer is open: "back" would lead to options that no longer work.
@@ -1201,7 +1193,7 @@ function Dialog.TrainerView()
 	return {
 		name = NpcName(), blocks = blocks, revealed = true,
 		buttons = {
-			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, enabled = selection ~= nil, action = function()
+			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, spends = true, enabled = selection ~= nil, action = function()
 				BuyTrainerService(selection.index)
 			end },
 			{ text = L.DIALOG_TRAIN_ALL, enabled = affordable > 0, action = function()
@@ -1360,10 +1352,14 @@ function Dialog.MerchantView()
 	for _, entry in ipairs(entries) do
 		byIndex[entry.index] = entry.info
 	end
-	for index in pairs(merchantPicked) do
-		if not byIndex[index] then
-			merchantPicked[index] = nil
+	-- A pick belongs to the ware it was made on: when the list shifted (sold out), the pick is dropped.
+	for index, mark in pairs(merchantPicked) do
+		if not byIndex[index] or (not buyback and type(mark) == "string" and mark ~= GetMerchantItemLink(index)) then
+			merchantPicked[index], merchantQty[index] = nil, nil
 		end
+	end
+	local function Mark(index)
+		return not buyback and GetMerchantItemLink and GetMerchantItemLink(index) or true
 	end
 	local function QuantityOf(index)
 		return buyback and 1 or math.max(1, merchantQty[index] or 1)
@@ -1400,7 +1396,7 @@ function Dialog.MerchantView()
 					if isPicked then
 						merchantPicked[index], merchantQty[index] = nil, nil
 					else
-						merchantPicked[index], merchantQty[index] = true, 1
+						merchantPicked[index], merchantQty[index] = Mark(index), 1
 					end
 				elseif isPicked and not buyback then
 					local quantity = QuantityOf(index) + (mouseButton == "RightButton" and -1 or 1)
@@ -1414,7 +1410,7 @@ function Dialog.MerchantView()
 				else
 					wipe(merchantPicked)
 					wipe(merchantQty)
-					merchantPicked[index], merchantQty[index] = true, 1
+					merchantPicked[index], merchantQty[index] = Mark(index), 1
 				end
 				RefreshMerchant()
 			end,
@@ -1468,22 +1464,28 @@ function Dialog.MerchantView()
 	blocks[#blocks + 1] = { money = moneyText }
 	local canBuy = #picks > 0 and payable and cost <= money
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, enabled = canBuy, action = function()
 			if buyback then
 				-- Buy-back numbers shift with every purchase: from the back to the front.
 				for position = #picks, 1, -1 do
 					BuybackItem(picks[position])
 				end
-				wipe(merchantPicked)
 			else
 				for _, index in ipairs(picks) do
 					local remaining, chunk = QuantityOf(index), math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1)
+					local wanted = remaining
 					while remaining > 0 do
 						BuyMerchantItem(index, math.min(remaining, chunk))
 						remaining = remaining - chunk
 					end
+					-- Said in the chat so a purchase can be checked against what was meant.
+					ns.Print(L.DIALOG_BOUGHT, wanted, byIndex[index].name or "?")
 				end
 			end
+			-- The basket is empty after a purchase: nothing is bought a second time by accident.
+			wipe(merchantPicked)
+			wipe(merchantQty)
+			RefreshMerchant()
 		end },
 	}
 	if buyback then

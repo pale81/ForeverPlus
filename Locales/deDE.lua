@@ -1060,6 +1060,7 @@ L.QUESTS_LOGO_STATUS = "Logo: %d Atlanten im Spiel, %d mit „forever“ im Name
 L.FADE_IN = "Fenster sanft einblenden"
 L.FADE_IN_DESC = "Fenster und Fenster-Menüs von ForeverPlus (Listen, Eingabefenster, Gesprächsblase und andere) erscheinen mit einem kurzen, weichen Einblenden statt sofort."
 L.DIALOG_MERCHANT_CHOSEN = "Im Korb: %d Waren (%d Stück), %s"
+L.DIALOG_BOUGHT = "Gekauft: %d x %s"
 L.DIALOG_HIDE_PLATE = "Namensplakette unter der Blase ausblenden"
 L.DIALOG_HIDE_PLATE_DESC = "Die Blase sitzt auf dem unteren Rand der Namensplakette des NPCs (weiter unten als darüber) und deckt sie ab; die Plakette wird solange unsichtbar gemacht und danach wieder eingeblendet."
 L.DIALOG_CLICK_FREE = "<Klick: auswählen. Umschalt-Klick: zu mehreren Waren dazunehmen>"

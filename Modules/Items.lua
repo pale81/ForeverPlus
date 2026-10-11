@@ -1330,6 +1330,9 @@ local function JunkValue()
 	return count, value
 end
 
+-- For the merchant list in the dialog bubble (Modules/Dialog.lua).
+ns.MerchantTools = { SellJunk = StartSelling, JunkValue = JunkValue, Repair = Repair }
+
 -- Blizzard's sell-junk button sells every grey item, including kept ones.
 -- A button of our own lies on top and sells by the junk rules instead.
 local sellButton

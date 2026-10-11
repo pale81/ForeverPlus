@@ -1795,6 +1795,25 @@ end)()
 	print("trainer view OK")
 end)()
 ;(function()
+	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
+	local dialog = ns:GetModule("Dialog")
+	local tools = ns.MerchantTools
+	ns.MerchantTools = nil
+	GetMerchantNumItems = function() return 2 end
+	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Ware" .. i, texture = 1, price = i * 100, stackCount = 1, numAvailable = -1, isPurchasable = true, isUsable = true } end }
+	GetMerchantItemLink = function() return nil end
+	GetMoney = function() return 150 end
+	GetMoneyString = function(copper) return tostring(copper) .. "c" end
+	CanMerchantRepair = function() return false end
+	local view = dialog.MerchantView()
+	local rows
+	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
+	assert(rows and #rows == 2 and rows[1].text:find("100c") and rows[2].text:find("200c"), "two wares with prices")
+	assert(view.buttons[1].enabled == false, "nothing selected: no purchase")
+	ns.MerchantTools = tools
+	print("merchant view OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

@@ -51,7 +51,7 @@ driver:Hide()
 
 local elapsedSinceCheck = 0
 local fading = true
-driver:SetScript("OnUpdate", function(_, elapsed)
+ns.SetUpdate(driver, "QoL: fade update", function(_, elapsed)
 	elapsedSinceCheck = elapsedSinceCheck + elapsed
 	if elapsedSinceCheck >= CHECK_INTERVAL then
 		elapsedSinceCheck = 0

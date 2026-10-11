@@ -20,6 +20,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 	},
 })
 
+local CONTAINER_OFFSET_X, CONTAINER_OFFSET_Y = 20, 100 -- corner position without the game's tooltip container
 local BAR_HEIGHT = 6
 local BAR_INSET = 10
 
@@ -354,7 +355,7 @@ end
 local function GetHover()
 	if not hover then
 		hover = CreateHover()
-		hover:SetScript("OnUpdate", UpdateHover)
+		ns.SetUpdate(hover, "Tooltip: hover update", UpdateHover)
 	end
 	local face = ns.GetFontFace()
 	for _, text in ipairs({ hover.Name, hover.Grey, hover.Level }) do
@@ -390,6 +391,26 @@ local function LayoutObject(frame, name, r, g, b)
 	frame:SetSize(width, height)
 end
 
+-- The tooltip of an object hangs at the cursor, where the name is: it goes
+-- back to the corner the game puts unit tooltips in.
+local CORNERS = { BOTTOMRIGHT = true, BOTTOMLEFT = true, TOPRIGHT = true, TOPLEFT = true }
+
+local function MoveToCorner(tooltip)
+	local anchorType = tooltip.GetAnchorType and tooltip:GetAnchorType()
+	if type(anchorType) ~= "string" or not anchorType:find("^ANCHOR_CURSOR") then
+		return
+	end
+	local container = GameTooltipDefaultContainer or SharedTooltipDefaultContainer
+	local point = container and container:GetPoint(1)
+	tooltip:SetAnchorType("ANCHOR_NONE")
+	tooltip:ClearAllPoints()
+	if container then
+		tooltip:SetPoint(CORNERS[point] and point or "BOTTOMRIGHT", container)
+	else
+		tooltip:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -CONTAINER_OFFSET_X, CONTAINER_OFFSET_Y)
+	end
+end
+
 local function OnObjectTooltip(tooltip)
 	if not Tooltip.db.hoverName or not Tooltip.db.hoverObjects or tooltip ~= GameTooltip or tooltip:IsForbidden()
 		or UnitExists("mouseover") or not OverWorld() then
@@ -403,6 +424,7 @@ local function OnObjectTooltip(tooltip)
 	local r, g, b = first:GetTextColor()
 	local frame = GetHover()
 	frame.object = true
+	MoveToCorner(tooltip)
 	LayoutObject(frame, name, r or 1, g or 1, b or 1)
 	frame:Show()
 	UpdateHover(frame, 0)

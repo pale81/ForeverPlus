@@ -242,7 +242,7 @@ local function CreatePage(window)
 
 	page.window = window
 	local elapsed = 0
-	page:SetScript("OnUpdate", function(self, delta)
+	ns.SetUpdate(page, "Parchment: page update", function(self, delta)
 		elapsed = elapsed + delta
 		if elapsed >= ARROW_INTERVAL then
 			elapsed = 0

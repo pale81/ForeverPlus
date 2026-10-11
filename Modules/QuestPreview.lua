@@ -361,7 +361,7 @@ local function CreateWindow()
 	frame.Body = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
 	frame.Body:SetWidth(MAP_WIDTH)
 	frame.Body:SetJustifyH("LEFT")
-	frame:SetScript("OnUpdate", function(self)
+	ns.SetUpdate(frame, "QuestPreview: update", function(self)
 		if not (self.owner and self.owner:IsVisible() and self.owner:IsMouseOver()) then
 			self:Hide()
 		end

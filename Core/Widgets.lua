@@ -268,7 +268,7 @@ local function CreatePopup(name)
 		self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
 		self.owner, self.build = nil, nil
 	end)
-	popup:SetScript("OnUpdate", function(self)
+	ns.SetUpdate(popup, "Popup: update", function(self)
 		if self.owner and not self.owner:IsVisible() then
 			self:Hide()
 		end

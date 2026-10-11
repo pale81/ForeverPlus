@@ -140,13 +140,33 @@ local function CreateFigure(parent)
 	return frame
 end
 
--- Right of the rightmost slot of the weapon row (the ammunition slot), vertically centred on it. The
--- place is worked out from the rectangles of the slots and set relative to the character window itself,
--- so it does not depend on how the slot buttons are anchored or clipped.
+-- Under the last trinket slot (the bottom of the right column), centred on it; without that slot right
+-- of the rightmost slot of the weapon row. The place is worked out from the rectangles of the slots and
+-- set relative to the character window itself, so it does not depend on how the slot buttons are
+-- anchored or clipped.
 local placedAt -- last result, for /fp haltbarkeit
+local GAP = 6  -- pixels between the slot and the figure
 
 local function PlaceFigure()
 	figure:ClearAllPoints()
+	local left, bottom = ns.Number(PaperDollFrame:GetLeft()), ns.Number(PaperDollFrame:GetBottom())
+	if not (left and bottom) then
+		figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
+		placedAt = nil
+		return false
+	end
+	local trinket = CharacterTrinket1Slot
+	local slotLeft = trinket and trinket:IsShown() and ns.Number(trinket:GetLeft())
+	local slotRight, slotBottom = trinket and ns.Number(trinket:GetRight()), trinket and ns.Number(trinket:GetBottom())
+	if slotLeft and slotRight and slotBottom then
+		-- The rectangles are in the scale of their frame; the offsets are in the scale of the figure.
+		local toFigure = ns.Number(trinket:GetEffectiveScale(), 1) / ns.Number(PaperDollFrame:GetEffectiveScale(), 1) / FIGURE_SCALE
+		local x = ((slotLeft + slotRight) / 2 - left) * toFigure
+		local y = (slotBottom - bottom - GAP) * toFigure
+		figure:SetPoint("TOP", PaperDollFrame, "BOTTOMLEFT", x, y)
+		placedAt = { "CharacterTrinket1Slot", x, y }
+		return true
+	end
 	local best, right
 	for _, name in ipairs({ "CharacterMainHandSlot", "CharacterSecondaryHandSlot", "CharacterRangedSlot", "CharacterAmmoSlot" }) do
 		local slot = _G[name]
@@ -155,13 +175,11 @@ local function PlaceFigure()
 			best, right = slot, edge
 		end
 	end
-	local left, bottom = ns.Number(PaperDollFrame:GetLeft()), ns.Number(PaperDollFrame:GetBottom())
-	local top, slotBottom = best and ns.Number(best:GetTop()), best and ns.Number(best:GetBottom())
-	if best and left and bottom and top and slotBottom then
-		-- The rectangles are in the scale of their frame; the offsets are in the scale of the figure.
+	local top, slotBottom2 = best and ns.Number(best:GetTop()), best and ns.Number(best:GetBottom())
+	if best and top and slotBottom2 then
 		local toFigure = ns.Number(best:GetEffectiveScale(), 1) / ns.Number(PaperDollFrame:GetEffectiveScale(), 1) / FIGURE_SCALE
 		local x = (right - left) * toFigure + 10 / FIGURE_SCALE
-		local y = ((top + slotBottom) / 2 - bottom) * toFigure
+		local y = ((top + slotBottom2) / 2 - bottom) * toFigure
 		figure:SetPoint("LEFT", PaperDollFrame, "BOTTOMLEFT", x, y)
 		placedAt = { best:GetName(), x, y }
 		return true

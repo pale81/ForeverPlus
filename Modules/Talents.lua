@@ -9,6 +9,7 @@ local Talents = ns:NewModule("Talents", {
 	defaults = {
 		enabled = true,
 		planner = true,
+		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
@@ -211,11 +212,30 @@ local function PetKnownKeys()
 	return known
 end
 
-local function AddPetAbilities(lines, playerLevel)
-	lines[#lines + 1] = NORMAL_FONT_COLOR:WrapTextInColorCode(L.TALENTS_PET_HEADER)
+local function SpellRow(entry, known, isNew, level)
+	local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
+	return {
+		icon = entry.icon or 134400,
+		text = known and GRAY_FONT_COLOR:WrapTextInColorCode(name) or name,
+		right = isNew and GREEN_FONT_COLOR:WrapTextInColorCode(L.TALENTS_NEW) or nil,
+		-- A row is only there to be looked at: pointing at it counts as seen.
+		onClick = function() end,
+		tooltip = function(tooltip)
+			if isNew and entry.key then
+				Talents.cdb.seenSpells[entry.key] = true
+				UpdateSpellsGlow()
+			end
+			GameTooltip_SetTitle(tooltip, name)
+			GameTooltip_AddNormalLine(tooltip, L.TALENTS_LEVEL:format(level))
+		end,
+	}
+end
+
+local function AddPetAbilities(items)
+	items[#items + 1] = { text = L.TALENTS_PET_HEADER }
 	local list = PetTrainerList()
 	if #list == 0 then
-		lines[#lines + 1] = L.TALENTS_VISIT_PET_TRAINER
+		items[#items + 1] = { text = L.TALENTS_VISIT_PET_TRAINER, line = false }
 		return
 	end
 	local known = PetKnownKeys()
@@ -229,58 +249,54 @@ local function AddPetAbilities(lines, playerLevel)
 	end
 	table.sort(levels)
 	for _, level in ipairs(levels) do
-		local color = level <= playerLevel and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
-		lines[#lines + 1] = color:WrapTextInColorCode(L.TALENTS_LEVEL:format(level))
+		items[#items + 1] = { text = L.TALENTS_LEVEL:format(level), line = false }
 		table.sort(byLevel[level], function(a, b)
 			return a.name < b.name
 		end)
 		for _, entry in ipairs(byLevel[level]) do
-			local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
-			local text = ("   |T%s:16:16|t %s"):format(entry.icon or 134400, name)
-			lines[#lines + 1] = (entry.known or known[SpellKey(entry.name, entry.rank)]) and GRAY_FONT_COLOR:WrapTextInColorCode(text) or text
+			items[#items + 1] = SpellRow(entry, entry.known or known[SpellKey(entry.name, entry.rank)], false, level)
 		end
-		lines[#lines + 1] = " "
 	end
 end
 
-local function ShowSpellsByLevel()
+-- The spells by level as a list: spells that can be learned now and were not seen yet are marked
+-- "new"; the button of the window sparkles until they were pointed at or learned.
+local function SpellItems()
 	local byLevel = CollectSpells()
 	local seen = Talents.cdb.seenSpells
-	for _, key in ipairs(LearnableSpells(byLevel)) do
-		seen[key] = true
+	local playerLevel = UnitLevel("player")
+	local items = {}
+	if #TrainerList() == 0 then
+		items[#items + 1] = { text = L.TALENTS_VISIT_TRAINER, line = false }
 	end
-	UpdateSpellsGlow()
 	local levels = {}
 	for level in pairs(byLevel) do
 		levels[#levels + 1] = level
 	end
 	table.sort(levels)
-	local playerLevel = UnitLevel("player")
-	local lines = {}
-	if #TrainerList() == 0 then
-		lines[1] = L.TALENTS_VISIT_TRAINER
-		lines[2] = " "
-	end
 	for _, level in ipairs(levels) do
-		local color = level <= playerLevel and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
-		lines[#lines + 1] = color:WrapTextInColorCode(L.TALENTS_LEVEL:format(level))
+		items[#items + 1] = { text = L.TALENTS_LEVEL:format(level) }
 		table.sort(byLevel[level], function(a, b)
 			return a.name < b.name
 		end)
 		for _, entry in ipairs(byLevel[level]) do
-			local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
-			local text = ("   |T%s:16:16|t %s"):format(entry.icon or 134400, name)
-			lines[#lines + 1] = entry.known and GRAY_FONT_COLOR:WrapTextInColorCode(text) or text
+			local isNew = not entry.known and level <= playerLevel and not seen[entry.key]
+			items[#items + 1] = SpellRow(entry, entry.known, isNew, level)
 		end
-		lines[#lines + 1] = " "
 	end
 	if #levels == 0 then
-		lines[#lines + 1] = L.TALENTS_NO_SPELLS
+		items[#items + 1] = { text = L.TALENTS_NO_SPELLS, line = false }
 	end
 	if playerClass == "HUNTER" then
-		AddPetAbilities(lines, playerLevel)
+		AddPetAbilities(items)
 	end
-	ns.ShowTextWindow("Spells", L.TALENTS_SPELLS, table.concat(lines, "\n"))
+	return items
+end
+
+local function ShowSpellsByLevel(owner)
+	ns.ShowPopupList(owner, function()
+		return { title = L.TALENTS_SPELLS, items = SpellItems(), width = 340, maxRows = 22 }
+	end, "Spells")
 end
 
 ---------------------------------------------------------------------------
@@ -290,7 +306,7 @@ local function TalentsFrame()
 	return PlayerSpellsFrame and PlayerSpellsFrame.TalentsFrame
 end
 
-local ApplyPlan, ClearPlan, ImportPlan, ExportPlan -- planner, defined below
+local ApplyPlan, ClearPlan, ImportPlan, ExportPlan, SavePlanTemplate, ApplyTemplate -- planner, defined below
 -- Parses a loadout string into node purchases using Blizzard's own reader.
 local function ParseBuild(frame, text)
 	local stream = ExportUtil.MakeImportDataStream(text)
@@ -311,50 +327,89 @@ end
 
 -- Buys ranks until every node has its wanted ranks or nothing changes;
 -- prerequisites need several passes. Nodes higher up the tree go first.
-local function PurchaseTowards(configID, wanted, selection)
-	local order = {}
+local function PurchaseTowards(configID, wanted, selection, groupOf)
+	-- One tree after the other (groupOf: node -> position of its tree, 1 = the tree with the most
+	-- planned points), in a tree from the top row down and in a row from left to right.
+	local groups, keys = {}, {}
 	for nodeID in pairs(wanted) do
 		local node = C_Traits.GetNodeInfo(configID, nodeID)
-		order[#order + 1] = { nodeID = nodeID, y = node and node.posY or 0, x = node and node.posX or 0 }
-	end
-	table.sort(order, function(a, b)
-		if a.y ~= b.y then
-			return a.y < b.y
+		local key = groupOf and groupOf[nodeID] or 0
+		if not groups[key] then
+			groups[key] = {}
+			keys[#keys + 1] = key
 		end
-		return a.x < b.x
-	end)
-	for _ = 1, MAX_APPLY_PASSES do
-		local progress = false
-		for _, entry in ipairs(order) do
-			local nodeID, ranks = entry.nodeID, wanted[entry.nodeID]
-			local node = C_Traits.GetNodeInfo(configID, nodeID)
-			if node and node.ranksPurchased < ranks then
-				if node.type == Enum.TraitNodeType.Selection and selection and selection[nodeID] then
-					if C_Traits.SetSelection(configID, nodeID, selection[nodeID]) then
-						progress = true
-					end
-				else
-					while node.ranksPurchased < ranks and C_Traits.PurchaseRank(configID, nodeID) do
-						progress = true
-						node = C_Traits.GetNodeInfo(configID, nodeID)
+		table.insert(groups[key], { nodeID = nodeID, y = node and node.posY or 0, x = node and node.posX or 0 })
+	end
+	table.sort(keys)
+	for _, key in ipairs(keys) do
+		local order = groups[key]
+		table.sort(order, function(a, b)
+			if a.y ~= b.y then
+				return a.y < b.y
+			end
+			return a.x < b.x
+		end)
+		-- Several passes: a talent behind an arrow or a row only opens after the ones before it.
+		for _ = 1, MAX_APPLY_PASSES do
+			local progress = false
+			for _, entry in ipairs(order) do
+				local nodeID, ranks = entry.nodeID, wanted[entry.nodeID]
+				local node = C_Traits.GetNodeInfo(configID, nodeID)
+				if node and node.ranksPurchased < ranks then
+					if node.type == Enum.TraitNodeType.Selection and selection and selection[nodeID] then
+						if C_Traits.SetSelection(configID, nodeID, selection[nodeID]) then
+							progress = true
+						end
+					else
+						while node.ranksPurchased < ranks and C_Traits.PurchaseRank(configID, nodeID) do
+							progress = true
+							node = C_Traits.GetNodeInfo(configID, nodeID)
+						end
 					end
 				end
 			end
-		end
-		if not progress then
-			break
+			if not progress then
+				break
+			end
 		end
 	end
 end
 
 local PLAN_BUTTON_SIZE = 26
 
--- Import and export of the plan in Blizzard's loadout text.
+-- Import (templates or an import code), export (as an import code) and saving the plan as a template.
 local function ShowBuildMenu(owner)
 	MenuUtil.CreateContextMenu(owner, function(_, root)
 		root:CreateTitle(L.TALENTS_BUILDS)
-		root:CreateButton(L.TALENTS_IMPORT_PLAN, ImportPlan)
+		local import = root:CreateButton(L.TALENTS_IMPORT)
+		local presets = ns.TalentPresets and ns.TalentPresets[playerClass]
+		if presets and #presets > 0 then
+			import:CreateTitle(L.TALENTS_TEMPLATE_STANDARD)
+			for _, preset in ipairs(presets) do
+				local name = GetLocale() == "deDE" and preset.de or preset.en
+				import:CreateButton(("%s (%s)"):format(name, preset.points), function()
+					ApplyTemplate(preset, name)
+				end)
+			end
+		end
+		local own = Talents.db.templates[playerClass] or {}
+		if #own > 0 then
+			import:CreateDivider()
+			import:CreateTitle(L.TALENTS_TEMPLATE_OWN)
+			for index, template in ipairs(own) do
+				local item = import:CreateButton(("%s (%d)"):format(template.name, template.points))
+				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
+					ApplyTemplate(template, template.name)
+				end)
+				item:CreateButton(DELETE, function()
+					tremove(own, index)
+				end)
+			end
+		end
+		import:CreateDivider()
+		import:CreateButton(L.TALENTS_IMPORT_CODE, ImportPlan)
 		root:CreateButton(L.TALENTS_EXPORT_PLAN, ExportPlan)
+		root:CreateButton(L.TALENTS_SAVE_TEMPLATE, SavePlanTemplate)
 	end)
 end
 
@@ -414,7 +469,7 @@ local POINTS_PER_ROW = 5
 local ROW_TOLERANCE = 50 -- node positions of one row may differ by a few units
 local SUFFICIENT_EDGE, REQUIRED_EDGE = Enum.TraitEdgeType.SufficientForAvailability, Enum.TraitEdgeType.RequiredForAvailability
 
-local function TreeState(frame, configID)
+local function BuildTreeState(frame, configID)
 	local nodes, rowsY, names = {}, {}, {}
 	for button in frame:EnumerateAllTalentButtons() do
 		local nodeID = button.GetNodeID and button:GetNodeID()
@@ -474,8 +529,86 @@ local function TreeState(frame, configID)
 	return nodes, rowOf, names
 end
 
+-- The tree is read once per change: every event that changes ranks or the plan bumps planStamp
+-- (QueuePlanUpdate), tooltips and updates in between reuse the same reading.
+local planStamp = 0
+local treeCache
+
+local function TreeState(frame, configID)
+	local cache = treeCache
+	if cache and cache.stamp == planStamp and cache.configID == configID and cache.frame == frame then
+		return cache.nodes, cache.rowOf, cache.names
+	end
+	local nodes, rowOf, names = BuildTreeState(frame, configID)
+	treeCache = { stamp = planStamp, configID = configID, frame = frame, nodes = nodes, rowOf = rowOf, names = names }
+	return nodes, rowOf, names
+end
+
 local function Effective(node, plan)
 	return math.max(node.ranksPurchased or 0, plan[node.ID] or 0)
+end
+
+-- Points in the rows above a row, per tree, and the arrows that lead to a node: worked out once per
+-- reading of the tree and state of the plan, not for every talent that is checked.
+local spentContext = setmetatable({}, { __mode = "k" })
+local incomingContext = setmetatable({}, { __mode = "k" })
+
+local function GroupOf(candidate)
+	return candidate.fpSpec or (candidate.groupIDs and candidate.groupIDs[1])
+end
+
+-- A cheap fingerprint of a plan: changes whenever a rank is added, removed or changed.
+local function PlanSignature(plan)
+	local signature = 0
+	for nodeID, ranks in pairs(plan) do
+		signature = signature + nodeID * (ranks + 1)
+	end
+	return signature
+end
+
+local function SpentAbove(nodes, rowOf, plan, group, row)
+	local context = spentContext[nodes]
+	local signature = PlanSignature(plan)
+	if not context or context.plan ~= plan or context.signature ~= signature then
+		context = { plan = plan, signature = signature, perRow = {} }
+		for _, other in pairs(nodes) do
+			local otherGroup = GroupOf(other)
+			local rows = context.perRow[otherGroup]
+			if not rows then
+				rows = {}
+				context.perRow[otherGroup] = rows
+			end
+			local otherRow = rowOf[other.posY] or 0
+			rows[otherRow] = (rows[otherRow] or 0) + Effective(other, plan)
+		end
+		spentContext[nodes] = context
+	end
+	local total = 0
+	for otherRow, points in pairs(context.perRow[group] or {}) do
+		if otherRow < row then
+			total = total + points
+		end
+	end
+	return total
+end
+
+local function IncomingEdges(nodes, nodeID)
+	local map = incomingContext[nodes]
+	if not map then
+		map = {}
+		for _, source in pairs(nodes) do
+			for _, edge in ipairs(source.visibleEdges or {}) do
+				local list = map[edge.targetNode]
+				if not list then
+					list = {}
+					map[edge.targetNode] = list
+				end
+				list[#list + 1] = { source = source, type = edge.type }
+			end
+		end
+		incomingContext[nodes] = map
+	end
+	return map[nodeID]
 end
 
 -- nil if the node may carry `rank` with the given plan, else a message.
@@ -483,37 +616,26 @@ local function CheckNode(nodes, rowOf, names, plan, node, rank)
 	if rank <= 0 then
 		return nil
 	end
-	local function GroupOf(candidate)
-		return candidate.fpSpec or (candidate.groupIDs and candidate.groupIDs[1])
-	end
 	local group = GroupOf(nodes[node.ID] or node)
 	local row = rowOf[node.posY] or 0
-	local spent = 0
-	for _, other in pairs(nodes) do
-		if other.ID ~= node.ID and GroupOf(other) == group and (rowOf[other.posY] or 0) < row then
-			spent = spent + Effective(other, plan)
-		end
-	end
+	local spent = SpentAbove(nodes, rowOf, plan, group, row)
 	if spent < row * POINTS_PER_ROW then
 		return L.TALENTS_PLAN_NEED_POINTS:format(row * POINTS_PER_ROW - spent)
 	end
 	-- Arrows: every "required" source needs its full rank, of the "sufficient" ones one is enough
 	-- (some trees have an arrow in both directions between two talents).
 	local hasSufficient, satisfied, firstSource = false, false, nil
-	for _, source in pairs(nodes) do
-		for _, edge in ipairs(source.visibleEdges or {}) do
-			if edge.targetNode == node.ID then
-				local full = Effective(source, plan) >= source.maxRanks
-				if edge.type == REQUIRED_EDGE and not full then
-					return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
-				elseif edge.type == SUFFICIENT_EDGE then
-					hasSufficient = true
-					satisfied = satisfied or full
-					-- The one a player means is the talent above.
-					if not firstSource or (source.posY or 0) < (firstSource.posY or 0) then
-						firstSource = source
-					end
-				end
+	for _, incoming in ipairs(IncomingEdges(nodes, node.ID) or {}) do
+		local source = incoming.source
+		local full = Effective(source, plan) >= source.maxRanks
+		if incoming.type == REQUIRED_EDGE and not full then
+			return L.TALENTS_PLAN_NEED_TALENT:format(names[source.ID] or "?")
+		elseif incoming.type == SUFFICIENT_EDGE then
+			hasSufficient = true
+			satisfied = satisfied or full
+			-- The one a player means is the talent above.
+			if not firstSource or (source.posY or 0) < (firstSource.posY or 0) then
+				firstSource = source
 			end
 		end
 	end
@@ -572,10 +694,10 @@ local function AddPlanTooltip(button)
 		GameTooltip_AddBlankLineToTooltip(GameTooltip)
 		blank = true
 		GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
-		if GameTooltip.AppendInfo then
-			GameTooltip:AppendInfo("GetTraitEntry", entryID, planned)
-		else
-			GameTooltip_AddHighlightLine(GameTooltip, C_Traits.GetTraitDescription(entryID, planned), true)
+		-- Plain lines: appended tooltip data would pile up with every change of the plan.
+		local ok, description = pcall(C_Traits.GetTraitDescription, entryID, planned)
+		if ok and type(description) == "string" and not (issecretvalue and issecretvalue(description)) then
+			GameTooltip_AddHighlightLine(GameTooltip, description, true)
 		end
 	end
 	local notes = {}
@@ -660,6 +782,60 @@ local function UpdatePlan()
 	end
 end
 
+-- Own templates: the plan (what is planned or learned) saved under a name.
+local function TemplateList()
+	local list = Talents.db.templates[playerClass]
+	if not list then
+		list = {}
+		Talents.db.templates[playerClass] = list
+	end
+	return list
+end
+
+local function StoreTemplate(name, ranks)
+	local points = 0
+	for rank in ranks:gmatch("%d+:(%d+)") do
+		points = points + tonumber(rank)
+	end
+	if name == "" then
+		name = date("%d.%m. %H:%M")
+	end
+	local list = TemplateList()
+	list[#list + 1] = { name = name, points = points, ranks = ranks }
+	ns.Print(L.TALENTS_TEMPLATE_SAVED:format(name, points))
+end
+
+function SavePlanTemplate()
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local nodes = TreeState(frame, configID)
+	local plan, parts = CurrentPlan(), {}
+	for nodeID, node in pairs(nodes) do
+		local rank = Effective(node, plan)
+		if rank > 0 then
+			parts[#parts + 1] = { nodeID, rank }
+		end
+	end
+	if #parts == 0 then
+		ns.Print(L.TALENTS_TEMPLATE_EMPTY)
+		return
+	end
+	table.sort(parts, function(a, b)
+		return a[1] < b[1]
+	end)
+	for index, part in ipairs(parts) do
+		parts[index] = part[1] .. ":" .. part[2]
+	end
+	local ranks = table.concat(parts, ",")
+	ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
+		StoreTemplate(name, ranks)
+	end, L.TALENTS_NAME_HINT)
+end
+
 -- Blizzard's loadout text for the learned ranks plus the plan: the game's own writer reads only
 -- what is learned, so the same bit stream is written here from the wanted ranks (format:
 -- Blizzard_ClassTalentImportExport.lua). Granted nodes stay granted, choice nodes keep their
@@ -720,6 +896,7 @@ end
 
 local updatePending = false
 local function QueuePlanUpdate()
+	planStamp = planStamp + 1
 	if not updatePending then
 		updatePending = true
 		C_Timer.After(0, function()
@@ -728,6 +905,42 @@ local function QueuePlanUpdate()
 		end)
 	end
 end
+
+-- Puts a template (standard distribution or own) into the plan of the current specialisation:
+-- only when all its talents exist in this tree and the rules allow it.
+function ApplyTemplate(preset, name)
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local nodes, rowOf, names = TreeState(frame, configID)
+	local plan, points = {}, 0
+	for nodeText, rankText in preset.ranks:gmatch("(%d+):(%d+)") do
+		local nodeID, rank = tonumber(nodeText), tonumber(rankText)
+		local node = nodes[nodeID]
+		if not node then
+			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
+			return
+		end
+		plan[nodeID] = math.min(rank, node.maxRanks)
+		points = points + plan[nodeID]
+	end
+	local problem = CheckPlan(nodes, rowOf, names, plan)
+	if problem then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(problem))
+		return
+	end
+	local current = CurrentPlan()
+	wipe(current)
+	for nodeID, rank in pairs(plan) do
+		current[nodeID] = rank
+	end
+	QueuePlanUpdate()
+	ns.Print(L.TALENTS_TEMPLATE_DONE:format(name, points))
+end
+
 
 -- Blizzard's loadout text into the plan (nothing is learned yet): the ✓ button learns what the
 -- points allow, from the top row down and in a row from left to right; the rest stays in the plan.
@@ -738,7 +951,7 @@ function ImportPlan()
 		ns.Print(L.TALENTS_ERROR_CLOSED)
 		return
 	end
-	ns.ShowEditWindow("BuildImport", L.TALENTS_IMPORT_PLAN, "", L.TALENTS_IMPORT, function(text)
+	ns.ShowEditWindow("BuildImport", L.TALENTS_IMPORT_CODE, "", L.TALENTS_IMPORT, function(text)
 		text = ((text or ""):gsub("%s+", ""))
 		if text == "" then
 			return
@@ -848,7 +1061,33 @@ function ApplyPlan()
 		ns.Print(L.TALENTS_ERROR_FRAME)
 		return
 	end
-	PurchaseTowards(configID, CurrentPlan())
+	-- The tree with the most planned points first, then the next one with what is left.
+	local plan, groupOf = CurrentPlan(), {}
+	if frame and frame.EnumerateAllTalentButtons then
+		local nodes = TreeState(frame, configID)
+		local totals, specs = {}, {}
+		for nodeID, ranks in pairs(plan) do
+			local spec = nodes[nodeID] and nodes[nodeID].fpSpec or 0
+			totals[spec] = (totals[spec] or 0) + ranks
+		end
+		for spec in pairs(totals) do
+			specs[#specs + 1] = spec
+		end
+		table.sort(specs, function(a, b)
+			if totals[a] ~= totals[b] then
+				return totals[a] > totals[b]
+			end
+			return a < b
+		end)
+		local position = {}
+		for index, spec in ipairs(specs) do
+			position[spec] = index
+		end
+		for nodeID in pairs(plan) do
+			groupOf[nodeID] = position[nodes[nodeID] and nodes[nodeID].fpSpec or 0] or 0
+		end
+	end
+	PurchaseTowards(configID, plan, nil, groupOf)
 	ns.Print(L.TALENTS_PLAN_STAGED)
 	QueuePlanUpdate()
 end
@@ -1016,31 +1255,33 @@ local function CreateButtons()
 	spells:SetPoint("RIGHT", builds, "LEFT", -6, 0)
 	spells:SetText(L.TALENTS_SPELLS)
 	spells:SetScript("OnClick", ShowSpellsByLevel)
-	-- Spell book icon left of the button carries the spell alert sparkle.
-	-- It is a button of its own too: the same list opens from the book.
-	local book = CreateFrame("Button", nil, parent)
-	book:SetSize(22, 22)
-	book:SetFrameLevel(spells:GetFrameLevel())
-	book:SetPoint("RIGHT", spells, "LEFT", -4, 0)
-	book:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
-	book:SetScript("OnClick", ShowSpellsByLevel)
-	book:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, L.TALENTS_SPELLS)
-		GameTooltip:Show()
+	-- The button glows (a soft pulse) while there is something new to learn.
+	local alert = CreateFrame("Frame", nil, spells)
+	alert:SetAllPoints(spells)
+	alert:SetFrameLevel(spells:GetFrameLevel() + 2)
+	alert:EnableMouse(false)
+	local glow = alert:CreateTexture(nil, "OVERLAY")
+	glow:SetAllPoints()
+	glow:SetTexture([[Interface\Buttons\UI-Common-MouseHilight]])
+	glow:SetBlendMode("ADD")
+	glow:SetVertexColor(1, 0.82, 0.1)
+	local pulse = glow:CreateAnimationGroup()
+	pulse:SetLooping("BOUNCE")
+	local fade = pulse:CreateAnimation("Alpha")
+	fade:SetFromAlpha(0.2)
+	fade:SetToAlpha(1)
+	fade:SetDuration(0.8)
+	fade:SetSmoothing("IN_OUT")
+	alert:SetScript("OnShow", function()
+		pulse:Play()
 	end)
-	book:SetScript("OnLeave", GameTooltip_Hide)
-	local icon = book:CreateTexture(nil, "ARTWORK")
-	icon:SetAllPoints()
-	icon:SetTexture(133741)
-	local alert = CreateFrame("Frame", nil, book, "ActionButtonSpellAlertTemplate")
-	alert:SetSize(22 * 1.4, 22 * 1.4)
-	alert:SetPoint("CENTER", icon, "CENTER")
-	alert.animationPlaying = true
+	alert:SetScript("OnHide", function()
+		pulse:Stop()
+	end)
 	alert:Hide()
 	spells.Alert = alert
 	spellsButton = spells
-	buttons = { builds, spells, book }
+	buttons = { builds, spells }
 end
 
 function Talents:Update()

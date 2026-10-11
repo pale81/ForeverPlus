@@ -25,7 +25,7 @@ read_globals = {
 	"GetServerTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",
 	"DELETE_ITEM_CONFIRM_STRING", "EquipPendingItem", "ConfirmBindOnUse", "StaticPopup_FindVisible",
-	"COMBATLOG", "C_ChatInfo", "IsInGroup", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE", "PickupPlayerMoney", "StaticPopup_Visible", "GetMoney", "EventToastManagerFrame", "GetCursorMoney", "DropCursorMoney", "MoneyInputFrame_OpenPopup", "MoneyTypeInfo", "TimeUtil", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",
+	"COMBATLOG", "CharacterTrinket1Slot", "C_ChatInfo", "IsInGroup", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE", "PickupPlayerMoney", "StaticPopup_Visible", "GetMoney", "EventToastManagerFrame", "GetCursorMoney", "DropCursorMoney", "MoneyInputFrame_OpenPopup", "MoneyTypeInfo", "TimeUtil", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",
 	"geterrorhandler",
 	"SELL_ALL_JUNK_ITEMS", "MerchantFrame_Update",
 	"LOOT_ITEM_CREATED_SELF", "LOOT_ITEM_CREATED_SELF_MULTIPLE",

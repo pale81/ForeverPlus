@@ -15,6 +15,7 @@ local XPBar = ns:NewModule("XPBar", {
 })
 
 local QUEST_COLOR = { 0.4, 0.24, 0.09 } -- a dark, muted orange: apart from the purple fill and the blue of the rested bonus, but not in front
+local QUEST_ALPHA = 0.6 -- see-through, so the bar below shows a little
 local SCAN_DELAY = 0.3
 
 local expBars = {}
@@ -85,7 +86,7 @@ local function UpdateOverlay(bar)
 	local fraction = min(current + questXP, maximum) / maximum
 	-- A plain dark purple (the fill's own colour changes with rested state and, on
 	-- the reputation bar, is green).
-	overlay:SetColorTexture(QUEST_COLOR[1], QUEST_COLOR[2], QUEST_COLOR[3], 1)
+	overlay:SetColorTexture(QUEST_COLOR[1], QUEST_COLOR[2], QUEST_COLOR[3], QUEST_ALPHA)
 	local width = ns.Number(bar.StatusBar:GetWidth())
 	if not width then
 		overlay:Hide()

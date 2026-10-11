@@ -70,6 +70,7 @@ Modules\RepFlash.lua
 Modules\Trivial.lua
 Modules\ChatIndent.lua
 Modules\Durability.lua
+Data\TalentPresets.lua
 Modules\TalentSummary.lua
 Modules\Talents.lua
 Modules\Visuals.lua

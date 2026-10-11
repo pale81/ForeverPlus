@@ -214,7 +214,20 @@ end
 ns.timings = {} -- name -> { max =, count =, slow = (calls over 1 ms) }
 ns.measuring = false
 
+-- While measuring: the frames in which the whole addon took long (the game's
+-- profiler: LastTime of the addon) and how much of that the measured entries
+-- explain; what they do not is work outside them (scripts, hooks, timers).
+local SPIKE_MS = 4
+ns.spikes = { count = 0, worst = 0, measured = 0, name = nil }
+local frameMeasured, frameTop, frameTopTime = 0, nil, 0
+
 function ns.RecordTiming(name, elapsed)
+	if ns.measuring then
+		frameMeasured = frameMeasured + elapsed
+		if elapsed > frameTopTime then
+			frameTop, frameTopTime = name, elapsed
+		end
+	end
 	local entry = ns.timings[name]
 	if not entry then
 		entry = { max = 0, count = 0, slow = 0 }
@@ -228,6 +241,28 @@ function ns.RecordTiming(name, elapsed)
 		entry.slow = entry.slow + 1
 	end
 end
+
+-- Runs while measuring: the previous frame's total against what was measured in it.
+local spikeFrame = CreateFrame("Frame")
+local lastMeasured, lastTop = 0, nil
+spikeFrame:SetScript("OnUpdate", function()
+	if not ns.measuring then
+		return
+	end
+	local profiler = C_AddOnProfiler
+	if profiler and profiler.IsEnabled() then
+		local total = profiler.GetAddOnMetric(addonName, Enum.AddOnProfilerMetric.LastTime) or 0
+		if total > SPIKE_MS then
+			local spikes = ns.spikes
+			spikes.count = spikes.count + 1
+			if total > spikes.worst then
+				spikes.worst, spikes.measured, spikes.name = total, lastMeasured, lastTop
+			end
+		end
+	end
+	lastMeasured, lastTop = frameMeasured, frameTop
+	frameMeasured, frameTop, frameTopTime = 0, nil, 0
+end)
 
 local function OwnerName(owner)
 	return type(owner) == "table" and owner.name or tostring(owner)
@@ -254,6 +289,11 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 		end
 	end
 end)
+
+-- Sets an OnUpdate script that shows up in the measurement.
+function ns.SetUpdate(frame, name, fn)
+	frame:SetScript("OnUpdate", fn and ns.Measured(name, fn) or nil)
+end
 
 -- Wraps a hook or callback: measured while measuring is on, otherwise only
 -- a flag check. Return values are dropped (hooks ignore them).
@@ -303,6 +343,7 @@ function ns.StartTimedMeasure(seconds, onDone)
 		return
 	end
 	wipe(ns.timings)
+	ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
 	ns.measuring = true
 	ns.measureUntil = GetTime() + seconds
 	ns.measureTimer = C_Timer.NewTimer(seconds, function()
@@ -343,6 +384,10 @@ function ns.PrintTimings()
 		local max = item.entry.max
 		local color = max >= 2 and "|cffff0000" or max >= 0.5 and "|cffff8800" or "|cff00ff00"
 		ns.PrintAlways(color .. ns.L.TIMINGS_LINE .. "|r", item.name, max, item.entry.slow, item.entry.count)
+	end
+	local spikes = ns.spikes
+	if spikes.count > 0 then
+		ns.PrintAlways(ns.L.TIMINGS_SPIKES, SPIKE_MS, spikes.count, spikes.worst, spikes.measured, spikes.name or "-")
 	end
 end
 
@@ -561,6 +606,7 @@ SlashCmdList.FOREVERPLUS = function(msg)
 	elseif msg == "messen" or msg == "profile" then
 		ns.measuring = not ns.measuring
 		if ns.measuring then
+			ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
 			ns.PrintAlways(ns.L.TIMINGS_ON)
 		else
 			ns.PrintTimings()

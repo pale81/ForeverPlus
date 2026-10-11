@@ -26,7 +26,10 @@ local AUCTION_HOUSE_CUT = 0.05
 -- again and again: a known merchant price is kept per item (an item whose data
 -- is not loaded yet is asked again).
 local vendorPriceCache = {}
+local loadRequested = {}
 
+-- nil while the item data is not loaded: that is asked for once and not
+-- queried again and again (the query itself is the costly call).
 local function VendorPrice(itemID)
 	if not itemID then
 		return nil
@@ -34,6 +37,13 @@ local function VendorPrice(itemID)
 	local cached = vendorPriceCache[itemID]
 	if cached then
 		return cached
+	end
+	if not C_Item.IsItemDataCachedByID(itemID) then
+		if not loadRequested[itemID] then
+			loadRequested[itemID] = true
+			C_Item.RequestLoadItemDataByID(itemID)
+		end
+		return nil
 	end
 	local price = select(11, C_Item.GetItemInfo(itemID))
 	if price then
@@ -154,7 +164,8 @@ end
 -- holds less than a screenful or the list is scrolled to its end.
 ---------------------------------------------------------------------------
 local FILTER_WANTED = 30      -- profitable rows to collect before paging stops by itself
-local FILTER_AUTO_PAGES = 40  -- pages requested by itself per search
+local FILTER_AUTO_PAGES = 20  -- pages requested by itself per search
+local FILTER_AUTO_SECONDS = 10 -- seconds after which the search for the first hits is given up
 local FILTER_NEAR_END = 8     -- rows before the end of the view that ask for more
 local FILTER_RETRY = 2        -- seconds until a request without an answer is repeated
 local FILTER_BATCH = 150      -- rows judged per call at most; the rest follows on the next frame
@@ -174,19 +185,12 @@ local filter = {
 }
 local originalProvider
 
--- The merchant price without asking the game for an item it has not loaded
--- (that call is the costly one): nil until the item data is there.
+-- The merchant price; 0 for an item that is loaded but has none, nil until its data is there.
 local function KnownVendorPrice(itemID)
 	if not itemID then
 		return 0
 	end
-	local cached = vendorPriceCache[itemID]
-	if cached then
-		return cached
-	end
-	if C_Item.IsItemDataCachedByID(itemID) then
-		return VendorPrice(itemID) or 0
-	end
+	return VendorPrice(itemID) or (C_Item.IsItemDataCachedByID(itemID) and 0 or nil)
 end
 
 -- true/false, or nil while the merchant price of the item is not known.
@@ -211,6 +215,7 @@ local function ResetFilter()
 	filter.source, filter.verdict, filter.judged, filter.list = nil, {}, 0, {}
 	filter.rebuild, filter.waiting = false, {}
 	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
+	filter.searchId, filter.timerStarted = (filter.searchId or 0) + 1, false
 end
 
 local refreshQueued = false
@@ -260,7 +265,6 @@ local function SyncFilter(browseFrame)
 			if not waiting then
 				waiting = {}
 				filter.waiting[itemID] = waiting
-				C_Item.RequestLoadItemDataByID(itemID)
 			end
 			waiting[#waiting + 1] = i
 		else
@@ -305,6 +309,8 @@ local function OnItemInfo(_, _, itemID)
 	end
 end
 
+local MeasuredSync = ns.Measured("Auction: filter sync", SyncFilter)
+
 local function SetFilterProvider(browseFrame, on)
 	local itemList = browseFrame and browseFrame.ItemList
 	if not itemList or not itemList.SetDataProvider or not itemList.getNumEntries then
@@ -321,7 +327,7 @@ local function SetFilterProvider(browseFrame, on)
 				return filter.list[index]
 			end,
 			function()
-				SyncFilter(browseFrame)
+				MeasuredSync(browseFrame)
 				return #filter.list
 			end,
 			-- with no profitable row yet the list shows "searching" until the search is complete or given up
@@ -349,12 +355,25 @@ local function PageFilter(browseFrame)
 	if not (short or atEnd) then
 		return
 	end
-	if short and not atEnd and filter.requests >= FILTER_AUTO_PAGES then
-		if not filter.capped then
-			filter.capped = true
-			QueueRefresh(0)
+	if short and not atEnd then
+		if not filter.timerStarted then
+			-- the spinner must not turn for ever (a slow server, a search with few hits)
+			filter.timerStarted = true
+			local searchId = filter.searchId
+			C_Timer.After(FILTER_AUTO_SECONDS, function()
+				if searchId == filter.searchId and not filter.capped and Auction.db.vendorBuyFilter then
+					filter.capped = true
+					QueueRefresh(0)
+				end
+			end)
 		end
-		return
+		if filter.capped or filter.requests >= FILTER_AUTO_PAGES then
+			if not filter.capped then
+				filter.capped = true
+				QueueRefresh(0)
+			end
+			return
+		end
 	end
 	-- one request at a time: wait for new rows, repeat after a while
 	local count = #browseFrame.browseResults
@@ -392,13 +411,13 @@ local function HookBuyFilter()
 		return
 	end
 	-- Instance hooks: the frame was built from the mixins before this ran.
-	hooksecurefunc(browseFrame, "UpdateBrowseResults", function(frame)
+	hooksecurefunc(browseFrame, "UpdateBrowseResults", ns.Measured("Auction: filter paging", function(frame)
 		PageFilter(frame)
-	end)
+	end))
 	if browseFrame.ItemList and browseFrame.ItemList.CallRefreshCallback then
-		hooksecurefunc(browseFrame.ItemList, "CallRefreshCallback", function()
+		hooksecurefunc(browseFrame.ItemList, "CallRefreshCallback", ns.Measured("Auction: filter paging", function()
 			PageFilter(browseFrame)
-		end)
+		end))
 	end
 	-- Every query (new search, new sort order) starts the view and the page budget afresh.
 	for _, name in ipairs({ "SendBrowseQuery", "SearchForFavorites" }) do
@@ -551,7 +570,7 @@ function Auction:OnLogin()
 		for mixinName, fn in pairs(hooks) do
 			local mixin = _G[mixinName]
 			if mixin and mixin.Populate then
-				hooksecurefunc(mixin, "Populate", fn)
+				hooksecurefunc(mixin, "Populate", ns.Measured("Auction: " .. mixinName, fn))
 			end
 		end
 		if AuctionHouseFrame then

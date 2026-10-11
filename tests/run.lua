@@ -2161,6 +2161,8 @@ end)()
 	local F = A.Filter
 	local prices = { [9001] = 100, [9002] = 50, [9003] = 0 }
 	C_Item.GetItemInfo = function(id) return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, prices[id] end
+	local timers, savedAfter = {}, C_Timer.After
+	C_Timer.After = function(_, fn) timers[#timers + 1] = fn end
 	local uncached = { [9004] = true, [9005] = true }
 	C_Item.IsItemDataCachedByID = function(id) return not uncached[id] end
 	local requested = {}
@@ -2229,6 +2231,18 @@ end)()
 	F.Page(frame)
 	assert(more == 2 and provider.hasFull() == true, "nothing more to ask for when the list is complete")
 	full = false
+	-- the search for hits is given up after a while: no spinner for ever
+	F.Apply()
+	frame.browseResults = { row(9001, 500) }
+	provider.count()
+	more, timers = 0, {}
+	F.Page(frame)
+	assert(more == 1 and #timers >= 1 and provider.hasFull() == false, "searching, timer set")
+	for _, fn in ipairs(timers) do fn() end
+	assert(provider.hasFull() == true, "given up: the list says no results instead of searching")
+	F.Page(frame)
+	assert(more == 1, "no more pages by itself after giving up")
+	C_Timer.After = savedAfter
 	-- filter off: Blizzard's provider comes back
 	local restored
 	frame.ItemList.SetDataProvider = function(_, a, b, c, d) restored = { a, b, c, d } end

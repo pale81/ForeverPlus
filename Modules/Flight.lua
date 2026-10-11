@@ -226,7 +226,7 @@ local function CreateBar()
 	bar.Time:SetJustifyH("RIGHT")
 	bar:Hide()
 	local elapsed = 0
-	bar:SetScript("OnUpdate", function(_, delta)
+	ns.SetUpdate(bar, "Flight: bar update", function(_, delta)
 		elapsed = elapsed + delta
 		if elapsed >= 0.2 then
 			elapsed = 0

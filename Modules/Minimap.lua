@@ -132,7 +132,7 @@ local function PositionCampfires()
 	if #campfires == 0 then
 		campfireHolder:SetScript("OnUpdate", nil)
 	elseif not campfireHolder:GetScript("OnUpdate") then
-		campfireHolder:SetScript("OnUpdate", function(_, elapsed)
+		ns.SetUpdate(campfireHolder, "Minimap: campfire update", function(_, elapsed)
 			MinimapCoords.campfireElapsed = (MinimapCoords.campfireElapsed or 0) + elapsed
 			if MinimapCoords.campfireElapsed >= 0.2 then
 				MinimapCoords.campfireElapsed = 0
@@ -247,7 +247,7 @@ local function CreateMapCoords()
 	end)
 	frame:SetScript("OnLeave", GameTooltip_Hide)
 	local elapsed = 0
-	frame:SetScript("OnUpdate", function(_, delta)
+	ns.SetUpdate(frame, "Minimap: coordinates update", function(_, delta)
 		elapsed = elapsed + delta
 		if elapsed >= MAP_INTERVAL then
 			elapsed = 0

@@ -28,51 +28,22 @@ local Visuals = ns:NewModule("Visuals", {
 })
 
 ---------------------------------------------------------------------------
--- Item quality frame (like the tooltip frame) from "uncommon" upwards
+-- Item quality frame (like the tooltip frame) from "uncommon" upwards, soft grey for grey and white items (option)
 ---------------------------------------------------------------------------
 local borders = setmetatable({}, { __mode = "k" })
 
--- Grey and white items in the bags (no quality frame) get the action button frame, like the buffs; from green
--- upwards the crisp quality frame below stays.
-local bagFramed = setmetatable({}, { __mode = "k" })
+-- Grey and white items in the bags and on the character get the same crisp frame in a soft neutral colour (option),
+-- so all items are framed alike; from green upwards the frame has the quality colour.
+local NEUTRAL = { [0] = { 0.5, 0.5, 0.5 }, [1] = { 0.75, 0.75, 0.75 } } -- poor, common
 
-local function UpdateBagFrame(button, quality)
-	if not button.icon then
-		return
-	end
-	local want = Visuals.db.bagActionFrame and quality ~= nil and quality <= Enum.ItemQuality.Common
-	local normal = button.NormalTexture or (button.GetNormalTexture and button:GetNormalTexture())
-	if want then
-		ns.ApplyActionFrame(button, button.icon, "item", 3)
-		ns.SetActionFrameEnabled(button, true)
-		if not bagFramed[button] then
-			bagFramed[button] = { alpha = normal and normal:GetAlpha() or 1 }
-		end
-		if normal then
-			normal:SetAlpha(0)
-		end
-	elseif bagFramed[button] then
-		ns.SetActionFrameEnabled(button, false)
-		if normal then
-			normal:SetAlpha(bagFramed[button].alpha)
-		end
-		bagFramed[button] = nil
-	end
-end
-
--- For the bag buttons (Items.lua) and the character slots (below).
-ns.FrameItemButton = UpdateBagFrame
-
-local function UpdateGlow(button, quality)
+local function UpdateGlow(button, quality, forced)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
-	if button.GetBagID then
-		UpdateBagFrame(button, quality)
-	end
 	local border = borders[button]
+	local low = quality and quality <= Enum.ItemQuality.Common and (forced or button.GetBagID) and Visuals.db.bagActionFrame
 	-- Round buttons (profession output) already get Blizzard's round quality ring.
-	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
+	if quality and ((quality >= Enum.ItemQuality.Uncommon) or low) and not button.CircleMask then
 		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
 		local icon = button.Icon or button.icon
 		local anchor = button
@@ -82,10 +53,20 @@ local function UpdateGlow(button, quality)
 		end
 		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
 		borders[button] = border
-		border:ShowColor(C_Item.GetItemQualityColor(quality))
+		if low then
+			local color = NEUTRAL[quality] or NEUTRAL[1]
+			border:ShowColor(color[1], color[2], color[3])
+		else
+			border:ShowColor(C_Item.GetItemQualityColor(quality))
+		end
 	elseif border then
 		border:Hide()
 	end
+end
+
+-- For the bag buttons (Items.lua, called on every bag update) and the character slots (below).
+function ns.FrameItemButton(button, quality)
+	UpdateGlow(button, quality, true)
 end
 
 ---------------------------------------------------------------------------
@@ -826,9 +807,11 @@ end
 ---------------------------------------------------------------------------
 -- Elite/rare dragon around the player portrait (target frame art, mirrored)
 ---------------------------------------------------------------------------
--- Tint on the desaturated gold dragon: the bronze of the game's portrait frame, a little redder than the first
--- try (frame mid tones 162/117/70 to 180/133/77, lights 231/192/132; green/blue per cent ratio about 0.73 / 0.45).
-local BRONZE = { 0.93, 0.69, 0.40 }
+-- Tint on the desaturated gold dragon: the bronze of the game's portrait frame (ratio green/blue to red about
+-- 0.74 / 0.43). The game's own gold dragon is brighter (screenshot: lights 245/223/140 against 222/177/110), so a
+-- second, additive copy lifts the tinted one a little (BRIGHTEN).
+local BRONZE = { 1.0, 0.74, 0.43 }
+local BRIGHTEN = 0.22
 local GOLD = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold"
 local GOLD_WINGED = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged"
 local SILVER = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver"
@@ -857,6 +840,9 @@ local function ApplyPlayerDragon()
 	if not data then
 		if dragon then
 			dragon:Hide()
+			if dragon.Bright then
+				dragon.Bright:Hide()
+			end
 		end
 		return
 	end
@@ -879,9 +865,25 @@ local function ApplyPlayerDragon()
 		dragon:SetVertexColor(1, 1, 1)
 	end
 	dragon:Show()
+	-- Additive copy of the same dragon for the tinted (bronze) ones.
+	dragon.Bright = dragon.Bright or container:CreateTexture(nil, "OVERLAY", nil, 7)
+	local bright = dragon.Bright
+	if tint then
+		bright:SetAtlas(data[1])
+		bright:SetTexCoord(1, 0, 0, 1)
+		bright:SetBlendMode("ADD")
+		bright:SetDesaturated(true)
+		bright:SetVertexColor(tint[1], tint[2], tint[3], BRIGHTEN)
+		bright:SetSize(shape.width * scale, shape.height * scale)
+		bright:ClearAllPoints()
+		bright:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
+		bright:Show()
+	else
+		bright:Hide()
+	end
 end
 
--- The equipped items: grey and white ones get the frame as well.
+-- The equipped items get the frame too (grey and white ones in the soft neutral colour).
 local EQUIPMENT_SLOTS = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
 	"Finger0", "Finger1", "Trinket0", "Trinket1", "Back", "MainHand", "SecondaryHand", "Ranged", "Tabard" }
 
@@ -891,7 +893,7 @@ local function FrameCharacterSlot(button)
 	end
 	local slotID = button:GetID()
 	local quality = slotID and GetInventoryItemQuality("player", slotID)
-	UpdateBagFrame(button, quality)
+	UpdateGlow(button, quality, true)
 end
 
 local function FrameCharacterSlots()
@@ -941,7 +943,7 @@ local function RefreshBagFrames()
 		if frame and frame.EnumerateValidItems then
 			for _, button in frame:EnumerateValidItems() do
 				local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
-				UpdateBagFrame(button, info and info.quality)
+				UpdateGlow(button, info and info.quality, true)
 			end
 		end
 	end

@@ -14,7 +14,7 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
-local QUEST_COLOR = { 0.85, 0.45, 0.08 } -- orange: apart from the purple fill and the blue of the rested bonus
+local QUEST_COLOR = { 0.6, 0.34, 0.09 } -- a muted orange: apart from the purple fill and the blue of the rested bonus, but not in front
 local SCAN_DELAY = 0.3
 
 local expBars = {}

@@ -292,6 +292,7 @@ local function TalentsFrame()
 end
 
 local ApplyPlan, ClearPlan -- planner, defined below
+local PLAN_BUTTON_SIZE = 26
 
 local function ClassBuilds()
 	local builds = Talents.db.builds
@@ -430,12 +431,6 @@ local function ShowBuildMenu(owner)
 		root:CreateTitle(L.TALENTS_BUILDS)
 		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
 		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
-		if Talents.db.planner then
-			root:CreateDivider()
-			root:CreateTitle(L.TALENTS_PLAN)
-			root:CreateButton(L.TALENTS_PLAN_APPLY, ApplyPlan)
-			root:CreateButton(L.TALENTS_PLAN_CLEAR, ClearPlan)
-		end
 		local builds = ClassBuilds()
 		if #builds > 0 then
 			root:CreateDivider()
@@ -696,6 +691,7 @@ local function UpdatePlan()
 		local points = PlannedPoints(plan)
 		planBar:SetShown(enabled and true or false)
 		planBar.Counter:SetText(points > 0 and L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points) or "")
+		planBar:SetWidth(PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))
 		planBar.Apply:SetEnabled(points > 0)
 		planBar.Clear:SetEnabled(points > 0)
 	end
@@ -821,50 +817,46 @@ local function AddButtonTip(button, title, text)
 	end)
 end
 
-local function CreateApplyButton(parent, title, tooltip, onClick)
-	local button = CreateFrame("Button", nil, parent)
-	button:SetSize(28, 28)
-	button:SetNormalTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Up]])
-	button:SetPushedTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Down]])
-	button:SetDisabledTexture([[Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled]])
-	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
-	button:SetScript("OnClick", onClick)
-	AddButtonTip(button, title, tooltip)
-	return button
-end
-
-local function CreateClearButton(parent, title, tooltip, onClick)
-	-- The game's red close button; its own click would hide the bar.
-	local ok, button = pcall(CreateFrame, "Button", nil, parent, "UIPanelCloseButton")
+-- Both buttons are the same square button of the game's UI with a symbol on it.
+local function CreatePlanButton(parent, atlas, title, tooltip, onClick)
+	local ok, button = pcall(CreateFrame, "Button", nil, parent, "SquareIconButtonTemplate")
 	if not ok then
 		button = CreateFrame("Button", nil, parent)
-		button:SetNormalTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Up]])
-		button:SetPushedTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Down]])
-		button:SetHighlightTexture([[Interface\Buttons\UI-Panel-MinimizeButton-Highlight]], "ADD")
+		button:SetNormalTexture([[Interface\Buttons\UI-SquareButton-Up]])
+		button:SetPushedTexture([[Interface\Buttons\UI-SquareButton-Down]])
+		button:SetDisabledTexture([[Interface\Buttons\UI-SquareButton-Disabled]])
+		button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+		button.Icon = button:CreateTexture(nil, "OVERLAY")
+		button.Icon:SetPoint("CENTER", -1, 0)
 	end
-	button:SetSize(24, 24)
+	button:SetSize(PLAN_BUTTON_SIZE, PLAN_BUTTON_SIZE)
+	button.Icon:SetAtlas(atlas)
+	button.Icon:SetSize(16, 16)
 	button:SetScript("OnClick", onClick)
 	AddButtonTip(button, title, tooltip)
+	hooksecurefunc(button, "SetEnabled", function(self, enabled)
+		self.Icon:SetDesaturated(not enabled)
+	end)
 	return button
 end
 
--- Bottom left of the talent window, in the empty part of the bottom bar: two small
+-- Top centre of the talent window, between the title and the tabs: two small
 -- symbol buttons ("apply" tick, "clear" cross) and the counter, in the colour of the plan.
-local PLAN_BAR_POINT = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 26, 9 }
+local PLAN_BAR_POINT = { "TOP", nil, "TOP", 0, -62 }
 
 local function CreatePlanBar(frame)
 	local bar = CreateFrame("Frame", nil, frame)
 	bar:SetSize(330, 24)
 	bar:SetFrameLevel(ns.Number(frame:GetFrameLevel(), 0) + 1010)
 	bar:SetFrameStrata("HIGH")
-	bar.Apply = CreateApplyButton(bar, L.TALENTS_PLAN_BUTTON_APPLY, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
+	bar.Apply = CreatePlanButton(bar, "common-icon-checkmark", L.TALENTS_PLAN_BUTTON_APPLY, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
 		ApplyPlan()
 	end)
 	bar.Apply:SetPoint("LEFT", bar, "LEFT", 0, 0)
-	bar.Clear = CreateClearButton(bar, L.TALENTS_PLAN_BUTTON_CLEAR, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
+	bar.Clear = CreatePlanButton(bar, "common-icon-redx", L.TALENTS_PLAN_BUTTON_CLEAR, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
 		ClearPlan()
 	end)
-	bar.Clear:SetPoint("LEFT", bar.Apply, "RIGHT", 2, 0)
+	bar.Clear:SetPoint("LEFT", bar.Apply, "RIGHT", 4, 0)
 	bar.Counter = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	bar.Counter:SetPoint("LEFT", bar.Clear, "RIGHT", 10, 0)
 	bar.Counter:SetJustifyH("LEFT")
@@ -916,18 +908,30 @@ local function CreateButtons()
 	spells:SetText(L.TALENTS_SPELLS)
 	spells:SetScript("OnClick", ShowSpellsByLevel)
 	-- Spell book icon left of the button carries the spell alert sparkle.
-	local icon = spells:CreateTexture(nil, "ARTWORK")
-	icon:SetSize(22, 22)
-	icon:SetPoint("RIGHT", spells, "LEFT", -4, 0)
+	-- It is a button of its own too: the same list opens from the book.
+	local book = CreateFrame("Button", nil, parent)
+	book:SetSize(22, 22)
+	book:SetFrameLevel(spells:GetFrameLevel())
+	book:SetPoint("RIGHT", spells, "LEFT", -4, 0)
+	book:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
+	book:SetScript("OnClick", ShowSpellsByLevel)
+	book:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L.TALENTS_SPELLS)
+		GameTooltip:Show()
+	end)
+	book:SetScript("OnLeave", GameTooltip_Hide)
+	local icon = book:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
 	icon:SetTexture(133741)
-	local alert = CreateFrame("Frame", nil, spells, "ActionButtonSpellAlertTemplate")
+	local alert = CreateFrame("Frame", nil, book, "ActionButtonSpellAlertTemplate")
 	alert:SetSize(22 * 1.4, 22 * 1.4)
 	alert:SetPoint("CENTER", icon, "CENTER")
 	alert.animationPlaying = true
 	alert:Hide()
 	spells.Alert = alert
 	spellsButton = spells
-	buttons = { builds, spells }
+	buttons = { builds, spells, book }
 end
 
 function Talents:Update()

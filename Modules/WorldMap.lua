@@ -241,7 +241,18 @@ end
 -- Our own entries in the filter menu of the map: the symbols and names.
 ns.AddMapFilterEntry(function(root)
 	if ns.MapOverlays then
-		ns.CreateOptionCheckbox(root, L.WORLDMAP_REVEAL, "WorldMap", "reveal", L.WORLDMAP_REVEAL_DESC)
+		-- A submenu: on or off, how opaque, tinted green.
+		local reveal = root:CreateButton(L.WORLDMAP_REVEAL)
+		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_SHOW, "WorldMap", "reveal", L.WORLDMAP_REVEAL_DESC)
+		reveal:CreateTitle(L.WORLDMAP_REVEAL_ALPHA)
+		for _, percent in ipairs({ 20, 40, 60, 80, 100 }) do
+			reveal:CreateRadio(("%d %%"):format(percent), function()
+				return math.abs((WorldMap.db.revealAlpha or 60) - percent) < 10
+			end, function()
+				Settings.SetValue("ForeverPlus_WorldMap_revealAlpha", percent)
+			end)
+		end
+		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_TINT, "WorldMap", "revealTint", L.WORLDMAP_REVEAL_TINT_DESC)
 	end
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_ENTRANCES, "WorldMap", "entrances", L.WORLDMAP_ENTRANCES_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_FLIGHTS, "WorldMap", "flightPoints", L.WORLDMAP_FLIGHTS_DESC)

@@ -8,7 +8,9 @@ local RepFlash = ns:NewModule("RepFlash", {
 	title = L.REPFLASH_TITLE,
 	order = 5.8,
 	defaults = {
-		enabled = false,
+		enabled = false, -- reputation
+		xp = false,
+		honor = false,
 	},
 })
 
@@ -151,14 +153,78 @@ local function OnReputation(_, _, message)
 	end
 end
 
+-- Experience: the change of the experience points, whatever the source (kills, quests, discoveries).
+local lastXP, lastMax
+
+local function OnExperience()
+	local current, maximum = UnitXP("player"), UnitXPMax("player")
+	current, maximum = ns.Number(current), ns.Number(maximum)
+	if current and maximum then
+		if lastXP then
+			local gained = current - lastXP
+			if gained < 0 and lastMax then
+				gained = (lastMax - lastXP) + current -- a level up
+			end
+			if gained > 0 then
+				RepFlash:Add(L.REPFLASH_XP, gained)
+			end
+		end
+		lastXP, lastMax = current, maximum
+	end
+end
+
+-- Honor: the number of the honor message of the game.
+local honorPatterns = {}
+
+local function OnHonor(_, _, message)
+	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+		return
+	end
+	for _, entry in ipairs(honorPatterns) do
+		local captures = { message:match(entry.pattern) }
+		if captures[1] then
+			for i, value in ipairs(captures) do
+				if entry.order[i] == entry.numberArg then
+					RepFlash:Add(L.REPFLASH_HONOR, tonumber(value) or 0)
+					return
+				end
+			end
+		end
+	end
+end
+
+local function BuildHonorPatterns()
+	for _, format in ipairs({ _G.COMBATLOG_HONORGAIN, _G.COMBATLOG_HONORAWARD }) do
+		if type(format) == "string" then
+			local entry = ns.FormatToPattern(format, true)
+			local position = 0
+			for index, placeholder in format:gmatch("%%(%d*)%$?([sd])") do
+				position = position + 1
+				if placeholder == "d" then
+					entry.numberArg = tonumber(index) or position
+				end
+			end
+			if entry.numberArg then
+				honorPatterns[#honorPatterns + 1] = entry
+			end
+		end
+	end
+end
+
 function RepFlash:Apply()
 	self:ToggleEvent("CHAT_MSG_COMBAT_FACTION_CHANGE", self.db.enabled, OnReputation)
-	if not self.db.enabled and root then
+	self:ToggleEvent("PLAYER_XP_UPDATE", self.db.xp, OnExperience)
+	self:ToggleEvent("CHAT_MSG_COMBAT_HONOR_GAIN", self.db.honor, OnHonor)
+	if self.db.xp then
+		lastXP, lastMax = ns.Number(UnitXP("player")), ns.Number(UnitXPMax("player"))
+	end
+	if not (self.db.enabled or self.db.xp or self.db.honor) and root then
 		Finish()
 	end
 end
 
 function RepFlash:OnLogin()
+	BuildHonorPatterns()
 	self:Apply()
 end
 
@@ -168,4 +234,6 @@ end
 
 RepFlash.options = {
 	{ key = "enabled", type = "toggle", name = L.REPFLASH_ENABLE, desc = L.REPFLASH_ENABLE_DESC, new = true },
+	{ key = "xp", type = "toggle", name = L.REPFLASH_XP_OPTION, desc = L.REPFLASH_XP_OPTION_DESC, new = true },
+	{ key = "honor", type = "toggle", name = L.REPFLASH_HONOR_OPTION, desc = L.REPFLASH_HONOR_OPTION_DESC, new = true },
 }

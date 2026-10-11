@@ -60,7 +60,7 @@ local function ShowRowBadge(frame, on)
 		local label = RowLabel(frame)
 		badge:ClearAllPoints()
 		if label and label.GetStringWidth then
-			badge:SetPoint("LEFT", label, "LEFT", ns.Number(label:GetStringWidth(), 0) + 8, 0)
+			badge:SetPoint("RIGHT", label, "LEFT", -8, 0)
 		else
 			badge:SetPoint("RIGHT", frame, "RIGHT", -10, 0)
 		end

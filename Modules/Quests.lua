@@ -1004,6 +1004,40 @@ end
 -- A faint WoW crest in the top right corner of the description of a Forever quest (quest log on the
 -- map): a frame of its own just under the scroll area, so the text stays on top of it.
 local watermark
+local logoAtlas, logoSearched
+
+-- The Forever logo as an atlas of the game, if the client has one (found by name once); else the crest.
+local function FindLogoAtlas()
+	if logoSearched then
+		return logoAtlas
+	end
+	logoSearched = true
+	local names = C_Texture and C_Texture.GetAtlasElements and C_Texture.GetAtlasElements()
+	local best
+	for _, name in ipairs(names or {}) do
+		local lower = type(name) == "string" and name:lower()
+		if lower and lower:find("forever", 1, true) and not lower:find("preset", 1, true) then
+			-- A logo rather than an icon: "logo" in the name, else the longest atlas (largest art is not known; the first is taken).
+			if lower:find("logo", 1, true) and (not best or #name < #best) then
+				best = name
+			end
+		end
+	end
+	logoAtlas = best
+	return logoAtlas
+end
+
+-- /fp logo: which atlases with "forever" in the name this client has.
+function Quests.PrintLogoAtlases()
+	local names = C_Texture and C_Texture.GetAtlasElements and C_Texture.GetAtlasElements() or {}
+	local found = {}
+	for _, name in ipairs(names) do
+		if type(name) == "string" and name:lower():find("forever", 1, true) then
+			found[#found + 1] = name
+		end
+	end
+	ns.PrintAlways(L.QUESTS_LOGO_STATUS, #names, #found, table.concat(found, ", "), tostring(FindLogoAtlas()))
+end
 
 local function UpdateWatermark(questID)
 	local details = QuestMapFrame and QuestMapFrame.DetailsFrame
@@ -1017,17 +1051,25 @@ local function UpdateWatermark(questID)
 			return
 		end
 		watermark = CreateFrame("Frame", nil, details)
-		watermark:SetSize(84, 84)
+		watermark:SetSize(96, 96)
 		watermark:EnableMouse(false)
 		local texture = watermark:CreateTexture(nil, "OVERLAY")
 		texture:SetAllPoints()
-		texture:SetTexture(([[Interface\AddOns\%s\Media\iSquidMod\wowlogo]]):format(addonName))
-		texture:SetTexCoord(0, 0.92, 0, 0.92)
-		texture:SetVertexColor(0.55, 0.8, 1)
-		texture:SetAlpha(0.22)
+		local atlas = FindLogoAtlas()
+		if atlas and C_Texture.GetAtlasInfo(atlas) then
+			-- The logo of the game, in its own colours, faint like a watermark.
+			texture:SetAtlas(atlas)
+			texture:SetAlpha(0.2)
+		else
+			texture:SetTexture(([[Interface\AddOns\%s\Media\iSquidMod\wowlogo]]):format(addonName))
+			texture:SetTexCoord(0, 0.92, 0, 0.92)
+			texture:SetVertexColor(0.55, 0.8, 1)
+			texture:SetAlpha(0.22)
+		end
 	end
+	-- In the corner, the same distance from the top and from the right (less text there).
 	watermark:ClearAllPoints()
-	watermark:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -26, -6)
+	watermark:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -8, -8)
 	watermark:SetFrameLevel(math.max(ns.Number(scroll:GetFrameLevel(), 1) - 1, 0))
 	watermark:SetShown(show and true or false)
 end

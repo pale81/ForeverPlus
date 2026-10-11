@@ -145,7 +145,7 @@ end
 -- set relative to the character window itself, so it does not depend on how the slot buttons are
 -- anchored or clipped.
 local placedAt -- last result, for /fp haltbarkeit
-local GAP = 6  -- pixels between the slot and the figure
+local GAP = 8  -- pixels between the slot and the figure
 
 local function PlaceFigure()
 	figure:ClearAllPoints()

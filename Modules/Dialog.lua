@@ -714,6 +714,10 @@ local function Show(view, fromBack)
 		bubble.selectedRow = 1
 	end
 	showToken = showToken + 1
+	-- Gossip is over once a merchant or trainer is open: "back" would lead to options that no longer work.
+	if view.kind == "MERCHANT_SHOW" or view.kind == "TRAINER_SHOW" then
+		wipe(history)
+	end
 	if not current then
 		wipe(history)
 	elseif not fromBack and current.view ~= view and (current.view.kind == "GOSSIP_SHOW" or current.view.kind == "QUEST_GREETING") then

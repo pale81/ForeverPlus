@@ -548,6 +548,36 @@ local function TreeState(frame, configID)
 		rowOf[y] = row
 		previous = y
 	end
+	-- The specialisation of a talent: the three columns of the tree are far apart. This does
+	-- not depend on the order the game lists the groups of a node in.
+	local xs = {}
+	for _, node in pairs(nodes) do
+		xs[ns.Number(node.posX, 0)] = true
+	end
+	local sortedX = {}
+	for x in pairs(xs) do
+		sortedX[#sortedX + 1] = x
+	end
+	table.sort(sortedX)
+	local gaps = {}
+	for i = 2, #sortedX do
+		gaps[#gaps + 1] = sortedX[i] - sortedX[i - 1]
+	end
+	local ordered = { unpack(gaps) }
+	table.sort(ordered)
+	local median = ordered[math.ceil(#ordered / 2)] or 0
+	-- Split at the (at most two) biggest gaps that are far above the usual column distance.
+	local limit = math.max(ordered[#ordered - 1] or 0, median * 2.5)
+	local specOf, spec = {}, 1
+	for i, x in ipairs(sortedX) do
+		if i > 1 and gaps[i - 1] >= limit and gaps[i - 1] > median * 2.5 then
+			spec = spec + 1
+		end
+		specOf[x] = spec
+	end
+	for _, node in pairs(nodes) do
+		node.fpSpec = specOf[ns.Number(node.posX, 0)]
+	end
 	return nodes, rowOf, names
 end
 
@@ -560,11 +590,14 @@ local function CheckNode(nodes, rowOf, names, plan, node, rank)
 	if rank <= 0 then
 		return nil
 	end
-	local group = node.groupIDs and node.groupIDs[1]
+	local function GroupOf(candidate)
+		return candidate.fpSpec or (candidate.groupIDs and candidate.groupIDs[1])
+	end
+	local group = GroupOf(nodes[node.ID] or node)
 	local row = rowOf[node.posY] or 0
 	local spent = 0
 	for _, other in pairs(nodes) do
-		if other.ID ~= node.ID and (other.groupIDs and other.groupIDs[1]) == group and (rowOf[other.posY] or 0) < row then
+		if other.ID ~= node.ID and GroupOf(other) == group and (rowOf[other.posY] or 0) < row then
 			spent = spent + Effective(other, plan)
 		end
 	end
@@ -1089,6 +1122,21 @@ end
 
 -- /fp talente: where the plan bar is and whether it shows.
 function Talents:PrintStatus()
+	local treeFrame = TalentsFrame()
+	local treeConfig = treeFrame and treeFrame:IsVisible() and treeFrame.GetConfigID and treeFrame:GetConfigID()
+	if treeConfig then
+		local nodes, rowOf = TreeState(treeFrame, treeConfig)
+		local count, rowSet, specSet = 0, {}, {}
+		for _, node in pairs(nodes) do
+			count = count + 1
+			rowSet[rowOf[node.posY] or 0] = true
+			specSet[node.fpSpec or 0] = true
+		end
+		local rowsN, specsN = 0, 0
+		for _ in pairs(rowSet) do rowsN = rowsN + 1 end
+		for _ in pairs(specSet) do specsN = specsN + 1 end
+		ns.PrintAlways(L.TALENTS_STATUS_TREE, count, rowsN, specsN)
+	end
 	local frame = TalentsFrame()
 	local bar = planBar
 	local point, relativeTo, relative, x, y

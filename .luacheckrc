@@ -97,6 +97,7 @@ read_globals = {
 	"C_Traits",
 	"GetMaxLevelForPlayerExpansion",
 	"IsPlayerSpell",
+	"ERR_ZONE_EXPLORED", "ERR_ZONE_EXPLORED_XP",
 	"GetQuestID",
 	"C_PaperDollInfo",
 	"GossipOptionSort",

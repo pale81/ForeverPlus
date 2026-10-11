@@ -265,21 +265,28 @@ local function ShowCpuTooltip(owner)
 	table.sort(list, function(a, b)
 		return a.peak > b.peak
 	end)
-	GameTooltip_AddNormalLine(GameTooltip, L.INFO_CPU_COLUMNS)
+	-- Sections: explanation, table (names white, values coloured), total, measurement, hints.
+	GameTooltip:AddLine(L.INFO_CPU_COLUMNS, 0.62, 0.62, 0.62, true)
 	if GetTime() < ignoreUntil then
 		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WARMUP:format(math.ceil(ignoreUntil - GetTime())))
 	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	GameTooltip:AddDoubleLine(L.INFO_CPU_HEADER_ADDON, L.INFO_CPU_HEADER_VALUES, 0.62, 0.62, 0.62, 0.62, 0.62, 0.62)
 	local total = 0
 	for _, addon in ipairs(list) do
 		total = total + addon.ms
 		local color = CpuColor(addon.peak)
+		local own = addon.title == "ForeverPlus"
 		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
-			color.r, color.g, color.b, color.r, color.g, color.b)
+			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
+			color.r, color.g, color.b)
 	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	local color = CpuColor(total)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_TOTAL, ("%.2f ms"):format(total),
 		NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, color.r, color.g, color.b)
 	AddMeasureLines()
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
 	GameTooltip_AddInstructionLine(GameTooltip, L.INFO_MEASURE_HINT)
 	GameTooltip:Show()

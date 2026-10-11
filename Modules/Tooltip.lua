@@ -254,6 +254,13 @@ local function PlayerClassColor(unit)
 	end
 end
 
+-- Name colour and the desaturated copy underneath it.
+local function ApplyNameColor(frame, r, g, b)
+	frame.Name:SetTextColor(r, g, b)
+	local grey = max(MIN_GREY, 0.3 * r + 0.59 * g + 0.11 * b)
+	frame.Grey:SetTextColor(grey, grey, grey)
+end
+
 local function Layout(frame)
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
 	-- First name and surname, as Blizzard's own unit display does.
@@ -273,7 +280,6 @@ local function Layout(frame)
 		end
 	end
 	frame.Name:SetText(name)
-	frame.Name:SetTextColor(r, g, b)
 	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
 	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")
 	-- Clipping needs the width of the name; a protected name is shown plainly.
@@ -287,8 +293,6 @@ local function Layout(frame)
 		local width, height = frame.Name:GetStringWidth() + 2, frame.Name:GetStringHeight() + 2
 		frame.Box:SetSize(width, height)
 		frame.Grey:SetText(name)
-		local grey = max(MIN_GREY, 0.3 * r + 0.59 * g + 0.11 * b)
-		frame.Grey:SetTextColor(grey, grey, grey)
 		frame.Grey:SetShown(Tooltip.db.hoverHealth)
 		frame.Clip:SetPoint("TOPLEFT", frame.Box, "TOPLEFT")
 		if Tooltip.db.hoverHealth then
@@ -303,6 +307,7 @@ local function Layout(frame)
 		frame.Clip:SetAllPoints(frame.Box)
 		frame:SetSize(1, NAME_SIZE)
 	end
+	ApplyNameColor(frame, r, g, b)
 	UpdateHealthMask(frame)
 end
 
@@ -433,7 +438,7 @@ end
 ---------------------------------------------------------------------------
 -- Players in the tooltip: name and class in class colour
 ---------------------------------------------------------------------------
-local function OnUnitTooltip(tooltip)
+local function ClassColorTooltip(tooltip)
 	if not Tooltip.db.classColors or tooltip:IsForbidden() or tooltip ~= GameTooltip then
 		return
 	end
@@ -464,6 +469,34 @@ local function OnUnitTooltip(tooltip)
 			end
 		end
 	end
+end
+
+-- The name over the cursor takes the colour of the first tooltip line, so pets
+-- and other units whose colour the game decides while it builds the tooltip match it.
+local function SyncHoverColor(tooltip)
+	if not hover or not hover:IsShown() or hover.object or tooltip ~= GameTooltip or tooltip:IsForbidden() then
+		return
+	end
+	local _, unit = tooltip:GetUnit()
+	if not unit or Secret(unit) then
+		return
+	end
+	local same = UnitIsUnit(unit, "mouseover")
+	if Secret(same) or not same then
+		return
+	end
+	local first = GameTooltipTextLeft1
+	if first then
+		local r, g, b = first:GetTextColor()
+		if r and g and b then
+			ApplyNameColor(hover, r, g, b)
+		end
+	end
+end
+
+local function OnUnitTooltip(tooltip)
+	ClassColorTooltip(tooltip)
+	SyncHoverColor(tooltip)
 end
 
 -- Maximum stack size of stackable items (a section of the extra block).

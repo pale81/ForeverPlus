@@ -220,7 +220,8 @@ end
 ---------------------------------------------------------------------------
 local function OnCombatStart()
 	inCombat = true
-	if QoL.db.nameplatesCombat and not InCombatLockdown() then
+	-- Setting the CVar makes the engine rebuild its nameplates: only when it changes.
+	if QoL.db.nameplatesCombat and not InCombatLockdown() and GetCVar(NAMEPLATE_CVAR) ~= "1" then
 		SetCVar(NAMEPLATE_CVAR, "1")
 	end
 	if QoL.db.nameplatesFade then
@@ -230,7 +231,7 @@ end
 
 local function OnCombatEnd()
 	inCombat = false
-	if QoL.db.nameplatesCombat then
+	if QoL.db.nameplatesCombat and GetCVar(NAMEPLATE_CVAR) ~= "0" then
 		SetCVar(NAMEPLATE_CVAR, "0")
 	end
 	if QoL.db.nameplatesFade then

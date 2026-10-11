@@ -319,11 +319,13 @@ function ns.RunSliced(name, count, fn, onDone, budget)
 	local index = 1
 	C_Timer.NewTicker(0, function(ticker)
 		local start = debugprofilestop()
+		-- A slow frame rate gets less of the work per frame.
+		local frameBudget = ns.Number(GetFramerate(), 60) < 40 and budget / 2 or budget
 		while index <= count do
 			local current = index
 			index = index + 1 -- before the call: an error must not repeat the same entry every frame
 			fn(current)
-			if debugprofilestop() - start >= budget then
+			if debugprofilestop() - start >= frameBudget then
 				ns.RecordTiming(name, debugprofilestop() - start)
 				return
 			end

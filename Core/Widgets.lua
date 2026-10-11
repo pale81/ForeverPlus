@@ -180,6 +180,7 @@ end
 -- the owner disappears. build() returns { title, items, empty, footer }.
 ---------------------------------------------------------------------------
 local POPUP_WIDTH, ROW_HEIGHT, MAX_ROWS, POPUP_PAD = 300, 22, 14, PADDING
+local SECTION_GAP = 8
 local popups = {} -- frame name -> popup
 
 local function PopupRow(popup, index)
@@ -195,6 +196,12 @@ local function PopupRow(popup, index)
 	highlight:SetAllPoints()
 	highlight:SetColorTexture(1, 1, 1, 0.08)
 	row:SetHighlightTexture(highlight)
+	-- Thin line under a section title.
+	row.Line = row:CreateTexture(nil, "ARTWORK")
+	row.Line:SetColorTexture(1, 0.82, 0, 0.35)
+	row.Line:SetHeight(1)
+	row.Line:SetPoint("BOTTOMLEFT", 0, 0)
+	row.Line:SetPoint("BOTTOMRIGHT", 0, 0)
 	row.Stripe = row:CreateTexture(nil, "BACKGROUND")
 	row.Stripe:SetAllPoints()
 	row.Stripe:SetColorTexture(1, 1, 1, 0.05)
@@ -292,6 +299,7 @@ local function CreatePopup(name)
 		self.Title:SetText(data.title or "")
 		local visible = math.min(#items, MAX_ROWS)
 		self.offset = math.max(0, math.min(self.offset, #items - visible))
+		local rowsHeight = 0
 		for i = 1, math.max(visible, #self.rows) do
 			local item = i <= visible and items[i + self.offset]
 			local row = (item or self.rows[i]) and PopupRow(self, i)
@@ -299,7 +307,15 @@ local function CreatePopup(name)
 				row.item = item or nil
 				row:SetShown(item and true or false)
 				if item then
-					-- Rows without an action are section titles.
+					-- Rows without an action are section titles: a gap above (not for the
+					-- first one), a thin line below.
+					local isHeader = item.onClick == nil
+					local gap = isHeader and rowsHeight > 0 and SECTION_GAP or 0
+					row:ClearAllPoints()
+					row:SetPoint("TOPLEFT", self.Title, "BOTTOMLEFT", 0, -6 - rowsHeight - gap)
+					row:SetPoint("RIGHT", self, "RIGHT", -POPUP_PAD, 0)
+					row.Line:SetShown(isHeader and item.line ~= false)
+					rowsHeight = rowsHeight + gap + ROW_HEIGHT + (isHeader and 2 or 0)
 					row:SetEnabled(item.onClick ~= nil)
 					row.Text:SetText(item.onClick and (item.text or "") or NORMAL_FONT_COLOR:WrapTextInColorCode(item.text or ""))
 					row.Icon:SetShown(item.icon ~= nil)
@@ -335,7 +351,7 @@ local function CreatePopup(name)
 		end
 		self.Info:SetText(#items > visible and ("%d-%d / %d"):format(self.offset + 1, self.offset + visible, #items) or "")
 		self.Empty:SetText(#items == 0 and (data.empty or "") or "")
-		local height = POPUP_PAD * 2 + 20 + math.max(visible, #items == 0 and 1 or 0) * ROW_HEIGHT
+		local height = POPUP_PAD * 2 + 20 + (#items == 0 and ROW_HEIGHT or rowsHeight)
 		local footer = data.footer or {}
 		for _, button in ipairs(self.footer) do
 			button:Hide()

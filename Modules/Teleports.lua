@@ -83,7 +83,7 @@ function Teleports:Collect()
 			if name then
 				list[#list + 1] = {
 					kind = kind, id = id, name = name, icon = icon, remaining = remaining or 0,
-					hearth = entry.hearth, portal = entry.portal,
+					hearth = entry.hearth, portal = entry.portal, order = #list + 1,
 				}
 			end
 		end
@@ -129,6 +129,12 @@ local function CreateMenu()
 	menu.Empty = menu:CreateFontString(nil, "OVERLAY", "GameFontDisable")
 	menu.Empty:SetPoint("TOPLEFT", menu.Title, "BOTTOMLEFT", 2, -8)
 	menu.Empty:SetText(L.TELEPORTS_NONE)
+	-- Section title with a line above the group portals.
+	menu.PortalHeader = menu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	menu.PortalHeader:SetText(L.TELEPORTS_PORTAL_HEADER)
+	menu.PortalLine = menu:CreateTexture(nil, "ARTWORK")
+	menu.PortalLine:SetColorTexture(1, 0.82, 0, 0.35)
+	menu.PortalLine:SetHeight(1)
 	rows = {}
 	menu:SetScript("OnEvent", function(self)
 		if not self:IsMouseOver() and not (Teleports.trigger and Teleports.trigger:IsMouseOver()) then
@@ -156,16 +162,38 @@ function Teleports:ShowMenu()
 		return
 	end
 	local list = self:Collect()
-	local y = -(ns.PANEL_PADDING + 22)
+	-- Teleports first, group portals in a section of their own.
+	table.sort(list, function(a, b)
+		if (a.portal or false) ~= (b.portal or false) then
+			return not a.portal
+		end
+		return a.order < b.order
+	end)
+	local y = -(ns.PANEL_PADDING + 26)
+	local sectionShown = false
+	menu.PortalHeader:Hide()
+	menu.PortalLine:Hide()
 	for i = 1, math.max(#list, #rows) do
 		local entry, row = list[i], rows[i] or CreateRow(i)
+		if entry and entry.portal and not sectionShown then
+			sectionShown = true
+			y = y - 8
+			menu.PortalHeader:ClearAllPoints()
+			menu.PortalHeader:SetPoint("TOPLEFT", menu, "TOPLEFT", ns.PANEL_PADDING + 2, y)
+			menu.PortalHeader:Show()
+			menu.PortalLine:ClearAllPoints()
+			menu.PortalLine:SetPoint("TOPLEFT", menu, "TOPLEFT", ns.PANEL_PADDING, y - 16)
+			menu.PortalLine:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -ns.PANEL_PADDING, y - 16)
+			menu.PortalLine:Show()
+			y = y - 22
+		end
 		if entry then
 			row:ClearAllPoints()
 			row:SetPoint("TOPLEFT", menu, "TOPLEFT", ns.PANEL_PADDING, y)
 			row:SetPoint("RIGHT", menu, "RIGHT", -ns.PANEL_PADDING, 0)
 			y = y - ROW_HEIGHT
 			row.Icon:SetTexture(entry.icon)
-			row.Text:SetText(entry.portal and (entry.name .. " |cff9d9d9d(" .. L.TELEPORTS_PORTAL .. ")|r") or entry.name)
+			row.Text:SetText(entry.name)
 			local right = ""
 			if entry.remaining > 0 then
 				right = "|cffff4040" .. CooldownText(entry.remaining) .. "|r"
@@ -181,7 +209,7 @@ function Teleports:ShowMenu()
 		end
 	end
 	menu.Empty:SetShown(#list == 0)
-	menu:SetHeight(ns.PANEL_PADDING * 2 + 22 + math.max(#list, 1) * ROW_HEIGHT)
+	menu:SetHeight(-y + ns.PANEL_PADDING + (#list == 0 and ROW_HEIGHT or 0))
 	menu:ClearAllPoints()
 	menu:SetPoint("TOP", self.trigger or Minimap, "BOTTOM", 0, -6)
 	menu:Show()

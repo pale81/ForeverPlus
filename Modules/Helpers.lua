@@ -9,6 +9,7 @@ local Helpers = ns:NewModule("Helpers", {
 	order = 4.8,
 	defaults = {
 		process = true,
+		feedPet = true,
 		openButton = true,
 		fishing = true,
 		knownRecipes = true,
@@ -41,10 +42,11 @@ end
 ---------------------------------------------------------------------------
 -- Processing: Alt makes processable items glow, Alt + right-click processes
 ---------------------------------------------------------------------------
-local DISENCHANT, PICK_LOCK = 13262, 1804
+local DISENCHANT, PICK_LOCK, FEED_PET = 13262, 1804, 6991
 local COLORS = {
 	[DISENCHANT] = { 0.75, 0.35, 1 },
 	[PICK_LOCK] = { 1, 0.85, 0.1 },
+	[FEED_PET] = { 0.35, 1, 0.35 },
 }
 local NO_DISENCHANT = { INVTYPE_TABARD = true, INVTYPE_BODY = true }
 
@@ -68,6 +70,11 @@ local function ProcessSpell(bag, slot)
 	end
 	if Known(PICK_LOCK) and IsOpenableLock(bag, slot) then
 		return PICK_LOCK
+	end
+	-- Food the current pet eats (hunters; the game itself knows its diet).
+	if Helpers.db.feedPet and Known(FEED_PET) and C_PetInfo and C_PetInfo.CanPetEatItem and UnitExists("pet")
+		and not UnitIsDead("pet") and not InCombatLockdown() and info.itemID and C_PetInfo.CanPetEatItem(info.itemID) then
+		return FEED_PET
 	end
 end
 
@@ -512,6 +519,7 @@ end
 
 Helpers.options = {
 	{ key = "process", type = "toggle", name = L.HELPERS_PROCESS, desc = L.HELPERS_PROCESS_DESC },
+	{ key = "feedPet", type = "toggle", name = L.HELPERS_FEED_PET, desc = L.HELPERS_FEED_PET_DESC, parent = "process" },
 	{ key = "openButton", type = "toggle", name = L.HELPERS_OPEN_BUTTON, desc = L.HELPERS_OPEN_BUTTON_DESC },
 	{ key = "fishing", type = "toggle", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },

@@ -1365,6 +1365,20 @@ end)()
 	print("trivial OK")
 end)()
 ;(function()
+	-- durability on the character window
+	local dura = ns:GetModule("Durability")
+	issecretvalue = function() return false end
+	GetInventoryItemDurability = function(slot) if slot == 1 then return 50, 100 elseif slot == 2 then return 100, 100 end end
+	assert(dura.Percent(1) == 50, "half")
+	assert(dura.Percent(2) == nil, "full hidden")
+	assert(dura.Percent(3) == nil, "no durability")
+	assert(pcall(dura.Update), "update runs")
+	-- pet food
+	local helpers = ns:GetModule("Helpers")
+	assert(helpers.db.feedPet == true, "feed pet default")
+	print("durability OK")
+end)()
+;(function()
 	local tp = ns:GetModule("Teleports")
 	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
 	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end

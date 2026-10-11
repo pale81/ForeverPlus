@@ -68,6 +68,7 @@ Modules\SpeechBubbles.lua
 Modules\Dialog.lua
 Modules\RepFlash.lua
 Modules\Trivial.lua
+Modules\Durability.lua
 Modules\Talents.lua
 Modules\Visuals.lua
 Modules\XPBar.lua

@@ -133,7 +133,7 @@ read_globals = {
 	"LANGUAGE",
 	"ChatFrameMenuButton",
 	"ChatFrame1",
-	"TOOLTIP_DEFAULT_BACKGROUND_COLOR",
+	"TOOLTIP_DEFAULT_BACKGROUND_COLOR", "TOOLTIP_DEFAULT_COLOR", "PaperDollItemSlotButton_Update", "GetInventoryItemQuality",
 	"RequestTimePlayed",
 	"GetNetStats",
 	"GetFramerate",

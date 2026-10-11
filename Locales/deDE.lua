@@ -1062,3 +1062,5 @@ L.FADE_IN_DESC = "Fenster und Fenster-Menüs von ForeverPlus (Listen, Eingabefen
 L.DIALOG_MERCHANT_CHOSEN = "Im Korb: %d Waren (%d Stück), %s"
 L.DIALOG_HIDE_PLATE = "Namensplakette unter der Blase ausblenden"
 L.DIALOG_HIDE_PLATE_DESC = "Die Blase sitzt auf dem unteren Rand der Namensplakette des NPCs (weiter unten als darüber) und deckt sie ab; die Plakette wird solange unsichtbar gemacht und danach wieder eingeblendet."
+L.DIALOG_CLICK_FREE = "<Klick: auswählen. Umschalt-Klick: zu mehreren Waren dazunehmen>"
+L.DIALOG_CLICK_PICKED = "<Linksklick: mehr. Rechtsklick: weniger. Umschalt-Klick: aus der Auswahl nehmen>"

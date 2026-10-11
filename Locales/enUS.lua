@@ -1063,3 +1063,5 @@ L.FADE_IN_DESC = "Windows and window menus of ForeverPlus (lists, input windows,
 L.DIALOG_MERCHANT_CHOSEN = "In the basket: %d wares (%d pieces), %s"
 L.DIALOG_HIDE_PLATE = "Hide the nameplate under the bubble"
 L.DIALOG_HIDE_PLATE_DESC = "The bubble sits on the lower edge of the nameplate of the NPC (lower than above it) and covers it; the plate is made invisible meanwhile and shown again after."
+L.DIALOG_CLICK_FREE = "<Click: choose. Shift-click: add to several wares>"
+L.DIALOG_CLICK_PICKED = "<Left click: more. Right click: less. Shift-click: remove from the choice>"

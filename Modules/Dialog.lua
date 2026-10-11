@@ -18,6 +18,8 @@ local Dialog = ns:NewModule("Dialog", {
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
 		trainer = true,        -- the trainer's list in the bubble too
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
+		merchantTalk = true,   -- the merchant speaks first, the wares come with the next step
+		merchantHide = false,  -- hide wares that cannot be used or are known already
 	},
 })
 
@@ -131,6 +133,12 @@ local function CreateBubble()
 			FinishReveal()
 		end
 	end)
+	frame:EnableMouseWheel(true)
+	frame:SetScript("OnMouseWheel", function(_, delta)
+		if current and current.view.kind == "MERCHANT_SHOW" then
+			Dialog.MerchantScroll(delta)
+		end
+	end)
 	frame:SetWidth(WIDTH)
 	frame:Hide()
 	-- Dark variant: one plain pane.
@@ -188,12 +196,17 @@ local function CreateBubble()
 				if not action then
 					action = self.rowActions[self.selectedRow or 1]
 				end
+				-- Only a "goodbye" to choose: Space says it.
+				if not action and #self.rowActions == 0 and #(current.view.buttons or {}) == 1 then
+					local only = current.view.buttons[1]
+					action = only.enabled ~= false and only.action or nil
+				end
 			elseif key == "TAB" then
 				local count = #self.rowActions
 				if count > 1 then
 					local step = IsShiftKeyDown() and -1 or 1
 					self.selectedRow = ((self.selectedRow or 1) - 1 + step) % count + 1
-					Dialog.ShowSelection()
+					Dialog.Rerender()
 					self:SetPropagateKeyboardInput(false)
 					return
 				end
@@ -399,6 +412,18 @@ Render = function(view)
 					frame.rowActions[#frame.rowActions + 1] = info.action
 					label = ("|cff9a9a9a%d.|r %s"):format(#frame.rowActions, info.text)
 				end
+				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
+				local emphasised = info.selected or (info.action and #frame.rowActions == frame.selectedRow and #frame.rowActions > 1)
+				local baseFont = _G[TextFont()]
+				local file, size
+				if baseFont then
+					file, size = baseFont:GetFont()
+				end
+				if emphasised and file and size then
+					row.Text:SetFont(file, size * 1.18, "OUTLINE")
+				else
+					row.Text:SetFontObject(TextFont())
+				end
 				row.Text:SetText(label)
 				row.number = info.action and #frame.rowActions or nil
 				row.Selected:SetShown(row.number ~= nil and row.number == frame.selectedRow)
@@ -578,6 +603,13 @@ local function UseBlizzard()
 	current = nil
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false)
+end
+
+-- Builds the step on show again (the option lit with Tab changes the look of its row).
+function Dialog.Rerender()
+	if current and bubble and bubble:IsShown() then
+		Render(current.view)
+	end
 end
 
 -- Lights the option Space takes.
@@ -950,14 +982,39 @@ function Dialog.TrainerView()
 end
 
 ---------------------------------------------------------------------------
--- Merchant: the wares as a list (ten per page); a click selects, "Buy" buys one.
+-- Merchant: the wares as a list (scrolled with the mouse wheel); a click selects, "Buy" buys one.
+-- Hides what cannot be used and what is known already when wanted; buy-back is a list of its own.
 ---------------------------------------------------------------------------
-local MERCHANT_PAGE = 10
-local merchantSelected, merchantPage = nil, 1
+local MERCHANT_ROWS = 14
+local merchantSelected, merchantOffset, merchantMode, merchantSaying = nil, 0, "wares", nil
+local knownWares = {} -- ware index -> known already (read from the tooltip once per visit)
 
-local function MerchantRowText(info, index)
-	local color = "ffffffff"
+local function IsKnownWare(index)
+	local cached = knownWares[index]
+	if cached ~= nil then
+		return cached
+	end
+	local known = false
 	local link = GetMerchantItemLink and GetMerchantItemLink(index)
+	if link then
+		local classID = select(6, C_Item.GetItemInfoInstant(link))
+		if classID == Enum.ItemClass.Recipe or classID == Enum.ItemClass.Miscellaneous then
+			local data = C_TooltipInfo and C_TooltipInfo.GetMerchantItem and C_TooltipInfo.GetMerchantItem(index)
+			for _, line in ipairs(data and data.lines or {}) do
+				local text = line.leftText
+				if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text == ITEM_SPELL_KNOWN then
+					known = true
+					break
+				end
+			end
+		end
+	end
+	knownWares[index] = known
+	return known
+end
+
+local function WareName(info, link)
+	local color = "ffffffff"
 	local quality = link and select(3, C_Item.GetItemInfo(link))
 	if quality and C_Item.GetItemQualityColor then
 		local _, _, _, hex = C_Item.GetItemQualityColor(quality)
@@ -966,10 +1023,15 @@ local function MerchantRowText(info, index)
 	if info.isUsable == false then
 		color = "ffff4040"
 	end
-	local parts = { ("|c%s%s|r"):format(color, info.name or "?") }
+	local text = ("|c%s%s|r"):format(color, info.name or "?")
 	if (info.stackCount or 1) > 1 then
-		parts[1] = parts[1] .. " x" .. info.stackCount
+		text = text .. " x" .. info.stackCount
 	end
+	return text
+end
+
+local function MerchantRowText(info, index)
+	local parts = { WareName(info, GetMerchantItemLink and GetMerchantItemLink(index)) }
 	if info.hasExtendedCost then
 		parts[#parts + 1] = L.DIALOG_MERCHANT_SPECIAL
 	elseif (info.price or 0) > 0 then
@@ -981,81 +1043,149 @@ local function MerchantRowText(info, index)
 	return table.concat(parts, "   ")
 end
 
-function Dialog.MerchantView()
-	local total = GetMerchantNumItems() or 0
-	local pages = math.max(1, math.ceil(total / MERCHANT_PAGE))
-	merchantPage = math.max(1, math.min(merchantPage, pages))
-	local money = GetMoney()
-	local rows, selection = {}, nil
-	for slot = 1, MERCHANT_PAGE do
-		local index = (merchantPage - 1) * MERCHANT_PAGE + slot
-		local info = index <= total and C_MerchantFrame.GetItemInfo(index)
-		if info and info.name then
-			local isSelected = merchantSelected == index
-			if isSelected then
-				selection = info
-			end
-			rows[#rows + 1] = {
-				text = Marker(isSelected and ">" or " ") .. MerchantRowText(info, index),
-				icon = info.texture,
-				dim = info.isPurchasable == false,
-				action = function()
-					merchantSelected = index
-					Dialog:OnConversation("MERCHANT_UPDATE")
-				end,
-				tooltip = function(tooltip)
-					if tooltip.SetMerchantItem then
-						tooltip:SetMerchantItem(index)
-					end
-				end,
-			}
+-- What the merchant says: a random saying per visit, shown on the page of the wares or before it.
+local function PickSaying()
+	return L["DIALOG_MERCHANT_SAY" .. math.random(1, 8)]
+end
+
+local function MerchantEntries()
+	local entries = {}
+	local hide = Dialog.db.merchantHide
+	for index = 1, GetMerchantNumItems() or 0 do
+		local info = C_MerchantFrame.GetItemInfo(index)
+		if info and info.name and not (hide and (info.isUsable == false or IsKnownWare(index))) then
+			entries[#entries + 1] = { index = index, info = info }
 		end
 	end
-	local blocks = {}
-	if #rows == 0 then
-		blocks[1] = { text = L.DIALOG_MERCHANT_NONE, dim = true }
-	else
-		blocks[1] = { rows = rows }
+	return entries
+end
+
+local function BuybackEntries()
+	local entries = {}
+	for index = 1, GetNumBuybackItems and GetNumBuybackItems() or 0 do
+		local name, texture, price, quantity, _, isUsable = GetBuybackItemInfo(index)
+		if name then
+			entries[#entries + 1] = { index = index, info = {
+				name = name, texture = texture, price = price, stackCount = quantity, numAvailable = -1, isUsable = isUsable,
+				isPurchasable = true,
+			} }
+		end
 	end
-	if pages > 1 then
-		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_PAGE:format(merchantPage, pages), dim = true }
+	return entries
+end
+
+local function RefreshMerchant()
+	Dialog:OnConversation("MERCHANT_UPDATE")
+end
+
+function Dialog.MerchantScroll(delta)
+	if merchantMode ~= "wares" then
+		return
+	end
+	merchantOffset = math.max(0, merchantOffset - delta * 3)
+	RefreshMerchant()
+end
+
+function Dialog.MerchantView()
+	local money = GetMoney()
+	-- First the merchant talks (option): "look at the wares" goes on to the list.
+	if merchantMode == "talk" then
+		return {
+			name = NpcName(), blocks = { { text = merchantSaying or PickSaying() } },
+			buttons = {
+				{ text = L.DIALOG_MERCHANT_LOOK, primary = true, action = function()
+					merchantMode = "wares"
+					RefreshMerchant()
+				end },
+				{ text = L.DIALOG_CLOSE, action = function()
+					if CloseMerchant then
+						CloseMerchant()
+					end
+				end },
+			},
+		}
+	end
+	local buyback = merchantMode == "buyback"
+	local entries = buyback and BuybackEntries() or MerchantEntries()
+	local total = #entries
+	merchantOffset = math.max(0, math.min(merchantOffset, math.max(0, total - MERCHANT_ROWS)))
+	local rows, selection = {}, nil
+	for position = merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS) do
+		local entry = entries[position]
+		local index, info = entry.index, entry.info
+		local isSelected = merchantSelected == index
+		if isSelected then
+			selection = info
+		end
+		rows[#rows + 1] = {
+			text = Marker(isSelected and ">" or " ") .. (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
+			icon = info.texture,
+			dim = info.isPurchasable == false,
+			selected = isSelected, -- the chosen row is shown a little larger and bold, like under a magnifying glass
+			action = function()
+				merchantSelected = index
+				RefreshMerchant()
+			end,
+			tooltip = function(tooltip)
+				if buyback then
+					if tooltip.SetBuybackItem then
+						tooltip:SetBuybackItem(index)
+					end
+				elseif tooltip.SetMerchantItem then
+					tooltip:SetMerchantItem(index)
+				end
+			end,
+		}
+	end
+	local blocks = {}
+	if merchantSaying and not buyback and merchantOffset == 0 then
+		blocks[#blocks + 1] = { text = merchantSaying, dim = true }
+	end
+	blocks[#blocks + 1] = #rows == 0 and { text = L.DIALOG_MERCHANT_NONE, dim = true } or { rows = rows }
+	if total > MERCHANT_ROWS then
+		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_RANGE:format(merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS), total), dim = true }
 	end
 	blocks[#blocks + 1] = { money = L.DIALOG_MONEY:format(GetMoneyString(money, true)) }
 	local canBuy = selection and selection.isPurchasable ~= false and (selection.numAvailable or -1) ~= 0
 		and (selection.hasExtendedCost or (selection.price or 0) <= money)
 	local buttons = {
-		{ text = L.DIALOG_BUY, primary = true, enabled = canBuy and true or false, action = function()
-			BuyMerchantItem(merchantSelected, 1)
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, enabled = canBuy and true or false, action = function()
+			if buyback then
+				BuybackItem(merchantSelected)
+			else
+				BuyMerchantItem(merchantSelected, 1)
+			end
 		end },
 	}
-	if pages > 1 then
-		buttons[#buttons + 1] = { text = L.DIALOG_PAGE_PREVIOUS, enabled = merchantPage > 1, action = function()
-			merchantPage = merchantPage - 1
-			merchantSelected = nil
-			Dialog:OnConversation("MERCHANT_UPDATE")
+	if buyback then
+		buttons[#buttons + 1] = { text = L.DIALOG_WARES, action = function()
+			merchantMode, merchantSelected, merchantOffset = "wares", nil, 0
+			RefreshMerchant()
 		end }
-		buttons[#buttons + 1] = { text = L.DIALOG_PAGE_NEXT, enabled = merchantPage < pages, action = function()
-			merchantPage = merchantPage + 1
-			merchantSelected = nil
-			Dialog:OnConversation("MERCHANT_UPDATE")
-		end }
-	end
-	local tools = ns.MerchantTools
-	if tools then
-		local junkCount = tools.JunkValue()
-		if junkCount > 0 then
-			buttons[#buttons + 1] = { text = L.DIALOG_SELL_JUNK:format(junkCount), action = tools.SellJunk }
-		end
-	end
-	if CanMerchantRepair and CanMerchantRepair() then
-		local cost, canRepair = GetRepairAllCost()
-		if canRepair and cost > 0 then
-			buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = cost <= money, action = function()
-				RepairAllItems(false)
+	else
+		if GetNumBuybackItems and GetNumBuybackItems() > 0 then
+			buttons[#buttons + 1] = { text = L.DIALOG_BUYBACK, action = function()
+				merchantMode, merchantSelected, merchantOffset = "buyback", nil, 0
+				RefreshMerchant()
 			end }
 		end
+		local tools = ns.MerchantTools
+		if tools then
+			local junkCount = tools.JunkValue()
+			if junkCount > 0 then
+				buttons[#buttons + 1] = { text = L.DIALOG_SELL_JUNK:format(junkCount), action = tools.SellJunk }
+			end
+		end
+		if CanMerchantRepair and CanMerchantRepair() then
+			local cost, canRepair = GetRepairAllCost()
+			if canRepair and cost > 0 then
+				buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = cost <= money, action = function()
+					RepairAllItems(false)
+				end }
+			end
+		end
 	end
-	-- Buy-back and everything else: the game's own window.
+	-- Everything else: the game's own window.
 	buttons[#buttons + 1] = { text = L.DIALOG_ORIGINAL_WINDOW, action = function()
 		UseBlizzard()
 	end }
@@ -1064,7 +1194,7 @@ function Dialog.MerchantView()
 			CloseMerchant()
 		end
 	end }
-	-- Lists refresh often: their text does not appear letter by letter.
+	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
 	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true }
 end
 
@@ -1126,7 +1256,9 @@ function Dialog:OnConversation(event)
 			return
 		end
 		if event == "MERCHANT_SHOW" then
-			merchantSelected, merchantPage = nil, 1
+			merchantSelected, merchantOffset, merchantSaying = nil, 0, PickSaying()
+			merchantMode = self.db.merchantTalk and "talk" or "wares"
+			wipe(knownWares)
 		end
 		event = "MERCHANT_SHOW"
 	end
@@ -1247,5 +1379,7 @@ Dialog.options = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
+	{ key = "merchantTalk", type = "toggle", name = L.DIALOG_MERCHANT_TALK, desc = L.DIALOG_MERCHANT_TALK_DESC, parent = "merchant", new = true },
+	{ key = "merchantHide", type = "toggle", name = L.DIALOG_MERCHANT_HIDE, desc = L.DIALOG_MERCHANT_HIDE_DESC, parent = "merchant", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },
 }

@@ -1220,6 +1220,39 @@ local function HookMoneyFrame(moneyFrame)
 	end
 end
 
+-- /fp geld: without an amount the state of the click areas and the amount window; with an amount ("12g 5s")
+-- the coins are taken up directly, which shows whether the game lets an addon do that.
+function Items.MoneyCommand(argument)
+	argument = strtrim(argument or "")
+	if argument ~= "" then
+		local copper = ParseMoney(argument)
+		if not copper or copper <= 0 or copper > GetMoney() then
+			ns.PrintAlways(L.ITEMS_MONEY_TOO_MUCH)
+			return
+		end
+		local ok, err = pcall(PickupPlayerMoney, copper)
+		ns.PrintAlways(ok and L.ITEMS_MONEY_TRIED or L.ITEMS_MONEY_ERROR, ok and GetCursorMoney() or tostring(err))
+		return
+	end
+	local frames = { ContainerFrameCombinedBags }
+	for _, frame in ipairs(ContainerFrameContainer.ContainerFrames) do
+		frames[#frames + 1] = frame
+	end
+	for _, frame in ipairs(frames) do
+		local moneyFrame = frame and frame.MoneyFrame
+		if moneyFrame then
+			for _, key in ipairs({ "GoldButton", "SilverButton", "CopperButton" }) do
+				local button = moneyFrame[key]
+				local area = button and moneyAreas[button]
+				ns.PrintAlways(L.ITEMS_MONEY_STATUS, frame:GetName() or "?", key, tostring(area ~= nil), tostring(area and area:IsShown()),
+					tostring(area and area:IsMouseEnabled()), ns.Number(area and area:GetWidth(), 0), ns.Number(area and area:GetHeight(), 0),
+					tostring(button and button:IsShown()), ns.Number(area and area:GetFrameLevel(), 0))
+			end
+		end
+	end
+	AskMoney()
+end
+
 local function HookContainerFrames()
 	local frames = { ContainerFrameCombinedBags }
 	for _, frame in ipairs(ContainerFrameContainer.ContainerFrames) do

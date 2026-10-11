@@ -11,6 +11,7 @@ local XPBar = ns:NewModule("XPBar", {
 		format = "full",
 		repFormat = "full",
 		questXP = true,
+		restedShimmer = true,
 	},
 })
 
@@ -130,6 +131,62 @@ local function QueueScan()
 	end
 end
 
+-- The little pin of the rested bonus glints (a star that turns slowly and breathes) while the mouse is over
+-- the bar: like the shimmer that Blizzard puts on new buttons.
+local shimmers = {}
+
+local function GetShimmer(tick)
+	local shimmer = shimmers[tick]
+	if not shimmer then
+		shimmer = CreateFrame("Frame", nil, tick)
+		shimmer:SetSize(46, 46)
+		shimmer:SetPoint("CENTER", tick, "CENTER")
+		shimmer:EnableMouse(false)
+		local glow = shimmer:CreateTexture(nil, "OVERLAY")
+		glow:SetAllPoints()
+		glow:SetTexture([[Interface\Cooldown\star4]])
+		glow:SetBlendMode("ADD")
+		glow:SetVertexColor(0.65, 0.88, 1)
+		local turn = glow:CreateAnimationGroup()
+		turn:SetLooping("REPEAT")
+		local spin = turn:CreateAnimation("Rotation")
+		spin:SetDegrees(-90)
+		spin:SetDuration(2.4)
+		local breathe = glow:CreateAnimationGroup()
+		breathe:SetLooping("BOUNCE")
+		local fade = breathe:CreateAnimation("Alpha")
+		fade:SetFromAlpha(0.15)
+		fade:SetToAlpha(0.95)
+		fade:SetDuration(0.7)
+		fade:SetSmoothing("IN_OUT")
+		shimmer:SetScript("OnShow", function()
+			turn:Play()
+			breathe:Play()
+		end)
+		shimmer:SetScript("OnHide", function()
+			turn:Stop()
+			breathe:Stop()
+		end)
+		shimmer:Hide()
+		shimmers[tick] = shimmer
+	end
+	return shimmer
+end
+
+local function ShimmerOn(bar)
+	local tick = bar.ExhaustionTick
+	if XPBar.db.restedShimmer and tick and tick:IsShown() then
+		GetShimmer(tick):Show()
+	end
+end
+
+local function ShimmerOff(bar)
+	local tick = bar.ExhaustionTick
+	if tick and shimmers[tick] then
+		shimmers[tick]:Hide()
+	end
+end
+
 local function HookBars()
 	for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
 		local bar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Experience]
@@ -137,6 +194,8 @@ local function HookBars()
 			expBars[bar] = true
 			hooksecurefunc(bar, "UpdateCurrentText", UpdateText)
 			hooksecurefunc(bar, "Update", UpdateOverlay)
+			bar:HookScript("OnEnter", ShimmerOn)
+			bar:HookScript("OnLeave", ShimmerOff)
 			if bar.UpdateStatusBarTextures then
 				hooksecurefunc(bar, "UpdateStatusBarTextures", UpdateOverlay)
 			end
@@ -188,6 +247,7 @@ function XPBar:OnOptionChanged(key)
 end
 
 XPBar.options = {
+	{ key = "restedShimmer", type = "toggle", name = L.XP_SHIMMER, desc = L.XP_SHIMMER_DESC, new = true },
 	{ key = "textMode", type = "dropdown", name = L.XP_TEXT_MODE, desc = L.XP_TEXT_MODE_DESC, values = {
 		{ "mouseover", L.XP_TEXT_MOUSEOVER }, { "always", L.XP_TEXT_ALWAYS },
 	} },

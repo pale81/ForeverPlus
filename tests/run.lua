@@ -1805,6 +1805,7 @@ end)()
 	GetMoney = function() return 150 end
 	GetMoneyString = function(copper) return tostring(copper) .. "c" end
 	CanMerchantRepair = function() return false end
+	GetNumBuybackItems = function() return 0 end
 	local view = dialog.MerchantView()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end

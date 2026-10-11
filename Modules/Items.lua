@@ -808,7 +808,7 @@ end
 -- Right-click on the bag symbol (portrait) of an open bag: menu with the
 -- settings that concern the bags.
 ---------------------------------------------------------------------------
-local BAG_MENU_SECTIONS = {
+local MENU_SECTIONS_BAG = {
 	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
 	{ L.ITEMS_DISPLAY, {
 		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
@@ -820,9 +820,17 @@ local BAG_MENU_SECTIONS = {
 	} },
 }
 
-local function BagMenuItems(owner)
+local MENU_SECTIONS_MERCHANT = {
+	{ L.ITEMS_MERCHANT, {
+		{ "Items", "autoSell", "ITEMS_AUTOSELL" }, { "Items", "autoRepair", "ITEMS_AUTOREPAIR" },
+		{ "Items", "repairGuild", "ITEMS_REPAIR_GUILD" }, { "Items", "sellButton", "ITEMS_SELL_BUTTON" },
+		{ "Items", "junkPerCharacter", "ITEMS_JUNK_PER_CHAR" },
+	} },
+}
+
+local function MenuItems(sections, owner, menuKey)
 	local items = {}
-	for _, section in ipairs(BAG_MENU_SECTIONS) do
+	for _, section in ipairs(sections) do
 		items[#items + 1] = { text = section[1] }
 		for _, entry in ipairs(section[2]) do
 			local module = ns:GetModule(entry[1])
@@ -847,7 +855,7 @@ local function BagMenuItems(owner)
 	end
 	items[#items + 1] = { text = L.ITEMS_JUNK_LIST }
 	items[#items + 1] = { text = L.ITEMS_JUNK_SHOW, onClick = function()
-		local menu = _G.ForeverPlusPopupBagMenu
+		local menu = _G["ForeverPlusPopup" .. menuKey]
 		if menu then
 			menu:Hide()
 		end
@@ -863,8 +871,14 @@ end
 
 function Items:ShowBagMenu(owner)
 	ns.ShowPopupList(owner, function()
-		return { title = L.ITEMS_BAG_MENU_TITLE, items = BagMenuItems(owner), width = 340 }
+		return { title = L.ITEMS_BAG_MENU_TITLE, items = MenuItems(MENU_SECTIONS_BAG, owner, "BagMenu"), width = 340 }
 	end, "BagMenu")
+end
+
+function Items:ShowMerchantMenu(owner)
+	ns.ShowPopupList(owner, function()
+		return { title = L.ITEMS_MERCHANT_MENU_TITLE, items = MenuItems(MENU_SECTIONS_MERCHANT, owner, "MerchantMenu"), width = 340 }
+	end, "MerchantMenu")
 end
 
 local bagMenuHooked = {}
@@ -1043,8 +1057,13 @@ local function CreateSellButton()
 	sellButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	-- Disabled buttons get no OnEnter; keep the tooltip anyway.
 	sellButton:SetMotionScriptsWhileDisabled(true)
-	sellButton:SetScript("OnClick", function()
-		if merchantOpen then
+	sellButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	sellButton:SetScript("OnClick", function(self, mouseButton)
+		if mouseButton == "RightButton" then
+			if Items.db.bagMenu then
+				Items:ShowMerchantMenu(self)
+			end
+		elseif merchantOpen then
 			StartSelling()
 		end
 	end)
@@ -1055,6 +1074,9 @@ local function CreateSellButton()
 		GameTooltip:AddLine(L.ITEMS_SELL_BUTTON_TIP, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
 		if count > 0 then
 			GameTooltip:AddDoubleLine(L.ITEMS_SELL_BUTTON_COUNT:format(count), GetMoneyString(value, true), 1, 1, 1, 1, 1, 1)
+		end
+		if Items.db.bagMenu then
+			GameTooltip_AddInstructionLine(GameTooltip, L.ITEMS_MERCHANT_MENU_HINT)
 		end
 		GameTooltip:Show()
 	end)
@@ -1613,7 +1635,7 @@ Items.options = {
 	} },
 	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
 	{ key = "junkPerCharacter", type = "toggle", name = L.ITEMS_JUNK_PER_CHAR, desc = L.ITEMS_JUNK_PER_CHAR_DESC },
-	{ type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
+	{ key = "junkList", type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
 		Items:ShowJunkMenu(button)
 	end },
 	{ type = "header", name = L.ITEMS_BAGS },

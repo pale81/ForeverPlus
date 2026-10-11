@@ -938,6 +938,14 @@ local function AddKeywordAlertMenuItem(_, rootDescription)
 		Chat.db.keywordAlert = not Chat.db.keywordAlert
 		Chat:UpdateKeywordAlert()
 	end)
+	local extras = rootDescription:CreateButton(L.MENU_EXTRAS)
+	ns.CreateOptionCheckbox(extras, L.CHAT_COPY_BUTTON, "Chat", "copyButton", L.CHAT_COPY_BUTTON_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_TAB_FADE, "Chat", "tabFade", L.CHAT_TAB_FADE_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_CHANNEL_SHORT, "Chat", "channelShort", L.CHAT_CHANNEL_SHORT_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_TIMESTAMP_COLOR, "Chat", "timestampColor", L.CHAT_TIMESTAMP_COLOR_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_REPEAT, "Chat", "repeatSummary", L.CHAT_REPEAT_DESC)
+	ns.CreateOptionCheckbox(extras, L.CHAT_SKILL_LINE, "Chat", "skillLine", L.CHAT_SKILL_LINE_DESC)
+	ns.CreateOptionCheckbox(extras, L.LOOT_SUMMARY, "Loot", "summary", L.LOOT_SUMMARY_DESC)
 end
 
 local function RegisterKeywordAlertMenuItem()

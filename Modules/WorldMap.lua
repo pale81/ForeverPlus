@@ -253,7 +253,7 @@ function WorldMap.AddFilterMenu(rootDescription)
 		return
 	end
 	rootDescription:CreateDivider()
-	rootDescription:CreateTitle("ForeverPlus")
+	rootDescription:CreateTitle(L.MENU_EXTRAS)
 	for _, fn in ipairs(ns.mapFilterEntries) do
 		fn(rootDescription)
 	end

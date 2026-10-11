@@ -328,7 +328,7 @@ local function AddForeverPlusEntries(rootDescription)
 		return
 	end
 	rootDescription:CreateDivider()
-	rootDescription:CreateTitle("ForeverPlus")
+	rootDescription:CreateTitle(L.MENU_EXTRAS)
 	for _, fn in ipairs(trackingEntries) do
 		fn(rootDescription)
 	end
@@ -371,6 +371,12 @@ local function OnZoomChanged()
 end
 
 function MinimapCoords:OnLogin()
+	ns.AddTrackingEntry(function(root)
+		local displays = root:CreateButton(L.MINIMAP_DISPLAYS)
+		ns.CreateOptionCheckbox(displays, L.INFO_PERF, "Info", "performance", L.INFO_PERF_DESC)
+		ns.CreateOptionCheckbox(displays, L.MINIMAP_CAMPFIRES, "Minimap", "campfires", L.MINIMAP_CAMPFIRES_DESC)
+		ns.CreateOptionCheckbox(displays, L.MINIMAP_ZOOM_RESET, "Minimap", "zoomReset", L.MINIMAP_ZOOM_RESET_DESC)
+	end)
 	zoomLast = Minimap:GetZoom()
 	hooksecurefunc(Minimap, "SetZoom", OnZoomChanged)
 	campfireHolder = CreateFrame("Frame", nil, Minimap)

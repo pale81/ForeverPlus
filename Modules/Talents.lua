@@ -1,5 +1,5 @@
--- Talents: spells by level and talent builds (save, export, import, apply)
--- on Blizzard's talent window. Builds use Blizzard's loadout string format.
+-- Talents: spells by level, and a talent planner on Blizzard's talent window: plan builds, import
+-- (into the plan) and export them in Blizzard's loadout string format.
 local _, ns = ...
 local L = ns.L
 
@@ -9,8 +9,6 @@ local Talents = ns:NewModule("Talents", {
 	defaults = {
 		enabled = true,
 		planner = true,
-		builds = {}, -- classFile -> { { name =, text = }, ... }
-		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
@@ -292,16 +290,7 @@ local function TalentsFrame()
 	return PlayerSpellsFrame and PlayerSpellsFrame.TalentsFrame
 end
 
-local ApplyPlan, ClearPlan, ApplyTemplate -- planner, defined below
-local SavePlanTemplate, ImportTemplate, ExportCurrentBuild, ExportRanks, ExportPlan
-local PLAN_BUTTON_SIZE = 26
-
-local function ClassBuilds()
-	local builds = Talents.db.builds
-	builds[playerClass] = builds[playerClass] or {}
-	return builds[playerClass]
-end
-
+local ApplyPlan, ClearPlan, ImportPlan, ExportPlan -- planner, defined below
 -- Parses a loadout string into node purchases using Blizzard's own reader.
 local function ParseBuild(frame, text)
 	local stream = ExportUtil.MakeImportDataStream(text)
@@ -358,145 +347,14 @@ local function PurchaseTowards(configID, wanted, selection)
 	end
 end
 
--- Stages the build in the talent tree; Blizzard's apply button commits it.
-local function ApplyBuild(build)
-	local frame = TalentsFrame()
-	-- The inactive specialization tab is locked.
-	if InCombatLockdown() or not frame or not frame:GetConfigID() or (frame.IsLocked and frame:IsLocked()) then
-		ns.Print(L.TALENTS_ERROR_FRAME)
-		return
-	end
-	local entries, err, configID, treeID = ParseBuild(frame, build.text)
-	if not entries then
-		ns.Print(err)
-		return
-	end
-	-- Ranks per node; tiered nodes come as several entries.
-	local wanted, selection = {}, {}
-	for _, entry in ipairs(entries) do
-		if entry.ranksPurchased and entry.ranksPurchased > 0 then
-			wanted[entry.nodeID] = (wanted[entry.nodeID] or 0) + entry.ranksPurchased
-			selection[entry.nodeID] = selection[entry.nodeID] or entry.selectionEntryID
-		end
-	end
-	C_Traits.ResetTree(configID, treeID)
-	PurchaseTowards(configID, wanted, selection)
-	ns.Print(L.TALENTS_APPLIED, build.name)
-end
+local PLAN_BUTTON_SIZE = 26
 
-local function SaveBuild(name, text)
-	if name == "" then
-		name = date("%d.%m. %H:%M")
-	end
-	local builds = ClassBuilds()
-	for _, build in ipairs(builds) do
-		if build.name == name then
-			build.text = text
-			return
-		end
-	end
-	tinsert(builds, { name = name, text = text })
-end
-
-local function SaveCurrent()
-	local frame = TalentsFrame()
-	if not frame or not frame:GetConfigID() then
-		return
-	end
-	local text = frame:GetLoadoutExportString()
-	ns.ShowEditWindow("BuildName", L.TALENTS_SAVE, "", SAVE, function(name)
-		SaveBuild(name, text)
-	end, L.TALENTS_NAME_HINT)
-end
-
-local function ImportBuild()
-	ns.ShowEditWindow("BuildImport", L.TALENTS_IMPORT, "", L.TALENTS_IMPORT, function(text)
-		if text == "" then
-			return
-		end
-		local frame = TalentsFrame()
-		if frame and frame:GetConfigID() then
-			local entries, err = ParseBuild(frame, text)
-			if not entries then
-				ns.Print(err)
-				return
-			end
-		end
-		ns.ShowEditWindow("BuildName", L.TALENTS_SAVE, "", SAVE, function(name)
-			SaveBuild(name, text)
-		end, L.TALENTS_NAME_HINT)
-	end, L.TALENTS_IMPORT_HINT)
-end
-
+-- Import and export of the plan in Blizzard's loadout text.
 local function ShowBuildMenu(owner)
 	MenuUtil.CreateContextMenu(owner, function(_, root)
 		root:CreateTitle(L.TALENTS_BUILDS)
-		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
-		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
-		root:CreateButton(L.TALENTS_EXPORT_CURRENT, ExportCurrentBuild)
-		if Talents.db.planner then
-			root:CreateButton(L.TALENTS_EXPORT_PLAN, ExportPlan)
-		end
-		-- Suggested distributions (Data/TalentPresets.lua) and the player's own templates go into the plan.
-		local presets = Talents.db.planner and ns.TalentPresets and ns.TalentPresets[playerClass]
-		if Talents.db.planner then
-			local sub = root:CreateButton(L.TALENTS_TEMPLATE)
-			sub:SetTooltip(function(tooltip)
-				GameTooltip_SetTitle(tooltip, L.TALENTS_TEMPLATE)
-				GameTooltip_AddNormalLine(tooltip, L.TALENTS_TEMPLATE_NOTE)
-			end)
-			for _, preset in ipairs(presets or {}) do
-				local name = GetLocale() == "deDE" and preset.de or preset.en
-				local item = sub:CreateButton(("%s (%s)"):format(name, preset.points), function()
-					ApplyTemplate(preset, name)
-				end)
-				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
-					ApplyTemplate(preset, name)
-				end)
-				item:CreateButton(L.TALENTS_EXPORT_GAME, function()
-					ExportRanks(preset.ranks, name)
-				end)
-			end
-			local own = Talents.db.templates[playerClass] or {}
-			if #own > 0 then
-				sub:CreateDivider()
-				sub:CreateTitle(L.TALENTS_TEMPLATE_OWN)
-			end
-			for index, template in ipairs(own) do
-				local item = sub:CreateButton(("%s (%d)"):format(template.name, template.points))
-				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
-					ApplyTemplate(template, template.name)
-				end)
-				item:CreateButton(L.TALENTS_EXPORT, function()
-					ns.ShowEditWindow("TemplateExport", template.name, ("FPT1|%s|%s"):format(playerClass, template.ranks), CLOSE, nil, L.TALENTS_EXPORT_HINT)
-				end)
-				item:CreateButton(L.TALENTS_EXPORT_GAME, function()
-					ExportRanks(template.ranks, template.name)
-				end)
-				item:CreateButton(DELETE, function()
-					tremove(own, index)
-				end)
-			end
-			sub:CreateDivider()
-			sub:CreateButton(L.TALENTS_TEMPLATE_SAVE, SavePlanTemplate)
-			sub:CreateButton(L.TALENTS_TEMPLATE_IMPORT, ImportTemplate)
-		end
-		local builds = ClassBuilds()
-		if #builds > 0 then
-			root:CreateDivider()
-		end
-		for index, build in ipairs(builds) do
-			local sub = root:CreateButton(build.name)
-			sub:CreateButton(L.TALENTS_APPLY, function()
-				ApplyBuild(build)
-			end)
-			sub:CreateButton(L.TALENTS_EXPORT, function()
-				ns.ShowEditWindow("BuildExport", build.name, build.text, CLOSE, nil, L.TALENTS_EXPORT_HINT)
-			end)
-			sub:CreateButton(DELETE, function()
-				tremove(builds, index)
-			end)
-		end
+		root:CreateButton(L.TALENTS_IMPORT_PLAN, ImportPlan)
+		root:CreateButton(L.TALENTS_EXPORT_PLAN, ExportPlan)
 	end)
 end
 
@@ -802,105 +660,28 @@ local function UpdatePlan()
 	end
 end
 
--- Own templates: the plan (what is planned or learned) saved under a name; exported and imported as text.
-local function TemplateList()
-	local list = Talents.db.templates[playerClass]
-	if not list then
-		list = {}
-		Talents.db.templates[playerClass] = list
-	end
-	return list
-end
-
-local function StoreTemplate(name, ranks)
-	local points = 0
-	for rank in ranks:gmatch("%d+:(%d+)") do
-		points = points + tonumber(rank)
-	end
-	if name == "" then
-		name = date("%d.%m. %H:%M")
-	end
-	local list = TemplateList()
-	list[#list + 1] = { name = name, points = points, ranks = ranks }
-	ns.Print(L.TALENTS_TEMPLATE_SAVED:format(name, points))
-end
-
-function SavePlanTemplate()
-	local frame = TalentsFrame()
-	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
-	if not configID then
-		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
-		return
-	end
-	local nodes = TreeState(frame, configID)
-	local plan, parts = CurrentPlan(), {}
-	for nodeID, node in pairs(nodes) do
-		local rank = Effective(node, plan)
-		if rank > 0 then
-			parts[#parts + 1] = { nodeID, rank }
-		end
-	end
-	if #parts == 0 then
-		ns.Print(L.TALENTS_TEMPLATE_EMPTY)
-		return
-	end
-	table.sort(parts, function(a, b)
-		return a[1] < b[1]
-	end)
-	for index, part in ipairs(parts) do
-		parts[index] = part[1] .. ":" .. part[2]
-	end
-	local ranks = table.concat(parts, ",")
-	ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
-		StoreTemplate(name, ranks)
-	end, L.TALENTS_NAME_HINT)
-end
-
-function ImportTemplate()
-	ns.ShowEditWindow("TemplateImport", L.TALENTS_TEMPLATE_IMPORT, "", L.TALENTS_IMPORT, function(text)
-		local class, ranks = (text or ""):match("^%s*FPT1|(%u+)|([%d:,]+)%s*$")
-		if not ranks then
-			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_FORMAT))
-		elseif class ~= playerClass then
-			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_CLASS))
-		else
-			ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
-				StoreTemplate(name, ranks)
-			end, L.TALENTS_NAME_HINT)
-		end
-	end, L.TALENTS_TEMPLATE_IMPORT_HINT)
-end
-
--- The learned talents as Blizzard's loadout text.
-function ExportCurrentBuild()
-	local frame = TalentsFrame()
-	if not frame or not frame:GetConfigID() then
-		return
-	end
-	ns.ShowEditWindow("BuildExport", L.TALENTS_EXPORT_CURRENT, frame:GetLoadoutExportString(), CLOSE, nil, L.TALENTS_EXPORT_HINT)
-end
-
--- Blizzard's loadout text for any distribution of ranks (node -> rank), not only for what is learned:
--- the game's own writer reads the learned state, so the same bit stream is written here from the wanted
--- ranks (format: Blizzard_ClassTalentImportExport.lua). Granted nodes stay granted, choice nodes keep
--- their active entry.
-local function LoadoutString(frame, wanted)
+-- Blizzard's loadout text for the learned ranks plus the plan: the game's own writer reads only
+-- what is learned, so the same bit stream is written here from the wanted ranks (format:
+-- Blizzard_ClassTalentImportExport.lua). Granted nodes stay granted, choice nodes keep their
+-- active entry.
+local function LoadoutString(frame, plan)
 	local configID, treeID = frame:GetConfigID(), frame:GetTreeInfo().ID
 	local stream = ExportUtil.MakeExportDataStream()
 	stream:AddValue(8, C_Traits.GetLoadoutSerializationVersion())
-	stream:AddValue(16, PlayerUtil.GetCurrentSpecID())
+	stream:AddValue(16, PlayerUtil.GetCurrentSpecID() or frame:GetSpecID())
 	for _, value in ipairs(C_Traits.GetTreeHash(treeID)) do
 		stream:AddValue(8, value)
 	end
 	for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
 		local node = C_Traits.GetNodeInfo(configID, nodeID)
+		local maxRanks = node and node.maxRanks or 0
 		local granted = node and (node.activeRank or 0) - (node.ranksPurchased or 0) > 0
-		local ranks = node and math.min(wanted[nodeID] or 0, node.maxRanks or 0) or 0
+		local ranks = math.min(math.max(node and node.ranksPurchased or 0, plan[nodeID] or 0), maxRanks)
 		stream:AddValue(1, (granted or ranks > 0) and 1 or 0)
 		if granted or ranks > 0 then
 			stream:AddValue(1, ranks > 0 and 1 or 0)
 			if ranks > 0 then
-				local partial = ranks ~= node.maxRanks
+				local partial = ranks ~= maxRanks
 				stream:AddValue(1, partial and 1 or 0)
 				if partial then
 					stream:AddValue(6, ranks)
@@ -922,43 +703,19 @@ local function LoadoutString(frame, wanted)
 	return stream:GetExportString()
 end
 
-local function ShowLoadout(frame, wanted, title)
-	local ok, text = pcall(LoadoutString, frame, wanted)
-	if not ok or type(text) ~= "string" then
-		ns.Print(L.TALENTS_EXPORT_FAILED)
-		return
-	end
-	ns.ShowEditWindow("BuildExport", title, text, CLOSE, nil, L.TALENTS_EXPORT_HINT)
-end
-
--- A template or preset ("node:rank,…") as the game's text.
-function ExportRanks(ranks, title)
-	local frame = TalentsFrame()
-	if not frame or not frame:GetConfigID() then
-		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
-		return
-	end
-	local wanted = {}
-	for nodeText, rankText in ranks:gmatch("(%d+):(%d+)") do
-		wanted[tonumber(nodeText)] = tonumber(rankText)
-	end
-	ShowLoadout(frame, wanted, title)
-end
-
--- What is learned plus what is planned as the game's text.
+-- The plan (and what is learned) as Blizzard's loadout text.
 function ExportPlan()
 	local frame = TalentsFrame()
-	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
-	if not configID then
-		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+	if not frame or not frame.GetConfigID or not frame:GetConfigID() then
+		ns.Print(L.TALENTS_ERROR_CLOSED)
 		return
 	end
-	local nodes = TreeState(frame, configID)
-	local plan, wanted = CurrentPlan(), {}
-	for nodeID, node in pairs(nodes) do
-		wanted[nodeID] = Effective(node, plan)
+	local ok, text = pcall(LoadoutString, frame, Talents.db.planner and CurrentPlan() or {})
+	if not ok or type(text) ~= "string" then
+		ns.Print(L.TALENTS_EXPORT_FAILED, tostring(text))
+		return
 	end
-	ShowLoadout(frame, wanted, L.TALENTS_EXPORT_PLAN)
+	ns.ShowEditWindow("BuildExport", L.TALENTS_EXPORT_PLAN, text, CLOSE, nil, L.TALENTS_EXPORT_HINT)
 end
 
 local updatePending = false
@@ -972,41 +729,52 @@ local function QueuePlanUpdate()
 	end
 end
 
--- Puts a suggested distribution into the plan of the current specialisation:
--- only when all its talents exist in this tree and the rules allow it.
-function ApplyTemplate(preset, name)
+-- Blizzard's loadout text into the plan (nothing is learned yet): the ✓ button learns what the
+-- points allow, from the top row down and in a row from left to right; the rest stays in the plan.
+function ImportPlan()
 	local frame = TalentsFrame()
-	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	local configID = frame and frame.GetConfigID and frame:GetConfigID()
 	if not configID then
-		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		ns.Print(L.TALENTS_ERROR_CLOSED)
 		return
 	end
-	local nodes, rowOf, names = TreeState(frame, configID)
-	local plan, points = {}, 0
-	for nodeText, rankText in preset.ranks:gmatch("(%d+):(%d+)") do
-		local nodeID, rank = tonumber(nodeText), tonumber(rankText)
-		local node = nodes[nodeID]
-		if not node then
-			ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
+	ns.ShowEditWindow("BuildImport", L.TALENTS_IMPORT_PLAN, "", L.TALENTS_IMPORT, function(text)
+		text = ((text or ""):gsub("%s+", ""))
+		if text == "" then
 			return
 		end
-		plan[nodeID] = math.min(rank, node.maxRanks)
-		points = points + plan[nodeID]
-	end
-	local problem = CheckPlan(nodes, rowOf, names, plan)
-	if problem then
-		ns.Print(L.TALENTS_TEMPLATE_BAD:format(problem))
-		return
-	end
-	local current = CurrentPlan()
-	wipe(current)
-	for nodeID, rank in pairs(plan) do
-		current[nodeID] = rank
-	end
-	QueuePlanUpdate()
-	ns.Print(L.TALENTS_TEMPLATE_DONE:format(name, points))
+		local ok, entries, err = pcall(ParseBuild, frame, text)
+		if not ok then
+			ns.Print(L.TALENTS_IMPORT_FAILED, tostring(entries))
+			return
+		elseif not entries then
+			ns.Print(err)
+			return
+		end
+		local imported = {}
+		for _, entry in ipairs(entries) do
+			if entry.ranksPurchased and entry.ranksPurchased > 0 then
+				imported[entry.nodeID] = (imported[entry.nodeID] or 0) + entry.ranksPurchased
+			end
+		end
+		local current, points, count = CurrentPlan(), 0, 0
+		wipe(current)
+		for nodeID, rank in pairs(imported) do
+			local node = C_Traits.GetNodeInfo(configID, nodeID)
+			local maxRanks = node and node.maxRanks or 0
+			if maxRanks > 0 then
+				current[nodeID] = math.min(rank, maxRanks)
+				points, count = points + current[nodeID], count + 1
+			end
+		end
+		QueuePlanUpdate()
+		if count == 0 then
+			ns.Print(L.TALENTS_IMPORT_EMPTY)
+		else
+			ns.Print(L.TALENTS_IMPORT_DONE, points, count, FIRST_TALENT_LEVEL - 1 + points)
+		end
+	end, L.TALENTS_IMPORT_HINT)
 end
-
 
 local function OnTalentClick(_, button, mouseButton)
 	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then

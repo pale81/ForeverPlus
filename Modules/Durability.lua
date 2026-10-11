@@ -102,7 +102,8 @@ local function CreateFigure(parent)
 	local frame = CreateFrame("Button", nil, parent)
 	frame:SetSize(80, 80)
 	frame:SetScale(FIGURE_SCALE)
-	frame:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 20)
+	-- Far above the slots, the model and the stats, which cover the area right of the weapon row.
+	frame:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 200)
 	frame.parts = {}
 	for _, part in ipairs(PARTS) do
 		local name, width, height, point, relative, relativePoint, x, y = unpack(part, 1, 8)
@@ -139,22 +140,34 @@ local function CreateFigure(parent)
 	return frame
 end
 
--- Right of the rightmost slot of the weapon row (the ammunition slot), vertically centred on it.
+-- Right of the rightmost slot of the weapon row (the ammunition slot), vertically centred on it. The
+-- place is worked out from the rectangles of the slots and set relative to the character window itself,
+-- so it does not depend on how the slot buttons are anchored or clipped.
+local placedAt -- last result, for /fp haltbarkeit
+
 local function PlaceFigure()
 	figure:ClearAllPoints()
 	local best, right
 	for _, name in ipairs({ "CharacterMainHandSlot", "CharacterSecondaryHandSlot", "CharacterRangedSlot", "CharacterAmmoSlot" }) do
 		local slot = _G[name]
-		local edge = slot and ns.Number(slot:GetRight())
+		local edge = slot and slot:IsShown() and ns.Number(slot:GetRight())
 		if edge and (not right or edge > right) then
 			best, right = slot, edge
 		end
 	end
-	if best then
-		figure:SetPoint("LEFT", best, "RIGHT", 10 / FIGURE_SCALE, 0)
+	local left, bottom = ns.Number(PaperDollFrame:GetLeft()), ns.Number(PaperDollFrame:GetBottom())
+	local top, slotBottom = best and ns.Number(best:GetTop()), best and ns.Number(best:GetBottom())
+	if best and left and bottom and top and slotBottom then
+		-- The rectangles are in the scale of their frame; the offsets are in the scale of the figure.
+		local toFigure = ns.Number(best:GetEffectiveScale(), 1) / ns.Number(PaperDollFrame:GetEffectiveScale(), 1) / FIGURE_SCALE
+		local x = (right - left) * toFigure + 10 / FIGURE_SCALE
+		local y = ((top + slotBottom) / 2 - bottom) * toFigure
+		figure:SetPoint("LEFT", PaperDollFrame, "BOTTOMLEFT", x, y)
+		placedAt = { best:GetName(), x, y }
 		return true
 	end
 	figure:SetPoint("BOTTOMRIGHT", PaperDollFrame, "BOTTOMRIGHT", -14, 14)
+	placedAt = nil
 	return false
 end
 
@@ -223,6 +236,18 @@ function Durability:OnLogin()
 		PaperDollFrame:HookScript("OnHide", UpdateFigure)
 	end
 	self:Apply()
+end
+
+-- /fp haltbarkeit: where the figure is and why it might not show.
+function Durability:PrintStatus()
+	if not figure then
+		ns.PrintAlways(L.DURABILITY_STATUS_NONE)
+		return
+	end
+	local point, relativeTo, _, x, y = figure:GetPoint(1)
+	ns.PrintAlways(L.DURABILITY_STATUS, tostring(self.db.figure), tostring(figure:IsShown()), tostring(PaperDollFrame and PaperDollFrame:IsShown()),
+		tostring(figure:GetFrameStrata()), ns.Number(figure:GetFrameLevel(), 0), tostring(point), tostring(relativeTo and relativeTo:GetName()),
+		ns.Number(x, 0), ns.Number(y, 0), placedAt and placedAt[1] or "?", ns.Number(figure:GetLeft(), -1), ns.Number(figure:GetBottom(), -1))
 end
 
 function Durability:OnOptionChanged()

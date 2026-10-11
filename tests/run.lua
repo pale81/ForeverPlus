@@ -1313,6 +1313,14 @@ end
 	for _, l in ipairs(out) do print("  ", l) end
 	assert(#out == 3, "three lines")
 	print("repeat summary OK")
+	-- skills combined into one line
+	chat.db.skillLine = true
+	out = {}
+	for rank = 31, 40 do filter(frameA, "CHAT_MSG_SKILL", ("Eure Fertigkeit 'Verteidigung' hat sich auf %d erhöht."):format(rank)) end
+	for rank = 34, 36 do filter(frameA, "CHAT_MSG_SKILL", ("Eure Fertigkeit 'Äxte' hat sich auf %d erhöht."):format(rank)) end
+	for key in pairs(pending) do flush(key) end
+	assert(#out == 1 and out[1] == "A:" .. ns.L.CHAT_SKILL_LINE_TEXT:format("Verteidigung 30->40, Äxte 33->36"), out[1])
+	print("skill line OK")
 end)()
 ;(function()
 	local q = ns:GetModule("Quests")

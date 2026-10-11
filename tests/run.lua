@@ -2258,6 +2258,55 @@ end)()
 	A.db.vendorBuyFilter = false
 	print("auction filter OK")
 end)()
+-- Bag sorting on open: one sort at a time, none while items are locked
+;(function()
+	local items = ns:GetModule("Items")
+	local SortOnOpen = uv(uv(items.OnLogin, "QueueSort"), "SortOnOpen")
+	assert(SortOnOpen, "sort function")
+	local saved = { C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo }
+	local sorts, locked, now, ticker = 0, false, 100, nil
+	C_Container.SortBags = function() sorts = sorts + 1 end
+	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and 2 or 0 end
+	C_Container.GetContainerItemInfo = function(bag, slot) return bag == 0 and slot == 1 and { isLocked = locked } or nil end
+	C_Timer.NewTicker = function(_, fn) ticker = { fn = fn, Cancel = function(self) self.dead = true end } return ticker end
+	GetTime = function() return now end
+	InCombatLockdown = function() return false end
+	GetCursorInfo = function() return nil end
+	items.db.autoSort = true
+	for _, name in ipairs({ "MerchantFrame", "MailFrame", "TradeFrame", "BankFrame", "GuildBankFrame", "AuctionHouseFrame", "ScrappingMachineFrame", "ItemSocketingFrame" }) do
+		_G[name] = false
+	end
+	setuv(SortOnOpen, "sellTicker", nil)
+	SortOnOpen()
+	assert(sorts == 1 and ticker, "first sort runs and is watched")
+	now = 110
+	SortOnOpen()
+	assert(sorts == 1, "no second sort while the first is watched")
+	locked = true
+	ticker.fn(ticker); ticker.fn(ticker); ticker.fn(ticker)
+	assert(not ticker.dead, "still running while items are locked")
+	locked = false
+	now = 120
+	SortOnOpen()
+	assert(sorts == 1, "no sort before the bags were quiet")
+	ticker.fn(ticker); ticker.fn(ticker)
+	assert(ticker.dead, "over after two quiet looks")
+	now = 125
+	locked = true
+	SortOnOpen()
+	assert(sorts == 1, "no sort while an item is locked")
+	locked = false
+	MerchantFrame = { IsShown = function() return true end }
+	SortOnOpen()
+	assert(sorts == 1, "no sort at a merchant")
+	MerchantFrame = false
+	now = 130
+	SortOnOpen()
+	assert(sorts == 2, "next sort afterwards")
+	items.db.autoSort = false
+	C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo = unpack(saved, 1, 7)
+	print("bag sort OK")
+end)()
 -- Loot sources
 ;(function()
 	local S = ns:GetModule("LootSources")

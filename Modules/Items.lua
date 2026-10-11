@@ -986,20 +986,69 @@ end
 -- Bags: sorted by the game's own cleanup when they open
 ---------------------------------------------------------------------------
 local SORT_PAUSE = 3 -- seconds between automatic sorts
-local lastSort, sortQueued = 0, false
+local SORT_CHECK = 0.4 -- seconds between looks at the bags while a sort runs
+local SORT_QUIET = 2 -- looks without a locked item that end a sort
+local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the bags show
+local lastSort, sortQueued, sorting = 0, false, false
+
+-- Windows in which items are moved by other things: no sorting in them.
+local TRADE_WINDOWS = { "MerchantFrame", "MailFrame", "TradeFrame", "BankFrame", "GuildBankFrame", "AuctionHouseFrame",
+	"ScrappingMachineFrame", "ItemSocketingFrame" }
+
+local function OtherWindowOpen()
+	for _, name in ipairs(TRADE_WINDOWS) do
+		local frame = _G[name]
+		if frame and frame.IsShown and frame:IsShown() then
+			return true
+		end
+	end
+	return false
+end
+
+-- An item is locked (grey) while the game moves it.
+local function AnyLocked()
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info and info.isLocked then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- The game sorts in steps over a while. A new sort before it is over (or
+-- while items are still locked) would work against the first and leave
+-- the items locked, so a sort counts as running until the bags have been
+-- quiet for a moment.
+local function WatchSort()
+	sorting = true
+	local waited, quiet = 0, 0
+	C_Timer.NewTicker(SORT_CHECK, function(ticker)
+		waited = waited + SORT_CHECK
+		quiet = AnyLocked() and 0 or quiet + 1
+		if quiet >= SORT_QUIET or waited >= SORT_MAX then
+			sorting = false
+			lastSort = GetTime()
+			ticker:Cancel()
+		end
+	end)
+end
 
 local function SortOnOpen()
 	sortQueued = false
-	-- Not while selling, in combat or with an item on the cursor.
-	if not Items.db.autoSort or InCombatLockdown() or sellTicker or GetCursorInfo() then
+	-- Not while selling, in combat, with an item on the cursor, in a window that moves items or during a sort.
+	if not Items.db.autoSort or InCombatLockdown() or sellTicker or GetCursorInfo() or sorting or OtherWindowOpen() then
 		return
 	end
 	local now = GetTime()
-	if now - lastSort < SORT_PAUSE then
+	if now - lastSort < SORT_PAUSE or AnyLocked() then
 		return
 	end
 	lastSort = now
 	C_Container.SortBags()
+	WatchSort()
 end
 
 -- Opening all bags opens each frame; one sort after the last of them.

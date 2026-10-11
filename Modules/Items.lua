@@ -19,6 +19,7 @@ local Items = ns:NewModule("Items", {
 		moneyPickup = true,
 		upgradeScore = false,
 		upgradePopup = true,
+		upgradeStyle = "FOREVER",
 		fastLoot = true,
 		sellMessage = true,
 		repairMessage = true,
@@ -549,7 +550,7 @@ local ShowNextUpgrade
 
 local function CreateUpgradeFrame()
 	local frame = ns.CreatePanel("ForeverPlusUpgradeFrame", { close = true })
-	frame:SetSize(360, 150)
+	frame:SetSize(400, 214)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
 	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
 
@@ -580,10 +581,60 @@ local function CreateUpgradeFrame()
 	frame.Replaces = replaces
 
 	local score = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
-	score:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -10)
+	score:SetPoint("BOTTOMLEFT", ns.PANEL_PADDING + 2, ns.PANEL_PADDING + 34)
 	score:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
 	score:SetJustifyH("LEFT")
 	frame.Score = score
+
+	-- "Forever" look: the gain as a big number that pops up, with rising arrows beside it.
+	local big = CreateFrame("Frame", nil, frame)
+	big:SetSize(260, 56)
+	big:SetPoint("TOP", frame, "TOP", 0, -92)
+	big.Text = big:CreateFontString(nil, "OVERLAY")
+	big.Text:SetPoint("CENTER", 12, 0)
+	big.Text:SetJustifyH("CENTER")
+	big.Text:SetShadowOffset(2, -2)
+	big.Text:SetShadowColor(0, 0, 0, 1)
+	big.Arrows = {}
+	for index = 1, 2 do
+		local arrow = big:CreateTexture(nil, "OVERLAY")
+		arrow:SetAtlas("bags-greenarrow", true)
+		arrow:SetScale(2.2)
+		arrow:SetPoint("RIGHT", big.Text, "LEFT", -6 - (index - 1) * 2, 0)
+		big.Arrows[index] = arrow
+	end
+	local pop = big:CreateAnimationGroup()
+	local grow = pop:CreateAnimation("Scale")
+	grow:SetOrder(1)
+	grow:SetDuration(0.22)
+	grow:SetScaleFrom(0.25, 0.25)
+	grow:SetScaleTo(1.35, 1.35)
+	grow:SetSmoothing("OUT")
+	local settle = pop:CreateAnimation("Scale")
+	settle:SetOrder(2)
+	settle:SetDuration(0.16)
+	settle:SetScaleFrom(1.35, 1.35)
+	settle:SetScaleTo(1, 1)
+	settle:SetSmoothing("IN_OUT")
+	local fadeIn = pop:CreateAnimation("Alpha")
+	fadeIn:SetOrder(1)
+	fadeIn:SetDuration(0.12)
+	fadeIn:SetFromAlpha(0)
+	fadeIn:SetToAlpha(1)
+	big.Pop = pop
+	-- The arrows keep lifting a little, so the sign stays alive.
+	local lift = big:CreateAnimationGroup()
+	lift:SetLooping("BOUNCE")
+	for index = 1, 2 do
+		local move = lift:CreateAnimation("Translation")
+		move:SetTarget(big.Arrows[index])
+		move:SetOrder(1)
+		move:SetDuration(0.5)
+		move:SetOffset(0, 5)
+		move:SetSmoothing("IN_OUT")
+	end
+	big.Lift = lift
+	frame.Big = big
 
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	equip:SetSize(110, 24)
@@ -618,6 +669,47 @@ local function CreateUpgradeFrame()
 	return frame
 end
 
+-- Retail look: the item icon of the game's loot toast with its border, burst and arrows rising over it.
+local function GetRetailIcon(frame)
+	if frame.RetailIcon == nil then
+		local ok, button = pcall(CreateFrame, "Button", nil, frame, "LootItemExtended")
+		if ok and button and button.Icon and button.animArrows and button.IconAnim then
+			button:ClearAllPoints()
+			button:SetPoint("TOPLEFT", ns.PANEL_PADDING + 2, -36)
+			button:EnableMouse(false)
+			frame.RetailIcon = button
+		else
+			frame.RetailIcon = false
+		end
+	end
+	return frame.RetailIcon or nil
+end
+
+local RETAIL_BORDER = { [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
+
+local function ShowRetailIcon(frame, texture, quality)
+	local retail = Items.db.upgradeStyle == "RETAIL" and GetRetailIcon(frame)
+	if not retail then
+		if frame.RetailIcon then
+			frame.RetailIcon:Hide()
+		end
+		frame.Icon:Show()
+		return false
+	end
+	retail.Icon:SetTexture(texture)
+	local atlas = "loottoast-itemborder-" .. (RETAIL_BORDER[quality or 2] or "gold")
+	if C_Texture.GetAtlasInfo(atlas) then
+		retail.IconBorder:SetAtlas(atlas, true)
+	end
+	frame.Icon:Hide()
+	retail:Show()
+	retail.IconAnim:Stop()
+	retail.IconAnim:Play()
+	retail.animArrows:Stop()
+	retail.animArrows:Play()
+	return true
+end
+
 function ShowNextUpgrade()
 	local entry = upgradeQueue[1]
 	if not entry or InCombatLockdown() or not Items.db.upgradePopup then
@@ -642,7 +734,20 @@ function ShowNextUpgrade()
 	local gain = entry.equippedScore > 0 and (entry.score / entry.equippedScore - 1) * 100
 	frame.Score:SetText(gain and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.equippedScore, entry.score, gain)
 		or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score))
+	local retail = ShowRetailIcon(frame, texture, quality)
+	local big = frame.Big
+	big.Text:SetFont(ns.GetFontFace(), 44, "THICKOUTLINE")
+	big.Text:SetText(gain and L.ITEMS_UPGRADE_POPUP_GAIN:format(gain) or L.ITEMS_UPGRADE_POPUP_NEW)
+	big.Text:SetTextColor(0.25, 1, 0.3)
+	big:SetShown(not retail)
 	frame:Show()
+	if not retail then
+		big.Pop:Stop()
+		big.Pop:Play()
+		big.Lift:Play()
+	else
+		big.Lift:Stop()
+	end
 end
 
 local function ItemKey(bag, slot, link)
@@ -1881,6 +1986,9 @@ Items.options = {
 	{ key = "rewardUpgrade", type = "toggle", name = L.ITEMS_REWARD_UPGRADE, desc = L.ITEMS_REWARD_UPGRADE_DESC, new = true },
 	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
 	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
+	{ key = "upgradeStyle", type = "dropdown", name = L.ITEMS_UPGRADE_STYLE, desc = L.ITEMS_UPGRADE_STYLE_DESC, parent = "upgradePopup", values = {
+		{ "FOREVER", L.ITEMS_UPGRADE_STYLE_FOREVER }, { "RETAIL", L.ITEMS_UPGRADE_STYLE_RETAIL },
+	}, new = true },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },

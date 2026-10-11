@@ -1,6 +1,6 @@
 -- Quests: sounds on quest progress and completion, quest icon with progress
 -- on the nameplates of units related to an active quest.
-local _, ns = ...
+local addonName, ns = ...
 local L = ns.L
 
 local Quests = ns:NewModule("Quests", {
@@ -23,6 +23,7 @@ local Quests = ns:NewModule("Quests", {
 		questParchment = false,
 		foreverMark = true,
 		foreverMarkStyle = "ICON",
+		foreverWatermark = true,
 		shareDone = false,
 		sharePartial = false,
 	},
@@ -1000,6 +1001,37 @@ local function MarkTracker()
 	end)
 end
 
+-- A faint WoW crest in the top right corner of the description of a Forever quest (quest log on the
+-- map): a frame of its own just under the scroll area, so the text stays on top of it.
+local watermark
+
+local function UpdateWatermark(questID)
+	local details = QuestMapFrame and QuestMapFrame.DetailsFrame
+	local scroll = details and details.ScrollFrame
+	if not scroll then
+		return
+	end
+	local show = Quests.db.foreverWatermark and IsForeverQuest(questID or details.questID)
+	if not watermark then
+		if not show then
+			return
+		end
+		watermark = CreateFrame("Frame", nil, details)
+		watermark:SetSize(84, 84)
+		watermark:EnableMouse(false)
+		local texture = watermark:CreateTexture(nil, "OVERLAY")
+		texture:SetAllPoints()
+		texture:SetTexture(([[Interface\AddOns\%s\Media\iSquidMod\wowlogo]]):format(addonName))
+		texture:SetTexCoord(0, 0.92, 0, 0.92)
+		texture:SetVertexColor(0.55, 0.8, 1)
+		texture:SetAlpha(0.22)
+	end
+	watermark:ClearAllPoints()
+	watermark:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -26, -6)
+	watermark:SetFrameLevel(math.max(ns.Number(scroll:GetFrameLevel(), 1) - 1, 0))
+	watermark:SetShown(show and true or false)
+end
+
 local hookedTitles = {}
 
 local function RecolorTitle(button)
@@ -1057,6 +1089,16 @@ function Quests:OnLogin()
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
 	end
+	if QuestMapFrame_ShowQuestDetails then
+		hooksecurefunc("QuestMapFrame_ShowQuestDetails", ns.Measured("Quests: Forever watermark", UpdateWatermark))
+	end
+	if QuestMapFrame and QuestMapFrame.DetailsFrame then
+		QuestMapFrame.DetailsFrame:HookScript("OnHide", function()
+			if watermark then
+				watermark:Hide()
+			end
+		end)
+	end
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		if QuestObjectiveTracker and QuestObjectiveTracker.Update then
 			hooksecurefunc(QuestObjectiveTracker, "Update", ns.Measured("Quests: Forever marks (tracker)", MarkTracker))
@@ -1099,6 +1141,9 @@ function Quests:OnLogin()
 end
 
 function Quests:OnOptionChanged(key, value)
+	if key == "foreverWatermark" then
+		UpdateWatermark()
+	end
 	if key == "sounds" then
 		-- Off silences both; on brings back the defaults if both were silent.
 		if not value then
@@ -1170,6 +1215,7 @@ Quests.options = {
 	{ key = "foreverMarkStyle", type = "dropdown", name = L.QUESTS_FOREVER_STYLE, parent = "foreverMark", values = {
 		{ "ICON", L.QUESTS_FOREVER_STYLE_ICON }, { "COLOR", L.QUESTS_FOREVER_STYLE_COLOR },
 	} },
+	{ key = "foreverWatermark", type = "toggle", name = L.QUESTS_FOREVER_WATERMARK, desc = L.QUESTS_FOREVER_WATERMARK_DESC, new = true },
 	{ type = "header", name = L.QUESTS_WINDOW },
 	{ key = "questParchment", type = "toggle", name = L.QUESTS_PARCHMENT, desc = L.QUESTS_PARCHMENT_DESC },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },

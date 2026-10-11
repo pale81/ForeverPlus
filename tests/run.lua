@@ -1248,14 +1248,25 @@ do
 	local plates = { { IsForbidden = function() return false end, UnitFrame = { SetAlpha = function(self, a) self.a = a end } } }
 	C_NamePlate = { GetNamePlates = function() return plates end, GetNamePlateForUnit = function() return plates[1] end }
 	qol.db.nameplatesFade, qol.db.nameplatesFadeAmount = true, 70
+	qol.db.nameplatesTargetFull, qol.db.nameplatesFadeCombat = true, false
 	InCombatLockdown = function() return false end
+	UnitExists = function() return false end -- no target
 	qol:UpdateNameplates()
 	print("plate alpha", plates[1].UnitFrame.a)
 	assert(math.abs(plates[1].UnitFrame.a - 0.3) < 1e-6, "faded")
 	uv(qol.UpdateNameplates, "OnCombatStart")()
-	assert(plates[1].UnitFrame.a == 1, "combat full")
+	assert(plates[1].UnitFrame.a == 1, "combat full (old behaviour)")
 	uv(qol.UpdateNameplates, "OnCombatEnd")()
 	assert(math.abs(plates[1].UnitFrame.a - 0.3) < 1e-6, "faded again")
+	-- new: the other units stay transparent in combat, the target never is
+	qol.db.nameplatesFadeCombat = true
+	uv(qol.UpdateNameplates, "OnCombatStart")()
+	assert(math.abs(plates[1].UnitFrame.a - 0.3) < 1e-6, "others faded in combat")
+	UnitExists = function() return true end -- the harness returns this plate for "target"
+	uv(qol.UpdateNameplates, "FadeAllPlates")()
+	assert(plates[1].UnitFrame.a == 1, "target fully visible")
+	uv(qol.UpdateNameplates, "OnCombatEnd")()
+	UnitExists = function() return false end
 	qol.db.nameplatesFade = false
 	qol:UpdateNameplates()
 	assert(plates[1].UnitFrame.a == 1, "off full")

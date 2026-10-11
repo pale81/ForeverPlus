@@ -29,6 +29,8 @@ local QoL = ns:NewModule("QoL", {
 		nameplatesCombat = false,
 		nameplatesFade = false,
 		nameplatesFadeAmount = 70, -- transparency in percent out of combat
+		nameplatesFadeCombat = true, -- the plates of units that are not the target stay transparent in combat too
+		nameplatesTargetFull = true, -- the plate of the target is always fully visible
 		hideErrors = true,
 		actionText = true,
 		hideHotkeys = true,
@@ -191,11 +193,20 @@ local NAMEPLATE_CVAR = "nameplateShowEnemies"
 ---------------------------------------------------------------------------
 local inCombat = false
 
-local function PlateAlpha()
-	if QoL.db.nameplatesFade and not inCombat then
-		return 1 - QoL.db.nameplatesFadeAmount / 100
+-- The plate of the target (when it is in range and has one).
+local function TargetPlate()
+	if QoL.db.nameplatesTargetFull and UnitExists("target") then
+		local plate = C_NamePlate.GetNamePlateForUnit("target")
+		return plate and not plate:IsForbidden() and plate or nil
 	end
-	return 1
+end
+
+local function PlateAlpha(plate)
+	local db = QoL.db
+	if not db.nameplatesFade or (plate and plate == TargetPlate()) or (inCombat and not db.nameplatesFadeCombat) then
+		return 1
+	end
+	return 1 - db.nameplatesFadeAmount / 100
 end
 
 local function FadePlate(plate, alpha)
@@ -205,14 +216,14 @@ local function FadePlate(plate, alpha)
 end
 
 local function FadeAllPlates()
-	local alpha = PlateAlpha()
 	for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
-		FadePlate(plate, alpha)
+		FadePlate(plate, PlateAlpha(plate))
 	end
 end
 
 local function OnPlateAdded(_, _, unit)
-	FadePlate(C_NamePlate.GetNamePlateForUnit(unit), PlateAlpha())
+	local plate = C_NamePlate.GetNamePlateForUnit(unit)
+	FadePlate(plate, PlateAlpha(plate))
 end
 
 ---------------------------------------------------------------------------
@@ -246,6 +257,7 @@ function QoL:UpdateNameplates()
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", combatEvents, OnCombatStart)
 	self:ToggleEvent("PLAYER_REGEN_ENABLED", combatEvents, OnCombatEnd)
 	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", db.nameplatesFade, OnPlateAdded)
+	self:ToggleEvent("PLAYER_TARGET_CHANGED", db.nameplatesFade, FadeAllPlates)
 	FadeAllPlates()
 	if db.nameplatesCombat then
 		if db.nameplatesOriginal == nil then
@@ -521,7 +533,8 @@ function QoL:OnOptionChanged(key)
 		self:UpdateBagSlotsOption()
 	elseif key == "hideErrors" then
 		self:UpdateErrorMessages()
-	elseif key == "nameplatesCombat" or key == "nameplatesFade" or key == "nameplatesFadeAmount" then
+	elseif key == "nameplatesCombat" or key == "nameplatesFade" or key == "nameplatesFadeAmount"
+		or key == "nameplatesFadeCombat" or key == "nameplatesTargetFull" then
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
@@ -557,6 +570,8 @@ QoL.options = {
 	{ type = "header", name = L.QOL_NAMEPLATES_HEADER },
 	{ key = "nameplatesCombat", type = "toggle", name = L.QOL_NAMEPLATES_COMBAT, desc = L.QOL_NAMEPLATES_COMBAT_DESC },
 	{ key = "nameplatesFade", type = "toggle", name = L.QOL_NAMEPLATES_FADE, desc = L.QOL_NAMEPLATES_FADE_DESC },
+	{ key = "nameplatesTargetFull", type = "toggle", name = L.QOL_NAMEPLATES_TARGET_FULL, desc = L.QOL_NAMEPLATES_TARGET_FULL_DESC, parent = "nameplatesFade" },
+	{ key = "nameplatesFadeCombat", type = "toggle", name = L.QOL_NAMEPLATES_FADE_COMBAT, desc = L.QOL_NAMEPLATES_FADE_COMBAT_DESC, parent = "nameplatesFade" },
 	{ key = "nameplatesFadeAmount", type = "slider", name = L.QOL_NAMEPLATES_FADE_AMOUNT, parent = "nameplatesFade", min = 10, max = 90, step = 5,
 		format = function(value)
 			return ("%d %%"):format(value)

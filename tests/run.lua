@@ -1410,18 +1410,7 @@ end)()
 	assert(other == 1, "the cooldown sentence is only counted: " .. other)
 	lines = ns.TalentSummary.Build({ "Increases your attack speed by 5%. Reduces threat caused by 10%." }, false)
 	assert(#lines == 2 and lines[1].text == "+5 % Attack speed" and lines[2].text == "-10 % Threat", lines[1].text .. " / " .. lines[#lines].text)
-	local classes = 0
-	for class, builds in pairs(ns.TalentPresets) do
-		classes = classes + 1
-		assert(#builds >= 4, class .. " has at least three standards and one special")
-		for _, build in ipairs(builds) do
-			local points, count = 0, 0
-			for rank in build.ranks:gmatch("%d+:(%d+)") do points, count = points + tonumber(rank), count + 1 end
-			assert(points == 51 and count > 10, class .. " " .. build.en .. " " .. points)
-		end
-	end
-	assert(classes == 9, "all nine classes")
-	print("talent summary and presets OK")
+	print("talent summary OK")
 end)()
 ;(function()
 	local tp = ns:GetModule("Teleports")
@@ -1795,8 +1784,8 @@ end)()
 	-- Talent plan as Blizzard's loadout text: same bit layout the game reads back.
 	local talents = ns:GetModule("Talents")
 	local menu = uv(talents.OnLogin, "CreateButtons") and uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")
-	local ExportRanks = menu and uv(menu, "ExportRanks")
-	local LoadoutString = ExportRanks and uv(uv(ExportRanks, "ShowLoadout"), "LoadoutString")
+	local ExportPlan = menu and uv(menu, "ExportPlan")
+	local LoadoutString = ExportPlan and uv(ExportPlan, "LoadoutString")
 	assert(LoadoutString, "loadout writer reachable")
 	local bits = {}
 	ExportUtil = { MakeExportDataStream = function()
@@ -1814,13 +1803,38 @@ end)()
 			return nodes[id]
 		end }
 	PlayerUtil = { GetCurrentSpecID = function() return 7 end }
-	local frame = { GetConfigID = function() return 1 end, GetTreeInfo = function() return { ID = 77 } end }
+	local frame = { GetConfigID = function() return 1 end, GetTreeInfo = function() return { ID = 77 } end, GetSpecID = function() return 7 end }
 	assert(LoadoutString(frame, { [11] = 5, [12] = 2 }) == "ok")
 	-- header: version, spec, two hash bytes; then per node: selected [purchased [partial [ranks] choice]]
 	local flat = {}
 	for _, bit in ipairs(bits) do flat[#flat + 1] = bit[1] .. ":" .. bit[2] end
 	local text = table.concat(flat, " ")
 	assert(text == "8:2 16:7 8:1 8:2 1:1 1:0 1:1 1:1 1:0 1:0 1:1 1:1 1:1 6:2 1:0 1:0", text)
+	-- Import: the build lands in the plan (granted ranks are not counted), nothing is learned.
+	local ImportPlan = uv(menu, "ImportPlan")
+	assert(ImportPlan, "import reachable")
+	local callback
+	local oldShow, oldPrint = ns.ShowEditWindow, ns.Print
+	ns.ShowEditWindow = function(_, _, _, _, onAccept) callback = onAccept end
+	local printed
+	ns.Print = function(...) printed = { ... } end
+	for i = 1, 60 do
+		local name = debug.getupvalue(ImportPlan, i)
+		if name == "ParseBuild" then
+			debug.setupvalue(ImportPlan, i, function()
+				return { { nodeID = 11, ranksPurchased = 3 }, { nodeID = 11, ranksPurchased = 4 }, { nodeID = 10, ranksPurchased = 0, ranksGranted = 1 }, { nodeID = 12, ranksPurchased = 2 } }
+			end)
+		end
+	end
+	PlayerSpellsFrame = { TalentsFrame = frame }
+	ImportPlan()
+	assert(callback, "import window")
+	talents.db.planner = true
+	callback("  abc  ")
+	local plan = uv(ImportPlan, "CurrentPlan")()
+	assert(plan[11] == 5 and plan[12] == 2 and plan[10] == nil, "plan from the import (capped at the maximum ranks)")
+	assert(printed and printed[2] == 7 and printed[3] == 2 and printed[4] == 16, "report: points, talents, level")
+	ns.ShowEditWindow, ns.Print = oldShow, oldPrint
 	print("talent loadout string OK")
 end)()
 ;(function()

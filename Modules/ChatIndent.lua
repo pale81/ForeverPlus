@@ -89,21 +89,24 @@ local function Tokens(text)
 	return list
 end
 
--- Length of the timestamp at the start of the message (0 without).
-local function PrefixLength(message)
+-- The timestamp of the chat window as text (nil when the chat shows none).
+local function TimestampSample()
 	local format = ChatFrameUtil and ChatFrameUtil.GetTimestampFormat and ChatFrameUtil.GetTimestampFormat()
 	if not format or not TimeUtil or not TimeUtil.BetterDate then
-		return 0
+		return nil
 	end
 	local sample = TimeUtil.BetterDate(format, time())
 	if type(sample) ~= "string" or sample == "" then
-		return 0
+		return nil
 	end
-	local shape = (sample:gsub("%d", "#"))
-	if (message:sub(1, #sample):gsub("%d", "#")) == shape then
-		return #sample
-	end
-	return 0
+	return (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+-- Whether the message itself starts with the timestamp (else the chat window puts it in front when it draws the
+-- line, and the first line has that much less room).
+local function StartsWithTimestamp(message, sample)
+	local plain = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	return (plain:sub(1, #sample):gsub("%d", "#")) == (sample:gsub("%d", "#"))
 end
 
 -- The message with line breaks and blanks in front of the continuation lines; nil when it fits or
@@ -118,15 +121,17 @@ function Indent.Wrap(frame, message)
 	end
 	local available = width - MARGIN
 	PrepareMeter(frame)
-	if Indent.measure(message) <= available then
+	local sample = TimestampSample()
+	local indent = sample and Indent.measure(sample) or spaceWidth * FALLBACK_BLANKS
+	-- Room the timestamp takes in front of the first line when it is not part of the message.
+	local extra = sample and not StartsWithTimestamp(message, sample) and indent or 0
+	if Indent.measure(message) + extra <= available then
 		return nil
 	end
 	local tokens = Tokens(message)
 	if not tokens or #tokens < 2 then
 		return nil
 	end
-	local prefix = PrefixLength(message)
-	local indent = prefix > 0 and Indent.measure(message:sub(1, prefix)) or spaceWidth * FALLBACK_BLANKS
 	local blanks = math.max(1, math.floor(indent / spaceWidth + 0.5))
 	local pad = (" "):rep(blanks)
 	local padWidth = blanks * spaceWidth
@@ -135,7 +140,7 @@ function Indent.Wrap(frame, message)
 	for _, token in ipairs(tokens) do
 		local tokenWidth = TokenWidth(token)
 		if not line then
-			line, lineWidth = token, tokenWidth
+			line, lineWidth = token, extra + tokenWidth
 		elseif lineWidth + spaceWidth + tokenWidth <= available then
 			line, lineWidth = line .. " " .. token, lineWidth + spaceWidth + tokenWidth
 		else

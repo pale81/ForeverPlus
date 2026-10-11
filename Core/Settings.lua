@@ -373,6 +373,22 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 	return true
 end
 
+-- The entry "ForeverPlus" in the list of addons carries the green "new" too while a page below it does.
+local function MainTitle()
+	for _, page in ipairs(PAGES) do
+		if IsNew(page._newID, page.new) then
+			return ("ForeverPlus  |cff00ff00%s|r"):format(L.SETTINGS_NEW or _G.NEW or "NEW")
+		end
+	end
+	return "ForeverPlus"
+end
+
+local function RefreshMainBadge()
+	if mainCategory then
+		ClearPageBadge(mainCategory, { title = MainTitle() })
+	end
+end
+
 function ns:BuildSettings()
 	mainCategory = Settings.RegisterVerticalLayoutCategory("ForeverPlus")
 	local mainLayout = SettingsPanel:GetLayout(mainCategory)
@@ -445,6 +461,7 @@ function ns:BuildSettings()
 											CountAsSeen(pageID)
 											if not IsNew(pageID, true) then
 												ClearPageBadge(categoryRef, pageRef)
+												RefreshMainBadge()
 											end
 										end
 									end)
@@ -466,6 +483,7 @@ function ns:BuildSettings()
 		end
 	end
 
+	RefreshMainBadge()
 	Settings.RegisterAddOnCategory(mainCategory)
 end
 

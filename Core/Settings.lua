@@ -196,9 +196,6 @@ local function AddOption(module, category, layout, opt, initializers)
 	if opt.type == "header" then
 		local header = CreateSettingsListSectionHeaderInitializer(opt.name, opt.desc)
 		AddSearchTags(header, opt.name, opt.desc, "ForeverPlus")
-		if opt.new then
-			header = TrackNew(header, opt._newID, false, true)
-		end
 		layout:AddInitializer(header)
 		return
 	elseif opt.type == "button" then
@@ -355,31 +352,18 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		return false
 	end
 	initializers[module] = initializers[module] or {}
-	local hasNew = false
 	for _, opt in ipairs(ModuleOptions(module)) do
 		local included = entry.keys and opt.key and entry.keys[opt.key]
 		if not entry.keys and not (entry.exclude and opt.key and entry.exclude[opt.key]) then
 			included = true
 		end
 		if included and opt.new then
-			hasNew = true
 			opt._newID = opt._newID or ("option:" .. module.name .. ":" .. tostring(opt.key or opt.name))
 		end
 	end
 	if entry.header then
-		local sectionID = "section:" .. tostring(entry._pageID) .. ":" .. module.name .. ":" .. tostring(entry.header)
 		local header = CreateSettingsListSectionHeaderInitializer(entry.header, entry.headerDesc)
 		AddSearchTags(header, entry.header, entry.headerDesc, pageTitle, "ForeverPlus")
-		if hasNew then
-			header = TrackNew(header, sectionID, false, true)
-		end
-		layout:AddInitializer(header)
-	elseif hasNew then
-		local sectionName = module.title or module.name
-		local sectionID = "section:" .. tostring(entry._pageID) .. ":" .. module.name
-		local header = CreateSettingsListSectionHeaderInitializer(sectionName)
-		AddSearchTags(header, module.title, module.name, pageTitle, "ForeverPlus")
-		header = TrackNew(header, sectionID, false, true)
 		layout:AddInitializer(header)
 	end
 	for _, opt in ipairs(ModuleOptions(module)) do

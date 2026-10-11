@@ -324,7 +324,7 @@ local function UpdateItemButton()
 end
 
 local function CreateItemButton()
-	local button = CreateFrame("Button", "ForeverPlusQuestItemButton", UIParent, "SecureActionButtonTemplate, ActionButtonTemplate")
+	local button = CreateFrame("Button", "ForeverPlusQuestItemButton", UIParent, "ActionButtonTemplate, SecureActionButtonTemplate")
 	button:SetSize(40, 40)
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:SetAttribute("type", "item")

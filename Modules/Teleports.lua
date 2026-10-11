@@ -11,10 +11,10 @@ local Teleports = ns:NewModule("Teleports", {
 		menu = true,
 		portals = true,
 		-- Position of the triangle in the frame of the minimap (see /fp nord).
-		northWidth = 110,
-		northHeight = 62,
+		northWidth = 40,
+		northHeight = 30,
 		northOffset = 0,
-		northSized = false,
+		northFixed = false,
 	},
 })
 
@@ -246,7 +246,12 @@ local function LayoutTrigger()
 	local info = atlas and C_Texture.GetAtlasInfo(atlas)
 	local glow = trigger.Glow
 	if info and info.file and info.width and info.width > 0 and info.height and info.height > 0 then
-		local width, height = info.width, info.height
+		-- The area is measured in minimap units (it grows and shrinks with the minimap and the UI scale);
+		-- the share of the frame art follows from the size the art has on screen.
+		local width, height = ns.Number(MinimapCompassTexture:GetWidth(), 0), ns.Number(MinimapCompassTexture:GetHeight(), 0)
+		if width <= 0 or height <= 0 then
+			width, height = info.width, info.height
+		end
 		local left, right = info.leftTexCoord, info.rightTexCoord
 		local top, bottom = info.topTexCoord, info.bottomTexCoord
 		local x0, x1 = (width - db.northWidth) / 2 / width, (width + db.northWidth) / 2 / width
@@ -314,10 +319,10 @@ function Teleports.Command(msg)
 end
 
 function Teleports:OnLogin()
-	-- Once: the area is the new, larger size (it only covered the tip of the triangle).
-	if not self.db.northSized then
-		self.db.northSized = true
-		self.db.northWidth, self.db.northHeight, self.db.northOffset = 110, 62, 0
+	-- Once: the measured size of the triangle (40 x 30), whatever earlier versions saved.
+	if not self.db.northFixed then
+		self.db.northFixed = true
+		self.db.northWidth, self.db.northHeight, self.db.northOffset = 40, 30, 0
 	end
 	self:CreateTrigger()
 end
@@ -329,6 +334,4 @@ end
 Teleports.options = {
 	{ key = "menu", type = "toggle", name = L.TELEPORTS_MENU, desc = L.TELEPORTS_MENU_DESC, new = true },
 	{ key = "portals", type = "toggle", name = L.TELEPORTS_PORTALS, desc = L.TELEPORTS_PORTALS_DESC, parent = "menu", new = true },
-	{ key = "northWidth", type = "slider", name = L.TELEPORTS_WIDTH, desc = L.TELEPORTS_AREA_DESC, parent = "menu", min = 40, max = 220, step = 2, new = true },
-	{ key = "northHeight", type = "slider", name = L.TELEPORTS_HEIGHT, desc = L.TELEPORTS_AREA_DESC, parent = "menu", min = 20, max = 140, step = 2, new = true },
 }

@@ -1,6 +1,6 @@
 -- Chat that makes room by itself, two independent steps, each with its own waiting time (a little like the chat
 -- addon Glass): the chat can fade out smoothly when nothing was written for a while, and it can shrink smoothly to
--- one line, the last message. The mouse over the chat or typing brings it back to full size and visibility; a new
+-- the last message (as many lines as that message takes in the window, one to four). The mouse over the chat or typing brings it back to full size and visibility; a new
 -- message makes a faded chat visible again (a shrunken one stays shrunken, its line is the new message). Only the
 -- transparency and the height of the windows change, and the own height is given back exactly (also when the game
 -- is left); position, width and settings are not touched. Nothing is copied from Glass.
@@ -54,7 +54,50 @@ local function LineHeight(frame)
 	return math.ceil(ns.Number(size, 14) + spacing)
 end
 
-local function Apply()
+local MAX_LINES = 4
+local MARGIN = 6 -- pixels of the width not used by the text (as in the indented chat)
+local meter
+
+-- Timestamp the window puts in front of a line (nil when it shows none).
+local function TimestampSample()
+	local format = ChatFrameUtil and ChatFrameUtil.GetTimestampFormat and ChatFrameUtil.GetTimestampFormat()
+	if not format or not TimeUtil or not TimeUtil.BetterDate then
+		return nil
+	end
+	local sample = TimeUtil.BetterDate(format, time())
+	if type(sample) == "string" and sample ~= "" then
+		return (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	end
+end
+
+-- How many lines the last message takes in this window: measured with the font and width of the window.
+local function LastMessageLines(frame)
+	local count = frame.GetNumMessages and ns.Number(frame:GetNumMessages(), 0) or 0
+	local text = count > 0 and frame.GetMessageInfo and frame:GetMessageInfo(count)
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
+		return 1
+	end
+	local file, size, flags = frame:GetFont()
+	if not file then
+		return 1
+	end
+	meter = meter or ns.hider:CreateFontString(nil, "ARTWORK")
+	meter:SetFont(file, ns.Number(size, 14), flags or "")
+	meter:SetWidth(math.max(50, ns.Number(frame:GetWidth(), 300) - MARGIN))
+	meter:SetWordWrap(true)
+	meter:SetText((TimestampSample() or "") .. text)
+	local lines = math.floor(ns.Number(meter:GetStringHeight(), 0) / math.max(1, ns.Number(size, 14)) + 0.5)
+	return math.max(1, math.min(MAX_LINES, lines))
+end
+
+local foldHeights = {} -- chat window -> height it takes when folded (the lines of its last message)
+local shown = {}       -- chat window -> height set at the moment
+
+local function FoldHeight(frame)
+	return LastMessageLines(frame) * LineHeight(frame)
+end
+
+local function ApplyAlpha()
 	local alpha = 1 - Ease(fade)
 	local hidden = fade >= 1
 	for _, frame in ipairs(Windows()) do
@@ -69,12 +112,28 @@ local function Apply()
 			GeneralDockManager:SetMouseClickEnabled(not hidden)
 		end
 	end
-	local eased = Ease(fold)
+	return Ease(fold)
+end
+
+-- The heights move towards where they should be (own height, one message), so a new message of another length
+-- changes the folded height smoothly too. True while something still moves.
+local function MoveHeights(elapsed, eased)
+	local moving = false
 	for frame, full in pairs(heights) do
-		local line = math.min(full, LineHeight(frame))
-		frame:SetHeight(full + (line - full) * eased)
+		local goal = math.min(full, foldHeights[frame] or LineHeight(frame))
+		goal = full + (goal - full) * eased
+		local current = shown[frame] or full
+		if math.abs(goal - current) > 0.5 then
+			current = current + (goal - current) * math.min(1, elapsed * 14)
+			moving = true
+		else
+			current = goal
+		end
+		shown[frame] = current
+		frame:SetHeight(current)
 		frame:ScrollToBottom()
 	end
+	return moving
 end
 
 local function Move(value, target, timeUp, timeDown, elapsed)
@@ -88,11 +147,13 @@ end
 local function Step(_, elapsed)
 	fade = Move(fade, fadeTarget, FADE_OUT, FADE_IN, elapsed)
 	fold = Move(fold, foldTarget, FOLD_TIME, OPEN_TIME, elapsed)
-	Apply()
-	if fade == fadeTarget and fold == foldTarget then
+	local moving = MoveHeights(elapsed, ApplyAlpha())
+	if fade == fadeTarget and fold == foldTarget and not moving then
 		ns.SetUpdate(driver, "ChatMinimize: animation", nil)
 		if foldTarget == 0 then
 			wipe(heights)
+			wipe(foldHeights)
+			wipe(shown)
 		end
 	end
 end
@@ -116,6 +177,8 @@ local function SetFold(value)
 		-- Own height of every shown window, taken now.
 		for _, frame in ipairs(Windows(true)) do
 			heights[frame] = frame:GetHeight()
+			foldHeights[frame] = FoldHeight(frame)
+			shown[frame] = heights[frame]
 		end
 		if not next(heights) then
 			return
@@ -163,11 +226,16 @@ local function HookFrames()
 	for _, frame in ipairs(Windows()) do
 		if not hooked[frame] and type(frame.AddMessage) == "function" then
 			hooked[frame] = true
-			hooksecurefunc(frame, "AddMessage", ns.Measured("ChatMinimize: message", function()
+			hooksecurefunc(frame, "AddMessage", ns.Measured("ChatMinimize: message", function(window)
 				lastMessage = GetTime()
-				-- A new message shows a faded chat again; a shrunken one stays one line (showing that message).
+				-- A new message shows a faded chat again; a shrunken one stays shrunken and takes the height of that
+				-- message.
 				if fadeTarget == 1 then
 					SetFade(0)
+				end
+				if foldTarget == 1 and heights[window] then
+					foldHeights[window] = FoldHeight(window)
+					Animate()
 				end
 			end))
 		end
@@ -182,7 +250,9 @@ local function Restore()
 		frame:SetHeight(full)
 	end
 	wipe(heights)
-	Apply()
+	wipe(foldHeights)
+	wipe(shown)
+	ApplyAlpha()
 end
 
 function Minimize:Apply()

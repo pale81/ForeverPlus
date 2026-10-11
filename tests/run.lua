@@ -1279,6 +1279,27 @@ do
 	print("show upgrade empty slot", ok, err)
 end
 ;(function()
+	local tp = ns:GetModule("Teleports")
+	IsPlayerSpell = function(id) return id == 18960 or id == 10059 end
+	C_Item.GetItemCount = function(id) return id == 6948 and 1 or 0 end
+	C_Item.GetItemNameByID = function(id) return "Item" .. id end
+	C_Item.GetItemIconByID = function() return 1 end
+	C_Container.GetItemCooldown = function() return 0, 0, 1 end
+	C_Spell.GetSpellName = function(id) return "Spell" .. id end
+	C_Spell.GetSpellTexture = function() return 2 end
+	C_Spell.GetSpellCooldown = function() return { startTime = 0, duration = 0 } end
+	tp.db.portals = true
+	local list = tp:Collect()
+	assert(#list == 3 and list[1].hearth and list[2].id == 18960 and list[3].portal, "teleports found")
+	tp.db.portals = false
+	assert(#tp:Collect() == 2, "portals optional")
+	tp.db.portals = true
+	InCombatLockdown = function() return false end
+	GetBindLocation = function() return "Orgrimmar" end
+	local ok, err = pcall(tp.ShowMenu, tp) assert(ok, tostring(err))
+	print("teleports OK")
+end)()
+;(function()
 	local items = ns:GetModule("Items")
 	local built, original = nil, ns.ShowPopupList
 	ns.ShowPopupList = function(_, build) built = build() end

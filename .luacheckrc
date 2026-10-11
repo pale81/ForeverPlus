@@ -97,6 +97,8 @@ read_globals = {
 	"C_Traits",
 	"GetMaxLevelForPlayerExpansion",
 	"IsPlayerSpell",
+	"GetBindLocation",
+	"MinimapCompassTexture",
 	"WHITE_FONT_COLOR",
 	"GRAY_FONT_COLOR",
 	"SAVE",

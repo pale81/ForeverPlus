@@ -327,7 +327,7 @@ local function EntranceTooltip(tooltip, symbol)
 		-- A short text about the place (own texts, Data/PlaceInfo.lua).
 		local info = showInfo and entry[3] and ns.InstanceInfo[entry[3]]
 		if info then
-			tooltip:AddLine(GetLocale() == "deDE" and info.de or info.en, 0.8, 0.8, 0.8, true)
+			tooltip:AddLine(ns.PlaceText(GetLocale() == "deDE" and info.de or info.en), 0.8, 0.8, 0.8, true)
 		end
 		-- How often this character went through and died in it (counted by ForeverPlus).
 		local stats = entry[3] and ns:GetModule("InstanceStats")
@@ -501,7 +501,7 @@ Symbols.AddSource(function(mapID, add)
 		if position then
 			-- Hovering the name shows a short text about the place (Data/PlaceInfo.lua, own texts).
 			local info = Options().placeInfo and ns.PlaceInfo and ns.PlaceInfo[place[4]]
-			local text = info and (GetLocale() == "deDE" and info.de or info.en)
+			local text = info and ns.PlaceText(GetLocale() == "deDE" and info.de or info.en)
 			local name = PlaceName(place)
 			add(position[1], position[2], { kind = "place", label = name,
 				font = city and "GameFontNormalOutline" or "GameFontHighlightSmallOutline",

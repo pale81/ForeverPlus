@@ -2651,6 +2651,36 @@ end)()
 	C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo = unpack(saved, 1, 7)
 	print("bag sort OK")
 end)()
+;(function()
+	-- Place texts: every name token resolves (the client's name or the English fallback), every key is a known place.
+	local data = {}
+	assert(loadfile("../Data/Places.lua"))("ForeverPlus", data)
+	local keepPlaces = ns.Places
+	ns.Places = data.Places
+	local known = {}
+	for _, place in ipairs(ns.Places) do known[place[4]] = true end
+	local function Check(list, isInstance)
+		for key, info in pairs(list) do
+			assert(isInstance or known[key], "place of the text " .. tostring(key))
+			for _, text in ipairs({ info.de, info.en }) do
+				assert(not ns.PlaceText(text):find("%?") and not ns.PlaceText(text):find("{"), "names resolve in " .. tostring(key) .. ": " .. ns.PlaceText(text))
+			end
+		end
+	end
+	Check(ns.PlaceInfo, false)
+	Check(ns.InstanceInfo, true)
+	local keepZone = GetRealZoneText
+	GetRealZoneText = function() end
+	assert(ns.PlaceText("in {m1431} / {a42} / {i36}") == "in Duskwood / Darkshire / The Deadmines", "english fallback names: " .. ns.PlaceText("in {m1431} / {a42} / {i36}"))
+	GetRealZoneText = keepZone
+	local saved = C_Map.GetMapInfo
+	C_Map.GetMapInfo = function() return { name = "Dämmerwald" } end
+	assert(ns.PlaceText("{m1431}") == "Dämmerwald", "the client's name wins")
+	C_Map.GetMapInfo = saved
+	ns.Places = keepPlaces
+	print("place texts OK")
+end)()
+
 -- Nameplate quest marker: creatures whose drop a quest asks for
 ;(function()
 	local quests = ns:GetModule("Quests")

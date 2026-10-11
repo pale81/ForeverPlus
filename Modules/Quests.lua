@@ -308,6 +308,7 @@ local function CreateItemButton()
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	button:Hide()
+	ns.FrameActionButton(button)
 	itemButton = button
 	ns:RegisterEditFrame(button, "QuestItem", L.QUESTS_ITEM_BUTTON, { "CENTER", UIParent, "CENTER", 0, -180 }, UpdateItemButton)
 end
@@ -919,6 +920,7 @@ end
 local FOREVER_FIRST_QUEST = 10000
 local FOREVER_COLOR = CreateColor(0.35, 0.8, 1)
 local FOREVER_ICON = "|A:auctionhouse-icon-favorite:12:12|a "
+local FOREVER_CODE = "|cff59ccff"
 
 local function IsForeverQuest(questID)
 	return type(questID) == "number" and questID >= FOREVER_FIRST_QUEST
@@ -935,9 +937,19 @@ local function MarkText(fontString)
 	end
 end
 
+-- The name in the Forever blue as a colour code in the text: Blizzard's own
+-- colouring (difficulty, highlight) cannot override it.
+local function ColorText(fontString)
+	local text = fontString:GetText()
+	if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text ~= "" and text:sub(1, #FOREVER_CODE) ~= FOREVER_CODE then
+		fontString:SetText(FOREVER_CODE .. text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r")
+	end
+end
+
 local function RecolorBlock(block)
 	if MarkMode() == "COLOR" and IsForeverQuest(block.poiQuestID or block.id) and block.HeaderText then
 		block.HeaderText:SetTextColor(FOREVER_COLOR:GetRGB())
+		ColorText(block.HeaderText)
 	end
 end
 
@@ -968,6 +980,7 @@ local hookedTitles = {}
 local function RecolorTitle(button)
 	if MarkMode() == "COLOR" and IsForeverQuest(button.questID) and button.Text then
 		button.Text:SetTextColor(FOREVER_COLOR:GetRGB())
+		ColorText(button.Text)
 	end
 end
 

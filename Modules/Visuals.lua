@@ -166,6 +166,11 @@ local function FrameQuestItem(button)
 	ns.ApplyActionFrame(button, button.icon, ICON_FRAME_STYLE)
 end
 
+-- ForeverPlus' own action-style buttons (quest item, openables) get the same frame.
+function ns.FrameActionButton(button)
+	FrameQuestItem(button)
+end
+
 -- Item icons of quest rewards and quest log rewards. Their frame lies above
 -- the button's own overlays: Blizzard's icon border (same size as the icon)
 -- otherwise covers most of it. Sized on every display, the buttons are

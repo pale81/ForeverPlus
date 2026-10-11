@@ -11,12 +11,10 @@ local XPBar = ns:NewModule("XPBar", {
 		format = "full",
 		repFormat = "full",
 		questXP = true,
-		restedColor = true,
 	},
 })
 
-local REST_COLOR = { 1, 0.55, 0.12 } -- the rested part of the bar: orange, apart from the purple of quest experience
-local QUEST_COLOR = { 0.34, 0.1, 0.46 } -- dark purple, clearly lighter than the black bar background
+local QUEST_COLOR = { 0.85, 0.45, 0.08 } -- orange: apart from the purple fill and the blue of the rested bonus
 local SCAN_DELAY = 0.3
 
 local expBars = {}
@@ -71,14 +69,6 @@ local function UpdateRepText(bar)
 end
 
 local function UpdateOverlay(bar)
-	-- The rested part (Blizzard's prediction fill behind the bar) in orange.
-	if bar.ExhaustionLevelFillBar then
-		if XPBar.db.restedColor then
-			bar.ExhaustionLevelFillBar:SetVertexColor(REST_COLOR[1], REST_COLOR[2], REST_COLOR[3], 1)
-		else
-			bar.ExhaustionLevelFillBar:SetVertexColor(1, 1, 1, 1)
-		end
-	end
 	local overlay = overlays[bar]
 	if not overlay then
 		-- Above the bar background, below the fill (the fill is in the BORDER layer).
@@ -209,5 +199,4 @@ XPBar.options = {
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_REP_FORMAT_FULL },
 	} },
 	{ key = "questXP", type = "toggle", name = L.XP_QUEST_OVERLAY, desc = L.XP_QUEST_OVERLAY_DESC },
-	{ key = "restedColor", type = "toggle", name = L.XP_REST_COLOR, desc = L.XP_REST_COLOR_DESC },
 }

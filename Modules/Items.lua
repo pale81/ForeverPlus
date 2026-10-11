@@ -21,6 +21,8 @@ local Items = ns:NewModule("Items", {
 		upgradeScore = false,
 		upgradePopup = true,
 		upgradeStyle = "FOREVER",
+		upgradeCelebrate = true,
+		upgradeMarkOld = false,
 		fastLoot = true,
 		sellMessage = true,
 		repairMessage = true,
@@ -637,6 +639,66 @@ local function CreateUpgradeFrame()
 	big.Lift = lift
 	frame.Big = big
 
+	-- Celebration (option): a golden frame that breathes around the window, the window popping up, and sparks that
+	-- fly out from the picture, like a level up.
+	local glow = CreateFrame("Frame", nil, frame)
+	glow:SetPoint("TOPLEFT", -4, 4)
+	glow:SetPoint("BOTTOMRIGHT", 4, -4)
+	glow:SetFrameLevel(frame:GetFrameLevel() + 20)
+	glow:EnableMouse(false)
+	ns.CreatePixelBorder(glow, glow, 3, "OVERLAY", 7):ShowColor(1, 0.82, 0.3, 0.95)
+	local outer = CreateFrame("Frame", nil, glow)
+	outer:SetPoint("TOPLEFT", -4, 4)
+	outer:SetPoint("BOTTOMRIGHT", 4, -4)
+	ns.CreatePixelBorder(outer, outer, 2, "OVERLAY", 6):ShowColor(1, 0.7, 0.2, 0.4)
+	glow.Breathe = glow:CreateAnimationGroup()
+	glow.Breathe:SetLooping("BOUNCE")
+	local breathe = glow.Breathe:CreateAnimation("Alpha")
+	breathe:SetFromAlpha(1)
+	breathe:SetToAlpha(0.3)
+	breathe:SetDuration(0.7)
+	breathe:SetSmoothing("IN_OUT")
+	glow:Hide()
+	frame.Glow = glow
+	frame.Popup = frame:CreateAnimationGroup()
+	local up = frame.Popup:CreateAnimation("Scale")
+	up:SetOrder(1)
+	up:SetDuration(0.16)
+	up:SetScaleFrom(0.7, 0.7)
+	up:SetScaleTo(1.06, 1.06)
+	up:SetSmoothing("OUT")
+	local back = frame.Popup:CreateAnimation("Scale")
+	back:SetOrder(2)
+	back:SetDuration(0.12)
+	back:SetScaleFrom(1.06, 1.06)
+	back:SetScaleTo(1, 1)
+	back:SetSmoothing("IN_OUT")
+	frame.Sparks = {}
+	for index = 1, 12 do
+		local spark = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+		spark:SetTexture([[Interface\Cooldown\star4]])
+		spark:SetBlendMode("ADD")
+		spark:SetVertexColor(1, 0.9, 0.5)
+		spark:SetSize(16 + (index % 3) * 6, 16 + (index % 3) * 6)
+		spark:SetPoint("CENTER", icon, "CENTER")
+		spark:SetAlpha(0)
+		local group = spark:CreateAnimationGroup()
+		local angle = (index - 1) / 12 * 2 * math.pi
+		local distance = 70 + (index % 4) * 25
+		local move = group:CreateAnimation("Translation")
+		move:SetOffset(math.cos(angle) * distance, math.sin(angle) * distance * 0.7)
+		move:SetDuration(0.9)
+		move:SetSmoothing("OUT")
+		local show = group:CreateAnimation("Alpha")
+		show:SetOrder(1)
+		show:SetFromAlpha(1)
+		show:SetToAlpha(0)
+		show:SetDuration(0.9)
+		show:SetSmoothing("IN")
+		group:SetToFinalAlpha(true)
+		frame.Sparks[index] = group
+	end
+
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	equip:SetSize(110, 24)
 	equip:SetPoint("BOTTOMRIGHT", -ns.PANEL_PADDING, ns.PANEL_PADDING)
@@ -645,7 +707,12 @@ local function CreateUpgradeFrame()
 		local entry = table.remove(upgradeQueue, 1)
 		-- Only if the item is still in the bags (sorting may have moved it).
 		if entry and not InCombatLockdown() and C_Item.GetItemCount(entry.link) > 0 then
+			local old = Items.db.upgradeMarkOld and entry.invSlot and GetInventoryItemLink("player", entry.invSlot)
 			C_Item.EquipItemByName(entry.link, TargetSlot(entry.link))
+			-- The replaced item goes to the bags; with the option it is marked for sale right away.
+			if old then
+				Items.MarkLinkJunk(old)
+			end
 		end
 		ShowNextUpgrade()
 	end)
@@ -711,6 +778,28 @@ local function ShowRetailIcon(frame, texture, quality)
 	return true
 end
 
+-- Plays (or stops) the celebration of the window.
+local function Celebrate(frame)
+	local on = Items.db.upgradeCelebrate
+	frame.Glow:SetShown(on and true or false)
+	frame.Glow.Breathe:Stop()
+	frame.Popup:Stop()
+	for _, group in ipairs(frame.Sparks) do
+		group:Stop()
+	end
+	if not on then
+		return
+	end
+	frame.Glow.Breathe:Play()
+	frame.Popup:Play()
+	for _, group in ipairs(frame.Sparks) do
+		group:Play()
+	end
+	if SOUNDKIT and SOUNDKIT.UI_EPICLOOT_TOAST then
+		PlaySound(SOUNDKIT.UI_EPICLOOT_TOAST)
+	end
+end
+
 function ShowNextUpgrade()
 	local entry = upgradeQueue[1]
 	if not entry or InCombatLockdown() or not Items.db.upgradePopup then
@@ -742,6 +831,7 @@ function ShowNextUpgrade()
 	big.Text:SetTextColor(0.25, 1, 0.3)
 	big:SetShown(not retail)
 	frame:Show()
+	Celebrate(frame)
 	if not retail then
 		big.Pop:Stop()
 		big.Pop:Play()
@@ -888,6 +978,22 @@ local function ToggleJunk(bag, slot)
 		junk[key] = nil
 	end
 	UpdateAllBags()
+end
+
+-- Marks an item (by link) for sale, e.g. the item an upgrade replaced; grey items are junk anyway.
+function Items.MarkLinkJunk(link)
+	local itemID = link and C_Item.GetItemInfoInstant(link)
+	local quality = itemID and select(3, C_Item.GetItemInfo(link))
+	if not itemID or quality == Enum.ItemQuality.Poor then
+		return
+	end
+	local junk = JunkLists()
+	local key, value = JunkKey({ itemID = itemID, hyperlink = link })
+	if not junk[key] then
+		junk[key] = value
+		Report("markMessage", L.ITEMS_MARKED, link)
+		UpdateAllBags()
+	end
 end
 
 -- Marks/unmarks junk with the configured mouse button (middle button by default).
@@ -2247,6 +2353,8 @@ Items.options = {
 	{ key = "rewardUpgrade", type = "toggle", name = L.ITEMS_REWARD_UPGRADE, desc = L.ITEMS_REWARD_UPGRADE_DESC, new = true },
 	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
 	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
+	{ key = "upgradeCelebrate", type = "toggle", name = L.ITEMS_UPGRADE_CELEBRATE, desc = L.ITEMS_UPGRADE_CELEBRATE_DESC, parent = "upgradePopup", new = true },
+	{ key = "upgradeMarkOld", type = "toggle", name = L.ITEMS_UPGRADE_MARK_OLD, desc = L.ITEMS_UPGRADE_MARK_OLD_DESC, parent = "upgradePopup", new = true },
 	{ key = "upgradeStyle", type = "dropdown", name = L.ITEMS_UPGRADE_STYLE, desc = L.ITEMS_UPGRADE_STYLE_DESC, parent = "upgradePopup", values = {
 		{ "FOREVER", L.ITEMS_UPGRADE_STYLE_FOREVER }, { "RETAIL", L.ITEMS_UPGRADE_STYLE_RETAIL },
 	}, new = true },

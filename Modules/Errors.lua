@@ -144,6 +144,27 @@ local function SortedEntries()
 	return sorted
 end
 
+-- The newest errors as text for /fp diagnose: message, count and the first
+-- lines of the stack (no locals, they are long).
+function Errors.Report(maxEntries)
+	local lines = {}
+	for index, entry in ipairs(SortedEntries()) do
+		if index > (maxEntries or 5) then
+			break
+		end
+		local details = EntryDetails(entry):gsub("\nLocals:.*$", "")
+		local shown = {}
+		for line in details:gmatch("[^\n]+") do
+			shown[#shown + 1] = line
+			if #shown >= 12 then
+				break
+			end
+		end
+		lines[#lines + 1] = ("#%d %s"):format(index, table.concat(shown, "\n   "))
+	end
+	return #entries, table.concat(lines, "\n")
+end
+
 local function CreateNavButton(parent, kind)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetSize(26, 26)

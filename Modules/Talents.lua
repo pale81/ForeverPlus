@@ -293,7 +293,7 @@ local function TalentsFrame()
 end
 
 local ApplyPlan, ClearPlan, ApplyTemplate -- planner, defined below
-local SavePlanTemplate, ImportTemplate, ExportCurrentBuild
+local SavePlanTemplate, ImportTemplate, ExportCurrentBuild, ExportRanks, ExportPlan
 local PLAN_BUTTON_SIZE = 26
 
 local function ClassBuilds()
@@ -434,6 +434,9 @@ local function ShowBuildMenu(owner)
 		root:CreateButton(L.TALENTS_SAVE, SaveCurrent)
 		root:CreateButton(L.TALENTS_IMPORT, ImportBuild)
 		root:CreateButton(L.TALENTS_EXPORT_CURRENT, ExportCurrentBuild)
+		if Talents.db.planner then
+			root:CreateButton(L.TALENTS_EXPORT_PLAN, ExportPlan)
+		end
 		-- Suggested distributions (Data/TalentPresets.lua) and the player's own templates go into the plan.
 		local presets = Talents.db.planner and ns.TalentPresets and ns.TalentPresets[playerClass]
 		if Talents.db.planner then
@@ -444,8 +447,14 @@ local function ShowBuildMenu(owner)
 			end)
 			for _, preset in ipairs(presets or {}) do
 				local name = GetLocale() == "deDE" and preset.de or preset.en
-				sub:CreateButton(("%s (%s)"):format(name, preset.points), function()
+				local item = sub:CreateButton(("%s (%s)"):format(name, preset.points), function()
 					ApplyTemplate(preset, name)
+				end)
+				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
+					ApplyTemplate(preset, name)
+				end)
+				item:CreateButton(L.TALENTS_EXPORT_GAME, function()
+					ExportRanks(preset.ranks, name)
 				end)
 			end
 			local own = Talents.db.templates[playerClass] or {}
@@ -460,6 +469,9 @@ local function ShowBuildMenu(owner)
 				end)
 				item:CreateButton(L.TALENTS_EXPORT, function()
 					ns.ShowEditWindow("TemplateExport", template.name, ("FPT1|%s|%s"):format(playerClass, template.ranks), CLOSE, nil, L.TALENTS_EXPORT_HINT)
+				end)
+				item:CreateButton(L.TALENTS_EXPORT_GAME, function()
+					ExportRanks(template.ranks, template.name)
 				end)
 				item:CreateButton(DELETE, function()
 					tremove(own, index)
@@ -866,6 +878,87 @@ function ExportCurrentBuild()
 		return
 	end
 	ns.ShowEditWindow("BuildExport", L.TALENTS_EXPORT_CURRENT, frame:GetLoadoutExportString(), CLOSE, nil, L.TALENTS_EXPORT_HINT)
+end
+
+-- Blizzard's loadout text for any distribution of ranks (node -> rank), not only for what is learned:
+-- the game's own writer reads the learned state, so the same bit stream is written here from the wanted
+-- ranks (format: Blizzard_ClassTalentImportExport.lua). Granted nodes stay granted, choice nodes keep
+-- their active entry.
+local function LoadoutString(frame, wanted)
+	local configID, treeID = frame:GetConfigID(), frame:GetTreeInfo().ID
+	local stream = ExportUtil.MakeExportDataStream()
+	stream:AddValue(8, C_Traits.GetLoadoutSerializationVersion())
+	stream:AddValue(16, PlayerUtil.GetCurrentSpecID())
+	for _, value in ipairs(C_Traits.GetTreeHash(treeID)) do
+		stream:AddValue(8, value)
+	end
+	for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
+		local node = C_Traits.GetNodeInfo(configID, nodeID)
+		local granted = node and (node.activeRank or 0) - (node.ranksPurchased or 0) > 0
+		local ranks = node and math.min(wanted[nodeID] or 0, node.maxRanks or 0) or 0
+		stream:AddValue(1, (granted or ranks > 0) and 1 or 0)
+		if granted or ranks > 0 then
+			stream:AddValue(1, ranks > 0 and 1 or 0)
+			if ranks > 0 then
+				local partial = ranks ~= node.maxRanks
+				stream:AddValue(1, partial and 1 or 0)
+				if partial then
+					stream:AddValue(6, ranks)
+				end
+				local choice = node.type == Enum.TraitNodeType.Selection or node.type == Enum.TraitNodeType.SubTreeSelection
+				stream:AddValue(1, choice and 1 or 0)
+				if choice then
+					local index = 1
+					for i, entryID in ipairs(node.entryIDs or {}) do
+						if node.activeEntry and entryID == node.activeEntry.entryID then
+							index = i
+						end
+					end
+					stream:AddValue(2, math.min(index, 4) - 1)
+				end
+			end
+		end
+	end
+	return stream:GetExportString()
+end
+
+local function ShowLoadout(frame, wanted, title)
+	local ok, text = pcall(LoadoutString, frame, wanted)
+	if not ok or type(text) ~= "string" then
+		ns.Print(L.TALENTS_EXPORT_FAILED)
+		return
+	end
+	ns.ShowEditWindow("BuildExport", title, text, CLOSE, nil, L.TALENTS_EXPORT_HINT)
+end
+
+-- A template or preset ("node:rank,…") as the game's text.
+function ExportRanks(ranks, title)
+	local frame = TalentsFrame()
+	if not frame or not frame:GetConfigID() then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local wanted = {}
+	for nodeText, rankText in ranks:gmatch("(%d+):(%d+)") do
+		wanted[tonumber(nodeText)] = tonumber(rankText)
+	end
+	ShowLoadout(frame, wanted, title)
+end
+
+-- What is learned plus what is planned as the game's text.
+function ExportPlan()
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame.GetConfigID and frame:GetConfigID()
+	if not configID then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_CLOSED))
+		return
+	end
+	local nodes = TreeState(frame, configID)
+	local plan, wanted = CurrentPlan(), {}
+	for nodeID, node in pairs(nodes) do
+		wanted[nodeID] = Effective(node, plan)
+	end
+	ShowLoadout(frame, wanted, L.TALENTS_EXPORT_PLAN)
 end
 
 local updatePending = false

@@ -157,6 +157,9 @@ end
 -- Experience: the change of the experience points, whatever the source (kills, quests, discoveries).
 local lastXP, lastMax
 
+-- When the flash of the experience was shown last (the chat line of the game is the second way to notice it).
+local lastXPFlash = 0
+
 local function OnExperience()
 	local current, maximum = UnitXP("player"), UnitXPMax("player")
 	current, maximum = ns.Number(current), ns.Number(maximum)
@@ -167,10 +170,28 @@ local function OnExperience()
 				gained = (lastMax - lastXP) + current -- a level up
 			end
 			if gained > 0 then
+				lastXPFlash = GetTime()
 				RepFlash:Add(L.REPFLASH_XP, gained)
 			end
 		end
 		lastXP, lastMax = current, maximum
+	end
+end
+
+-- Experience by its chat line ("... you gain 55 experience"), in case the event of the experience points does not
+-- come in this client: only if no flash was shown for it in the last moment.
+local function OnExperienceChat(_, _, message)
+	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+		return
+	end
+	local amount = tonumber(message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("(%d+)"))
+	if amount and amount > 0 then
+		C_Timer.After(0.4, function()
+			if GetTime() - lastXPFlash > 1 then
+				lastXPFlash = GetTime()
+				RepFlash:Add(L.REPFLASH_XP, amount)
+			end
+		end)
 	end
 end
 
@@ -241,6 +262,7 @@ function RepFlash:Apply()
 	end
 	self:ToggleEvent("CHAT_MSG_COMBAT_FACTION_CHANGE", self.db.enabled, OnReputation)
 	self:ToggleEvent("PLAYER_XP_UPDATE", self.db.xp, OnExperience)
+	self:ToggleEvent("CHAT_MSG_COMBAT_XP_GAIN", self.db.xp, OnExperienceChat)
 	self:ToggleEvent("CHAT_MSG_COMBAT_HONOR_GAIN", self.db.honor, OnHonor)
 	if self.db.xp then
 		lastXP, lastMax = ns.Number(UnitXP("player")), ns.Number(UnitXPMax("player"))
@@ -264,4 +286,10 @@ RepFlash.options = {
 	{ key = "xp", type = "toggle", name = L.REPFLASH_XP_OPTION, desc = L.REPFLASH_XP_OPTION_DESC, new = true },
 	{ key = "honor", type = "toggle", name = L.REPFLASH_HONOR_OPTION, desc = L.REPFLASH_HONOR_OPTION_DESC, new = true },
 	{ key = "hideChat", type = "toggle", name = L.REPFLASH_HIDE_CHAT, desc = L.REPFLASH_HIDE_CHAT_DESC, new = true },
+	{ type = "button", name = L.REPFLASH_TEST, text = L.QUESTS_TEST, desc = L.REPFLASH_TEST_DESC, func = function()
+		-- One flash with all three kinds, whatever is switched on.
+		RepFlash:Add(L.REPFLASH_TEST_REP, 250)
+		RepFlash:Add(L.REPFLASH_XP, 125)
+		RepFlash:Add(L.REPFLASH_HONOR, 42)
+	end },
 }

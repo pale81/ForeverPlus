@@ -10,6 +10,7 @@ local Errors = ns:NewModule("Errors", {
 		enabled = true,
 		sound = false,
 		soundKit = "UI_BNET_TOAST",
+		issueButton = true,
 	},
 	charDefaults = {},
 })
@@ -192,6 +193,34 @@ local function ShowIndex(index)
 	SelectAll()
 end
 
+-- Prepared GitHub issue: an addon cannot send anything or open a browser, so the finished link is shown to copy
+-- (Ctrl + C) and paste into the browser. The text is cut so the link stays short enough for the browser.
+local ISSUE_URL = "https://github.com/pale81/ForeverPlus/issues/new"
+local MAX_URL = 6000
+
+local function UrlEncode(text)
+	return (text:gsub("[^%w%-_%.~]", function(char)
+		return ("%%%02X"):format(char:byte())
+	end))
+end
+
+local function IssueUrl(entry)
+	local details = EntryDetails(entry):gsub("\nLocals:.*$", "")
+	local first = (details:match("[^\n]+") or "?"):sub(1, 90)
+	local title = "Lua error: " .. first
+	local function Build(text)
+		local build = select(2, GetBuildInfo())
+		local body = ("**ForeverPlus** %s, client build %s, locale %s\n\n```\n%s\n```\n"):format(ns.version, tostring(build), GetLocale(), text)
+		return ("%s?title=%s&body=%s"):format(ISSUE_URL, UrlEncode(title), UrlEncode(body))
+	end
+	local url = Build(details)
+	while #url > MAX_URL and #details > 200 do
+		details = details:sub(1, math.floor(#details * 0.8)) .. "\n[...]"
+		url = Build(details)
+	end
+	return url
+end
+
 local function CreateWindow()
 	local frame = ns.CreatePanel("ForeverPlusErrorFrame", { close = true, movable = true })
 	window = frame
@@ -230,6 +259,26 @@ local function CreateWindow()
 		GameTooltip_Hide()
 	end)
 
+	-- Report as a GitHub issue (option): shows the prepared link to copy.
+	local issue = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	issue:SetSize(120, 22)
+	issue:SetPoint("RIGHT", copy, "LEFT", -6, 0)
+	issue:SetText(L.ERRORS_ISSUE)
+	issue:SetScript("OnClick", function()
+		local entry = frame.list and frame.list[frame.index]
+		if entry then
+			ns.ShowEditWindow("ErrorIssue", L.ERRORS_ISSUE_TITLE, IssueUrl(entry), CLOSE, function() end, L.ERRORS_ISSUE_HINT)
+		end
+	end)
+	issue:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.ERRORS_ISSUE)
+		GameTooltip_AddNormalLine(GameTooltip, L.ERRORS_ISSUE_DESC)
+		GameTooltip:Show()
+	end)
+	issue:SetScript("OnLeave", GameTooltip_Hide)
+	frame.Issue = issue
+
 	local scroll = CreateFrame("Frame", nil, frame, "ScrollingEditBoxTemplate")
 	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -60)
 	scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 28)
@@ -259,6 +308,7 @@ local function ShowDetails(entry, list)
 			break
 		end
 	end
+	window.Issue:SetShown(Errors.db.issueButton and true or false)
 	window:Show()
 	ShowIndex(index)
 end
@@ -427,6 +477,7 @@ Errors.options = {
 		end
 		return values
 	end },
+	{ key = "issueButton", type = "toggle", name = L.ERRORS_ISSUE_OPTION, desc = L.ERRORS_ISSUE_DESC, parent = "enabled", new = true },
 	{ type = "button", name = L.ERRORS_SOUND_TEST, text = L.QUESTS_TEST, func = function()
 		PlayErrorSound(true)
 	end },

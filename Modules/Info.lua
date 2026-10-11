@@ -141,7 +141,7 @@ end
 
 -- Loading peaks (login, loading screens) are not counted: the list should show
 -- what the addons cost while playing, not how long they took to load.
-local LOGIN_GRACE, ZONE_GRACE = 180, 20 -- seconds
+local LOGIN_GRACE, ZONE_GRACE = 60, 20 -- seconds
 local ignoreUntil = GetTime() + LOGIN_GRACE
 
 local function SampleAddonMetrics()

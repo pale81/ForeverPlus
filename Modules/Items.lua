@@ -1131,6 +1131,7 @@ end
 -- (a window asks for the amount, then the coins hang on the cursor like an item), Shift + click
 -- opens the currency tab as before. Own click areas lie on the coin buttons.
 local moneyAreas = {}
+local hookedMoney = setmetatable({}, { __mode = "k" })
 
 -- "12g 5s 3k", "12 g", "5s" or a bare number (gold) in copper; nil when it cannot be read.
 local function ParseMoney(text)
@@ -1163,7 +1164,24 @@ local function AskMoney()
 	end, L.ITEMS_MONEY_HINT)
 end
 
-local function MoneyClick(moneyFrame)
+local lastMoneyClick, characterWasShown = 0, false
+
+local function MoneyClick(moneyFrame, afterBlizzard)
+	-- A click can arrive twice (our area and the hook on the game's button): once is enough.
+	if GetTime() - lastMoneyClick < 0.3 then
+		return
+	end
+	lastMoneyClick = GetTime()
+	if afterBlizzard then
+		-- The game's own button already ran: Shift + click is meant to open the currency tab; otherwise that tab
+		-- (opened by the click, not before it) closes again.
+		if IsShiftKeyDown() then
+			return
+		end
+		if CharacterFrame and CharacterFrame:IsShown() and not characterWasShown and not InCombatLockdown() then
+			HideUIPanel(CharacterFrame)
+		end
+	end
 	if GetCursorMoney() > 0 then
 		local ok, err = pcall(DropCursorMoney)
 		if not ok then
@@ -1216,6 +1234,21 @@ local function HookMoneyFrame(moneyFrame)
 		end
 		if moneyAreas[button] then
 			moneyAreas[button]:SetShown(Items.db.moneyPickup and true or false)
+		end
+		-- Safety net: if the click does not reach our area (covered, other geometry), the game's own button
+		-- still tells us (hooks only add, nothing of the game's click is changed).
+		if button and not hookedMoney[button] then
+			hookedMoney[button] = true
+			button:HookScript("OnMouseDown", function()
+				characterWasShown = CharacterFrame and CharacterFrame:IsShown() or false
+			end)
+			for _, script in ipairs({ "OnClick", "OnMouseUp" }) do
+				button:HookScript(script, function(_, mouseButton)
+					if Items.db.moneyPickup and (mouseButton == nil or mouseButton == "LeftButton") then
+						MoneyClick(moneyFrame, true)
+					end
+				end)
+			end
 		end
 	end
 end

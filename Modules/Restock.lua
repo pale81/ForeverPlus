@@ -409,6 +409,65 @@ function Restock:ShowList(owner)
 	end)
 end
 
+---------------------------------------------------------------------------
+-- Merchant: what is on the list and sold here (singly) is bought up to a full stack
+---------------------------------------------------------------------------
+-- Plan: list of { index, amount, name, itemID } and its cost. Only wares without a special price and sold one
+-- by one; limited stock and the money in the purse cap the amount.
+function Restock.MerchantPlan()
+	local plan, cost = {}, 0
+	if not (Restock.db and Restock.db.enabled and Restock.cdb) then
+		return plan, cost
+	end
+	local wanted
+	for itemID, mode in pairs(Restock.cdb.items) do
+		if mode == true then
+			local need = MaxStack(itemID) - BagCount(itemID)
+			if need > 0 then
+				wanted = wanted or {}
+				wanted[itemID] = need
+			end
+		end
+	end
+	if not wanted then
+		return plan, cost
+	end
+	local money = GetMoney()
+	for index = 1, GetMerchantNumItems() or 0 do
+		local link = GetMerchantItemLink(index)
+		local itemID = link and C_Item.GetItemInfoInstant(link)
+		local need = itemID and wanted[itemID]
+		local info = need and C_MerchantFrame.GetItemInfo(index)
+		if info and info.isPurchasable ~= false and not info.hasExtendedCost and (info.stackCount or 1) == 1 then
+			if (info.numAvailable or -1) >= 0 then
+				need = math.min(need, info.numAvailable)
+			end
+			local price = info.price or 0
+			if price > 0 then
+				need = math.min(need, math.floor((money - cost) / price))
+			end
+			if need > 0 then
+				plan[#plan + 1] = { index = index, amount = need, name = info.name or "?", itemID = itemID }
+				cost = cost + price * need
+				wanted[itemID] = nil
+			end
+		end
+	end
+	return plan, cost
+end
+
+function Restock.MerchantBuy()
+	local plan = Restock.MerchantPlan()
+	for _, entry in ipairs(plan) do
+		local remaining, chunk = entry.amount, math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(entry.index) or 1)
+		while remaining > 0 do
+			BuyMerchantItem(entry.index, math.min(remaining, chunk))
+			remaining = remaining - chunk
+		end
+		Report(L.RESTOCK_BOUGHT, entry.amount, entry.name)
+	end
+end
+
 function Restock:Apply()
 	local enabled = self.db.enabled
 	if not enabled then

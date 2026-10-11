@@ -18,6 +18,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		flightPoints = true,
 		inns = true,
 		places = true,
+		placeInfo = true,
 		questStarts = true,
 		filterMenu = true,
 	},
@@ -258,6 +259,7 @@ ns.AddMapFilterEntry(function(root)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_FLIGHTS, "WorldMap", "flightPoints", L.WORLDMAP_FLIGHTS_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_INNS, "WorldMap", "inns", L.WORLDMAP_INNS_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACES, "WorldMap", "places", L.WORLDMAP_PLACES_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACE_INFO, "WorldMap", "placeInfo", L.WORLDMAP_PLACE_INFO_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_QUEST_STARTS, "WorldMap", "questStarts", L.WORLDMAP_QUEST_STARTS_DESC)
 end)
 
@@ -326,6 +328,7 @@ WorldMap.options = {
 	{ key = "flightPoints", type = "toggle", name = L.WORLDMAP_FLIGHTS, desc = L.WORLDMAP_FLIGHTS_DESC },
 	{ key = "inns", type = "toggle", name = L.WORLDMAP_INNS, desc = L.WORLDMAP_INNS_DESC },
 	{ key = "places", type = "toggle", name = L.WORLDMAP_PLACES, desc = L.WORLDMAP_PLACES_DESC },
+	{ key = "placeInfo", type = "toggle", name = L.WORLDMAP_PLACE_INFO, desc = L.WORLDMAP_PLACE_INFO_DESC, parent = "places", new = true },
 	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
 }
 

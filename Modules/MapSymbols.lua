@@ -484,8 +484,16 @@ Symbols.AddSource(function(mapID, add)
 		local position = place[1] == continent and (city and home ~= mapID or not city and home == mapID)
 			and PlacePosition(place, mapID)
 		if position then
-			add(position[1], position[2], { kind = "place", label = PlaceName(place),
-				font = city and "GameFontNormalOutline" or "GameFontHighlightSmallOutline" })
+			-- Hovering the name shows a short text about the place (Data/PlaceInfo.lua, own texts).
+			local info = Options().placeInfo and ns.PlaceInfo and ns.PlaceInfo[place[4]]
+			local text = info and (GetLocale() == "deDE" and info.de or info.en)
+			local name = PlaceName(place)
+			add(position[1], position[2], { kind = "place", label = name,
+				font = city and "GameFontNormalOutline" or "GameFontHighlightSmallOutline",
+				tooltip = text and function(tooltip)
+					tooltip:AddLine(name, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+					tooltip:AddLine(text, 1, 1, 1, true)
+				end or nil })
 		end
 	end
 end)
@@ -538,7 +546,9 @@ local function Setup(frame, symbol)
 		frame.Label:SetText(symbol.label)
 		frame.Label:Show()
 		frame:SetSize(frame.Label:GetStringWidth(), frame.Label:GetStringHeight())
-		frame:EnableMouse(false)
+		-- A name with a text shows it on hover; clicks still reach the map.
+		frame:EnableMouse(symbol.tooltip ~= nil)
+		frame:SetMouseClickEnabled(false)
 		return
 	end
 	frame.Label:Hide()

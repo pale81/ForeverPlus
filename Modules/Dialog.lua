@@ -433,7 +433,7 @@ local function CreateRow(frame)
 			glow:SetJustifyH("LEFT")
 			glow:SetJustifyV("TOP")
 			glow:SetNonSpaceWrap(true)
-			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.27 or 0.09)
+			glow:SetTextColor(1, 0.72, 0.2, ring == 1 and 0.15 or 0.05)
 			glow:Hide()
 			row.Glow[#row.Glow + 1] = glow
 		end
@@ -1565,8 +1565,13 @@ function Dialog.MerchantView()
 				end
 			else
 				for _, index in ipairs(picks) do
-					local remaining, chunk = QuantityOf(index), math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1)
-					local wanted = remaining
+					-- The quantity counts packs as the merchant sells them (a pack of 200 arrows is one), the game's
+					-- BuyMerchantItem counts items: packs times the pack size, in portions of whole packs of at most
+					-- the maximum the game takes at once.
+					local pack = math.max(1, byIndex[index].stackCount or 1)
+					local wanted = QuantityOf(index) * pack
+					local remaining = wanted
+					local chunk = math.max(pack, math.floor(math.max(1, GetMerchantItemMaxStack and GetMerchantItemMaxStack(index) or 1) / pack) * pack)
 					while remaining > 0 do
 						BuyMerchantItem(index, math.min(remaining, chunk))
 						remaining = remaining - chunk

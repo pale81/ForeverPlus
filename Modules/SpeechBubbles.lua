@@ -116,11 +116,15 @@ local function NpcNameplate()
 	end
 end
 
+local lastText
+
 local function Hide()
 	if current then
 		current:Hide()
 		current = nil
 	end
+	lastText = nil
+	ns.ShowFriendlyPlates(false)
 end
 
 local function Show(text)
@@ -133,12 +137,19 @@ local function Show(text)
 		bubble = NameplateBubble(nameplate)
 	elseif SpeechBubbles.db.fallback then
 		bubble = FallbackBubble()
+		-- No plate to hang on: the NPC's plate is switched on for the talk; the bubble
+		-- moves there as soon as it exists.
+		ns.ShowFriendlyPlates(true)
 	end
-	Hide()
+	if current then
+		current:Hide()
+		current = nil
+	end
 	if bubble then
 		SetText(bubble, text)
 		bubble:Show()
 		current = bubble
+		lastText = text
 	end
 end
 
@@ -162,6 +173,10 @@ end
 
 local function RememberNameplate()
 	lastNameplate = NpcNameplate() or lastNameplate
+	-- The plate of the NPC appeared while the bubble sits at the top of the screen.
+	if current and current == fallbackBubble and lastText and NpcNameplate() then
+		Show(lastText)
+	end
 end
 
 SpeechBubbles.Show = Show

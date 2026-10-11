@@ -14,6 +14,7 @@ local Dialog = ns:NewModule("Dialog", {
 	defaults = {
 		enabled = false,
 		style = "PLAYER",
+		plates = true,
 	},
 })
 
@@ -66,9 +67,26 @@ local function CreateBubble()
 	frame.Dark:SetTexture([[Interface\Tooltips\UI-Tooltip-Background]])
 	frame.Dark:SetVertexColor(0.08, 0.08, 0.1, 0.94)
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
-	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, 22 - WIDTH / 2)
+	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, -10)
 	frame.hasArt = frame.Art ~= nil
 	frame.hasTail = frame.Tail ~= nil
+	-- Space takes the main step (accept, continue, complete), like in the parchment windows.
+	frame:EnableKeyboard(true)
+	frame:SetPropagateKeyboardInput(true)
+	frame:SetScript("OnKeyDown", function(self, key)
+		local action
+		if key == "SPACE" and current and not InCombatLockdown() then
+			for _, info in ipairs(current.view.buttons or {}) do
+				if info.primary and info.enabled ~= false then
+					action = info.action
+				end
+			end
+		end
+		self:SetPropagateKeyboardInput(not action)
+		if action then
+			action()
+		end
+	end)
 	frame.pools = { text = {}, row = {}, item = {}, button = {} }
 	return frame
 end
@@ -322,6 +340,10 @@ local function Place()
 		bubble:SetPoint("BOTTOM", nameplate, "TOP", 0, INSET + 22)
 	else
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
+		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
+		if Dialog.db.plates then
+			ns.ShowFriendlyPlates(true)
+		end
 	end
 end
 
@@ -357,6 +379,7 @@ local function Hide()
 	end
 	current = nil
 	CollapseAll(false)
+	ns.ShowFriendlyPlates(false)
 end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
@@ -367,6 +390,7 @@ local function UseBlizzard()
 	end
 	current = nil
 	CollapseAll(false)
+	ns.ShowFriendlyPlates(false)
 end
 
 local function Show(view)
@@ -434,12 +458,21 @@ function Dialog.GossipView()
 			end,
 		}
 	end
-	for _, info in ipairs(C_GossipInfo.GetOptions() or {}) do
+	-- Like Blizzard's window: sorted the same way, chosen by the order index.
+	local options = C_GossipInfo.GetOptions() or {}
+	if GossipOptionSort then
+		pcall(table.sort, options, GossipOptionSort)
+	end
+	for _, info in ipairs(options) do
 		rows[#rows + 1] = {
 			text = Readable(info.name) or "",
 			icon = info.overrideIconID or info.icon,
 			action = function()
-				C_GossipInfo.SelectOption(info.gossipOptionID)
+				if C_GossipInfo.SelectOptionByIndex and info.orderIndex then
+					C_GossipInfo.SelectOptionByIndex(info.orderIndex)
+				else
+					C_GossipInfo.SelectOption(info.gossipOptionID)
+				end
 			end,
 		}
 	end
@@ -532,7 +565,7 @@ function Dialog.DetailView()
 	return {
 		name = NpcName(), blocks = blocks,
 		buttons = {
-			{ text = ACCEPT, action = function()
+			{ text = ACCEPT, primary = true, action = function()
 				AcceptQuest()
 			end },
 			{ text = DECLINE, action = function()
@@ -555,7 +588,7 @@ function Dialog.ProgressView()
 	return {
 		name = NpcName(), blocks = blocks,
 		buttons = {
-			{ text = CONTINUE, enabled = IsQuestCompletable(), action = function()
+			{ text = CONTINUE, primary = true, enabled = IsQuestCompletable(), action = function()
 				CompleteQuest()
 			end },
 			{ text = CANCEL, action = function()
@@ -573,7 +606,7 @@ function Dialog.RewardView()
 	view = {
 		name = NpcName(), blocks = blocks,
 		buttons = {
-			{ text = COMPLETE_QUEST, action = function()
+			{ text = COMPLETE_QUEST, primary = true, action = function()
 				local choice = current and current.selected or (choices == 1 and 1) or 0
 				if choices > 1 and choice == 0 then
 					ns.Print(L.DIALOG_CHOOSE_FIRST)
@@ -620,6 +653,11 @@ function Dialog:OnConversation(event)
 	if ok and view then
 		Show(view)
 	else
+		-- Blizzard's window shows instead; the reason is reported once.
+		if not ok and not Dialog.reported then
+			Dialog.reported = true
+			ns.Print(L.DIALOG_ERROR:format(tostring(view)))
+		end
 		UseBlizzard()
 	end
 end
@@ -630,6 +668,12 @@ function Dialog:Apply()
 	for event in pairs(VIEWS) do
 		self:ToggleEvent(event, on, self.OnConversation)
 	end
+	-- The plate of the NPC appears after the start of the talk: the bubble moves onto it.
+	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
+		if current and bubble and bubble:IsShown() and NpcNameplate() then
+			Place()
+		end
+	end)
 	-- Selecting a quest in the gossip closes the gossip and opens the quest: only a
 	-- close with no new step right after ends the bubble.
 	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED" }) do
@@ -671,6 +715,7 @@ end
 
 Dialog.options = {
 	{ key = "enabled", type = "toggle", name = L.DIALOG_ENABLE, desc = L.DIALOG_ENABLE_DESC, new = true },
+	{ key = "plates", type = "toggle", name = L.DIALOG_PLATES, desc = L.DIALOG_PLATES_DESC, parent = "enabled" },
 	{ key = "style", type = "dropdown", name = L.DIALOG_STYLE, desc = L.DIALOG_STYLE_DESC, parent = "enabled", values = {
 		{ "PLAYER", L.DIALOG_STYLE_PLAYER }, { "DARK", L.DIALOG_STYLE_DARK },
 	} },

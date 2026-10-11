@@ -471,6 +471,37 @@ function ns.CreateBubbleArt(frame, inset, tailOffsetX)
 end
 
 ---------------------------------------------------------------------------
+-- Friendly NPC nameplates, switched on only while a bubble needs one to hang
+-- on (the NPC the player talks to has no plate otherwise) and restored after.
+---------------------------------------------------------------------------
+local PLATES_CVAR = "nameplateShowFriendlyNpcs"
+local platesRestore -- nil: untouched; false: was on already; string: previous value
+
+function ns.ShowFriendlyPlates(on)
+	if on then
+		if platesRestore == nil and not InCombatLockdown() then
+			local current = GetCVar(PLATES_CVAR)
+			if current == "1" then
+				platesRestore = false
+			elseif current then
+				platesRestore = current
+				SetCVar(PLATES_CVAR, "1")
+			end
+		end
+	elseif platesRestore ~= nil then
+		local restore = platesRestore
+		platesRestore = nil
+		if restore then
+			ns.RunOutOfCombat(function()
+				if platesRestore == nil then
+					SetCVar(PLATES_CVAR, restore)
+				end
+			end)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Crisp pixel border with slightly rounded (stepped) corners
 ---------------------------------------------------------------------------
 local BorderMixin = {}

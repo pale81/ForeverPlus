@@ -553,6 +553,7 @@ local function RefreshMinimap()
 		for index, entry in ipairs(GetVendors(currentMapID) or {}) do
 			local pin = minimapPins[index] or CreateMinimapPin(index)
 			pin.entry = entry
+			pin:SetScale(ns.MinimapSymbolScale and ns.MinimapSymbolScale() or 1)
 			pin.Icon:SetTexture(PinIcon(entry))
 			activePins[index] = pin
 		end

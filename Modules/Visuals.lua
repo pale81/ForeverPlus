@@ -19,7 +19,8 @@ local Visuals = ns:NewModule("Visuals", {
 		colorActiveBuff = true,
 		castsLeft = false,
 		auraActionFrame = true,
-		bagActionFrame = true,
+		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
+		bagFrameOff = false,
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerDragon = "none",
@@ -928,6 +929,11 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Visuals:OnInitialize()
+	-- Once: the thin line on grey and white items is off for everybody (it can be switched on again).
+	if not self.db.bagFrameOff then
+		self.db.bagFrameOff = true
+		self.db.bagActionFrame = false
+	end
 	hooksecurefunc("SetItemButtonQuality", UpdateGlow)
 	OutlineFonts()
 	self:RegisterEvent("ADDON_LOADED", OutlineFonts)

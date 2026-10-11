@@ -11,6 +11,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		trackingIcons = true,
 		trackingEntries = true,
 		campfires = false,
+		symbolScale = 100,
 		zoomReset = true,
 		zoomDelay = 10,
 	},
@@ -26,6 +27,17 @@ local CAMPFIRE_SPELLS = {
 }
 local campfires, campfireHolder = {}, nil
 local CAMPFIRE_ICON = [[Interface\Icons\INV_Misc_BBQFire_01]]
+
+-- Symbol size from the options (percent); 1 is the size the symbols were
+-- designed at. RecipeRadar reads it the same way for its pins.
+local function SymbolScale()
+	return (MinimapCoords.db.symbolScale or 100) / 100
+end
+
+
+function ns.MinimapSymbolScale()
+	return SymbolScale()
+end
 
 local function IsGroupUnit(unit)
 	if type(unit) ~= "string" then
@@ -55,6 +67,7 @@ local function AddCampfire(unit, duration)
 	}
 	local pin = CreateFrame("Button", nil, campfireHolder)
 	pin:SetSize(26, 28)
+	pin:SetScale(SymbolScale())
 	pin.Icon = pin:CreateTexture(nil, "ARTWORK")
 	pin.Icon:SetSize(18, 18)
 	pin.Icon:SetPoint("TOP", pin, "TOP")
@@ -315,10 +328,21 @@ local function AddIconInitializers(description)
 	end
 end
 
--- Only one of the class's tracking spells (hunter: humanoids, beasts ...) works at a time, but the menu keeps the
--- check mark of the one before until it is opened again. The submenu of the class ("Hunter: ...") is made a group of
--- which only the one chosen last is checked.
-local function MakeClassTrackingExclusive(rootDescription)
+-- Only one of the class's tracking spells (hunter: humanoids, beasts ...) works at a time. The game switches the
+-- tracking after the click, but the open menu keeps the check marks it drew before, so two seem to be on. Choosing
+-- one of these closes the menu (opened again it shows the real state). The submenu of the class is the one whose
+-- title starts with the class name and a colon ("Hunter: ...").
+local function CloseMenuSoon(menu)
+	C_Timer.After(0.05, function()
+		if menu and type(menu.Close) == "function" then
+			menu:Close()
+		elseif Menu and Menu.GetManager and Menu.GetManager().CloseMenus then
+			Menu.GetManager():CloseMenus()
+		end
+	end)
+end
+
+local function ClassTrackingCloses(rootDescription)
 	local _, classFile = UnitClass("player")
 	local className = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classFile]
 	if not className then
@@ -327,26 +351,16 @@ local function MakeClassTrackingExclusive(rootDescription)
 	for _, element in rootDescription:EnumerateElementDescriptions() do
 		local title = element.GetText and element:GetText()
 		if type(title) == "string" and title:find(className .. ":", 1, true) == 1 and element.EnumerateElementDescriptions then
-			local chosen
 			for _, child in element:EnumerateElementDescriptions() do
-				local original = child.isSelected
-				if type(original) == "function" and child.SetIsSelected then
-					child:SetIsSelected(function(...)
-						if chosen then
-							return chosen == child
-						end
-						return original(...)
-					end)
-					child:AddInitializer(function(button)
-						button.fpExclusive = child
-						if not button.fpExclusiveHooked then
-							button.fpExclusiveHooked = true
-							button:HookScript("OnClick", function(self)
-								chosen = self.fpExclusive
-							end)
-						end
-					end)
-				end
+				child:AddInitializer(function(button, _, menu)
+					if not button.fpClassTracking then
+						button.fpClassTracking = true
+						button:HookScript("OnClick", function(self)
+							CloseMenuSoon(self.fpMenu)
+						end)
+					end
+					button.fpMenu = menu
+				end)
 			end
 		end
 	end
@@ -359,6 +373,11 @@ local trackingEntries = {}
 function ns.AddTrackingEntry(fn)
 	trackingEntries[#trackingEntries + 1] = fn
 end
+
+-- The size of the minimap symbols can also be chosen in the tracking menu.
+ns.AddTrackingEntry(function(root)
+	ns.CreateSizeMenu(root, L.MINIMAP_SYMBOL_SCALE, "Minimap", "symbolScale")
+end)
 
 local function AddForeverPlusEntries(rootDescription)
 	if not MinimapCoords.db.trackingEntries or #trackingEntries == 0 then
@@ -423,7 +442,7 @@ function MinimapCoords:OnLogin()
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, rootDescription)
 			AddIconInitializers(rootDescription)
-			pcall(MakeClassTrackingExclusive, rootDescription)
+			pcall(ClassTrackingCloses, rootDescription)
 			AddForeverPlusEntries(rootDescription)
 		end)
 	end
@@ -469,6 +488,14 @@ function MinimapCoords:OnOptionChanged(key)
 	if key == "campfires" then
 		self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
 		PositionCampfires()
+	elseif key == "symbolScale" then
+		for _, fire in ipairs(campfires) do
+			fire.pin:SetScale(SymbolScale())
+		end
+		local radar = ns:GetModule("RecipeRadar")
+		if radar and radar.RequestRefresh then
+			radar:RequestRefresh()
+		end
 	elseif key == "zoomReset" or key == "zoomDelay" then
 		if zoomTimer then
 			zoomTimer:Cancel()
@@ -490,4 +517,8 @@ MinimapCoords.options = {
 			return ("%d s"):format(value)
 		end },
 	{ key = "campfires", type = "toggle", name = L.MINIMAP_CAMPFIRES, desc = L.MINIMAP_CAMPFIRES_DESC, new = true },
+	{ key = "symbolScale", type = "slider", name = L.MINIMAP_SYMBOL_SCALE, desc = L.MINIMAP_SYMBOL_SCALE_DESC, min = 50, max = 200, step = 10, new = true,
+		format = function(value)
+			return ("%d %%"):format(value)
+		end },
 }

@@ -70,29 +70,45 @@ local function ShowRowBadge(frame, on)
 	end
 end
 
-local function TrackNew(initializer, id, _, enabled)
+-- hover: an option row counts as seen when the mouse has been over it three times (it is meant to be tried);
+-- section titles count each time they are shown.
+local function TrackNew(initializer, id, hover, enabled)
 	if not enabled then
 		return initializer
 	end
 	local initFrame = initializer.InitFrame
+	local function Seen(row)
+		if row.fpNewID and IsNew(row.fpNewID, true) then
+			CountAsSeen(row.fpNewID)
+			if not IsNew(row.fpNewID, true) then
+				ShowRowBadge(row, false)
+				if RefreshBadges then
+					RefreshBadges()
+				end
+			end
+		end
+	end
 	function initializer:InitFrame(frame)
 		initFrame(self, frame)
 		ShowRowBadge(frame, IsNew(id, true))
 		if not frame.foreverPlusNewTracked then
 			frame.foreverPlusNewTracked = true
 			frame:HookScript("OnShow", function(row)
-				if row.fpNewID and IsNew(row.fpNewID, true) then
-					CountAsSeen(row.fpNewID)
-					if not IsNew(row.fpNewID, true) then
-						ShowRowBadge(row, false)
-						if RefreshBadges then
-							RefreshBadges()
-						end
-					end
+				if not row.fpNewHover then
+					Seen(row)
 				end
 			end)
+			frame:HookScript("OnEnter", function(row)
+				if row.fpNewHover then
+					Seen(row)
+				end
+			end)
+			-- The row is reused for other settings.
+			frame:HookScript("OnHide", function(row)
+				row.fpNewID, row.fpNewHover = nil, nil
+			end)
 		end
-		frame.fpNewID = id
+		frame.fpNewID, frame.fpNewHover = id, hover and true or false
 	end
 	return initializer
 end
@@ -166,7 +182,7 @@ local function AddOption(module, category, layout, opt, initializers)
 		local header = CreateSettingsListSectionHeaderInitializer(opt.name, opt.desc)
 		AddSearchTags(header, opt.name, opt.desc, "ForeverPlus")
 		if opt.new then
-			header = TrackNew(header, opt._newID, opt.name, true)
+			header = TrackNew(header, opt._newID, false, true)
 		end
 		layout:AddInitializer(header)
 		return
@@ -209,7 +225,7 @@ local function AddOption(module, category, layout, opt, initializers)
 	if init then
 		AddSearchTags(init, opt.name, opt.desc, opt.key, module.title, opt._pageTitle, "ForeverPlus")
 		if opt.new then
-			init = TrackNew(init, opt._newID, opt.name, true)
+			init = TrackNew(init, opt._newID, true, true)
 		end
 	end
 
@@ -330,7 +346,7 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		local header = CreateSettingsListSectionHeaderInitializer(entry.header, entry.headerDesc)
 		AddSearchTags(header, entry.header, entry.headerDesc, pageTitle, "ForeverPlus")
 		if hasNew then
-			header = TrackNew(header, sectionID, entry.header, true)
+			header = TrackNew(header, sectionID, false, true)
 		end
 		layout:AddInitializer(header)
 	elseif hasNew then
@@ -338,7 +354,7 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		local sectionID = "section:" .. tostring(entry._pageID) .. ":" .. module.name
 		local header = CreateSettingsListSectionHeaderInitializer(sectionName)
 		AddSearchTags(header, module.title, module.name, pageTitle, "ForeverPlus")
-		header = TrackNew(header, sectionID, module.title or module.name, true)
+		header = TrackNew(header, sectionID, false, true)
 		layout:AddInitializer(header)
 	end
 	for _, opt in ipairs(ModuleOptions(module)) do

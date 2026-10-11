@@ -107,7 +107,7 @@ function ns.SetRoundGreyIcon(button, texture)
 	button.Icon:AddMaskTexture(button.Mask)
 end
 
--- A small bright yellow "NEW" label with rays turning slowly behind it and a soft pulse; parent: the button or tab it
+-- A small bright purple "NEW" label with rays turning slowly behind it and a soft pulse; parent: the button or tab it
 -- marks. Shown or hidden by the caller.
 function ns.CreateNewBadge(parent, label)
 	local badge = CreateFrame("Frame", nil, parent)
@@ -117,13 +117,13 @@ function ns.CreateNewBadge(parent, label)
 	badge.Rays = badge:CreateTexture(nil, "BACKGROUND")
 	badge.Rays:SetTexture([[Interface\Cooldown\star4]])
 	badge.Rays:SetBlendMode("ADD")
-	badge.Rays:SetVertexColor(1, 0.9, 0.2)
+	badge.Rays:SetVertexColor(0.66, 0.33, 1)
 	badge.Rays:SetSize(40, 40)
 	badge.Rays:SetPoint("CENTER")
 	badge.Text = badge:CreateFontString(nil, "OVERLAY")
 	badge.Text:SetFont(ns.GetFontFace(), 10, "THICKOUTLINE")
 	badge.Text:SetPoint("CENTER")
-	badge.Text:SetTextColor(1, 0.92, 0.15)
+	badge.Text:SetTextColor(0.85, 0.6, 1)
 	badge.Text:SetText(label or "NEW")
 	badge.Turn = badge.Rays:CreateAnimationGroup()
 	badge.Turn:SetLooping("REPEAT")

@@ -532,7 +532,7 @@ local FREE_WINDOWS = {
 	"PetitionFrame", "GuildRegistrarFrame", "HelpFrame", "ChatConfigFrame",
 	"QuestLogPopupDetailFrame", "TaxiFrame", "AddonList",
 	"EncounterJournal", "AchievementFrame", "ClassTrainerFrame", "InspectFrame",
-	"MacroFrame", "TimeManagerFrame", "ProfessionsBookFrame",
+	"MacroFrame", "ProfessionsBookFrame",
 }
 local freed = {}
 

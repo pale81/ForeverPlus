@@ -335,6 +335,7 @@ local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or
 -- Details window
 ---------------------------------------------------------------------------
 local GREY = "|cff9d9d9d%s|r"
+local SOURCE = "|cff8fb4d9%s|r" -- source text: apart from the grey of poor items
 
 local function SourceText(sources, order, format)
 	local parts = {}
@@ -405,7 +406,7 @@ local function ShowSummary(id, hover)
 					icon = ItemIcon(link),
 					quality = row.quality,
 					right = showValue and ValueText(value) or nil,
-					text = ("%s x%d  " .. GREY):format(link:gsub("|H.-|h(.-)|h", "%1"), entry.count, SourceText(entry.sources, entry.order, ItemSource)),
+					text = ("%s x%d  " .. SOURCE):format(link:gsub("|H.-|h(.-)|h", "%1"), entry.count, SourceText(entry.sources, entry.order, ItemSource)),
 					tooltip = function(tooltip)
 						tooltip:SetHyperlink(link)
 						GameTooltip_AddInstructionLine(tooltip, L.LOOT_LINK_HINT)

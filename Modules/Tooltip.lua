@@ -201,7 +201,8 @@ local function ColorBorder(tooltip, data)
 		tooltip:HookScript("OnTooltipCleared", ResetBorder)
 	end
 	local quality = C_Item.GetItemQualityByID(data.hyperlink or data.id)
-	if quality then
+	-- Grey and white items keep the normal border; the quality frame starts at green.
+	if quality and quality >= (Enum.ItemQuality and Enum.ItemQuality.Good or 2) then
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		-- Blizzard's rounded border takes the background colour so its
 		-- corners do not show inside the quality frame.

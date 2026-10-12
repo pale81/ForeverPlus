@@ -1716,16 +1716,19 @@ local function AnySlotLocked(slots)
 	return false
 end
 
--- Moves (from, to) that put the marked items right next to the grey ones:
--- before them when the greys lie at the end, after them when at the start.
+-- Moves (from, to) that put the marked items right next to the grey ones: before them when the greys lie at the
+-- end of the items, after them when at the start. The items themselves lie together at the front (the game's cleanup
+-- puts the free slots last); a gap among them is closed (items behind the gap move into it), so the marked items
+-- never end in a far corner with free slots in between. A move to an occupied slot is a swap; what a swap
+-- displaces is taken care of in the next round (the placing looks again after its moves).
 local function PlanJunkMoves(slots)
-	local isGrey, isMarked = {}, {}
-	local firstGrey, lastGrey, markedCount = nil, nil, 0
-	local lastUsed = 0 -- the game's cleanup puts the free slots last: the marked items belong before them, not at the very end
+	local isGrey, isMarked, isFilled = {}, {}, {}
+	local firstGrey, lastGrey, markedCount, count = nil, nil, 0, 0
 	for index, position in ipairs(slots) do
 		local info = C_Container.GetContainerItemInfo(position[1], position[2])
 		if info then
-			lastUsed = index
+			isFilled[index] = true
+			count = count + 1
 		end
 		if info and info.quality == Enum.ItemQuality.Poor then
 			isGrey[index] = true
@@ -1739,13 +1742,14 @@ local function PlanJunkMoves(slots)
 	if markedCount == 0 then
 		return {}
 	end
+	-- The items fill the slots 1 to count once the gaps are closed.
 	local block = {}
-	if firstGrey and firstGrey == 1 and lastGrey < lastUsed then
-		for index = lastGrey + 1, math.min(lastUsed, lastGrey + markedCount) do
+	if firstGrey and firstGrey == 1 and lastGrey < count then
+		for index = lastGrey + 1, math.min(count, lastGrey + markedCount) do
 			block[#block + 1] = index
 		end
 	else
-		local stop = (firstGrey or lastUsed + 1) - 1
+		local stop = math.min(firstGrey or count + 1, count + 1) - 1
 		for index = stop, math.max(1, stop - markedCount + 1), -1 do
 			block[#block + 1] = index
 		end
@@ -1754,10 +1758,43 @@ local function PlanJunkMoves(slots)
 	for _, index in ipairs(block) do
 		inBlock[index] = true
 	end
-	-- Marked items outside the block, farthest first.
+	local moves, taken = {}, {}
+	local function Take(list)
+		for _, index in ipairs(list) do
+			if not taken[index] then
+				taken[index] = true
+				return index
+			end
+		end
+	end
+	-- Targets: free slots of the front part (in or outside the block), and the plain items of the block.
+	local blockHoles, plainHoles, plainInBlock = {}, {}, {}
+	for index = 1, count do
+		if not isFilled[index] then
+			local list = inBlock[index] and blockHoles or plainHoles
+			list[#list + 1] = index
+		elseif inBlock[index] and not isMarked[index] and not isGrey[index] then
+			plainInBlock[#plainInBlock + 1] = index
+		end
+	end
+	-- 1. Items behind the front part move into its gaps.
+	for index = count + 1, #slots do
+		if isFilled[index] then
+			local target
+			if isMarked[index] then
+				target = Take(blockHoles) or Take(plainInBlock)
+			else
+				target = Take(plainHoles) or Take(blockHoles)
+			end
+			if target then
+				moves[#moves + 1] = { slots[index], slots[target] }
+			end
+		end
+	end
+	-- 2. Marked items of the front part outside the block swap with plain items of the block, farthest first.
 	local outside = {}
 	for index in pairs(isMarked) do
-		if not inBlock[index] then
+		if index <= count and not inBlock[index] then
 			outside[#outside + 1] = index
 		end
 	end
@@ -1765,17 +1802,32 @@ local function PlanJunkMoves(slots)
 	table.sort(outside, function(a, b)
 		return math.abs(a - reference) > math.abs(b - reference)
 	end)
-	local moves = {}
-	for _, index in ipairs(block) do
-		if not isMarked[index] and not isGrey[index] then
+	for _, index in ipairs(plainInBlock) do
+		if not taken[index] then
 			local from = table.remove(outside)
 			if not from then
 				break
 			end
+			taken[index] = true
 			moves[#moves + 1] = { slots[from], slots[index] }
 		end
 	end
 	return moves
+end
+
+-- A free slot in front of an item.
+local function HasGaps(slots)
+	local seenFree = false
+	for _, position in ipairs(slots) do
+		if C_Container.GetContainerItemInfo(position[1], position[2]) then
+			if seenFree then
+				return true
+			end
+		else
+			seenFree = true
+		end
+	end
+	return false
 end
 
 local function StopPlacing(finished)
@@ -1800,8 +1852,12 @@ local function PlacingStep()
 		return
 	end
 	if not state.moves then
-		-- Waiting for the sort to finish.
+		-- Waiting for the sort to finish (its result has no free slot between the items; for a few seconds more
+		-- a layout with gaps counts as not finished).
 		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) then
+			return
+		end
+		if now - state.started < 5 and HasGaps(state.slots) then
 			return
 		end
 		state.moves = PlanJunkMoves(state.slots)

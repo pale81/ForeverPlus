@@ -1305,20 +1305,27 @@ end
 	Enum.ItemQuality.Poor = 0
 	items.db.junkPerCharacter = false
 	items.db.junk = { [500] = true, [501] = true }
-	-- 10 slots: normal 1-3, marked at 2 and 4, greys at 9-10
+	-- 10 slots, the items together at the front (as after the game's cleanup): marked at 2 and 4, greys at 9-10
 	local contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 500, quality = 1 }, [3] = { itemID = 2, quality = 1 },
-		[4] = { itemID = 501, quality = 1 }, [9] = { itemID = 90, quality = 0 }, [10] = { itemID = 91, quality = 0 } }
+		[4] = { itemID = 501, quality = 1 }, [5] = { itemID = 3, quality = 1 }, [6] = { itemID = 4, quality = 1 },
+		[7] = { itemID = 5, quality = 1 }, [8] = { itemID = 6, quality = 1 }, [9] = { itemID = 90, quality = 0 }, [10] = { itemID = 91, quality = 0 } }
 	local slots = {}
 	for i = 1, 10 do slots[i] = { 0, i } end
 	C_Container.GetContainerItemInfo = function(_, slot) local c = contents[slot]; if c then c.hyperlink = "|Hitem:" .. c.itemID .. "|h"; end return c end
 	local moves = plan(slots)
 	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
-	assert(#moves == 2 and moves[1][2][2] == 8 and moves[2][2][2] == 7, "marked before greys")
+	local targets = {}
+	for _, m in ipairs(moves) do targets[m[2][2]] = true end
+	assert(#moves == 2 and targets[7] and targets[8], "marked before greys")
 	-- greys at the start: marked go after them
-	contents = { [1] = { itemID = 90, quality = 0 }, [2] = { itemID = 1, quality = 1 }, [6] = { itemID = 500, quality = 1 } }
+	contents = { [1] = { itemID = 90, quality = 0 }, [2] = { itemID = 1, quality = 1 }, [3] = { itemID = 500, quality = 1 } }
 	moves = plan(slots)
 	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
 	assert(#moves == 1 and moves[1][2][2] == 2, "after greys")
+	-- a gap in the front part: the marked item behind it moves into the gap, no free slots in between
+	contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 2, quality = 1 }, [5] = { itemID = 500, quality = 1 } }
+	moves = plan(slots)
+	assert(#moves == 1 and moves[1][1][2] == 5 and moves[1][2][2] == 3, "gap closed")
 	print("junk placement OK")
 end)()
 ;(function()

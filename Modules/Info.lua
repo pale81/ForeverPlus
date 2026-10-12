@@ -74,7 +74,7 @@ local function ShowLevelLine()
 		levelLine = manager:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	end
 	levelLine:ClearAllPoints()
-	levelLine:SetPoint("TOP", toast, "BOTTOM", 0, -8)
+	levelLine:SetPoint("TOP", toast, "BOTTOM", 0, -34)
 	levelLine:SetText(levelText)
 	levelLine:Show()
 	return true

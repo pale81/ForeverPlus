@@ -595,6 +595,12 @@ function ns:BuildSettings()
 			AddOption(layouts, mainCategory, mainLayout, opt, moverInit)
 		end
 	end
+	-- The NEW labels count as seen after a few views; this brings them back.
+	mainLayout:AddInitializer(ButtonInitializer(L.NEW_RESET, L.NEW_RESET_BUTTON, function()
+		ns.db.settingsNewSeen = {}
+		RefreshBadges()
+		ns.PrintAlways(L.NEW_RESET_DONE)
+	end, L.NEW_RESET_DESC))
 	-- What the addon learned while playing, as one text.
 	mainLayout:AddInitializer(ButtonInitializer(L.EXPORT_BUTTON, L.EXPORT, function()
 		ns:GetModule("DataCapture").Export()

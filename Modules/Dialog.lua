@@ -46,6 +46,27 @@ local history = {} -- earlier gossip and greeting steps of this conversation, fo
 local showToken = 0 -- counts the steps shown (a closing event only counts when no new step followed)
 local collapsed = {} -- Blizzard window -> original scale
 
+-- The last steps of the bubble with their time (/fp blase verlauf), to see in what order things happened when a
+-- text shows up too early.
+local trace = {}
+local function Trace(text, ...)
+	if select("#", ...) > 0 then
+		text = text:format(...)
+	end
+	if #trace >= 60 then
+		table.remove(trace, 1)
+	end
+	trace[#trace + 1] = ("%.2f %s"):format(ns.Number(GetTime(), 0) % 1000, text)
+end
+
+local function WindowState(window)
+	if not window then
+		return "-"
+	end
+	local name = window:GetName()
+	return ("%s:%s/%.3f/%.1f"):format(type(name) == "string" and name or "?", window:IsShown() and "an" or "aus", ns.Number(window:GetScale(), 0), ns.Number(window:GetAlpha(), 0))
+end
+
 local function Readable(value)
 	if value == nil or (issecretvalue and issecretvalue(value)) then
 		return nil
@@ -66,6 +87,7 @@ local REVEAL_SOFT = 4                              -- letters of the soft edge
 local reveal = { list = {}, index = 1, position = 0, active = false }
 
 local function FinishReveal()
+	Trace("Lesen beendet (aktiv %s, %d Absätze)", tostring(reveal.active), #reveal.list)
 	for _, fontString in ipairs(reveal.list) do
 		fontString:SetAlpha(1)
 		fontString:SetAlphaGradient(100000, 1)
@@ -122,6 +144,7 @@ end
 local function StartReveal(view, texts)
 	-- The same step drawn again while it is being read (a list refreshed itself, rewards arrived): the reading goes
 	-- on where it was instead of showing the whole text for a moment.
+	Trace("Lesen: %s, %d Absätze, gelesen %s, aktiv %s", view.kind or "?", #texts, tostring(view.revealed), tostring(reveal.active))
 	if view.revealed and reveal.active and #texts == #reveal.list then
 		for index, fontString in ipairs(texts) do
 			reveal.list[index] = fontString
@@ -984,6 +1007,7 @@ local function KeepCollapsed(window)
 				return
 			end
 			if ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0 then
+				Trace("Spiel gab Größe oder Deckkraft zurück: %s", WindowState(self))
 				keepingCollapsed = true
 				self:SetScale(0.001)
 				self:SetAlpha(0)
@@ -1012,6 +1036,7 @@ local function HideWindowAtOnce(window, handled)
 	hookedWindows[window] = true
 	KeepCollapsed(window)
 	window:HookScript("OnShow", function(self)
+		Trace("Fenster zeigt sich: %s", WindowState(self))
 		if Dialog.db.enabled and handled() and not InCombatLockdown() then
 			Collapse(self, true)
 		end
@@ -1055,6 +1080,7 @@ local function KeepOnScreen(on)
 end
 
 local function Hide()
+	Trace("Blase weg")
 	KeepOnScreen(false)
 	RestorePlate()
 	if bubble then
@@ -1072,6 +1098,7 @@ end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
 local function UseBlizzard()
+	Trace("Blizzards Fenster statt Blase")
 	KeepOnScreen(false)
 	RestorePlate()
 	showToken = showToken + 1
@@ -1172,6 +1199,7 @@ local function Show(view, fromBack)
 		local guid = UnitGUID(talkUnit)
 		npcGuid = guid and not (issecretvalue and issecretvalue(guid)) and guid or nil
 	end
+	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	current = { view = view }
 	Render(view)
 	KeepOnScreen(Dialog.db.onScreen)
@@ -1941,6 +1969,7 @@ function Dialog:OnConversation(event)
 	if not self.db.enabled or InCombatLockdown() then
 		return
 	end
+	Trace("Ereignis %s", event)
 	if event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
 		-- Updates (stock, money, bags) only refresh the list that is on show.
 		if not self.db.merchant or (event == "MERCHANT_UPDATE" and not (current and current.view.kind == "MERCHANT_SHOW")) then
@@ -2031,6 +2060,14 @@ function Dialog:OnInitialize()
 	if self.db.onByDefault == nil then
 		self.db.onByDefault = true
 		self.db.enabled = true
+	end
+end
+
+-- /fp blase verlauf: the last steps with their time.
+function Dialog.PrintTrace()
+	ns.PrintAlways(L.DIALOG_TRACE, #trace)
+	for _, line in ipairs(trace) do
+		DEFAULT_CHAT_FRAME:AddMessage("  " .. line)
 	end
 end
 

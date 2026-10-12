@@ -196,6 +196,12 @@ local function Merged()
 	return byItem
 end
 
+-- Whether the recordings (shipped and own) have the item dropping from the source ("npc:<id>").
+function LootSources.DropsFrom(itemID, key)
+	local list = Merged()[itemID]
+	return list ~= nil and list[key] ~= nil
+end
+
 -- The best sources of an item: { { key, drops, windows }, ... } by share.
 function LootSources.Sources(itemID)
 	local list = Merged()[itemID]

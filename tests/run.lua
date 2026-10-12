@@ -2752,6 +2752,7 @@ end)()
 	S.Record("g2", "npc:777", { 100 }, nil)
 	local e = ns.db.lootSources["npc:777"]
 	assert(e.windows == 2 and e.items[100] == 2 and e.items[101] == 1 and e.name == "Test Wolf", "windows and drops counted")
+	assert(S.DropsFrom(100, "npc:777") and not S.DropsFrom(100, "npc:778") and not S.DropsFrom(99999999, "npc:777"), "drop lookup by source")
 	local sources = S.Sources(100)
 	assert(#sources >= 1 and sources[1].key == "npc:777" and sources[1].drops == 2 and sources[1].windows == 2, "own data in the lookup")
 	-- shipped data and own windows add up

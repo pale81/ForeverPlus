@@ -873,7 +873,7 @@ local function ShowSortMenu(owner)
 			root:CreateRadio(L["QUESTS_SORT_" .. mode], function()
 				return Quests.db.trackerSort == mode
 			end, function()
-				Settings.SetValue("ForeverPlus_Quests_trackerSort", mode)
+				ns.SetOption("Quests", "trackerSort", mode)
 			end)
 		end
 	end)
@@ -917,7 +917,7 @@ local function CreateSortButton()
 	readyButton.Icon:SetAtlas("common-icon-checkmark")
 	readyButton:SetHighlightAtlas("ui-questtrackerbutton-yellow-highlight", "ADD")
 	readyButton:SetScript("OnClick", function()
-		Settings.SetValue("ForeverPlus_Quests_readyOnly", not Quests.db.readyOnly)
+		ns.SetOption("Quests", "readyOnly", not Quests.db.readyOnly)
 	end)
 	readyButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -1185,14 +1185,14 @@ function Quests:OnOptionChanged(key, value)
 	if key == "sounds" then
 		-- Off silences both; on brings back the defaults if both were silent.
 		if not value then
-			Settings.SetValue("ForeverPlus_Quests_completeSound", "none")
-			Settings.SetValue("ForeverPlus_Quests_progressSound", "none")
+			ns.SetOption("Quests", "completeSound", "none")
+			ns.SetOption("Quests", "progressSound", "none")
 		elseif self.db.completeSound == "none" and self.db.progressSound == "none" then
-			Settings.SetValue("ForeverPlus_Quests_completeSound", self.defaults.completeSound)
-			Settings.SetValue("ForeverPlus_Quests_progressSound", self.defaults.progressSound)
+			ns.SetOption("Quests", "completeSound", self.defaults.completeSound)
+			ns.SetOption("Quests", "progressSound", self.defaults.progressSound)
 		end
 	elseif (key == "completeSound" or key == "progressSound") and value ~= "none" and not self.db.sounds then
-		Settings.SetValue("ForeverPlus_Quests_sounds", true)
+		ns.SetOption("Quests", "sounds", true)
 	elseif key == "trackerPreview" and not value then
 		ns.QuestPreview.Hide()
 	elseif key == "nameplateIcons" then

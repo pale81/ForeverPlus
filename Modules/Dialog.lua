@@ -318,7 +318,7 @@ local function CreateBubble()
 		Dialog.UpdateFilter()
 	end)
 	filter:SetScript("OnClick", function()
-		Settings.SetValue("ForeverPlus_Dialog_merchantHide", not Dialog.db.merchantHide)
+		ns.SetOption("Dialog", "merchantHide", not Dialog.db.merchantHide)
 		Dialog.OnConversation(Dialog, "MERCHANT_UPDATE")
 	end)
 	filter:HookScript("OnEnter", function(self)
@@ -964,9 +964,25 @@ local function Collapse(window, on)
 		window:SetScale(0.001)
 		window:SetAlpha(0)
 	elseif collapsed[window] then
-		window:SetScale(collapsed[window])
+		local scale = collapsed[window]
+		collapsed[window] = nil -- first: the hook below must not take the window back
+		window:SetScale(scale)
 		window:SetAlpha(1)
-		collapsed[window] = nil
+	end
+end
+
+-- The game gives size and opacity back to its windows after they show (panel layout, fitting to the screen): a
+-- window the bubble holds is taken back at once, so there is no picture with the game's window (and its text) in
+-- between.
+local function KeepCollapsed(window)
+	for _, method in ipairs({ "SetScale", "SetAlpha" }) do
+		hooksecurefunc(window, method, function(self)
+			if collapsed[self] and not InCombatLockdown()
+				and (ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0) then
+				self:SetScale(0.001)
+				self:SetAlpha(0)
+			end
+		end)
 	end
 end
 
@@ -987,6 +1003,7 @@ local function HideWindowAtOnce(window, handled)
 		return
 	end
 	hookedWindows[window] = true
+	KeepCollapsed(window)
 	window:HookScript("OnShow", function(self)
 		if Dialog.db.enabled and handled() and not InCombatLockdown() then
 			Collapse(self, true)

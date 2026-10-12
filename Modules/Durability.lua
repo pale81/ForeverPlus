@@ -117,7 +117,7 @@ local function CreateFigure(parent)
 	end
 	frame:RegisterForClicks("LeftButtonUp")
 	frame:SetScript("OnClick", function()
-		Settings.SetValue("ForeverPlus_Durability_enabled", not Durability.db.enabled)
+		ns.SetOption("Durability", "enabled", not Durability.db.enabled)
 	end)
 	frame:SetScript("OnEnter", function(self)
 		local lowest, sum, count = 100, 0, 0

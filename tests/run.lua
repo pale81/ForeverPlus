@@ -1015,6 +1015,7 @@ do
 	radar.db.enabled, radar.db.minimap = true, true
 	local values = {}
 	Settings.SetValue = function(var, value) values[var] = value end
+	ns.SetOption = function(moduleName, key, value) values["ForeverPlus_" .. moduleName .. "_" .. key] = value end
 	add(root)
 	assert(titles == 1 and #checkboxes >= 1, "radar entry added under a title") -- the harness runs OnLogin more than once
 	checkboxes = { checkboxes[#checkboxes] }
@@ -2890,6 +2891,7 @@ end)()
 	local texts, setters, nested = {}, {}, 0
 	local values = {}
 	Settings.SetValue = function(var, value) values[var] = value end
+	ns.SetOption = function(moduleName, key, value) values["ForeverPlus_" .. moduleName .. "_" .. key] = value end
 	local function node(depth)
 		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
 			CreateRadio = function(_, name, isOn, set) setters[name .. depth] = { isOn = isOn, set = set } end,

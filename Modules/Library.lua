@@ -156,15 +156,6 @@ function Library.ExportText(finds)
 	return table.concat(lines, "\n")
 end
 
-function Library.Export()
-	if next(ns.db.libraryFinds) == nil then
-		ns.PrintAlways(L.LIBRARY_EXPORT_NONE)
-		return
-	end
-	ns.ShowEditWindow("LibraryExport", L.LIBRARY_TITLE, Library.ExportText(ns.db.libraryFinds), CLOSE, function() end,
-		L.LIBRARY_EXPORT_HINT)
-end
-
 ns.AddDataSection(function()
 	return next(ns.db.libraryFinds) ~= nil and Library.ExportText(ns.db.libraryFinds) or nil
 end, function()
@@ -178,7 +169,7 @@ end)
 -- /fp bücher [export|zurück]
 function Library.Command(msg)
 	if msg:find("export", 1, true) then
-		Library.Export()
+		ns:GetModule("DataCapture").Export()
 	elseif msg:find("zur", 1, true) or msg:find("reset", 1, true) then
 		wipe(Library.cdb.owned)
 		ns.PrintAlways(L.LIBRARY_RESET)

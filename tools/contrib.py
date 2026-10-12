@@ -45,7 +45,7 @@ def ids(text):
 
 def parse(text):
     """One export -> {'meta': {build, locale}, 'loot': [...], 'inns': [...], ...}"""
-    result = {'meta': {}, 'loot': [], 'inns': [], 'rides': [], 'books': [], 'npcs': [], 'objectives': [], 'creatures': []}
+    result = {'meta': {}, 'loot': [], 'inns': [], 'rides': [], 'books': [], 'npcs': [], 'objectives': [], 'creatures': [], 'flights': []}
     m = re.search(r'^-- @fp-export \d+(.*)$', text, re.M)
     if m:
         result['meta'] = dict(re.findall(r'(\w+)=(\S+)', m.group(1)))
@@ -90,6 +90,11 @@ def parse_line(section, line):
         if not all(0 <= v <= 1 for v in values) or not 5 <= int(m.group(7)) <= 1800:
             return None
         return (int(m.group(1)), values[0], values[1], int(m.group(4)), values[2], values[3], int(m.group(7)))
+    if section == 'flights':
+        m = re.match(r'^\{\s*' + STRING + r'\s*,\s*(\d+)\s*\}', line)
+        if not m or ' -> ' not in m.group(1) or not 5 <= int(m.group(2)) <= 1800:
+            return None
+        return (unescape(m.group(1)), int(m.group(2)))
     if section == 'books':
         m = re.match(r'^\{\s*(\d+)\s*,\s*(\d+)\s*,\s*' + NUMBER + r'\s*,\s*' + NUMBER + r'\s*\}', line)
         return (int(m.group(1)), int(m.group(2)), float(m.group(3)), float(m.group(4))) if m else None

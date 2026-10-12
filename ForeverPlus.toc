@@ -60,6 +60,7 @@ Modules\Library.lua
 Modules\Innkeepers.lua
 Modules\Companion.lua
 Modules\EditLayouts.lua
+Modules\Profiles.lua
 Modules\LootSources.lua
 Modules\Observations.lua
 Modules\GroupFinder.lua

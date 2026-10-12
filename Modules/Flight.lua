@@ -274,6 +274,27 @@ function Flight:PLAYER_CONTROL_LOST()
 	end)
 end
 
+-- Timed flights as text for the export (/fp export): { "From -> To", seconds }, the names of the client.
+ns.AddDataSection(function()
+	local routes = {}
+	for route, seconds in pairs(Flight.db and Flight.db.times or {}) do
+		if type(seconds) == "number" then
+			routes[#routes + 1] = route
+		end
+	end
+	if #routes == 0 then
+		return nil
+	end
+	table.sort(routes)
+	local lines = { ns.ExportTag("flights"), L.FLIGHT_EXPORT_HEADER }
+	for _, route in ipairs(routes) do
+		lines[#lines + 1] = ("{ \"%s\", %d },"):format(route:gsub("\\", "\\\\"):gsub('"', '\\"'), Flight.db.times[route])
+	end
+	return table.concat(lines, "\n")
+end, function()
+	Flight.db.times = {}
+end)
+
 function Flight:PLAYER_CONTROL_GAINED()
 	if not current then
 		return

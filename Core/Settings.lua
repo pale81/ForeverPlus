@@ -328,7 +328,6 @@ local PAGES = {
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
 	},
-	{ group = 1, title = L.EDITLAYOUT_TITLE, new = true, { "EditLayouts" } },
 	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
 	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },
 }
@@ -575,10 +574,35 @@ function ns:BuildSettings()
 	end, L.MOVER_RESET_DESC))
 	AddOption(mover, mainCategory, mainLayout, mover.options[2], moverInit)
 	AddOption(mover, mainCategory, mainLayout, mover.options[3], moverInit)
+
+	-- Profiles: a snapshot of game settings, key bindings, Edit Mode layouts and the settings of ForeverPlus.
+	local profiles = ns:GetModule("Profiles")
+	if profiles then
+		mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(L.PROFILES_TITLE, L.PROFILES_DESC))
+		mainLayout:AddInitializer(ButtonInitializer(L.PROFILES_SAVE_BUTTON, L.PROFILES_SAVE, function()
+			profiles.ShowSave()
+		end, L.PROFILES_DESC))
+		mainLayout:AddInitializer(ButtonInitializer(L.PROFILES_LIST_BUTTON, L.PROFILES_LIST, function(button)
+			profiles.ShowList(button)
+		end, L.PROFILES_DESC))
+		AddOption(profiles, mainCategory, mainLayout, profiles.options[1], moverInit)
+	end
+	-- Edit Mode layouts that come with the addon.
+	local layouts = ns:GetModule("EditLayouts")
+	if layouts and #layouts.options > 0 then
+		mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(L.EDITLAYOUT_TITLE))
+		for _, opt in ipairs(layouts.options) do
+			AddOption(layouts, mainCategory, mainLayout, opt, moverInit)
+		end
+	end
+	-- What the addon learned while playing, as one text.
+	mainLayout:AddInitializer(ButtonInitializer(L.EXPORT_BUTTON, L.EXPORT, function()
+		ns:GetModule("DataCapture").Export()
+	end, L.EXPORT_BUTTON_DESC))
 	mainLayout:AddInitializer(ButtonInitializer(L.RELOAD_UI, L.RELOAD, ReloadUI))
 	mover.settingsCategory = mainCategory
 
-	local listed = { Mover = true }
+	local listed = { Mover = true, Profiles = true, EditLayouts = true }
 	for pageIndex, page in ipairs(PAGES) do
 		page._newID = "page:" .. pageIndex
 		local hasNew = page.new == true

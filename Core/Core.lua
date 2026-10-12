@@ -682,6 +682,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns.StartWheelCheck()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
+	elseif msg == "export" then
+		ns:GetModule("DataCapture").Export()
 	elseif msg:find("^daten") or msg:find("^data") then
 		ns:GetModule("DataCapture").Command(msg)
 	elseif msg == "blase" or msg == "bubble" then

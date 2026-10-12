@@ -11,6 +11,7 @@ local Quests = ns:NewModule("Quests", {
 		completeSound = "peon",
 		progressSound = "peonReady",
 		nameplateIcons = true,
+		dropObjectives = true,
 		itemButton = true,
 		trackerSort = "default",
 		classFirst = true,
@@ -174,6 +175,40 @@ local function QuestProgress(unit)
 	return found
 end
 
+-- Open objectives of active quests that the creature serves, by the recordings of the loot windows: the item the
+-- quest asks for dropped from this creature (shipped data and the player's own windows), or the creature itself is
+-- to be killed. The game's own flag and tooltip miss some of them. { { title, text, have, need }, ... } or nil.
+local function DropObjectives(guid)
+	local sources = ns:GetModule("LootSources")
+	local key = sources.SourceKey(guid)
+	local targets = ns.QuestData and ns.QuestData.targets
+	if not key or not targets then
+		return
+	end
+	local npcID = tonumber(key:match("^npc:(%d+)$"))
+	if not npcID then
+		return
+	end
+	local found
+	for questID in pairs(state) do
+		local list = targets[questID]
+		local objectives
+		for index, target in ipairs(list or {}) do
+			local kind, id = target[1], target[2]
+			if (kind == "i" and sources.DropsFrom(id, key)) or (kind == "m" and id == npcID) then
+				objectives = objectives or C_QuestLog.GetQuestObjectives(questID)
+				local objective = objectives and objectives[index]
+				if objective and not objective.finished then
+					found = found or {}
+					found[#found + 1] = { title = C_QuestLog.GetTitleForQuestID(questID), text = objective.text,
+						have = objective.numFulfilled, need = objective.numRequired }
+				end
+			end
+		end
+	end
+	return found
+end
+
 -- Units of an active quest. The game's own flag misses some, for example
 -- creatures whose drop a quest asks for; their tooltip still lists the objective.
 local function IsQuestUnit(unit)
@@ -184,7 +219,7 @@ local function IsQuestUnit(unit)
 	if Secret(related) or UnitIsPlayer(unit) or not UnitCanAttack("player", unit) then
 		return false
 	end
-	return QuestProgress(unit) ~= nil
+	return QuestProgress(unit) ~= nil or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
 end
 
 local function GetMarker(nameplate)
@@ -220,6 +255,29 @@ local function PlaceMarker(marker, nameplate)
 	marker:SetPoint("LEFT", health, "RIGHT", offset, 0)
 end
 
+-- The tooltip of a unit lists the objectives the game left out (quest title and the objective line).
+local function OnUnitTooltip(tooltip, data)
+	if not Quests.db.dropObjectives or tooltip:IsForbidden() or tooltip ~= GameTooltip or not data then
+		return
+	end
+	for _, line in ipairs(data.lines or {}) do
+		if line.type == Enum.TooltipDataLineType.QuestObjective then
+			return
+		end
+	end
+	local drops = DropObjectives(data.guid)
+	if not drops then
+		return
+	end
+	for _, entry in ipairs(drops) do
+		if type(entry.title) == "string" and type(entry.text) == "string" then
+			tooltip:AddLine(entry.title, 1, 0.82, 0)
+			tooltip:AddLine("- " .. entry.text, 1, 1, 1)
+		end
+	end
+	tooltip:Show()
+end
+
 local function UpdateNameplate(unit)
 	local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
 	if not nameplate or nameplate:IsForbidden() then
@@ -228,7 +286,13 @@ local function UpdateNameplate(unit)
 	if Quests.db.nameplateIcons and IsQuestUnit(unit) then
 		local marker = GetMarker(nameplate)
 		PlaceMarker(marker, nameplate)
-		marker.Text:SetText(QuestProgress(unit) or "")
+		local progress = QuestProgress(unit)
+		if not progress and Quests.db.dropObjectives then
+			local drops = DropObjectives(UnitGUID(unit))
+			local first = drops and drops[1]
+			progress = first and ns.Number(first.need, 0) > 1 and ("%d/%d"):format(ns.Number(first.have, 0), first.need) or nil
+		end
+		marker.Text:SetText(progress or "")
 		marker:Show()
 	elseif markers[nameplate] then
 		markers[nameplate]:Hide()
@@ -1124,6 +1188,7 @@ local function HookPreview()
 end
 
 function Quests:OnLogin()
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Quests: drop objectives", OnUnitTooltip))
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
 	end
@@ -1195,7 +1260,7 @@ function Quests:OnOptionChanged(key, value)
 		ns.SetOption("Quests", "sounds", true)
 	elseif key == "trackerPreview" and not value then
 		ns.QuestPreview.Hide()
-	elseif key == "nameplateIcons" then
+	elseif key == "nameplateIcons" or key == "dropObjectives" then
 		self:RefreshNameplates()
 	elseif key == "itemButton" then
 		self:UpdateItemTicker()
@@ -1257,4 +1322,5 @@ Quests.options = {
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },
 	{ type = "header", name = L.QUESTS_NAMEPLATES },
 	{ key = "nameplateIcons", type = "toggle", name = L.QUESTS_NAMEPLATE_ICONS, desc = L.QUESTS_NAMEPLATE_ICONS_DESC },
+	{ key = "dropObjectives", type = "toggle", name = L.QUESTS_DROP_OBJECTIVES, desc = L.QUESTS_DROP_OBJECTIVES_DESC, new = true },
 }

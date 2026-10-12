@@ -1251,6 +1251,17 @@ end
 -- Buttons below the talent window
 ---------------------------------------------------------------------------
 local buttons
+local bookButton
+
+-- Below level 10 the game hides the talent tab; the spell list then sits at the top of the window instead.
+local function UpdateBookButton()
+	local frame = PlayerSpellsFrame
+	if not bookButton or not frame then
+		return
+	end
+	local ok, available = pcall(frame.IsTabAvailable, frame, frame.talentTabID)
+	bookButton:SetShown(Talents.db.enabled and ok and not available and true or false)
+end
 
 local function CreateButtons()
 	-- Inside the talent window, on the bottom bar right of Blizzard's buttons.
@@ -1296,6 +1307,19 @@ local function CreateButtons()
 	spells.Alert = alert
 	spellsButton = spells
 	buttons = { builds, spells }
+
+	local topButton = PlayerSpellsFrame.MaximizeMinimizeButton or PlayerSpellsFrame.CloseButton
+	bookButton = CreateFrame("Button", nil, PlayerSpellsFrame, "UIPanelButtonTemplate")
+	bookButton:SetSize(150, 22)
+	bookButton:SetFrameLevel(ns.Number(PlayerSpellsFrame:GetFrameLevel(), 0) + 5600)
+	if topButton then
+		bookButton:SetPoint("RIGHT", topButton, "LEFT", -8, 0)
+	else
+		bookButton:SetPoint("TOPRIGHT", PlayerSpellsFrame, "TOPRIGHT", -60, -4)
+	end
+	bookButton:SetText(L.TALENTS_SPELLS)
+	bookButton:SetScript("OnClick", ShowSpellsByLevel)
+	bookButton:Hide()
 end
 
 function Talents:Update()
@@ -1303,6 +1327,7 @@ function Talents:Update()
 		button:SetShown(self.db.enabled)
 	end
 	UpdateSpellsGlow()
+	UpdateBookButton()
 end
 
 local glowPending = false
@@ -1312,6 +1337,7 @@ local function QueueGlowUpdate()
 		C_Timer.After(1, function()
 			glowPending = false
 			UpdateSpellsGlow()
+			UpdateBookButton()
 		end)
 	end
 end
@@ -1322,6 +1348,10 @@ function Talents:OnLogin()
 			CreateButtons()
 			self:Update()
 			PlayerSpellsFrame:HookScript("OnShow", UpdateSpellsGlow)
+			PlayerSpellsFrame:HookScript("OnShow", UpdateBookButton)
+			if PlayerSpellsFrame.SetTab then
+				hooksecurefunc(PlayerSpellsFrame, "SetTab", UpdateBookButton)
+			end
 			if TalentsFrame() then
 				SetupPlanner(TalentsFrame())
 			end

@@ -10,14 +10,13 @@ local Trivial = ns:NewModule("Trivial", {
 	order = 5.9,
 	defaults = {
 		enabled = true,
-		rested = true,
-		drunk = true,
-		afk = false,
-		trade = false,
-		explore = false,
-		quest = true,
+		shown = {}, -- kinds that stay visible although the rest is hidden (exceptions)
+		migrated = false,
 	},
 })
+
+-- The kinds, in the order of the exception list.
+local KINDS = { "rested", "drunk", "afk", "trade", "explore", "quest" }
 
 local EVENTS = { "CHAT_MSG_SYSTEM", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_COMBAT_XP_GAIN" }
 
@@ -70,7 +69,7 @@ local hidden = 0
 local function IsTrivial(text)
 	local lower
 	for kind, list in pairs(matchers) do
-		if Trivial.db[kind] then
+		if not Trivial.db.shown[kind] then
 			for _, matcher in ipairs(list) do
 				if matcher.pattern then
 					if text:find(matcher.pattern) then
@@ -104,13 +103,57 @@ local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or
 
 function Trivial:Apply()
 	-- Filtered only while at least one kind is on.
-	local any = self.db.enabled and (self.db.rested or self.db.drunk or self.db.afk or self.db.trade or self.db.explore or self.db.quest)
+	local any = self.db.enabled
+	if any then
+		any = false
+		for _, kind in ipairs(KINDS) do
+			any = any or not self.db.shown[kind]
+		end
+	end
 	for _, event in ipairs(EVENTS) do
 		RemoveFilter(event, Filter)
 		if any then
 			AddFilter(event, Filter)
 		end
 	end
+end
+
+-- Everything is hidden now; what was switched off before is an exception (once).
+function Trivial:OnInitialize()
+	local db = self.db
+	db.shown = db.shown or {}
+	if not db.migrated then
+		db.migrated = true
+		for _, kind in ipairs(KINDS) do
+			if db[kind] == false then
+				db.shown[kind] = true
+			end
+			db[kind] = nil
+		end
+	end
+end
+
+local KIND_NAMES = {
+	rested = "TRIVIAL_RESTED", drunk = "TRIVIAL_DRUNK", afk = "TRIVIAL_AFK", trade = "TRIVIAL_TRADE",
+	explore = "TRIVIAL_EXPLORE", quest = "TRIVIAL_QUEST",
+}
+
+-- List of the kinds: checked = hidden; a click makes the kind an exception (shown) and back.
+function Trivial:ShowExceptions(owner)
+	ns.ShowPopupList(owner, function()
+		local items = {}
+		for _, kind in ipairs(KINDS) do
+			items[#items + 1] = {
+				text = L[KIND_NAMES[kind]],
+				checked = not self.db.shown[kind],
+				onClick = function()
+					self.db.shown[kind] = not self.db.shown[kind] or nil
+					self:Apply()
+				end,
+			}
+		end
+		return { title = L.TRIVIAL_EXCEPTIONS, items = items }
+	end, "Trivial")
 end
 
 function Trivial:OnLogin()
@@ -129,10 +172,7 @@ end
 
 Trivial.options = {
 	{ key = "enabled", type = "toggle", name = L.TRIVIAL_ENABLE, desc = L.TRIVIAL_ENABLE_DESC, new = true },
-	{ key = "rested", type = "toggle", name = L.TRIVIAL_RESTED, desc = L.TRIVIAL_RESTED_DESC, parent = "enabled", new = true },
-	{ key = "drunk", type = "toggle", name = L.TRIVIAL_DRUNK, desc = L.TRIVIAL_DRUNK_DESC, parent = "enabled", new = true },
-	{ key = "afk", type = "toggle", name = L.TRIVIAL_AFK, desc = L.TRIVIAL_AFK_DESC, parent = "enabled", new = true },
-	{ key = "trade", type = "toggle", name = L.TRIVIAL_TRADE, desc = L.TRIVIAL_TRADE_DESC, parent = "enabled", new = true },
-	{ key = "explore", type = "toggle", name = L.TRIVIAL_EXPLORE, desc = L.TRIVIAL_EXPLORE_DESC, parent = "enabled", new = true },
-	{ key = "quest", type = "toggle", name = L.TRIVIAL_QUEST, desc = L.TRIVIAL_QUEST_DESC, parent = "enabled", new = true },
+	{ type = "button", name = L.TRIVIAL_EXCEPTIONS, text = L.TRIVIAL_EXCEPTIONS_BUTTON, desc = L.TRIVIAL_EXCEPTIONS_DESC, func = function(button)
+		Trivial:ShowExceptions(button)
+	end },
 }

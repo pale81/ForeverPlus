@@ -1401,14 +1401,14 @@ end)()
 	MARKED_AFK = "Ihr seid jetzt AFK."
 	trivial:OnLogin()
 	local filter = uv(trivial.Apply, "Filter")
-	trivial.db.enabled, trivial.db.rested, trivial.db.drunk, trivial.db.afk = true, true, true, false
+	trivial.db.enabled, trivial.db.shown = true, { afk = true }
 	issecretvalue = function() return false end
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid nicht mehr erholt.") == true, "rested hidden")
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr fühlt Euch ein wenig beschwipst.") == true, "drunk hidden")
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid jetzt AFK.") == false, "afk kept while off")
-	trivial.db.afk = true
+	trivial.db.shown.afk = nil
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid jetzt AFK.") == true, "afk hidden when on")
-	trivial.db.rested = false
+	trivial.db.shown.rested = true
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid nicht mehr erholt.") == false, "rested kept when off")
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Etwas ganz anderes.") == false, "other lines pass")
 	print("trivial OK")

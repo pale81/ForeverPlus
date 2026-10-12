@@ -974,13 +974,20 @@ end
 -- The game gives size and opacity back to its windows after they show (panel layout, fitting to the screen): a
 -- window the bubble holds is taken back at once, so there is no picture with the game's window (and its text) in
 -- between.
+local keepingCollapsed = false
+
 local function KeepCollapsed(window)
 	for _, method in ipairs({ "SetScale", "SetAlpha" }) do
 		hooksecurefunc(window, method, function(self)
-			if collapsed[self] and not InCombatLockdown()
-				and (ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0) then
+			-- Not while it is being taken back (the calls below run this hook again).
+			if keepingCollapsed or not collapsed[self] or InCombatLockdown() then
+				return
+			end
+			if ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0 then
+				keepingCollapsed = true
 				self:SetScale(0.001)
 				self:SetAlpha(0)
+				keepingCollapsed = false
 			end
 		end)
 	end

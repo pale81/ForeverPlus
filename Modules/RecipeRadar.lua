@@ -670,9 +670,9 @@ ns.AddMapFilterEntry(function(root)
 	end, function()
 		local on = not (Radar.db.enabled and Radar.db.worldMap)
 		if on then
-			Settings.SetValue("ForeverPlus_RecipeRadar_enabled", true)
+			ns.SetOption("RecipeRadar", "enabled", true)
 		end
-		Settings.SetValue("ForeverPlus_RecipeRadar_worldMap", on)
+		ns.SetOption("RecipeRadar", "worldMap", on)
 	end)
 	ns.CreateOptionCheckbox(radar, L.RADAR_MINIMAP, "RecipeRadar", "minimap")
 	ns.CreateOptionCheckbox(radar, L.RADAR_LOW_SKILL, "RecipeRadar", "showLowSkill", L.RADAR_LOW_SKILL_DESC)
@@ -687,9 +687,9 @@ function Radar:OnLogin()
 		end, function()
 			local on = not (Radar.db.enabled and Radar.db.minimap)
 			if on then
-				Settings.SetValue("ForeverPlus_RecipeRadar_enabled", true)
+				ns.SetOption("RecipeRadar", "enabled", true)
 			end
-			Settings.SetValue("ForeverPlus_RecipeRadar_minimap", on)
+			ns.SetOption("RecipeRadar", "minimap", on)
 		end)
 	end)
 	playerTeam = UnitFactionGroup("player") == "Horde" and "H" or "A"

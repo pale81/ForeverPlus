@@ -159,7 +159,21 @@ function Capture.Export()
 		ns.PrintAlways(L.DATA_EXPORT_NONE)
 		return
 	end
-	ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, function() end, L.DATA_EXPORT_HINT)
+	-- A game cannot open a web page: the text and the link go to the clipboard with one click each.
+	ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, function() end, L.DATA_EXPORT_HINT, {
+		{ text = L.DATA_COPY_TEXT, onClick = function(shown)
+			if CopyToClipboard then
+				CopyToClipboard(shown)
+				ns.PrintAlways(L.DATA_COPIED_TEXT)
+			end
+		end },
+		{ text = L.DATA_COPY_LINK, onClick = function()
+			if CopyToClipboard then
+				CopyToClipboard(ns.SUBMIT_URL)
+				ns.PrintAlways(L.DATA_COPIED_LINK)
+			end
+		end },
+	})
 end
 
 ---------------------------------------------------------------------------
@@ -268,10 +282,10 @@ end
 -- /fp daten [an|aus|export|löschen], /fp datenbank
 function Capture.Command(msg)
 	if msg == "daten an" or msg == "data on" then
-		Settings.SetValue("ForeverPlus_DataCapture_enabled", true)
+		ns.SetOption("DataCapture", "enabled", true)
 		ns.PrintAlways(L.DATA_ON)
 	elseif msg == "daten aus" or msg == "data off" then
-		Settings.SetValue("ForeverPlus_DataCapture_enabled", false)
+		ns.SetOption("DataCapture", "enabled", false)
 		ns.PrintAlways(L.DATA_OFF)
 	elseif msg == "daten export" or msg == "data export" then
 		Capture.Export()

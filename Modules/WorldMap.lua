@@ -255,7 +255,7 @@ ns.AddMapFilterEntry(function(root)
 			reveal:CreateRadio(("%d %%"):format(percent), function()
 				return math.abs((WorldMap.db.revealAlpha or 60) - percent) < 10
 			end, function()
-				Settings.SetValue("ForeverPlus_WorldMap_revealAlpha", percent)
+				ns.SetOption("WorldMap", "revealAlpha", percent)
 			end)
 		end
 		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_TINT, "WorldMap", "revealTint", L.WORLDMAP_REVEAL_TINT_DESC)

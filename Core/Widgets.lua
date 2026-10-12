@@ -217,8 +217,8 @@ function ns.ShowTextWindow(key, title, text)
 end
 
 -- Text input; onAccept(text) is called by the button. The text starts
--- selected, so Ctrl+C copies it right away.
-function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
+-- selected, so Ctrl+C copies it right away. extras: more buttons left of the main one, { { text, onClick(text) } }.
+function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint, extras)
 	local frame = windows[key]
 	if not frame then
 		frame = CreateWindow(key, 460, 260)
@@ -229,13 +229,14 @@ function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
 		AddScrollBar(frame, frame.Scroll)
 		frame.EditBox = frame.Scroll:GetEditBox()
 		frame.EditBox:SetFontObject("GameFontHighlightSmall")
-		frame.Hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		frame.Hint:SetPoint("BOTTOMLEFT", PADDING + 4, 44)
-		frame.Hint:SetPoint("RIGHT", -PADDING - 4, 0)
+		-- The hint stands above the buttons, in the colour of the other information, and wraps.
+		frame.Hint = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		frame.Hint:SetPoint("BOTTOMLEFT", PADDING + 4, PADDING + 36)
+		frame.Hint:SetWidth(460 - 2 * (PADDING + 4))
 		frame.Hint:SetJustifyH("LEFT")
+		frame.Hint:SetJustifyV("BOTTOM")
 		frame.Button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		frame.Button:SetSize(160, 22)
-		frame.Button:SetPoint("BOTTOM", 0, PADDING + 2)
+		frame.Button:SetSize(130, 22)
 		frame.Button:SetScript("OnClick", function()
 			local callback = frame.onAccept
 			frame:Hide()
@@ -243,11 +244,42 @@ function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint)
 				callback(strtrim(frame.EditBox:GetText() or ""))
 			end
 		end)
+		frame.Extras = {}
 	end
 	frame.TitleText:SetText(title)
+	local hasHint = hint and hint ~= ""
 	frame.Hint:SetText(hint or "")
+	frame:SetHeight(hasHint and 330 or 260)
+	frame.Scroll:SetPoint("BOTTOMRIGHT", -30, hasHint and 120 or 70)
 	frame.Button:SetText(buttonText or OKAY)
 	frame.onAccept = onAccept
+	-- The row of buttons at the bottom, centred.
+	extras = extras or {}
+	local width, gap = 130, 6
+	local left = -((#extras + 1) * width + #extras * gap) / 2
+	for index, info in ipairs(extras) do
+		local button = frame.Extras[index]
+		if not button then
+			button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+			button:SetSize(width, 22)
+			button:SetScript("OnClick", function(self)
+				if self.action then
+					self.action(strtrim(frame.EditBox:GetText() or ""))
+				end
+			end)
+			frame.Extras[index] = button
+		end
+		button:SetText(info.text)
+		button.action = info.onClick
+		button:ClearAllPoints()
+		button:SetPoint("BOTTOMLEFT", frame, "BOTTOM", left + (index - 1) * (width + gap), PADDING + 2)
+		button:Show()
+	end
+	for index = #extras + 1, #frame.Extras do
+		frame.Extras[index]:Hide()
+	end
+	frame.Button:ClearAllPoints()
+	frame.Button:SetPoint("BOTTOMLEFT", frame, "BOTTOM", left + #extras * (width + gap), PADDING + 2)
 	frame:Show()
 	frame.EditBox:SetText(text or "")
 	frame.EditBox:SetFocus()

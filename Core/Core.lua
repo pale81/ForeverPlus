@@ -128,13 +128,27 @@ end
 
 -- A checkbox in a menu that switches an option of a module; the setting
 -- variable is the one of the settings page ("ForeverPlus_<module>_<key>").
+-- Sets an option from our own menus and buttons. Settings.SetValue would run the game's evaluation of all settings in
+-- our (tainted) path; it reaches protected functions of the game's own settings (ADDON_ACTION_FORBIDDEN:
+-- IsUserOAuthed()). The option is written to the module's table, which the settings page reads when it is drawn.
+function ns.SetOption(moduleName, key, value)
+	local module = ns:GetModule(moduleName)
+	if not (module and module.db) then
+		return
+	end
+	module.db[key] = value
+	if module.OnOptionChanged then
+		module:OnOptionChanged(key, value)
+	end
+end
+
 function ns.CreateOptionCheckbox(parent, text, moduleName, key, tooltip)
 	local function IsOn()
 		local module = ns:GetModule(moduleName)
 		return module and module.db[key] and true or false
 	end
 	local checkbox = parent:CreateCheckbox(text, IsOn, function()
-		Settings.SetValue("ForeverPlus_" .. moduleName .. "_" .. key, not IsOn())
+		ns.SetOption(moduleName, key, not IsOn())
 	end)
 	if tooltip and checkbox.SetTooltip then
 		checkbox:SetTooltip(function(tip)
@@ -159,7 +173,7 @@ function ns.CreateSizeMenu(parent, text, moduleName, key)
 			local module = ns:GetModule(moduleName)
 			return math.abs((module and module.db[key] or 100) - percent) < 12
 		end, function()
-			Settings.SetValue("ForeverPlus_" .. moduleName .. "_" .. key, percent)
+			ns.SetOption(moduleName, key, percent)
 		end)
 	end
 	return menu

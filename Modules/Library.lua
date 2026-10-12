@@ -206,7 +206,7 @@ function Library:OnLogin()
 		root:CreateCheckbox(L.LIBRARY_TRACKING, function()
 			return Library.db.symbols
 		end, function()
-			Settings.SetValue("ForeverPlus_Library_symbols", not Library.db.symbols)
+			ns.SetOption("Library", "symbols", not Library.db.symbols)
 		end)
 	end)
 	self:Apply()

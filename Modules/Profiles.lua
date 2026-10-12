@@ -246,10 +246,7 @@ function Profiles.ShowLayouts(owner, name)
 			items[#items + 1] = {
 				text = layout.name,
 				onClick = function()
-					if CopyToClipboard then
-						CopyToClipboard(layout.text)
-						ns.PrintAlways(L.EDITLAYOUT_COPIED, layout.name)
-					end
+					ns.ShowEditWindow("LayoutText", layout.name, layout.text, CLOSE, nil, L.EDITLAYOUT_HINT)
 				end,
 			}
 		end

@@ -368,10 +368,12 @@ end
 -- Soft popup at the cursor: items with icon, count, origin and value, then
 -- money, and at the bottom the sums.
 -- Shift-click on an item puts its link into the chat.
-local function ShowSummary(id)
+local function ShowSummary(id, hover)
 	local record = summaries[id]
 	if not record then
-		ns.Print(L.LOOT_EXPIRED)
+		if not hover then
+			ns.Print(L.LOOT_EXPIRED)
+		end
 		return
 	end
 	ns.ShowPopupList(nil, function()
@@ -441,7 +443,7 @@ local function ShowSummary(id)
 		end
 		local title = ("%s  " .. GREY):format(L.LOOT_TITLE, ("%s - %s"):format(date("%H:%M", record.started), date("%H:%M", record.ended)))
 		return { title = title, items = items, width = POPUP_WIDTH, striped = true, totals = totals }
-	end, "Loot")
+	end, "Loot", hover)
 end
 
 ---------------------------------------------------------------------------
@@ -475,6 +477,20 @@ function Loot:OnLogin()
 			end
 		end
 	end)
+	-- The mouse over the link is enough to look at the list; the click keeps it as a window.
+	local function LinkId(link)
+		return type(link) == "string" and link:sub(1, #LINK_PREFIX) == LINK_PREFIX and tonumber(link:sub(#LINK_PREFIX + 1))
+	end
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkEnter", function(_, _, link)
+		local id = LinkId(link)
+		local popup = _G.ForeverPlusPopupLoot
+		if id and not (popup and popup:IsShown() and not popup.hover) then
+			ShowSummary(id, true)
+		end
+	end, self)
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkLeave", function()
+		ns.HidePopupHover("Loot")
+	end, self)
 	EventRegistry:RegisterCallback("SetItemRef", function(_, link)
 		local id = type(link) == "string" and link:sub(1, #LINK_PREFIX) == LINK_PREFIX and tonumber(link:sub(#LINK_PREFIX + 1))
 		if id then

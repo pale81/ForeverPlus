@@ -10,13 +10,9 @@ local EditLayouts = ns:NewModule("EditLayouts", {
 	defaults = {},
 })
 
-local function Copy(entry)
-	if not CopyToClipboard then
-		ns.PrintAlways(L.EDITLAYOUT_NOCOPY)
-		return
-	end
-	CopyToClipboard(entry.text)
-	ns.PrintAlways(L.EDITLAYOUT_COPIED, GetLocale() == "deDE" and entry.de or entry.en)
+-- The clipboard is closed to addons (CopyToClipboard): the text of the layout is shown, marked; Ctrl+C copies it.
+local function Show(entry)
+	ns.ShowEditWindow("LayoutText", GetLocale() == "deDE" and entry.de or entry.en, entry.text, CLOSE, nil, L.EDITLAYOUT_HINT)
 end
 
 EditLayouts.options = {}
@@ -24,7 +20,7 @@ for _, entry in ipairs(ns.EditModeLayouts or {}) do
 	EditLayouts.options[#EditLayouts.options + 1] = {
 		type = "button", name = GetLocale() == "deDE" and entry.de or entry.en, text = L.EDITLAYOUT_COPY,
 		desc = L.EDITLAYOUT_DESC, func = function()
-			Copy(entry)
+			Show(entry)
 		end,
 	}
 end

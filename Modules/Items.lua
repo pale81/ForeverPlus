@@ -1120,7 +1120,7 @@ end
 -- settings that concern the bags.
 ---------------------------------------------------------------------------
 local MENU_SECTIONS_BAG = {
-	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "Items", "moneyPickup", "ITEMS_MONEY_PICKUP" }, { "QoL", "bagSlots", "QOL_BAG_SLOTS" } } },
+	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "Items", "moneyPickup", "ITEMS_MONEY_PICKUP" } } },
 	{ L.ITEMS_DISPLAY, {
 		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "rewardUpgrade", "ITEMS_REWARD_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
 		{ "Items", "upgradePopup", "ITEMS_UPGRADE_POPUP" },

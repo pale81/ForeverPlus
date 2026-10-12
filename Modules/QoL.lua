@@ -35,7 +35,6 @@ local QoL = ns:NewModule("QoL", {
 		actionText = true,
 		hideHotkeys = true,
 		hideMacroNames = true,
-		bagSlots = true,
 		hideMinimapButtons = true,
 		rankUp = true,
 	},
@@ -325,49 +324,6 @@ function QoL:UpdateActionText()
 end
 
 ---------------------------------------------------------------------------
--- Free / total bag slots on the backpack button
----------------------------------------------------------------------------
-local function UpdateBagSlots(button)
-	if not QoL.db.bagSlots then
-		return
-	end
-	local free, total = 0, 0
-	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-		local numFree, bagFamily = C_Container.GetContainerNumFreeSlots(bag)
-		if bagFamily == 0 then
-			free = free + numFree
-			total = total + C_Container.GetContainerNumSlots(bag)
-		end
-	end
-	button.FreeSlots:SetFormattedText("%d/%d", free, total)
-	button.FreeSlots:Show()
-	-- Any other text on the button (item count, stock) would overlap the numbers.
-	for _, region in ipairs({ button:GetRegions() }) do
-		if region ~= button.FreeSlots and region.IsObjectType and region:IsObjectType("FontString") then
-			region:SetAlpha(0)
-		end
-	end
-end
-
-function QoL:UpdateBagSlotsOption()
-	local button = MainMenuBarBackpackButton
-	if not button or not button.FreeSlots then
-		return
-	end
-	if self.db.bagSlots then
-		UpdateBagSlots(button)
-	else
-		for _, region in ipairs({ button:GetRegions() }) do
-			if region ~= button.FreeSlots and region.IsObjectType and region:IsObjectType("FontString") then
-				region:SetAlpha(1)
-			end
-		end
-		button:UpdateFreeSlots()
-		button:SetCountShown(GetCVar("displayFreeBagSlots") == "1")
-	end
-end
-
----------------------------------------------------------------------------
 -- Hide addon minimap buttons (LibDBIcon and other non-Blizzard buttons)
 ---------------------------------------------------------------------------
 local minimapButtons = {} -- button -> was shown when first hidden
@@ -425,6 +381,27 @@ function QoL:DisableBlizzardCoordsOnce()
 	end
 	SetCVar("minimapShowPlayerCoords", "0")
 	self.db.blizzardCoordsDefaulted = true
+end
+
+-- /fp grundwerte: the game settings ForeverPlus starts with, set again (after the console command that puts every
+-- setting back to its default, for example): Blizzard's coordinates below the minimap off, auto loot on (fast
+-- loot builds on it), the old scrolling combat text off.
+function QoL.ApplyBaseSettings()
+	local changed = {}
+	local function Set(name, value, label)
+		if GetCVar(name) ~= nil then
+			SetCVar(name, value)
+			changed[#changed + 1] = label
+		end
+	end
+	Set("minimapShowPlayerCoords", "0", L.QOL_BASE_COORDS)
+	Set("enableFloatingCombatText", "0", L.QOL_BASE_FCT)
+	local items = ns:GetModule("Items")
+	if items and items.db and items.db.fastLoot then
+		Set("autoLootDefault", "1", L.QOL_BASE_LOOT)
+	end
+	QoL.db.blizzardCoordsDefaulted = true
+	ns.PrintAlways(L.QOL_BASE_DONE, table.concat(changed, ", "))
 end
 
 ---------------------------------------------------------------------------
@@ -513,13 +490,6 @@ function QoL:OnLogin()
 	self:UpdateNameplates()
 	self:UpdateErrorMessages()
 
-	local backpack = MainMenuBarBackpackButton
-	if backpack and backpack.UpdateFreeSlots then
-		hooksecurefunc(backpack, "UpdateFreeSlots", UpdateBagSlots)
-		hooksecurefunc(backpack, "SetCountShown", UpdateBagSlots)
-		self:UpdateBagSlotsOption()
-	end
-
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		self:UpdateMouseover()
 		self:RegisterEvent("QUEST_LOG_UPDATE", UpdateQuestHeader)
@@ -536,8 +506,6 @@ function QoL:OnOptionChanged(key)
 		self:UpdateMouseover()
 	elseif key == "actionText" or key == "hideHotkeys" or key == "hideMacroNames" then
 		self:UpdateActionText()
-	elseif key == "bagSlots" then
-		self:UpdateBagSlotsOption()
 	elseif key == "hideErrors" then
 		self:UpdateErrorMessages()
 	elseif key == "nameplatesCombat" or key == "nameplatesFade" or key == "nameplatesFadeAmount"
@@ -589,7 +557,6 @@ QoL.options = {
 	{ key = "hideMacroNames", type = "toggle", name = L.QOL_HIDE_MACRO_NAMES, parent = "actionText" },
 	{ key = "rankUp", type = "toggle", name = L.QOL_RANK_UP, desc = L.QOL_RANK_UP_DESC },
 	{ type = "header", name = L.QOL_BAGS_HEADER },
-	{ key = "bagSlots", type = "toggle", name = L.QOL_BAG_SLOTS, desc = L.QOL_BAG_SLOTS_DESC },
 	{ type = "header", name = L.QOL_MINIMAP_HEADER },
 	{ key = "hideMinimapButtons", type = "toggle", name = L.QOL_HIDE_MINIMAP_BUTTONS, desc = L.QOL_HIDE_MINIMAP_BUTTONS_DESC },
 }

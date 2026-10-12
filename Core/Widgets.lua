@@ -438,12 +438,17 @@ local function CreatePopup(name)
 		for _, button in ipairs(self.footer) do
 			button:Hide()
 		end
+		local footerX = POPUP_PAD
 		for i, entry in ipairs(footer) do
 			local button = PopupFooter(self, i)
 			button:SetText(entry.text)
 			button.action = entry.onClick
+			-- Wide enough for its text.
+			local text = button:GetFontString()
+			button:SetWidth(math.max(120, ns.Number(text and text:GetStringWidth(), 0) + 28))
 			button:ClearAllPoints()
-			button:SetPoint("BOTTOMLEFT", POPUP_PAD + (i - 1) * 126, POPUP_PAD)
+			button:SetPoint("BOTTOMLEFT", footerX, POPUP_PAD)
+			footerX = footerX + ns.Number(button:GetWidth(), 120) + 6
 			button:Show()
 		end
 		if #footer > 0 then

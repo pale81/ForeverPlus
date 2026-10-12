@@ -275,7 +275,6 @@ local PAGES = {
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",
 			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "junkList") },
 		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu") },
-		{ "QoL", keys = Keys("bagSlots") },
 		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "upgradeScore", "upgradePopup") },
 		{ "Durability" },
 		{ "Items", header = L.ITEMS_LOOT, keys = Keys("fastLoot", "destroyPrompt", "autoBind", "autoEquipBind", "deleteText", "rollCounts") },

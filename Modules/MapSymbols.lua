@@ -456,6 +456,29 @@ Symbols.AddSource(function(mapID, add)
 				fallback = L.WORLDMAP_FLIGHT, tooltip = NpcTooltip })
 		end
 	end)
+	-- The flight masters of the capitals sit on the city maps; the zone map around a city shows them too.
+	if not IsContinent(mapID) then
+		for flightMap, list in pairs(npcs.flights) do
+			local info = flightMap ~= mapID and C_Map.GetMapInfo(flightMap)
+			if info and info.mapType == Enum.UIMapType.City then
+				for _, flight in ipairs(list) do
+					local continent, world = C_Map.GetWorldPosFromMapPos(flightMap, CreateVector2D(flight.x / 100, flight.y / 100))
+					local worldX, worldY
+					if world then
+						worldX, worldY = world:GetXY()
+					end
+					worldX, worldY = ns.Number(worldX), ns.Number(worldY)
+					if worldX and worldY and ns.Number(continent) then
+						local _, x, y = WorldToMap(continent, worldX, worldY, mapID)
+						if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+							add(x, y, { kind = "flight", atlas = FLIGHT_ATLAS[flight.faction] or FLIGHT_ATLAS.AH, size = FLIGHT_SIZE, data = flight,
+								fallback = L.WORLDMAP_FLIGHT, tooltip = NpcTooltip })
+						end
+					end
+				end
+			end
+		end
+	end
 end)
 
 -- Inns only on zone and city maps (on continents they would cover the towns).

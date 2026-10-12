@@ -668,6 +668,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Items").MoneyCommand(msg:match("^%S+%s*(.*)"))
 	elseif msg == "logo" then
 		ns:GetModule("Quests").PrintLogoAtlases()
+	elseif msg == "welttext" or msg == "worldtext" then
+		ns:GetModule("RepFlash").ResetWorldText(true)
 	elseif msg == "haltbarkeit" or msg == "durability" then
 		ns:GetModule("Durability"):PrintStatus()
 	elseif msg == "beute" or msg == "loot" then

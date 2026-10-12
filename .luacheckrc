@@ -176,7 +176,7 @@ read_globals = {
 	"C_Item",
 	"C_Map", "C_MapExplorationInfo",
 	"C_MerchantFrame",
-	"CopyToClipboard",
+	"CopyToClipboard", "GetCVarDefault", "C_CVar",
 	"C_Minimap",
 	"HUNTER_TRACKING",
 	"MinimapUtil",

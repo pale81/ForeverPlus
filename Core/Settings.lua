@@ -302,7 +302,6 @@ local PAGES = {
 	{ group = 3, title = L.PAGE_COMBAT,
 		{ "QoL", header = L.QOL_NAMEPLATES_HEADER, keys = Keys("nameplatesCombat", "nameplatesFade", "nameplatesTargetFull", "nameplatesFadeCombat", "nameplatesFadeAmount") },
 		{ "QoL", header = L.QOL_ERRORS_HEADER, keys = Keys("hideErrors") },
-		{ "QoL", header = L.QOL_WORLDTEXT_HEADER, keys = Keys("hideWorldText") },
 		{ "MeterReset", header = L.METER_TITLE },
 	},
 	{ group = 3, title = L.BUFFS_TITLE, { "Buffs" } },

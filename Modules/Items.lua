@@ -1721,8 +1721,12 @@ end
 local function PlanJunkMoves(slots)
 	local isGrey, isMarked = {}, {}
 	local firstGrey, lastGrey, markedCount = nil, nil, 0
+	local lastUsed = 0 -- the game's cleanup puts the free slots last: the marked items belong before them, not at the very end
 	for index, position in ipairs(slots) do
 		local info = C_Container.GetContainerItemInfo(position[1], position[2])
+		if info then
+			lastUsed = index
+		end
 		if info and info.quality == Enum.ItemQuality.Poor then
 			isGrey[index] = true
 			firstGrey = firstGrey or index
@@ -1736,12 +1740,12 @@ local function PlanJunkMoves(slots)
 		return {}
 	end
 	local block = {}
-	if firstGrey and firstGrey == 1 and lastGrey < #slots then
-		for index = lastGrey + 1, math.min(#slots, lastGrey + markedCount) do
+	if firstGrey and firstGrey == 1 and lastGrey < lastUsed then
+		for index = lastGrey + 1, math.min(lastUsed, lastGrey + markedCount) do
 			block[#block + 1] = index
 		end
 	else
-		local stop = (firstGrey or #slots + 1) - 1
+		local stop = (firstGrey or lastUsed + 1) - 1
 		for index = stop, math.max(1, stop - markedCount + 1), -1 do
 			block[#block + 1] = index
 		end

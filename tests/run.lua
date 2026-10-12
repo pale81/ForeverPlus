@@ -1774,7 +1774,13 @@ end)()
 	local view = dialog.TrainerView()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
+	assert(rows and #rows == 1 and rows[1].action, "only what can be learned by default")
+	assert(view.tools and view.tools.locked == false, "the symbol for later levels is off")
+	dialog.showLocked = true
+	view = dialog.TrainerView()
+	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
 	assert(rows and #rows == 2 and rows[1].action and not rows[2].action and rows[2].dim, "available first, locked dimmed, used left out")
+	dialog.showLocked = false
 	assert(view.buttons[2].enabled == false and view.buttons[3].enabled == true, "train needs a selection, train all is possible (button 1 says goodbye)")
 	print("trainer view OK")
 end)()

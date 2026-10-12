@@ -190,6 +190,8 @@ local function CreateBubble()
 	frame:SetScript("OnMouseWheel", function(_, delta)
 		if current and current.view.kind == "MERCHANT_SHOW" then
 			Dialog.MerchantScroll(delta)
+		elseif current and current.view.kind == "TRAINER_SHOW" then
+			Dialog.TrainerScroll(delta)
 		end
 	end)
 	frame:SetWidth(WIDTH)
@@ -354,6 +356,12 @@ local function CreateBubble()
 		tool:Hide()
 		frame.Tools[key] = tool
 	end
+	Tool("locked", [[Interface\Icons\INV_Misc_Book_09]], function()
+		Dialog.ToggleTrainerLocked()
+	end, function(tooltip)
+		GameTooltip_SetTitle(tooltip, L.DIALOG_TOOL_LOCKED)
+		GameTooltip_AddNormalLine(tooltip, Dialog.showLocked and L.DIALOG_TOOL_LOCKED_ON or L.DIALOG_TOOL_LOCKED_OFF)
+	end)
 	Tool("repair", [[Interface\Icons\Trade_BlackSmithing]], function()
 		local tools = ns.MerchantTools
 		if tools then
@@ -491,6 +499,8 @@ local function CreateRow(frame)
 	row:SetScript("OnMouseWheel", function(_, delta)
 		if bubble and current and current.view.kind == "MERCHANT_SHOW" then
 			Dialog.MerchantScroll(delta)
+		elseif bubble and current and current.view.kind == "TRAINER_SHOW" then
+			Dialog.TrainerScroll(delta)
 		end
 	end)
 	-- The chosen text is a little fuller: warm copies of it one pixel around it (eight directions), very faint, under
@@ -862,8 +872,19 @@ end
 -- the NPC must not be taken for another one (nor a plate frame the game gave to another unit).
 local npcGuid
 
+-- The unit the talk is with: "npc", else (some NPCs, guards for one, give no "npc" unit) the target or the soft
+-- interaction target, if it is not the player.
+local function TalkUnit()
+	for _, token in ipairs({ "npc", "softinteract", "target" }) do
+		if UnitExists(token) and not UnitIsUnit(token, "player") then
+			return token
+		end
+	end
+end
+
 local function NpcNameplate()
-	if not UnitExists("npc") and not npcGuid then
+	local unit = TalkUnit()
+	if not unit and not npcGuid then
 		return
 	end
 	local function Matches(token)
@@ -879,7 +900,7 @@ local function NpcNameplate()
 		end
 		return nil
 	end
-	local nameplate = C_NamePlate.GetNamePlateForUnit("npc")
+	local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
 	if nameplate and not nameplate:IsForbidden() then
 		return nameplate
 	end
@@ -1058,9 +1079,9 @@ function Dialog.UpdateTools(view)
 		return
 	end
 	-- Worked out once per view (MerchantView), not again here: the bags are not scanned twice.
-	local available = view and view.kind == "MERCHANT_SHOW" and view.filter and view.tools or {}
+	local available = view and ((view.kind == "MERCHANT_SHOW" and view.filter) or view.kind == "TRAINER_SHOW") and view.tools or {}
 	local x = 2 - 18
-	for _, key in ipairs({ "repair", "sell", "restock" }) do
+	for _, key in ipairs({ "locked", "repair", "sell", "restock" }) do
 		local tool = frame.Tools[key]
 		local state = available[key]
 		tool:SetShown(state ~= nil)
@@ -1122,8 +1143,9 @@ local function Show(view, fromBack)
 			table.remove(history, 1)
 		end
 	end
-	if not current and UnitExists("npc") then
-		local guid = UnitGUID("npc")
+	local talkUnit = not current and TalkUnit()
+	if talkUnit then
+		local guid = UnitGUID(talkUnit)
 		npcGuid = guid and not (issecretvalue and issecretvalue(guid)) and guid or nil
 	end
 	current = { view = view }
@@ -1363,8 +1385,10 @@ end
 ---------------------------------------------------------------------------
 -- Trainer: the list of what can be learned, as rows; a click selects, the buttons train.
 ---------------------------------------------------------------------------
-local TRAINER_ROWS = 12 -- rows in the bubble: what can be learned first, then what is still too high
+local TRAINER_ROWS = 12 -- rows in the bubble; more are scrolled with the mouse wheel
 local trainerSelected
+local trainerOffset = 0
+Dialog.showLocked = false -- what cannot be learned yet is shown only on request
 
 local function TrainerServices()
 	local available, locked = {}, {}
@@ -1383,12 +1407,22 @@ local function TrainerServices()
 	return available, locked
 end
 
+function Dialog.TrainerScroll(delta)
+	trainerOffset = math.max(0, trainerOffset - delta * 3)
+	Dialog:OnConversation("TRAINER_UPDATE")
+end
+
+function Dialog.ToggleTrainerLocked()
+	Dialog.showLocked = not Dialog.showLocked
+	trainerOffset = 0
+	Dialog:OnConversation("TRAINER_UPDATE")
+end
+
 function Dialog.TrainerView()
 	local available, locked = TrainerServices()
 	local money = GetMoney()
-	local rows, shown = {}, 0
+	local rows = {}
 	local function AddRow(entry, isAvailable)
-		shown = shown + 1
 		local label = entry.name
 		if entry.subText and entry.subText ~= "" then
 			label = ("%s (%s)"):format(label, entry.subText)
@@ -1417,17 +1451,21 @@ function Dialog.TrainerView()
 			end,
 		}
 	end
+	-- What can be learned now; what is still too high only while the symbol at the lower right is switched on.
+	local entries = {}
 	for _, entry in ipairs(available) do
-		if shown < TRAINER_ROWS then
-			AddRow(entry, true)
+		entries[#entries + 1] = { entry = entry, isAvailable = true }
+	end
+	if Dialog.showLocked then
+		for _, entry in ipairs(locked) do
+			entries[#entries + 1] = { entry = entry, isAvailable = false }
 		end
 	end
-	for _, entry in ipairs(locked) do
-		if shown < TRAINER_ROWS then
-			AddRow(entry, false)
-		end
+	local listed = #entries
+	trainerOffset = math.max(0, math.min(trainerOffset, math.max(0, listed - TRAINER_ROWS)))
+	for position = trainerOffset + 1, math.min(listed, trainerOffset + TRAINER_ROWS) do
+		AddRow(entries[position].entry, entries[position].isAvailable)
 	end
-	local more = #available + #locked - shown
 	local blocks = {}
 	local greeting = Readable(GetTrainerGreetingText and GetTrainerGreetingText())
 	if greeting and greeting ~= "" then
@@ -1438,8 +1476,8 @@ function Dialog.TrainerView()
 	else
 		blocks[#blocks + 1] = { rows = rows }
 	end
-	if more > 0 then
-		blocks[#blocks + 1] = { text = L.DIALOG_TRAIN_MORE:format(more), dim = true }
+	if listed > TRAINER_ROWS then
+		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_RANGE:format(trainerOffset + 1, math.min(listed, trainerOffset + TRAINER_ROWS), listed), dim = true }
 	end
 	blocks[#blocks + 1] = { money = L.DIALOG_MONEY:format(GetMoneyString(money, true)) }
 	-- Keep a selection only while it can still be trained and paid.
@@ -1457,6 +1495,7 @@ function Dialog.TrainerView()
 	end
 	return {
 		name = NpcName(), blocks = blocks, revealed = true,
+		tools = #locked > 0 and { locked = Dialog.showLocked } or {},
 		buttons = {
 			{ text = GOODBYE or CLOSE, action = Dialog.CloseCurrent },
 			{ text = TRAIN or L.DIALOG_TRAIN, primary = true, spends = true, enabled = selection ~= nil, action = function()
@@ -1731,7 +1770,7 @@ function Dialog.MerchantView()
 		}
 	end
 	local blocks = {}
-	if merchantSaying and not buyback and merchantOffset == 0 then
+	if merchantSaying and not buyback then
 		blocks[#blocks + 1] = { text = merchantSaying, dim = true }
 	end
 	blocks[#blocks + 1] = #rows == 0 and { text = L.DIALOG_MERCHANT_NONE, dim = true } or { rows = rows }
@@ -1899,7 +1938,7 @@ function Dialog:OnConversation(event)
 			return
 		end
 		if event == "TRAINER_SHOW" then
-			trainerSelected = nil
+			trainerSelected, trainerOffset = nil, 0
 		end
 		event = "TRAINER_SHOW"
 	end

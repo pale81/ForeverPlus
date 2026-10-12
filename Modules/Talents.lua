@@ -441,14 +441,6 @@ local function PlanOverlay(button)
 		overlay.Text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		overlay.Text:SetPoint("BOTTOM", button, "TOP", 0, -6)
 		overlay.Text:SetTextColor(PLAN_COLOR:GetRGB())
-		-- Ring around a talent the plan has unlocked (Blizzard still shows it locked).
-		overlay.Ring = button:CreateTexture(nil, "OVERLAY", nil, 5)
-		overlay.Ring:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-		overlay.Ring:SetBlendMode("ADD")
-		overlay.Ring:SetPoint("CENTER", button.Icon or button, "CENTER", 0, 0)
-		overlay.Ring:SetSize(70, 70)
-		overlay.Ring:SetVertexColor(PLAN_COLOR.r, PLAN_COLOR.g, PLAN_COLOR.b, 0.85)
-		overlay.Ring:Hide()
 		button.fpPlan = overlay
 	end
 	return overlay
@@ -761,21 +753,18 @@ local function UpdatePlan()
 	local configID = frame:GetConfigID()
 	local plan = CurrentPlan()
 	local enabled = Talents.db.enabled and Talents.db.planner
-	local nodes, rowOf, names
+	local nodes
 	if enabled and configID then
-		nodes, rowOf, names = TreeState(frame, configID)
+		nodes = TreeState(frame, configID)
 	end
-	-- The blue rings mark what the plan opens up: only while something is still to be learned (after "apply plan" the
-	-- game shows the talents as they are, nothing glows).
 	local pending = nodes and HasPending(nodes, plan) or false
 	for button in frame:EnumerateAllTalentButtons() do
 		HookPlanTooltip(button)
 		local nodeID = button.GetNodeID and button:GetNodeID()
 		local planned = enabled and nodeID and plan[nodeID]
-		local unlocked = nodes and nodeID and nodes[nodeID] and UnlockedByPlan(nodes[nodeID], nodes, rowOf, names, plan)
-		if planned or unlocked or button.fpPlan then
+		if planned or button.fpPlan then
 			local overlay = PlanOverlay(button)
-			local node = (planned or unlocked) and configID and C_Traits.GetNodeInfo(configID, nodeID)
+			local node = planned and configID and C_Traits.GetNodeInfo(configID, nodeID)
 			if node and planned then
 				overlay.Text:SetFormattedText("%d/%d", planned, node.maxRanks)
 				overlay.Text:Show()
@@ -784,7 +773,6 @@ local function UpdatePlan()
 				overlay.Text:Hide()
 				overlay.Tint:Hide()
 			end
-			overlay.Ring:SetShown(unlocked and pending and true or false)
 		end
 	end
 	if planBar then

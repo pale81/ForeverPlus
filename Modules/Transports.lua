@@ -250,16 +250,6 @@ function Transports.ExportText(rides)
 	return table.concat(lines, "\n")
 end
 
-function Transports.Export()
-	local rides = ns.db.transportRides
-	if #rides == 0 then
-		ns.PrintAlways(L.TRANSPORTS_EXPORT_NONE)
-		return
-	end
-	ns.ShowEditWindow("TransportExport", L.TRANSPORTS_TITLE, Transports.ExportText(rides), CLOSE, function() end,
-		L.TRANSPORTS_EXPORT_HINT)
-end
-
 ns.AddMapFilterEntry(function(root)
 	ns.CreateOptionCheckbox(root, L.TRANSPORTS_DOCKS, "Transports", "docks", L.TRANSPORTS_DOCKS_DESC)
 end)

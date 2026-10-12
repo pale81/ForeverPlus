@@ -18,6 +18,7 @@ globals = {
 	"SLASH_FOREVERPLUS2",
 	"SLASH_FOREVERPLUSRL1",
 	"SlashCmdList",
+	"StaticPopupDialogs",
 }
 
 read_globals = {
@@ -176,7 +177,8 @@ read_globals = {
 	"C_Item",
 	"C_Map", "C_MapExplorationInfo",
 	"C_MerchantFrame",
-	"CopyToClipboard", "GetCVarDefault", "C_CVar",
+	"CopyToClipboard", "GetCVarDefault", "C_CVar", "C_Console", "C_EditMode", "GetNumBindings", "GetBinding", "SetBinding",
+	"SaveBindings", "GetCurrentBindingSet", "StaticPopup_Show",
 	"C_Minimap",
 	"HUNTER_TRACKING",
 	"MinimapUtil",

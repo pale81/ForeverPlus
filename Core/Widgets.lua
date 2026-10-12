@@ -445,10 +445,10 @@ local function CreatePopup(name)
 			button.action = entry.onClick
 			-- Wide enough for its text.
 			local text = button:GetFontString()
-			button:SetWidth(math.max(120, ns.Number(text and text:GetStringWidth(), 0) + 28))
+			button:SetWidth(math.max(70, ns.Number(text and text:GetStringWidth(), 0) + 24))
 			button:ClearAllPoints()
 			button:SetPoint("BOTTOMLEFT", footerX, POPUP_PAD)
-			footerX = footerX + ns.Number(button:GetWidth(), 120) + 6
+			footerX = footerX + ns.Number(button:GetWidth(), 70) + 6
 			button:Show()
 		end
 		if #footer > 0 then

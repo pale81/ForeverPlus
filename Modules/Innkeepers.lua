@@ -85,15 +85,6 @@ function Innkeepers.ExportText(list)
 	return table.concat(lines, "\n")
 end
 
-function Innkeepers.Export()
-	if next(ns.db.innkeepers) == nil then
-		ns.PrintAlways(L.INNS_EXPORT_NONE)
-		return
-	end
-	ns.ShowEditWindow("InnkeeperExport", L.INNS_TITLE, Innkeepers.ExportText(ns.db.innkeepers), CLOSE, function() end,
-		L.INNS_EXPORT_HINT)
-end
-
 ns.AddDataSection(function()
 	return next(ns.db.innkeepers) ~= nil and Innkeepers.ExportText(ns.db.innkeepers) or nil
 end, function()
@@ -103,7 +94,7 @@ end)
 -- /fp gasthäuser [export|löschen]
 function Innkeepers.Command(msg)
 	if msg:find("export", 1, true) then
-		Innkeepers.Export()
+		ns:GetModule("DataCapture").Export()
 	elseif msg:find("l\195\182sch", 1, true) or msg:find("clear", 1, true) then
 		ns.db.innkeepers = {}
 		ns.PrintAlways(L.INNS_CLEARED)

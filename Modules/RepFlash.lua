@@ -12,6 +12,7 @@ local RepFlash = ns:NewModule("RepFlash", {
 		xp = false,
 		honor = false,
 		hideChat = true, -- the chat line of a kind that flashes is hidden
+		worldTextOld = {}, -- the game's floating-number settings before ours (see ApplyWorldText)
 		xpClassColor = true, -- the experience in the colour of the class
 		xpSparkle = true,    -- and with sparks in that colour
 		xpSound = false,     -- and a sound
@@ -324,7 +325,30 @@ end
 local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
 local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
 
+-- The game draws its own number for experience over the corpse (and all floating numbers) and has no switch for it. While
+-- our experience display is on, scale, smallest size and smallest opacity of that text are 0 (tiny; the client
+-- does not allow more); the earlier values are kept and come back when the display is switched off.
+local WORLD_TEXT = { "WorldTextScale_v2", "WorldTextMinSize", "WorldTextMinAlpha_v2" }
+
+function RepFlash:ApplyWorldText()
+	local db = self.db
+	db.worldTextOld = db.worldTextOld or {}
+	for _, name in ipairs(WORLD_TEXT) do
+		if db.xp then
+			local value = GetCVar(name)
+			if value ~= nil and value ~= "0" then
+				db.worldTextOld[name] = value
+				SetCVar(name, 0)
+			end
+		elseif db.worldTextOld[name] ~= nil then
+			SetCVar(name, db.worldTextOld[name])
+			db.worldTextOld[name] = nil
+		end
+	end
+end
+
 function RepFlash:Apply()
+	self:ApplyWorldText()
 	for event in pairs(CHAT_EVENTS) do
 		RemoveFilter(event, HideFilter)
 		if self.db.hideChat and (self.db.enabled or self.db.xp or self.db.honor) then

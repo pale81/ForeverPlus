@@ -548,7 +548,7 @@ end
 
 -- key: own frame with its own saved position (e.g. "Loot"); without it the
 -- shared list frame is used.
-function ns.ShowPopupList(owner, build, key)
+function ns.ShowPopupList(owner, build, key, hover)
 	local name = key and ("ForeverPlusPopup" .. key) or "ForeverPlusPopupList"
 	local popup = popups[name]
 	if not popup then
@@ -561,18 +561,34 @@ function ns.ShowPopupList(owner, build, key)
 	end
 	popup.owner, popup.build, popup.offset = owner, build, 0
 	popup:ClearAllPoints()
+	-- hover: only a look while the mouse is over its link: above the cursor, the mouse passes through it. A click
+	-- shows it again as an ordinary window (Alt + right-click unlocks it, then it can be moved).
+	popup.hover = hover and true or false
+	popup:EnableMouse(not hover)
 	if owner then
 		popup:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -4)
 	else
 		local x, y = GetCursorPosition()
 		local scale = UIParent:GetEffectiveScale()
-		popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
-		if ns.ApplySavedWindow then
-			ns.ApplySavedWindow(popup)
+		if hover then
+			popup:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x / scale - 10, y / scale + 22)
+		else
+			popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+			if ns.ApplySavedWindow then
+				ns.ApplySavedWindow(popup)
+			end
 		end
 	end
 	popup:Refresh()
 	popup:Show()
+end
+
+-- Hides a list that was only shown for a look (see ShowPopupList).
+function ns.HidePopupHover(key)
+	local popup = popups["ForeverPlusPopup" .. key]
+	if popup and popup.hover and popup:IsShown() then
+		popup:Hide()
+	end
 end
 
 ---------------------------------------------------------------------------

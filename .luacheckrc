@@ -177,7 +177,7 @@ read_globals = {
 	"C_Item",
 	"C_Map", "C_MapExplorationInfo",
 	"C_MerchantFrame",
-	"CopyToClipboard", "GetCVarDefault", "C_CVar", "C_Console", "C_EditMode", "GetNumBindings", "GetBinding", "SetBinding",
+	"GetCVarDefault", "C_CVar", "C_Console", "C_EditMode", "GetNumBindings", "GetBinding", "SetBinding",
 	"SaveBindings", "GetCurrentBindingSet", "StaticPopup_Show",
 	"C_Minimap",
 	"HUNTER_TRACKING",

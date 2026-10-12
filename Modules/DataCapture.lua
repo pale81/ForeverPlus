@@ -153,27 +153,29 @@ function Capture.ExportText()
 	return header .. "\n\n" .. table.concat(parts, "\n\n")
 end
 
+function Capture.ShowLinkStep()
+	ns.ShowEditWindow("DataExport", L.DATA_TITLE, ns.SUBMIT_URL, L.DATA_NEXT, function()
+		Capture.ShowTextStep()
+	end, L.DATA_EXPORT_HINT_LINK)
+end
+
 function Capture.Export()
 	local text = Capture.ExportText()
 	if not text then
 		ns.PrintAlways(L.DATA_EXPORT_NONE)
 		return
 	end
-	-- A game cannot open a web page: the text and the link go to the clipboard with one click each.
-	ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, function() end, L.DATA_EXPORT_HINT, {
-		{ text = L.DATA_COPY_TEXT, onClick = function(shown)
-			if CopyToClipboard then
-				CopyToClipboard(shown)
-				ns.PrintAlways(L.DATA_COPIED_TEXT)
-			end
-		end },
-		{ text = L.DATA_COPY_LINK, onClick = function()
-			if CopyToClipboard then
-				CopyToClipboard(ns.SUBMIT_URL)
-				ns.PrintAlways(L.DATA_COPIED_LINK)
-			end
-		end },
-	})
+	-- A game can neither open a web page nor fill the clipboard (CopyToClipboard is closed to addons): the window shows
+	-- first the link, marked, then the text, marked; Ctrl+C copies what is marked.
+	local function ShowText()
+		ns.ShowEditWindow("DataExport", L.DATA_TITLE, text, CLOSE, nil, L.DATA_EXPORT_HINT_TEXT, {
+			{ text = L.DATA_BACK_TO_LINK, onClick = function()
+				Capture.ShowLinkStep()
+			end },
+		})
+	end
+	Capture.ShowTextStep = ShowText
+	Capture.ShowLinkStep()
 end
 
 ---------------------------------------------------------------------------

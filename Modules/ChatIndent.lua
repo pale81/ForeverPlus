@@ -59,6 +59,11 @@ local function TokenWidth(token)
 	return width
 end
 
+-- Width of a text including blanks at its end (a measured string may leave those out).
+local function PaddedWidth(text)
+	return math.max(0, Indent.measure(text .. "a") - Indent.measure("a"))
+end
+
 -- Words, split at blanks outside of links; nil for texts that already have line breaks or escapes
 -- that cannot be measured.
 local function Tokens(text)
@@ -119,13 +124,21 @@ function Indent.Wrap(frame, message)
 	if width < 50 then
 		return nil
 	end
-	local available = width - MARGIN
+	-- Room for the scroll bar at the right edge (the text area is narrower than the window).
+	local scrollBar = frame.ScrollBar
+	local barWidth = scrollBar and scrollBar.IsShown and scrollBar:IsShown() and ns.Number(scrollBar:GetWidth(), 0) or 0
+	local available = width - MARGIN - barWidth
 	PrepareMeter(frame)
+	-- The indent is the width of the timestamp as it stands in the message (a message of the chat events carries its
+	-- own); lines without one (messages of addons) get the width the timestamp would have, so all continuation
+	-- lines stand in one column.
 	local sample = TimestampSample()
-	local indent = sample and Indent.measure(sample) or spaceWidth * FALLBACK_BLANKS
-	-- Room the timestamp takes in front of the first line when it is not part of the message.
-	local extra = sample and not StartsWithTimestamp(message, sample) and indent or 0
-	if Indent.measure(message) + extra <= available then
+	local indent = sample and PaddedWidth(sample) or spaceWidth * FALLBACK_BLANKS
+	if sample and StartsWithTimestamp(message, sample) then
+		local plain = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+		indent = PaddedWidth(plain:sub(1, #sample))
+	end
+	if Indent.measure(message) <= available then
 		return nil
 	end
 	local tokens = Tokens(message)
@@ -140,7 +153,7 @@ function Indent.Wrap(frame, message)
 	for _, token in ipairs(tokens) do
 		local tokenWidth = TokenWidth(token)
 		if not line then
-			line, lineWidth = token, extra + tokenWidth
+			line, lineWidth = token, tokenWidth
 		elseif lineWidth + spaceWidth + tokenWidth <= available then
 			line, lineWidth = line .. " " .. token, lineWidth + spaceWidth + tokenWidth
 		else

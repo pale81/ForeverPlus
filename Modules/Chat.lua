@@ -1031,7 +1031,37 @@ local function RegisterKeywordAlertMenuItem()
 	end
 end
 
+-- The frame of the chat windows (the border textures of the window and of its button strip, and the dark strip
+-- of the buttons) is hidden for good; the dark background of the text stays. The game fades these parts in with
+-- the buttons, so a hidden texture is the only way to keep them away.
+local BORDER_PARTS = { "TopLeftTexture", "BottomLeftTexture", "TopRightTexture", "BottomRightTexture", "LeftTexture",
+	"RightTexture", "BottomTexture", "TopTexture" }
+
+local function HideChatBorders()
+	for index = 1, ns.Number(NUM_CHAT_WINDOWS, 10) do
+		local name = "ChatFrame" .. index
+		for _, base in ipairs({ name, name .. "ButtonFrame" }) do
+			for _, part in ipairs(BORDER_PARTS) do
+				local texture = _G[base .. part]
+				if texture and texture.Hide then
+					texture:Hide()
+				end
+			end
+		end
+		local strip = _G[name .. "ButtonFrameBackground"]
+		if strip and strip.Hide then
+			strip:Hide()
+		end
+	end
+end
+
 function Chat:OnLogin()
+	HideChatBorders()
+	for _, name in ipairs({ "FCF_OpenNewWindow", "FCF_OpenTemporaryWindow", "FCF_SetWindowAlpha" }) do
+		if _G[name] then
+			hooksecurefunc(name, ns.Measured("Chat: hide borders", HideChatBorders))
+		end
+	end
 	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkEnter", ns.Measured("Chat: channel tooltip", OnChannelLinkEnter), self)
 	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkLeave", OnChannelLinkLeave, self)
 	-- The saved lines come first, then this session's lines are recorded.

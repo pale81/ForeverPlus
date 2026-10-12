@@ -347,6 +347,16 @@ function RepFlash:ApplyWorldText()
 	end
 end
 
+-- The font of the game's world text (DAMAGE_TEXT_FONT, read when the game loads): a font with empty glyphs while
+-- our experience display is on, so nothing of the number remains (Media/Fonts/Invisible.ttf, tools/make_invisible_font.py).
+local INVISIBLE_FONT = "Interface\\AddOns\\ForeverPlus\\Media\\Fonts\\Invisible.ttf"
+
+function RepFlash:OnInitialize()
+	if self.db.xp then
+		_G["DAMAGE_TEXT_FONT"] = INVISIBLE_FONT
+	end
+end
+
 function RepFlash:Apply()
 	self:ApplyWorldText()
 	for event in pairs(CHAT_EVENTS) do
@@ -372,8 +382,11 @@ function RepFlash:OnLogin()
 	self:Apply()
 end
 
-function RepFlash:OnOptionChanged()
+function RepFlash:OnOptionChanged(key)
 	self:Apply()
+	if key == "xp" then
+		ns.Print(L.REPFLASH_FONT_RELOAD)
+	end
 end
 
 RepFlash.options = {

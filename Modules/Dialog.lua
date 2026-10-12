@@ -357,6 +357,7 @@ local function CreateBubble()
 	Tool("repair", [[Interface\Icons\Trade_BlackSmithing]], function()
 		local tools = ns.MerchantTools
 		if tools then
+			Dialog.repairDone = true
 			tools.Repair()
 		end
 	end, function(tooltip)
@@ -1506,6 +1507,8 @@ end
 ---------------------------------------------------------------------------
 local MERCHANT_ROWS = 14
 local merchantPicked, merchantOffset, merchantMode, merchantSaying = {}, 0, "wares", nil
+local repairSeen -- the last repair cost seen at this merchant (Dialog.repairDone: the player repaired since)
+local REPAIR_GRACE = 2
 local merchantQty = {} -- ware index -> how many "Buy" takes of it (counted with the mouse wheel over the row)
 local knownWares = {} -- ware index -> known already (read from the tooltip once per visit)
 
@@ -1798,12 +1801,17 @@ function Dialog.MerchantView()
 				available.sell = true
 			end
 		end
+		-- Only the symbol beside the book (no button with text), and only while something is worn. The list is
+		-- rebuilt often and the game briefly reports nothing to repair while items move: a symbol seen a moment
+		-- ago stays.
 		if CanMerchantRepair and CanMerchantRepair() then
 			local repairCost, canRepair = GetRepairAllCost()
 			if canRepair and repairCost > 0 then
-				buttons[#buttons + 1] = { text = L.DIALOG_REPAIR, enabled = repairCost <= money, action = function()
-					RepairAllItems(false)
-				end }
+				repairSeen = { time = GetTime(), cost = repairCost }
+			elseif repairSeen and GetTime() - repairSeen.time < REPAIR_GRACE and not Dialog.repairDone then
+				repairCost, canRepair = repairSeen.cost, true
+			end
+			if canRepair and repairCost > 0 then
 				available.repair = repairCost <= money -- false: shown dim
 			end
 		end
@@ -1876,6 +1884,7 @@ function Dialog:OnConversation(event)
 			return
 		end
 		if event == "MERCHANT_SHOW" then
+			repairSeen, Dialog.repairDone = nil, nil
 			wipe(merchantPicked)
 			wipe(merchantQty)
 			merchantOffset, merchantSaying = 0, PickSaying()

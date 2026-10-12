@@ -697,7 +697,8 @@ local function OutlineFonts()
 	for _, name in ipairs(GetFonts()) do
 		if not outlined[name] then
 			outlined[name] = true
-			local font = _G[name]
+			-- Name plates keep the game's font: set again with one file it loses the glyphs of other alphabets.
+			local font = not name:find("NamePlate", 1, true) and _G[name]
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
 				if IsDarkFont(font) then
 					dark = dark or {}

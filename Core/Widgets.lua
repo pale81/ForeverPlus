@@ -42,6 +42,19 @@ end
 -- brighter than the colour that shows.
 ns.PANEL_BORDER = { 0.88, 0.65, 0.40 }
 
+-- The windows of ForeverPlus carry the border colour of the game's tooltips (the same call the tooltips get from the
+-- "bronze border" option), so a map preview or a list looks like the tooltips beside it.
+do
+	local color = _G.TOOLTIP_DEFAULT_COLOR
+	local r, g, b
+	if type(color) == "table" and color.GetRGB then
+		r, g, b = color:GetRGB()
+	end
+	if type(r) == "number" and type(g) == "number" and type(b) == "number" then
+		ns.PANEL_BORDER = { r, g, b }
+	end
+end
+
 function ns.CreatePanel(name, options)
 	options = options or {}
 	local panel = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")

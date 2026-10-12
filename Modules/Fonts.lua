@@ -52,7 +52,9 @@ end
 local function Collect()
 	local added
 	for _, name in ipairs(GetFonts()) do
-		if not originals[name] then
+		-- The fonts of the name plates stay as the game made them: set again with one file they lose the glyphs of
+		-- other alphabets (Korean, Chinese, Russian names turned into boxes).
+		if not originals[name] and not name:find("NamePlate", 1, true) then
 			local font = _G[name]
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
 				local face, size = font:GetFont()

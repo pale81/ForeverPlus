@@ -38,9 +38,11 @@ def main(checkout):
     # Innkeepers players found that the recordings lack: the position most of them agree on.
     submitted = {}
     for who, data in contrib.load().items():
+        english = data['meta'].get('locale') == 'enUS'
         for npc, uimap, x, y, team, name in data['inns']:
             if npc not in found:
-                submitted.setdefault(npc, []).append((uimap, round(x), round(y), team, name))
+                # Names only from English clients (the data keeps one language).
+                submitted.setdefault(npc, []).append((uimap, round(x), round(y), team, name if english else ''))
     for npc, rows in submitted.items():
         best = max(set(rows), key=rows.count)
         found[npc] = (best[0], best[1], best[2], best[3], best[4] or '?')

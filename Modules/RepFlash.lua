@@ -12,7 +12,7 @@ local RepFlash = ns:NewModule("RepFlash", {
 		xp = false,
 		honor = false,
 		hideChat = true, -- the chat line of a kind that flashes is hidden
-		worldTextOld = {}, -- the game's floating-number settings before ours (see ApplyWorldText)
+		worldTextReset = false, -- the world text settings went back to the game's defaults once
 		xpClassColor = true, -- the experience in the colour of the class
 		xpSparkle = true,    -- and with sparks in that colour
 		xpSound = false,     -- and a sound
@@ -325,25 +325,25 @@ end
 local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
 local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
 
--- The game draws its own number for experience over the corpse (and all floating numbers) and has no switch for it. While
--- our experience display is on, scale, smallest size and smallest opacity of that text are 0 (tiny; the client
--- does not allow more); the earlier values are kept and come back when the display is switched off.
-local WORLD_TEXT = { "WorldTextScale_v2", "WorldTextMinSize", "WorldTextMinAlpha_v2" }
+-- The settings of the game's world text (all floating numbers). Earlier versions set three of them to 0 while the
+-- experience display was on; the invisible font replaces that. They go back to the game's defaults once (and with /fp welttext).
+local WORLD_TEXT = { "WorldTextScale_v2", "WorldTextMinSize", "WorldTextMinAlpha_v2", "WorldTextGravity_v2",
+	"WorldTextRampDuration_v2", "WorldTextRampPow_v2", "WorldTextRampPowCrit_v2", "WorldTextNonRandomZ_v2",
+	"WorldTextRandomZMin_v2", "WorldTextRandomZMax_v2", "WorldTextRandomXY_v2", "WorldTextScreenY_v2",
+	"WorldTextCritScreenY_v2", "WorldTextStartPosRandomness_v2" }
 
-function RepFlash:ApplyWorldText()
-	local db = self.db
-	db.worldTextOld = db.worldTextOld or {}
+function RepFlash.ResetWorldText(announce)
+	local default = C_CVar and C_CVar.GetCVarDefault or GetCVarDefault
+	local count = 0
 	for _, name in ipairs(WORLD_TEXT) do
-		if db.xp then
-			local value = GetCVar(name)
-			if value ~= nil and value ~= "0" then
-				db.worldTextOld[name] = value
-				SetCVar(name, 0)
-			end
-		elseif db.worldTextOld[name] ~= nil then
-			SetCVar(name, db.worldTextOld[name])
-			db.worldTextOld[name] = nil
+		local value = default and default(name)
+		if value ~= nil and GetCVar(name) ~= nil then
+			SetCVar(name, value)
+			count = count + 1
 		end
+	end
+	if announce then
+		ns.PrintAlways(L.REPFLASH_WORLDTEXT_RESET, count)
 	end
 end
 
@@ -358,7 +358,6 @@ function RepFlash:OnInitialize()
 end
 
 function RepFlash:Apply()
-	self:ApplyWorldText()
 	for event in pairs(CHAT_EVENTS) do
 		RemoveFilter(event, HideFilter)
 		if self.db.hideChat and (self.db.enabled or self.db.xp or self.db.honor) then
@@ -380,6 +379,10 @@ end
 function RepFlash:OnLogin()
 	BuildHonorPatterns()
 	self:Apply()
+	if not self.db.worldTextReset then
+		self.db.worldTextReset, self.db.worldTextOld = true, nil
+		RepFlash.ResetWorldText(true)
+	end
 end
 
 function RepFlash:OnOptionChanged(key)

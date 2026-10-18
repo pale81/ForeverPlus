@@ -25,9 +25,10 @@ local POP_END = 0.22         -- seconds: pop-up finished
 local HOLD_END = 1.25        -- seconds: hold finished, the flight begins
 local DOCK_END = 1.95        -- seconds: landed
 local BIG, SMALL = 1.7, 0.6  -- scale while holding, scale on the bar
-local MAX_LINES = 3
+local MAX_LINES = 3          -- lines on one page; more changes come as further pages one after the other
 
 local root, holder, text
+local shownPage            -- the page of the text now on the screen
 local changes = {}           -- { name, total } in order of arrival
 local elapsed = 0
 local targetX, targetY
@@ -71,22 +72,33 @@ local function ClassHex()
 	return ("ff%02x%02x%02x"):format(Byte(color.r), Byte(color.g), Byte(color.b))
 end
 
-local function BuildText()
+-- The changes come in pages of MAX_LINES lines, one page after the other while the text holds still.
+local function PageCount()
+	return math.max(1, math.ceil(#changes / MAX_LINES))
+end
+
+local function HoldEnd()
+	return POP_END + PageCount() * (HOLD_END - POP_END)
+end
+
+local function DockEnd()
+	return HoldEnd() + (DOCK_END - HOLD_END)
+end
+
+-- The whole line in the colour of the class (gains) or red (losses).
+local function BuildText(page)
 	local lines = {}
-	for i = 1, math.min(#changes, MAX_LINES) do
+	for i = (page - 1) * MAX_LINES + 1, math.min(#changes, page * MAX_LINES) do
 		local change = changes[i]
 		local color = change.total >= 0 and "ff40ff40" or "ffff4040"
 		if change.total >= 0 and RepFlash.db.classColor then
 			color = ClassHex() or color
 		end
 		if change.kind == "xp" then
-			lines[i] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
+			lines[#lines + 1] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
 		else
-			lines[i] = ("%s |c%s%+d|r"):format(change.name, color, change.total)
+			lines[#lines + 1] = ("|c%s%s %+d|r"):format(color, change.name, change.total)
 		end
-	end
-	if #changes > MAX_LINES then
-		lines[#lines + 1] = L.REPFLASH_MORE:format(#changes - MAX_LINES)
 	end
 	return table.concat(lines, "\n")
 end
@@ -99,15 +111,26 @@ end
 local function Update(_, delta)
 	elapsed = elapsed + delta
 	local t = elapsed
+	local holdEnd, dockEnd = HoldEnd(), DockEnd()
 	local scale, alpha, x, y
 	if t < POP_END then
 		local k = t / POP_END
 		scale, alpha, x, y = 0.4 + (BIG - 0.4) * BackOut(k), math.min(1, k * 3), 0, START_Y
-	elseif t < HOLD_END then
-		local k = (t - POP_END) / (HOLD_END - POP_END)
+		if shownPage ~= 1 then
+			shownPage = 1
+			text:SetText(BuildText(1))
+		end
+	elseif t < holdEnd then
+		local pageTime = HOLD_END - POP_END
+		local page = math.min(PageCount(), math.floor((t - POP_END) / pageTime) + 1)
+		if page ~= shownPage then
+			shownPage = page
+			text:SetText(BuildText(page))
+		end
+		local k = ((t - POP_END) % pageTime) / pageTime
 		scale, alpha, x, y = BIG - 0.15 * k, 1, 0, START_Y
-	elseif t < DOCK_END then
-		local k = Ease((t - HOLD_END) / (DOCK_END - HOLD_END))
+	elseif t < dockEnd then
+		local k = Ease((t - holdEnd) / (dockEnd - holdEnd))
 		if not targetX then
 			targetX, targetY = TargetOffset()
 		end
@@ -198,7 +221,7 @@ function RepFlash:Add(name, amount, kind)
 	end
 	text:SetFont(ns.GetFontFace(), TEXT_SIZE, "OUTLINE")
 	-- Late changes during the flight start a fresh flash.
-	if root:IsShown() and elapsed >= HOLD_END then
+	if root:IsShown() and elapsed >= HoldEnd() then
 		wipe(changes)
 	end
 	local entry
@@ -215,8 +238,9 @@ function RepFlash:Add(name, amount, kind)
 	if kind == "xp" then
 		self:CelebrateXP()
 	end
-	text:SetText(BuildText())
-	-- A running flash pops once more; a new one starts at the beginning.
+	-- A running flash pops once more and starts again with the first page; a new one starts at the beginning.
+	shownPage = nil
+	text:SetText(BuildText(1))
 	elapsed = root:IsShown() and 0.06 or 0
 	targetX, targetY = nil, nil
 	root:Show()

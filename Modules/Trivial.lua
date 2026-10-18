@@ -16,9 +16,9 @@ local Trivial = ns:NewModule("Trivial", {
 })
 
 -- The kinds, in the order of the exception list.
-local KINDS = { "rested", "drunk", "afk", "trade", "explore", "quest" }
+local KINDS = { "rested", "drunk", "afk", "trade", "explore", "quest", "flee" }
 
-local EVENTS = { "CHAT_MSG_SYSTEM", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_COMBAT_XP_GAIN" }
+local EVENTS = { "CHAT_MSG_SYSTEM", "CHAT_MSG_TEXT_EMOTE", "CHAT_MSG_COMBAT_XP_GAIN", "CHAT_MSG_MONSTER_EMOTE" }
 
 -- Names of the game's format strings per kind; unknown names are skipped.
 local FORMATS = {
@@ -38,6 +38,8 @@ local FORMATS = {
 local TEXTS = {
 	rested = { L.TRIVIAL_RESTED_TEXT, "no longer rested", "nicht mehr erholt" },
 	explore = { "entdeckt: " }, -- "Höhle der Frostmane entdeckt: 65 Erfahrung erhalten."
+	-- "Kobold versucht zu flüchten." (a creature at low health runs away; the text of the emote has the name as %s)
+	flee = { "versucht zu flüchten", "versucht zu fliehen", "attempts to run away", "tries to run away", "flees in terror" },
 }
 
 local matchers = {} -- kind -> list of Lua patterns (anchored) or plain texts
@@ -135,7 +137,7 @@ end
 
 local KIND_NAMES = {
 	rested = "TRIVIAL_RESTED", drunk = "TRIVIAL_DRUNK", afk = "TRIVIAL_AFK", trade = "TRIVIAL_TRADE",
-	explore = "TRIVIAL_EXPLORE", quest = "TRIVIAL_QUEST",
+	explore = "TRIVIAL_EXPLORE", quest = "TRIVIAL_QUEST", flee = "TRIVIAL_FLEE",
 }
 
 -- List of the kinds: checked = hidden; a click makes the kind an exception (shown) and back.

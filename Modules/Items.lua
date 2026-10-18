@@ -1590,6 +1590,26 @@ end
 ---------------------------------------------------------------------------
 -- Bags: sorted by the game's own cleanup when they open
 ---------------------------------------------------------------------------
+-- The last steps of sorting with their time (/fp taschen verlauf): who sorted, what the placing of the marked items
+-- did, when the layout counted as settled. For seeing in what order things happen when the bags look odd.
+Items.trace = {}
+function Items.Trace(text, ...)
+	if select("#", ...) > 0 then
+		text = text:format(...)
+	end
+	if #Items.trace >= 80 then
+		table.remove(Items.trace, 1)
+	end
+	Items.trace[#Items.trace + 1] = ("%.2f %s"):format(ns.Number(GetTime(), 0) % 1000, text)
+end
+
+function Items.PrintTrace()
+	ns.PrintAlways(L.ITEMS_TRACE, #Items.trace)
+	for _, line in ipairs(Items.trace) do
+		DEFAULT_CHAT_FRAME:AddMessage("  " .. line)
+	end
+end
+
 local SORT_PAUSE = 3 -- seconds between automatic sorts
 local SORT_CHECK = 0.4 -- seconds between looks at the bags while a sort runs
 local SETTLE = 1.5 -- seconds the layout of the bags must stay the same (and unlocked) for a sort to count as over
@@ -1664,6 +1684,7 @@ local function WatchSort()
 	C_Timer.NewTicker(SORT_CHECK, function(ticker)
 		waited = waited + SORT_CHECK
 		if LayoutSettled() or waited >= SORT_MAX then
+			Items.Trace("Sortieren beendet nach %.1f s (%s)", waited, waited >= SORT_MAX and "Zeitgrenze" or "Belegung ruhig")
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
@@ -1680,13 +1701,17 @@ local function SortOnOpen()
 	end
 	local now = GetTime()
 	if now - lastSort < SORT_PAUSE or AnyLocked() then
+		Items.Trace("Öffnen: nicht sortiert (Pause oder Gegenstand gesperrt)")
 		return
 	end
 	if Items.db.sortSkip and sortedLayout and sortedLayout == Items.LayoutSignature() then
+		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
 		return
 	end
 	lastSort = now
+	Items.sortSource = "Addon beim Öffnen"
 	C_Container.SortBags()
+	Items.sortSource = nil
 	WatchSort()
 end
 
@@ -1712,6 +1737,7 @@ end
 -- Called when a sort and the placing of the marked items are over.
 function RecordLayout()
 	if not sorting and not placing and not InCombatLockdown() then
+		Items.Trace("Stand gemerkt")
 		sortedLayout = Items.LayoutSignature()
 	end
 end
@@ -1861,6 +1887,9 @@ local function HasGaps(slots)
 end
 
 local function StopPlacing(finished)
+	if placing then
+		Items.Trace("Platzieren beendet (%s)", finished and "fertig" or "abgebrochen")
+	end
 	if placing and placing.ticker then
 		placing.ticker:Cancel()
 	end
@@ -1892,6 +1921,7 @@ local function PlacingStep()
 		end
 		state.moves = PlanJunkMoves(state.slots)
 		state.next = 1
+		Items.Trace("Plan: %d Züge (Runde %d, %.1f s seit dem Sortieren)", #state.moves, state.rounds or 1, now - state.started)
 	end
 	local move = state.moves[state.next]
 	if not move then
@@ -1915,6 +1945,7 @@ local function PlacingStep()
 end
 
 local function OnSortStarted()
+	Items.Trace("Sortieren gestartet von: %s", Items.sortSource or "Blizzard (Knopf, Taschenmenü) oder anderes")
 	-- Not in combat and not in windows in which other things move items (merchant, bank, mail, trade).
 	if not Items.db.sortMarkedJunk or InCombatLockdown() or OtherWindowOpen() then
 		return
@@ -1949,7 +1980,9 @@ local function UpdateSortOverlay()
 				return
 			end
 			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
+			Items.sortSource = "Knopf (Aufräumen)"
 			C_Container.SortBags()
+			Items.sortSource = nil
 		end)
 		sortOverlay:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self)

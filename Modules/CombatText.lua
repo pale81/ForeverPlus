@@ -11,6 +11,7 @@ local CombatText = ns:NewModule("CombatText", {
 	defaults = {
 		enabled = false,
 		outgoing = true,     -- damage on the target
+		ownOnly = true,      -- only damage on a target that is in a fight with the player
 		targetPlate = true,  -- rising from the nameplate of the target (else from its own place)
 		incoming = true,     -- damage taken
 		heals = true,        -- healing received
@@ -30,9 +31,7 @@ local CRIT_FACTOR = 1.5
 local RISE = 80          -- pixels over the lifetime
 local LIFETIME = 1.4     -- seconds
 local MAX_ACTIVE = 30
-local STAGGER = 26       -- pixels: texts of one place that appear within STAGGER_TIME start one above the other
-local STAGGER_TIME = 0.7
-local MAX_STAGGER = 4
+local MAX_BASE = 130      -- pixels: a text starts above the ones still rising from its place, at most this high
 local SHAKE_TIME = 0.5   -- seconds a critical hit shakes
 local SHAKE_SIZE = 7     -- pixels
 
@@ -111,6 +110,16 @@ local function Place(entry, rise)
 	end
 end
 
+-- The player takes part in the fight with the target: it attacks the player or the player is on its threat list.
+local function Involved()
+	local aimed = UnitIsUnit("targettarget", "player")
+	if Secret(aimed) or aimed then
+		return true
+	end
+	local threat = UnitThreatSituation("player", "target")
+	return Secret(threat) or threat ~= nil
+end
+
 local function Update(_, delta)
 	for index = #active, 1, -1 do
 		local entry = active[index]
@@ -120,7 +129,9 @@ local function Update(_, delta)
 			Release(entry)
 			table.remove(active, index)
 		else
-			Place(entry, RISE * (1 - (1 - k) * (1 - k)))
+			local rise = RISE * (1 - (1 - k) * (1 - k))
+			entry.top = entry.y + rise + entry.height
+			Place(entry, rise)
 			entry.fs:SetAlpha(k > 0.6 and 1 - (k - 0.6) / 0.4 or 1)
 		end
 	end
@@ -165,14 +176,17 @@ local function Spawn(text, kind, crit, plate)
 	fs:Show()
 	-- Three places: the target, damage taken (and misses), healing.
 	local group = kind == "outgoing" and "target" or kind == "heal" and "heal" or "incoming"
-	local recent = 0
+	-- Above what still rises from the same place (a critical hit is taller than the text before it), so none overlaps.
+	local height = size * 1.1
+	local base = 0
 	for _, other in ipairs(active) do
-		if other.group == group and other.plate == plate and other.age < STAGGER_TIME then
-			recent = recent + 1
+		if other.group == group and other.plate == plate then
+			base = math.max(base, other.top or (other.y + other.height))
 		end
 	end
 	local entry = { fs = fs, age = 0, plate = plate, group = group, anchor = anchors[group] or UIParent,
-		x = math.random(-12, 12), y = math.min(recent, MAX_STAGGER) * STAGGER, shake = crit and db.critShake }
+		x = math.random(-8, 8), y = math.min(base, MAX_BASE), height = height, shake = crit and db.critShake }
+	entry.top = entry.y + height
 	active[#active + 1] = entry
 	Place(entry, 0)
 	ns.SetUpdate(frame, "Combat text", Update)
@@ -192,6 +206,9 @@ function CombatText.Handle(unit, event, flagText, amount)
 	if not mine then
 		-- Damage on the target; not on friends, not on oneself.
 		if not db.outgoing or not UnitCanAttack("player", "target") or UnitIsUnit("target", "player") then
+			return
+		end
+		if db.ownOnly and not Involved() then
 			return
 		end
 		if db.targetPlate then
@@ -260,6 +277,7 @@ end
 CombatText.options = {
 	{ key = "enabled", type = "toggle", name = L.COMBATTEXT_ENABLE, desc = L.COMBATTEXT_ENABLE_DESC, new = true },
 	{ key = "outgoing", type = "toggle", name = L.COMBATTEXT_OUTGOING, desc = L.COMBATTEXT_OUTGOING_DESC, parent = "enabled", new = true },
+	{ key = "ownOnly", type = "toggle", name = L.COMBATTEXT_OWN_ONLY, desc = L.COMBATTEXT_OWN_ONLY_DESC, parent = "outgoing", new = true },
 	{ key = "targetPlate", type = "toggle", name = L.COMBATTEXT_TARGET_PLATE, desc = L.COMBATTEXT_TARGET_PLATE_DESC, parent = "outgoing", new = true },
 	{ key = "incoming", type = "toggle", name = L.COMBATTEXT_INCOMING, desc = L.COMBATTEXT_INCOMING_DESC, parent = "enabled", new = true },
 	{ key = "heals", type = "toggle", name = L.COMBATTEXT_HEALS, desc = L.COMBATTEXT_HEALS_DESC, parent = "enabled", new = true },

@@ -1773,15 +1773,6 @@ local function SortedSlots()
 			end
 		end
 	end
-	-- With "sort bags right to left" the cleanup packs the items at the END and leaves the free slots in front: the
-	-- list runs the other way then, so that "front part" and "behind" mean the same as with the usual direction.
-	if C_Container.GetSortBagsRightToLeft and C_Container.GetSortBagsRightToLeft() == true then
-		local reversed = {}
-		for index = #slots, 1, -1 do
-			reversed[#reversed + 1] = slots[index]
-		end
-		slots = reversed
-	end
 	return slots
 end
 

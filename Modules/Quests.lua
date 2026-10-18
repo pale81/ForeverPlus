@@ -156,23 +156,37 @@ local function Secret(value)
 	return issecretvalue and issecretvalue(value)
 end
 
--- First open objective of the unit's quest lines, e.g. "3/8".
-local function QuestProgress(unit)
+-- The quest lines in the tooltip of the unit: "open" when one objective is not done (or has no count), "done" when
+-- all of them are done (8/8), nil without quest lines; and the first open count, e.g. "3/8".
+local function QuestScan(unit)
 	local data = C_TooltipInfo.GetUnit(unit)
-	local found
+	local status, progress
 	for _, line in ipairs(data and data.lines or {}) do
 		if line.type == Enum.TooltipDataLineType.QuestObjective then
-			found = ""
+			local open = true
 			local text = line.leftText
 			if text and not Secret(text) then
 				local have, need = text:match("(%d+)%s*/%s*(%d+)")
-				if have and tonumber(have) < tonumber(need) then
-					return ("%s/%s"):format(have, need)
+				if have then
+					open = tonumber(have) < tonumber(need)
+					if open and not progress then
+						progress = ("%s/%s"):format(have, need)
+					end
 				end
+			end
+			if open then
+				status = "open"
+			elseif status ~= "open" then
+				status = "done"
 			end
 		end
 	end
-	return found
+	return status, progress
+end
+
+local function QuestProgress(unit)
+	local status, progress = QuestScan(unit)
+	return progress or (status == "open" and "" or nil)
 end
 
 -- Open objectives of active quests that the creature serves, by the recordings of the loot windows: the item the
@@ -214,12 +228,13 @@ end
 local function IsQuestUnit(unit)
 	local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
 	if related and not Secret(related) then
-		return true
+		-- The game keeps the flag after the objective is done: the tooltip then lists it as finished (8/8).
+		return QuestScan(unit) ~= "done"
 	end
 	if Secret(related) or UnitIsPlayer(unit) or not UnitCanAttack("player", unit) then
 		return false
 	end
-	return QuestProgress(unit) ~= nil or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
+	return QuestScan(unit) == "open" or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
 end
 
 local function GetMarker(nameplate)

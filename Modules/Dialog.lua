@@ -660,6 +660,7 @@ Render = function(view)
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do
 			object:Hide()
+			object:SetAlpha(1) -- a step that waited for the next one had its content hidden (Dialog.Pending)
 		end
 	end
 	local y = 0
@@ -1153,6 +1154,62 @@ function Dialog.Rerender()
 	end
 end
 
+-- A choice that asks the server for the next step (gossip option, quest, accept, continue): until the next step
+-- arrives the old one must not stay on screen. It did, in full (also the text just read), and was then replaced by
+-- the new text, which came in slowly: the text seemed to appear whole, vanish and come again.
+local PENDING_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
+	QUEST_COMPLETE = true }
+local PENDING_WAIT = 1.5 -- seconds after which a step that did not change comes back
+local pendingToken = 0
+
+function Dialog.Pending()
+	if not (bubble and current and PENDING_KINDS[current.view.kind]) then
+		return
+	end
+	pendingToken = pendingToken + 1
+	local token = pendingToken
+	-- A reveal in progress stops (it would show its text again with every picture).
+	if reveal.active then
+		reveal.active = false
+		wipe(reveal.list)
+		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
+	end
+	for _, pool in pairs(bubble.pools) do
+		for _, object in pairs(pool) do
+			object:SetAlpha(0)
+		end
+	end
+	C_Timer.After(PENDING_WAIT, function()
+		if token == pendingToken then
+			Dialog.Rerender()
+		end
+	end)
+end
+
+-- Puts Pending in front of the choices of a conversation step.
+local function WrapActions(view)
+	if not PENDING_KINDS[view.kind] then
+		return
+	end
+	local function Wrap(info)
+		local action = info.action
+		if action and action ~= Dialog.GoBack then
+			info.action = function(...)
+				Dialog.Pending()
+				return action(...)
+			end
+		end
+	end
+	for _, block in ipairs(view.blocks or {}) do
+		for _, info in ipairs(block.rows or {}) do
+			Wrap(info)
+		end
+	end
+	for _, info in ipairs(view.buttons or {}) do
+		Wrap(info)
+	end
+end
+
 -- The grey x at the top right: closes the merchant or trainer window and with it the bubble.
 function Dialog.CloseCurrent()
 	local kind = current and current.view.kind
@@ -1182,6 +1239,7 @@ local function Show(view, fromBack)
 		bubble.cursorMoved = false
 	end
 	showToken = showToken + 1
+	pendingToken = pendingToken + 1
 	-- Gossip is over once a merchant or trainer is open: "back" would lead to options that no longer work.
 	if view.kind == "MERCHANT_SHOW" or view.kind == "TRAINER_SHOW" then
 		wipe(history)
@@ -2006,6 +2064,7 @@ function Dialog:OnConversation(event)
 			local id = GetQuestID()
 			view.abandonQuestID = type(id) == "number" and id > 0 and id or nil
 		end
+		WrapActions(view)
 		Show(view)
 	else
 		-- Blizzard's window shows instead; the reason is reported once.

@@ -1404,6 +1404,24 @@ end)()
 	local ok, err = pcall(flash.Add, flash, "Eisenschmiede", 25)
 	assert(ok, tostring(err))
 	assert(pcall(flash.Add, flash, "Orgrimmar", -10), "second change merges")
+	-- the colour of the numbers: class colour for gains, red for losses
+	flash.db.classColor = true
+	flash.db.xp = true
+	assert(pcall(flash.Add, flash, "Eisenschmiede", 25), "rep in class colour")
+	assert(pcall(flash.Add, flash, "EP", 40, "xp"), "xp in class colour")
+	local combat = ns:GetModule("CombatText")
+	combat.db.enabled = false
+	issecretvalue = function() return false end
+	UnitCanAttack = function() return true end
+	UnitIsUnit = function() return false end
+	assert(pcall(combat.Handle, "target", "WOUND", "CRITICAL", 120), "own damage off: nothing happens")
+	combat.db.enabled = true
+	for _, args in ipairs({ { "target", "WOUND", "CRITICAL", 120 }, { "target", "MISS", "", 0 }, { "player", "WOUND", "", 15 },
+		{ "player", "HEAL", "", 30 }, { "party1", "WOUND", "", 5 }, { "player", "ENERGIZE", "", 5 } }) do
+		local ok, err = pcall(combat.Handle, unpack(args))
+		assert(ok, tostring(err))
+	end
+	combat.db.enabled = false
 	local trivial = ns:GetModule("Trivial")
 	DRUNK_MESSAGE_SELF1 = "Ihr fühlt Euch ein wenig beschwipst."
 	MARKED_AFK = "Ihr seid jetzt AFK."

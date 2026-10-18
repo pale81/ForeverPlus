@@ -2,7 +2,7 @@
 
 One file per contributor (the newest export replaces the older one: the addon
 exports everything it has recorded so far, so adding files up would count
-everything twice). Names are only taken from English clients.
+everything twice). Names come from any client: English ones win, other languages fill the gaps (the beta is not fully translated yet).
 
     python3 -I tools/contrib.py            # summary of the files in contrib/
 """

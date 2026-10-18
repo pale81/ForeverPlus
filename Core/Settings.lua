@@ -321,7 +321,7 @@ local PAGES = {
 		{ "Info", header = L.INFO_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},
-	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
+	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE }, { "CombatText", header = L.COMBATTEXT_TITLE } },
 	{ group = 1, title = L.VISUALS_TITLE, new = true,
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame") },
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },

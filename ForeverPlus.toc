@@ -71,6 +71,7 @@ Modules\Buffs.lua
 Modules\SpeechBubbles.lua
 Modules\Dialog.lua
 Modules\RepFlash.lua
+Modules\CombatText.lua
 Modules\Trivial.lua
 Modules\ChatIndent.lua
 Modules\ChatMinimize.lua

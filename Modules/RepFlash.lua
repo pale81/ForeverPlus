@@ -13,7 +13,7 @@ local RepFlash = ns:NewModule("RepFlash", {
 		honor = false,
 		hideChat = true, -- the chat line of a kind that flashes is hidden
 		worldTextReset = false, -- the world text settings went back to the game's defaults once
-		xpClassColor = true, -- the experience in the colour of the class
+		classColor = true,   -- the numbers (reputation, experience, honor) in the colour of the class
 		xpSparkle = true,    -- and with sparks in that colour
 		xpSound = false,     -- and a sound
 	},
@@ -62,7 +62,13 @@ end
 local function ClassHex()
 	local _, classFile = UnitClass("player")
 	local color = classFile and C_ClassColor.GetClassColor(classFile)
-	return color and color:GenerateHexColor() or nil
+	if not color then
+		return nil
+	end
+	local function Byte(value)
+		return math.floor(math.min(1, math.max(0, ns.Number(value, 1))) * 255 + 0.5)
+	end
+	return ("ff%02x%02x%02x"):format(Byte(color.r), Byte(color.g), Byte(color.b))
 end
 
 local function BuildText()
@@ -70,10 +76,10 @@ local function BuildText()
 	for i = 1, math.min(#changes, MAX_LINES) do
 		local change = changes[i]
 		local color = change.total >= 0 and "ff40ff40" or "ffff4040"
-		if change.kind == "xp" and RepFlash.db.xpClassColor then
+		if change.total >= 0 and RepFlash.db.classColor then
 			color = ClassHex() or color
-			lines[i] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
-		elseif change.kind == "xp" then
+		end
+		if change.kind == "xp" then
 			lines[i] = ("|c%s%+d %s|r"):format(color, change.total, change.name)
 		else
 			lines[i] = ("%s |c%s%+d|r"):format(change.name, color, change.total)
@@ -352,6 +358,10 @@ end
 local INVISIBLE_FONT = "Interface\\AddOns\\ForeverPlus\\Media\\Fonts\\Invisible.ttf"
 
 function RepFlash:OnInitialize()
+	-- One option for the numbers of all three kinds now (it was only for the experience).
+	if self.db.xpClassColor ~= nil then
+		self.db.classColor, self.db.xpClassColor = self.db.xpClassColor, nil
+	end
 	if self.db.xp then
 		_G["DAMAGE_TEXT_FONT"] = INVISIBLE_FONT
 	end
@@ -397,7 +407,7 @@ RepFlash.options = {
 	{ key = "xp", type = "toggle", name = L.REPFLASH_XP_OPTION, desc = L.REPFLASH_XP_OPTION_DESC, new = true },
 	{ key = "honor", type = "toggle", name = L.REPFLASH_HONOR_OPTION, desc = L.REPFLASH_HONOR_OPTION_DESC, new = true },
 	{ key = "hideChat", type = "toggle", name = L.REPFLASH_HIDE_CHAT, desc = L.REPFLASH_HIDE_CHAT_DESC, new = true },
-	{ key = "xpClassColor", type = "toggle", name = L.REPFLASH_XP_COLOR, desc = L.REPFLASH_XP_COLOR_DESC, parent = "xp", new = true },
+	{ key = "classColor", type = "toggle", name = L.REPFLASH_CLASS_COLOR, desc = L.REPFLASH_CLASS_COLOR_DESC, new = true },
 	{ key = "xpSparkle", type = "toggle", name = L.REPFLASH_XP_SPARKLE, desc = L.REPFLASH_XP_SPARKLE_DESC, parent = "xp", new = true },
 	{ key = "xpSound", type = "toggle", name = L.REPFLASH_XP_SOUND, desc = L.REPFLASH_XP_SOUND_DESC, parent = "xp", new = true },
 	{ type = "button", name = L.REPFLASH_TEST, text = L.QUESTS_TEST, desc = L.REPFLASH_TEST_DESC, func = function()

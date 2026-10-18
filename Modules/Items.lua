@@ -11,6 +11,8 @@ local Items = ns:NewModule("Items", {
 		sellButton = true,
 		autoSort = false,
 		sortSkip = true,
+		fullSound = true,   -- a sound when the bags are full
+		fullSoundChoice = "ping",
 		bagMenu = true,
 		sortMarkedJunk = true,
 		autoRepair = true,
@@ -2241,6 +2243,68 @@ local function OfferDestroy()
 	destroyDialog:Show()
 end
 
+-- A sound when the bags have just become full (the last free slot taken) or an item found no room.
+Items.fullState = { last = 0 }
+
+function Items.PlayFullSound()
+	local state = Items.fullState
+	local now = GetTime()
+	if now - state.last < 3 then
+		return
+	end
+	state.last = now
+	if ns.AlertSounds then
+		ns.AlertSounds.play(Items.db.fullSoundChoice)
+	end
+end
+
+-- Free slots of the bags that take any item (not those of special bags).
+function Items.FreeSlots()
+	local free = 0
+	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+		local slots, family = C_Container.GetContainerNumFreeSlots(bag)
+		if (family or 0) == 0 then
+			free = free + ns.Number(slots, 0)
+		end
+	end
+	return free
+end
+
+function Items.CheckFull()
+	local state = Items.fullState
+	local full = Items.FreeSlots() == 0
+	if full and state.wasFull == false then
+		Items.PlayFullSound()
+	end
+	state.wasFull = full
+end
+
+function Items:UpdateFullSound()
+	local state = self.fullState
+	if not state.frame then
+		state.frame = CreateFrame("Frame")
+		state.frame:SetScript("OnEvent", ns.Measured("Items: bags full", function(_, event, _, message)
+			if event == "UI_ERROR_MESSAGE" then
+				if not (issecretvalue and issecretvalue(message)) and message == ERR_INV_FULL then
+					Items.PlayFullSound()
+				end
+			else
+				Items.CheckFull()
+			end
+		end))
+	end
+	if self.db.fullSound then
+		state.frame:RegisterEvent("BAG_UPDATE_DELAYED")
+		state.frame:RegisterEvent("UI_ERROR_MESSAGE")
+		if state.wasFull == nil then
+			state.wasFull = Items.FreeSlots() == 0 -- the state now, so there is no sound at login with full bags
+		end
+	else
+		state.frame:UnregisterAllEvents()
+		state.wasFull = nil
+	end
+end
+
 function Items:UI_ERROR_MESSAGE(_, _, message)
 	if issecretvalue and issecretvalue(message) then
 		return
@@ -2413,6 +2477,7 @@ function Items:Refresh()
 		SetCVar("autoLootDefault", "1")
 	end
 	self:ToggleEvent("UI_ERROR_MESSAGE", db.destroyPrompt)
+	self:UpdateFullSound()
 	self:ToggleEvent("EQUIP_BIND_CONFIRM", db.autoEquipBind, EquipBound)
 	self:ToggleEvent("EQUIP_BIND_TRADEABLE_CONFIRM", db.autoEquipBind, EquipBound)
 	self:ToggleEvent("EQUIP_BIND_REFUNDABLE_CONFIRM", db.autoEquipBind, EquipBound)
@@ -2519,6 +2584,15 @@ Items.options = {
 	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
 	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
 	{ key = "sortMarkedJunk", type = "toggle", name = L.ITEMS_SORT_JUNK, desc = L.ITEMS_SORT_JUNK_DESC },
+	{ key = "fullSound", type = "toggle", name = L.ITEMS_FULL_SOUND, desc = L.ITEMS_FULL_SOUND_DESC, new = true },
+	{ key = "fullSoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "fullSound", new = true, values = function()
+		return ns.AlertSounds and ns.AlertSounds.choices or {}
+	end },
+	{ type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST, func = function()
+		if ns.AlertSounds then
+			ns.AlertSounds.play(Items.db.fullSoundChoice)
+		end
+	end },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

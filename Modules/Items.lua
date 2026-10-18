@@ -856,9 +856,10 @@ local function ScanNewItems()
 	local added = false
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
+			-- The cheap question first: only new items are looked at further.
+			local info = C_NewItems.IsNewItem(bag, slot) and C_Container.GetContainerItemInfo(bag, slot)
 			local link = info and info.hyperlink
-			if link and C_NewItems.IsNewItem(bag, slot) and C_Item.IsEquippableItem(link) then
+			if link and C_Item.IsEquippableItem(link) then
 				local key = ItemKey(bag, slot, link)
 				if not offered[key] then
 					local score, equippedScore = CompareScores(link)
@@ -1587,7 +1588,8 @@ end
 ---------------------------------------------------------------------------
 local SORT_PAUSE = 3 -- seconds between automatic sorts
 local SORT_CHECK = 0.4 -- seconds between looks at the bags while a sort runs
-local SORT_QUIET = 2 -- looks without a locked item that end a sort
+local SETTLE = 1.5 -- seconds the layout of the bags must stay the same (and unlocked) for a sort to count as over
+local SETTLE_LOOK = 0.25 -- seconds between two looks at the layout
 local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the bags show
 local lastSort, sortQueued, sorting = 0, false, false
 -- Layout of the bags after the last finished sort (items, counts, junk marks). While it is unchanged, opening the
@@ -1623,17 +1625,41 @@ local function AnyLocked()
 	return false
 end
 
+-- The game's cleanup works in bursts with pauses (the server moves the items); "no bag update for a moment" took
+-- such a pause for the end and the marked items were placed in a half-finished layout, which the rest of the cleanup
+-- then undid a few seconds later. A layout counts as settled when it has not changed for SETTLE seconds and no
+-- item is locked.
+local settle = { signature = nil, since = 0, checked = 0, result = false }
+
+local function ResetSettle()
+	settle.signature, settle.since, settle.checked, settle.result = nil, GetTime(), 0, false
+end
+
+local function LayoutSettled()
+	local now = GetTime()
+	if now - settle.checked < SETTLE_LOOK then
+		return settle.result
+	end
+	settle.checked = now
+	local signature = Items.LayoutSignature()
+	if signature ~= settle.signature then
+		settle.signature, settle.since = signature, now
+	end
+	settle.result = now - settle.since >= SETTLE and not AnyLocked()
+	return settle.result
+end
+
 -- The game sorts in steps over a while. A new sort before it is over (or
 -- while items are still locked) would work against the first and leave
 -- the items locked, so a sort counts as running until the bags have been
 -- quiet for a moment.
 local function WatchSort()
 	sorting = true
-	local waited, quiet = 0, 0
+	local waited = 0
+	ResetSettle()
 	C_Timer.NewTicker(SORT_CHECK, function(ticker)
 		waited = waited + SORT_CHECK
-		quiet = AnyLocked() and 0 or quiet + 1
-		if quiet >= SORT_QUIET or waited >= SORT_MAX then
+		if LayoutSettled() or waited >= SORT_MAX then
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
@@ -1664,7 +1690,7 @@ end
 -- items, which the game's cleanup puts together. Waits until the bags are
 -- quiet, then moves one item at a time.
 local PLACE_QUIET = 0.7  -- seconds without bag updates: the sort is done
-local SORT_TIMEOUT = 10
+local SORT_TIMEOUT = 15
 local MOVE_INTERVAL = 0.1
 local placing -- state while waiting for the sort or moving items
 
@@ -1854,7 +1880,7 @@ local function PlacingStep()
 	if not state.moves then
 		-- Waiting for the sort to finish (its result has no free slot between the items; for a few seconds more
 		-- a layout with gaps counts as not finished).
-		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) then
+		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) or not LayoutSettled() then
 			return
 		end
 		if now - state.started < 5 and HasGaps(state.slots) then
@@ -1890,6 +1916,7 @@ local function OnSortStarted()
 		return
 	end
 	StopPlacing()
+	ResetSettle()
 	placing = { started = GetTime(), lastUpdate = GetTime(), slots = SortedSlots() }
 	placing.ticker = C_Timer.NewTicker(MOVE_INTERVAL, PlacingStep)
 end

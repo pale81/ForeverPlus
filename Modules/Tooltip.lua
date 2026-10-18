@@ -320,6 +320,16 @@ local function Layout(frame)
 			r, g, b = NORMAL_FONT_COLOR:GetRGB()
 		end
 	end
+	-- A name in another alphabet (Korean, Chinese, Cyrillic …) is shown with the game's font family, which holds a
+	-- font for each alphabet; one font file set by SetFont has no such glyphs and shows boxes.
+	local foreign = not Secret(name) and type(name) == "string" and name:find("[\208-\255]") ~= nil
+	for _, text in ipairs({ frame.Name, frame.Grey }) do
+		if foreign then
+			text:SetFontObject("SystemFont_Outline")
+		else
+			text:SetFont(ns.GetFontFace(), NAME_SIZE, "OUTLINE")
+		end
+	end
 	frame.Name:SetText(name)
 	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
 	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")

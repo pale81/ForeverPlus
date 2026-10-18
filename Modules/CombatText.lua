@@ -21,7 +21,10 @@ local CRIT_FACTOR = 1.5
 local RISE = 80          -- pixels over the lifetime
 local LIFETIME = 1.4     -- seconds
 local MAX_ACTIVE = 30
-local PLAYER_X, PLAYER_Y = -140, 40 -- left of the screen centre, a little above: roughly beside the character
+local PLAYER_X, PLAYER_Y = 140, 40 -- beside the screen centre, a little above: roughly beside the character
+local STAGGER = 26       -- pixels: texts of one place that appear within STAGGER_TIME start one above the other
+local STAGGER_TIME = 0.7
+local MAX_STAGGER = 4
 
 local COLORS = {
 	outgoing = { 1, 0.82, 0.1 },
@@ -60,7 +63,7 @@ end
 local function Place(entry, rise)
 	entry.fs:ClearAllPoints()
 	if entry.plate then
-		entry.fs:SetPoint("BOTTOM", entry.plate, "TOP", entry.x, 6 + rise)
+		entry.fs:SetPoint("BOTTOM", entry.plate, "TOP", entry.x, 6 + entry.y + rise)
 	else
 		entry.fs:SetPoint("CENTER", UIParent, "CENTER", entry.x, entry.y + rise)
 	end
@@ -103,9 +106,23 @@ local function Spawn(text, kind, crit, plate)
 	fs:SetText(text)
 	fs:SetAlpha(1)
 	fs:Show()
-	local entry = { fs = fs, age = 0, plate = plate, x = math.random(-25, 25), y = PLAYER_Y }
-	if kind ~= "outgoing" then
-		entry.x = PLAYER_X + entry.x
+	-- Three places: the target, left of the character (damage taken, misses) and right of it (healing).
+	local group = kind == "outgoing" and "target" or kind == "heal" and "right" or "left"
+	local recent = 0
+	for _, other in ipairs(active) do
+		if other.group == group and other.plate == plate and other.age < STAGGER_TIME then
+			recent = recent + 1
+		end
+	end
+	local entry = { fs = fs, age = 0, plate = plate, group = group, x = math.random(-12, 12),
+		y = PLAYER_Y + math.min(recent, MAX_STAGGER) * STAGGER }
+	if group == "left" then
+		entry.x = entry.x - PLAYER_X
+	elseif group == "right" then
+		entry.x = entry.x + PLAYER_X
+	end
+	if plate then
+		entry.y = math.min(recent, MAX_STAGGER) * STAGGER -- on a plate the offset counts from the plate
 	end
 	active[#active + 1] = entry
 	Place(entry, 0)

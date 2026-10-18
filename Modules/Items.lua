@@ -646,16 +646,12 @@ local function CreateUpgradeFrame()
 
 	-- Celebration (option): a golden frame that breathes around the window, the window popping up, and sparks that
 	-- fly out from the picture, like a level up.
+	-- On the edge of the window itself (one frame, not a second one around it) in gold.
 	local glow = CreateFrame("Frame", nil, frame)
-	glow:SetPoint("TOPLEFT", -4, 4)
-	glow:SetPoint("BOTTOMRIGHT", 4, -4)
+	glow:SetAllPoints(frame)
 	glow:SetFrameLevel(frame:GetFrameLevel() + 20)
 	glow:EnableMouse(false)
-	ns.CreatePixelBorder(glow, glow, 3, "OVERLAY", 7):ShowColor(1, 0.82, 0.3, 0.95)
-	local outer = CreateFrame("Frame", nil, glow)
-	outer:SetPoint("TOPLEFT", -4, 4)
-	outer:SetPoint("BOTTOMRIGHT", 4, -4)
-	ns.CreatePixelBorder(outer, outer, 2, "OVERLAY", 6):ShowColor(1, 0.7, 0.2, 0.4)
+	ns.CreatePixelBorder(glow, glow, 2, "OVERLAY", 7):ShowColor(1, 0.82, 0.3, 0.95)
 	glow.Breathe = glow:CreateAnimationGroup()
 	glow.Breathe:SetLooping("BOUNCE")
 	local breathe = glow.Breathe:CreateAnimation("Alpha")
@@ -797,6 +793,14 @@ local function Celebrate(frame)
 	end
 	frame.Glow.Breathe:Play()
 	frame.Popup:Play()
+	-- The window ends at its normal size whatever the animation did (it stayed small at times).
+	frame.popupToken = (frame.popupToken or 0) + 1
+	local token = frame.popupToken
+	C_Timer.After(0.5, function()
+		if frame.popupToken == token then
+			frame.Popup:Stop()
+		end
+	end)
 	for _, group in ipairs(frame.Sparks) do
 		group:Play()
 	end
@@ -841,6 +845,16 @@ function ShowNextUpgrade()
 		big.Pop:Stop()
 		big.Pop:Play()
 		big.Lift:Play()
+		-- The big sign ends at full size and opacity whatever the animation did (it stayed tiny, with garbled
+		-- characters, at times).
+		big.popToken = (big.popToken or 0) + 1
+		local token = big.popToken
+		C_Timer.After(0.6, function()
+			if big.popToken == token then
+				big.Pop:Stop()
+				big:SetAlpha(1)
+			end
+		end)
 	else
 		big.Lift:Stop()
 	end
@@ -1659,9 +1673,9 @@ local function ResetSettle()
 	settle.signature, settle.since, settle.checked, settle.result = nil, GetTime(), 0, false
 end
 
-local function LayoutSettled()
+local function LayoutSettled(need)
 	local now = GetTime()
-	if now - settle.checked < SETTLE_LOOK then
+	if now - settle.checked < SETTLE_LOOK and not need then
 		return settle.result
 	end
 	settle.checked = now
@@ -1669,7 +1683,7 @@ local function LayoutSettled()
 	if signature ~= settle.signature then
 		settle.signature, settle.since = signature, now
 	end
-	settle.result = now - settle.since >= SETTLE and not AnyLocked()
+	settle.result = now - settle.since >= (need or SETTLE) and not AnyLocked()
 	return settle.result
 end
 
@@ -1758,6 +1772,15 @@ local function SortedSlots()
 				slots[#slots + 1] = { bag, slot }
 			end
 		end
+	end
+	-- With "sort bags right to left" the cleanup packs the items at the END and leaves the free slots in front: the
+	-- list runs the other way then, so that "front part" and "behind" mean the same as with the usual direction.
+	if C_Container.GetSortBagsRightToLeft and C_Container.GetSortBagsRightToLeft() == true then
+		local reversed = {}
+		for index = #slots, 1, -1 do
+			reversed[#reversed + 1] = slots[index]
+		end
+		slots = reversed
 	end
 	return slots
 end
@@ -1871,24 +1894,9 @@ local function PlanJunkMoves(slots)
 	return moves
 end
 
--- A free slot in front of an item.
-local function HasGaps(slots)
-	local seenFree = false
-	for _, position in ipairs(slots) do
-		if C_Container.GetContainerItemInfo(position[1], position[2]) then
-			if seenFree then
-				return true
-			end
-		else
-			seenFree = true
-		end
-	end
-	return false
-end
-
-local function StopPlacing(finished)
+local function StopPlacing(finished, reason)
 	if placing then
-		Items.Trace("Platzieren beendet (%s)", finished and "fertig" or "abgebrochen")
+		Items.Trace("Platzieren beendet (%s)", finished and "fertig" or ("abgebrochen: " .. (reason or "neues Sortieren")))
 	end
 	if placing and placing.ticker then
 		placing.ticker:Cancel()
@@ -1902,21 +1910,20 @@ end
 local function PlacingStep()
 	local state = placing
 	if not state or InCombatLockdown() or GetCursorInfo() then
-		StopPlacing()
+		StopPlacing(false, InCombatLockdown() and "Kampf" or "Gegenstand am Zeiger")
 		return
 	end
 	local now = GetTime()
 	if now - state.started > SORT_TIMEOUT then
-		StopPlacing()
+		StopPlacing(false, "Zeitgrenze")
 		return
 	end
 	if not state.moves then
 		-- Waiting for the sort to finish (its result has no free slot between the items; for a few seconds more
 		-- a layout with gaps counts as not finished).
-		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) or not LayoutSettled() then
-			return
-		end
-		if now - state.started < 5 and HasGaps(state.slots) then
+		-- The first time the layout must have been still for SETTLE seconds (the game's cleanup works in bursts);
+		-- after moves of our own a short quiet is enough.
+		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) or not LayoutSettled(state.rounds and 0.5 or nil) then
 			return
 		end
 		state.moves = PlanJunkMoves(state.slots)

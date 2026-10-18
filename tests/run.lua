@@ -1421,6 +1421,12 @@ end)()
 		local ok, err = pcall(combat.Handle, unpack(args))
 		assert(ok, tostring(err))
 	end
+	-- options: no thick or shaking crits, colours by name, the place of the target instead of its plate
+	combat.db.critBold, combat.db.critShake, combat.db.targetPlate, combat.db.colorCrit = false, false, false, "CLASS"
+	assert(pcall(combat.Handle, "target", "WOUND", "CRITICAL", 99), "crit with the options off")
+	local items = ns:GetModule("Items")
+	assert(items.FreeSlots and items.CheckFull and items.PlayFullSound, "bag full sound functions")
+	assert(pcall(items.CheckFull), "bags full check runs")
 	combat.db.enabled = false
 	local trivial = ns:GetModule("Trivial")
 	DRUNK_MESSAGE_SELF1 = "Ihr fühlt Euch ein wenig beschwipst."

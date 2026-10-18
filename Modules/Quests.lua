@@ -1282,6 +1282,9 @@ local SOUND_CHOICES = {
 	{ "ping", L.QUESTS_SOUND_PING }, { "select", L.QUESTS_SOUND_SELECT }, { "none", L.QUESTS_SOUND_NONE },
 }
 
+-- The sounds are offered to other modules (bags full).
+ns.AlertSounds = { play = Play, choices = SOUND_CHOICES }
+
 Quests.options = {
 	{ type = "header", name = L.QUESTS_SOUNDS },
 	{ key = "sounds", type = "toggle", name = L.QUESTS_SOUNDS_ENABLE, desc = L.QUESTS_SOUNDS_ENABLE_DESC },

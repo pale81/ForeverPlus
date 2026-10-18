@@ -1404,6 +1404,9 @@ end)()
 	local ok, err = pcall(flash.Add, flash, "Eisenschmiede", 25)
 	assert(ok, tostring(err))
 	assert(pcall(flash.Add, flash, "Orgrimmar", -10), "second change merges")
+	for index = 1, 5 do
+		assert(pcall(flash.Add, flash, "Fraktion" .. index, 10 * index), "more than three lines make pages")
+	end
 	-- the colour of the numbers: class colour for gains, red for losses
 	flash.db.classColor = true
 	flash.db.xp = true
@@ -1443,6 +1446,10 @@ end)()
 	trivial.db.shown.rested = true
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Ihr seid nicht mehr erholt.") == false, "rested kept when off")
 	assert(filter(nil, "CHAT_MSG_SYSTEM", "Etwas ganz anderes.") == false, "other lines pass")
+	assert(filter(nil, "CHAT_MSG_MONSTER_EMOTE", "%s versucht zu flüchten.") == true, "fleeing emote hidden")
+	trivial.db.shown.flee = true
+	assert(filter(nil, "CHAT_MSG_MONSTER_EMOTE", "%s versucht zu flüchten.") == false, "fleeing emote kept as exception")
+	trivial.db.shown.flee = nil
 	print("trivial OK")
 end)()
 ;(function()

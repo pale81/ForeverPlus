@@ -78,7 +78,6 @@ local function TrackNew(initializer, id, hover, enabled)
 	end
 	-- The marks sit on the initializer (the row asks it, so a row reused for other settings counts nothing wrong).
 	initializer.fpNewID, initializer.fpNewHover = id, hover and true or false
-	local initFrame = initializer.InitFrame
 	local function Seen(row, byMouse)
 		local data = row.GetElementData and row:GetElementData()
 		local rowID = type(data) == "table" and data.fpNewID
@@ -109,8 +108,10 @@ local function TrackNew(initializer, id, hover, enabled)
 			end)
 		end
 	end
-	function initializer:InitFrame(frame)
-		initFrame(self, frame)
+	-- A hook after the game's own InitFrame (not a replacement of it): our code then does not run inside the game's
+	-- way through the list, whose later steps (search results with the Discord button, for one) refuse calls
+	-- once addon code has run there (ADDON_ACTION_FORBIDDEN IsUserOAuthed).
+	hooksecurefunc(initializer, "InitFrame", function(_, frame)
 		ShowRowBadge(frame, IsNew(id, true))
 		if not frame.foreverPlusNewTracked then
 			frame.foreverPlusNewTracked = true
@@ -124,7 +125,7 @@ local function TrackNew(initializer, id, hover, enabled)
 				HookHover(frame, child)
 			end
 		end
-	end
+	end)
 	return initializer
 end
 
@@ -169,12 +170,10 @@ local function ButtonInitializer(name, buttonText, onClick, tooltip)
 		tooltip = tooltip,
 	})
 	AddSearchTags(initializer, name, buttonText, tooltip, "ForeverPlus")
-	local initFrame = initializer.InitFrame
-	function initializer:InitFrame(frame)
-		initFrame(self, frame)
+	hooksecurefunc(initializer, "InitFrame", function(_, frame)
 		frame.Button:ClearAllPoints()
 		frame.Button:SetPoint("LEFT", frame, "CENTER", -80, 0)
-	end
+	end)
 	return initializer
 end
 

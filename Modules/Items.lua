@@ -46,6 +46,8 @@ local Items = ns:NewModule("Items", {
 
 -- Key binding labels (Bindings.xml).
 BINDING_HEADER_FOREVERPLUS = "ForeverPlus"
+-- The keybinding page of this client lists a binding whose name starts with PREFACE as a line of text.
+PREFACE_FOREVERPLUS = "ForeverPlus"
 BINDING_NAME_FOREVERPLUS_TOGGLEJUNK = L.ITEMS_BINDING_JUNK
 
 -- Each chat message can be switched off next to its function.

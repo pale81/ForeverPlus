@@ -13,6 +13,7 @@ globals = {
 	"ForeverPlus_OnAddonCompartmentClick",
 	"ForeverPlus_ToggleJunkUnderMouse",
 	"BINDING_HEADER_FOREVERPLUS",
+	"PREFACE_FOREVERPLUS",
 	"BINDING_NAME_FOREVERPLUS_TOGGLEJUNK",
 	"SLASH_FOREVERPLUS1",
 	"SLASH_FOREVERPLUS2",

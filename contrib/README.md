@@ -18,6 +18,6 @@ python3 -I tools/build_eg.py <Efficient-Games-Checkout>   # Beute, Gasthäuser, 
 ```
 
 Was eingerechnet wird: Beutefenster (Zähler werden addiert), Gastwirte (die Lage, auf die sich die meisten einigen),
-NPC-Quests, Fundorte von Questzielen und Kreaturen, Fahrten (mittlere Zeit je Strecke). Namen nur aus englischen Clients.
+NPC-Quests, Fundorte von Questzielen und Kreaturen, Fahrten (mittlere Zeit je Strecke). Namen aus jedem Client: englische gehen vor, andere füllen die Lücken (die Beta ist noch nicht ganz übersetzt).
 Bücher werden gelesen, aber noch nicht eingerechnet (`Data/Library.lua` ist von Hand gepflegt).
 Obergrenzen je Eintrag und Beitragendem stehen in `tools/contrib.py`.

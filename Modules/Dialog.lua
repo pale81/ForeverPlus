@@ -1180,7 +1180,13 @@ function Dialog.Pending()
 		end
 	end
 	C_Timer.After(PENDING_WAIT, function()
-		if token == pendingToken then
+		if token ~= pendingToken then
+			return
+		end
+		if current and bubble:IsShown() and not (GossipFrame and GossipFrame:IsShown() or QuestFrame and QuestFrame:IsShown()) then
+			-- The conversation ended meanwhile without an event: the empty step must not stay.
+			Hide()
+		else
 			Dialog.Rerender()
 		end
 	end)
@@ -1279,12 +1285,35 @@ local function NpcName()
 	return Readable(UnitName("npc")) or ""
 end
 
+-- Whether the game's window of a conversation (gossip or quest) is still open; it carries the conversation.
+local function ConversationWindowShown()
+	return (GossipFrame and GossipFrame:IsShown()) or (QuestFrame and QuestFrame:IsShown()) or false
+end
+
 local function CloseConversation()
+	-- The window may be gone already (the player walked away; the game closed it without an event for us): then
+	-- nothing would ever close the bubble, so it closes itself.
+	local windowShown = ConversationWindowShown()
 	if C_GossipInfo and C_GossipInfo.CloseGossip and GossipFrame and GossipFrame:IsShown() then
 		C_GossipInfo.CloseGossip()
 	elseif CloseQuest then
 		CloseQuest()
 	end
+	if not windowShown then
+		Hide()
+	end
+end
+
+-- The game's window went away (distance, Escape, another step): a moment later, with no window and no new step,
+-- the bubble closes.
+local function HideIfWindowsGone()
+	local token = showToken
+	C_Timer.After(0.3, function()
+		if token == showToken and current and bubble and bubble:IsShown() and PENDING_KINDS[current.view.kind]
+			and not ConversationWindowShown() then
+			Hide()
+		end
+	end)
 end
 
 local function GoodbyeButton()
@@ -2151,6 +2180,7 @@ function Dialog:OnLogin()
 		if window then
 			window:HookScript("OnHide", function(shown)
 				Collapse(shown, false)
+				HideIfWindowsGone()
 			end)
 			window:HookScript("OnShow", function(shown)
 				if Dialog.db.enabled and current and bubble and bubble:IsShown() then

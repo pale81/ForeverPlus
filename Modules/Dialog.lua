@@ -53,7 +53,7 @@ local function Trace(text, ...)
 	if select("#", ...) > 0 then
 		text = text:format(...)
 	end
-	if #trace >= 60 then
+	if #trace >= 100 then
 		table.remove(trace, 1)
 	end
 	trace[#trace + 1] = ("%.2f %s"):format(ns.Number(GetTime(), 0) % 1000, text)
@@ -105,6 +105,9 @@ local function RevealStep(_, elapsed)
 	if not speed or not fontString then
 		FinishReveal()
 		return
+	end
+	if reveal.position == 0 and reveal.index == 1 then
+		Trace("Lesen läuft (erstes Bild)")
 	end
 	reveal.position = reveal.position + elapsed * speed
 	local length = reveal.lengths[reveal.index]
@@ -205,6 +208,7 @@ local function CreateBubble()
 	frame:SetFrameStrata("HIGH")
 	frame:EnableMouse(true)
 	frame:SetScript("OnMouseDown", function()
+		Trace("Klick in die Blase")
 		if reveal.active then
 			FinishReveal()
 		end
@@ -966,6 +970,7 @@ end
 local function Place()
 	bubble:ClearAllPoints()
 	local nameplate = NpcNameplate()
+	Trace("Platz: %s", nameplate and "Plakette des NPCs" or "oben am Bildschirm")
 	if nameplate then
 		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
 		if Dialog.db.hidePlate then
@@ -1178,6 +1183,7 @@ function Dialog.Pending()
 	end
 	pendingToken = pendingToken + 1
 	local token = pendingToken
+	Trace("Wahl getroffen: alter Schritt ausgeblendet")
 	-- A reveal in progress stops (it would show its text again with every picture).
 	if reveal.active then
 		reveal.active = false
@@ -1304,6 +1310,7 @@ local function CloseConversation()
 	-- The window may be gone already (the player walked away; the game closed it without an event for us): then
 	-- nothing would ever close the bubble, so it closes itself.
 	local windowShown = ConversationWindowShown()
+	Trace("Verabschieden (Fenster des Spiels offen: %s)", tostring(windowShown))
 	if C_GossipInfo and C_GossipInfo.CloseGossip and GossipFrame and GossipFrame:IsShown() then
 		C_GossipInfo.CloseGossip()
 	elseif CloseQuest then
@@ -2189,6 +2196,7 @@ function Dialog:OnLogin()
 	for _, window in ipairs({ GossipFrame, QuestFrame }) do
 		if window then
 			window:HookScript("OnHide", function(shown)
+				Trace("Fenster verschwindet: %s", WindowState(shown))
 				Collapse(shown, false)
 				HideIfWindowsGone()
 			end)

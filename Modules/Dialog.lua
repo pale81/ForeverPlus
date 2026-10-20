@@ -916,10 +916,20 @@ local function NpcNameplate()
 		return guid and not (issecretvalue and issecretvalue(guid)) and guid == npcGuid
 	end
 	if npcGuid then
+		-- The unit of a plate: unitToken in this client (Blizzard_NamePlateBase), namePlateUnitToken in older ones.
+		-- Only the old name was read, so no plate ever matched and the bubble sat at the top of the screen.
 		for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
-			local token = plate.namePlateUnitToken
-			if token and not plate:IsForbidden() and Matches(token) then
+			local token = not plate:IsForbidden() and (plate.unitToken or plate.namePlateUnitToken
+				or (plate.UnitFrame and plate.UnitFrame.unit))
+			if type(token) == "string" and Matches(token) then
 				return plate
+			end
+		end
+		-- The plate of the talk unit itself, when it is still the same NPC.
+		if unit and Matches(unit) then
+			local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
+			if nameplate and not nameplate:IsForbidden() then
+				return nameplate
 			end
 		end
 		return nil

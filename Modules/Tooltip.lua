@@ -320,12 +320,12 @@ local function Layout(frame)
 			r, g, b = NORMAL_FONT_COLOR:GetRGB()
 		end
 	end
-	-- A name in another alphabet (Korean, Chinese, Cyrillic …) is shown with the game's font family, which holds a
-	-- font for each alphabet; one font file set by SetFont has no such glyphs and shows boxes.
-	local foreign = not Secret(name) and type(name) == "string" and name:find("[\208-\255]") ~= nil
+	-- A family with a font for each alphabet (Korean, Chinese, Cyrillic …): one font file set by SetFont has no such
+	-- glyphs and shows boxes.
+	local family = ns.FontObject(NAME_SIZE, "OUTLINE")
 	for _, text in ipairs({ frame.Name, frame.Grey }) do
-		if foreign then
-			text:SetFontObject("SystemFont_Outline")
+		if family then
+			text:SetFontObject(family)
 		else
 			text:SetFont(ns.GetFontFace(), NAME_SIZE, "OUTLINE")
 		end

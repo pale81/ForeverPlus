@@ -42,6 +42,7 @@ Data\RadarEG.lua
 Data\LootEG.lua
 Data\QuestsEG.lua
 Data\Points.lua
+Data\FontFamilies.lua
 Data\Inns.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua

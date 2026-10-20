@@ -435,7 +435,8 @@ local function HookBuyFilter()
 end
 
 ---------------------------------------------------------------------------
--- Sell frames: warning text above the post button
+-- Sell frames: merchant comparison and warning below the post button (above it sits the game's total price, which
+-- the lines covered)
 ---------------------------------------------------------------------------
 local sellWarnings = {}
 local sellVendorInfo = {}
@@ -444,7 +445,7 @@ local function UpdateSellWarning(frame, unitPrice)
 	local text = sellWarnings[frame]
 	if not text then
 		text = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-		text:SetPoint("BOTTOM", frame.PostButton, "TOP", 0, 6)
+		text:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -24)
 		sellWarnings[frame] = text
 	end
 	local location = frame:GetItem()
@@ -477,7 +478,7 @@ local function UpdateSellWarning(frame, unitPrice)
 	local info = sellVendorInfo[frame]
 	if not info then
 		info = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		info:SetPoint("BOTTOM", frame.PostButton, "TOP", 0, 25)
+		info:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -6)
 		sellVendorInfo[frame] = info
 	end
 	if (Auction.db.vendorProfit or Auction.db.vendorWarning) and vendor then

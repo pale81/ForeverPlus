@@ -59,7 +59,10 @@ local function Collect()
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
 				local face, size = font:GetFont()
 				if face and size and size > 0 then
-					local entry = { font = font, face = face, size = size, group = GroupOf(name, size) }
+					local data = ns.FontFamilies
+					local family = data and (data.families[name] and name or data.inherits[name])
+					local entry = { font = font, face = face, size = size, group = GroupOf(name, size),
+						members = family and data.families[family] or nil }
 					originals[name] = entry
 					added = added or {}
 					added[#added + 1] = entry
@@ -88,13 +91,57 @@ local function FaceFor(group, originalFace)
 	return face ~= "" and face or originalFace
 end
 
+-- A font object of the game is a family: one file per alphabet. Font:SetFont leaves one file and the letters of
+-- the other alphabets turn into boxes (Korean, Chinese, Russian names). So a new family is made (CreateFontFamily):
+-- the chosen face for the roman alphabet, the game's files for the others, all heights scaled alike
+-- (Data/FontFamilies.lua, tools/build_fonts.py). Colour, shadow, alignment and spacing of the object stay.
+local familyCount = 0
+
+local function FamilyFor(members, face, size, baseSize, flags)
+	if not (members and CreateFontFamily) then
+		return nil
+	end
+	local list = {}
+	for alphabet, member in pairs(members) do
+		list[#list + 1] = {
+			alphabet = alphabet,
+			file = alphabet == "roman" and face or member[1],
+			height = floor(member[2] * size / baseSize * 2 + 0.5) / 2,
+			flags = flags or "",
+		}
+	end
+	familyCount = familyCount + 1
+	local ok, family = pcall(CreateFontFamily, "ForeverPlusFontFamily" .. familyCount, list)
+	return ok and family or nil
+end
+
+local function SetFamily(font, family)
+	local r, g, b, a = font:GetTextColor()
+	local shadowX, shadowY = font:GetShadowOffset()
+	local sr, sg, sb, sa = font:GetShadowColor()
+	local justifyH, justifyV = font:GetJustifyH(), font:GetJustifyV()
+	local spacing = font:GetSpacing()
+	font:SetFontObject(family)
+	font:SetTextColor(r, g, b, a)
+	font:SetShadowOffset(shadowX, shadowY)
+	font:SetShadowColor(sr, sg, sb, sa)
+	font:SetJustifyH(justifyH)
+	font:SetJustifyV(justifyV)
+	font:SetSpacing(spacing)
+end
+
 local function Apply(entry)
 	local db = Fonts.db
 	local scale = db.size / 100 * (db["size_" .. entry.group] or 100) / 100
 	local size = floor(entry.size * scale * 2 + 0.5) / 2
 	local face = FaceFor(entry.group, entry.face)
 	local currentFace, currentSize, flags = entry.font:GetFont()
-	if face == currentFace and size == currentSize then
+	-- Heights come back as fractions (12.99…): compared with a margin, so unchanged objects are left alone.
+	if face == currentFace and math.abs(size - ns.Number(currentSize, 0)) < 0.05 then
+		return
+	end
+	local family = FamilyFor(entry.members, face, size, entry.size, flags)
+	if family and pcall(SetFamily, entry.font, family) then
 		return
 	end
 	-- Flags stay untouched (outline from the appearance module).
@@ -124,6 +171,21 @@ end
 function ns.GetFontFace()
 	local face = Fonts.db and Fonts.db.face
 	return face and face ~= "" and face or STANDARD_TEXT_FONT
+end
+
+-- A font object for own texts that can hold names of every alphabet: the chosen face for roman letters, the game's
+-- files for Korean, Chinese and Russian (members of the game's standard font). nil when the client cannot make one.
+local ownFamilies = {}
+
+function ns.FontObject(size, flags)
+	local face = ns.GetFontFace()
+	local key = ("%s|%s|%s"):format(tostring(face), tostring(size), tostring(flags or ""))
+	if ownFamilies[key] == nil then
+		local members = ns.FontFamilies and ns.FontFamilies.families.SystemFont_Shadow_Med1
+		local base = members and members.roman and members.roman[2]
+		ownFamilies[key] = base and FamilyFor(members, face, size, base, flags) or false
+	end
+	return ownFamilies[key] or nil
 end
 
 function Fonts:ApplyAll()

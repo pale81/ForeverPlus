@@ -35,6 +35,7 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 | [WoW Forever data page](https://wowforever.ninja/about/data/) | Documents a Classic baseline, client-derived Forever facts, in-game observations, and provenance labels. | Not imported: no stable bulk dataset/API and redistribution terms established in this review. |
 | [CMaNGOS classic-db](https://github.com/cmangos/classic-db) | SQL database for Classic 1.12; repository code/data are presented with GPL notices. | Not imported: its copyright notice separately restricts Blizzard-derived content and describes a non-commercial demo use. |
 | [ForeverTome](https://github.com/Skold177/ForeverTome) | GPL-2.0 collector and exporter for player observations. | Used as a reference for capture/provenance ideas only. Its code license does not license the collected game data; no separate redistribution grant for its saved data was established. |
+| Font definitions of the game's interface code (`Blizzard_Fonts_Shared`, GameFonts.xml and the other font files, local checkout of the UI source) | Which font file and height each alphabet of a font family uses, and which font object inherits which family. | **Used for `Data/FontFamilies.lua`** (`tools/build_fonts.py`): file names and heights only, so the fonts module can rebuild a family with the chosen face for roman letters and the game's own files for Korean, Chinese and Russian. |
 
 ## Rebuild
 

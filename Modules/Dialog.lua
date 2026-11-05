@@ -992,6 +992,9 @@ end
 
 local function Place()
 	bubble:ClearAllPoints()
+	-- The game keeps the whole bubble on the screen (title cut off at the top edge when the NPC's head was near it);
+	-- a setter only, so it also works while the bubble hangs on a plate that cannot be measured.
+	pcall(bubble.SetClampedToScreen, bubble, Dialog.db.onScreen and true or false)
 	local nameplate = NpcNameplate()
 	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
 		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
@@ -1108,6 +1111,9 @@ local function KeepOnScreen(on)
 			end
 		end
 		local fraction = math.min(0.85, (bubble:GetHeight() + INSET * 2 + 22 + 24) / math.max(UIParent:GetHeight(), 1))
+		-- These settings are not mentioned in the interface code of 1.60 any more; the trace says whether they exist.
+		Trace("Plaketten-Rand oben: %s", GetCVar("nameplateOtherTopInset") == nil and "Einstellung fehlt im Spiel"
+			or ("%.2f gesetzt"):format(fraction))
 		SetCVar("nameplateOtherTopInset", fraction)
 		SetCVar("nameplateLargeTopInset", fraction)
 		SetCVar("clampTargetNameplateToScreen", "1")

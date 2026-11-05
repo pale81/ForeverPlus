@@ -227,6 +227,53 @@ function Fonts:ApplyAll()
 	end
 end
 
+-- /fp schrift: which font object and which group of the options the texts under the mouse (and of an open
+-- tooltip) use, to see which slider changes them.
+function Fonts.InspectLines(frames)
+	local lines = {}
+	for _, frame in ipairs(frames) do
+		local ok, regions = pcall(function()
+			return { frame:GetRegions() }
+		end)
+		for _, region in ipairs(ok and regions or {}) do
+			pcall(function()
+				if region:GetObjectType() ~= "FontString" or not region:IsVisible() then
+					return
+				end
+				local text = region:GetText()
+				if not text or (issecretvalue and issecretvalue(text)) or text == "" then
+					return
+				end
+				local object = region:GetFontObject()
+				local name = object and object:GetName()
+				local entry = name and originals[name]
+				local _, size = region:GetFont()
+				lines[#lines + 1] = L.FONTS_INSPECT_LINE:format(text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):sub(1, 30),
+					name or L.FONTS_INSPECT_OWN, entry and L["FONTS_GROUP_" .. entry.group] or "-", ns.Number(size, 0))
+			end)
+		end
+	end
+	return lines
+end
+
+function Fonts.Inspect()
+	local frames = {}
+	for _, focus in ipairs(GetMouseFoci() or {}) do
+		frames[#frames + 1] = focus
+		if focus.GetParent and focus:GetParent() then
+			frames[#frames + 1] = focus:GetParent()
+		end
+	end
+	if GameTooltip:IsShown() then
+		frames[#frames + 1] = GameTooltip
+	end
+	local lines = Fonts.InspectLines(frames)
+	if #lines == 0 then
+		lines[1] = L.FONTS_INSPECT_NONE
+	end
+	ns.ShowTrace(L.FONTS_INSPECT_HEADER, lines)
+end
+
 -- Sliders fire on every step; apply once the value settles.
 local applyPending
 function Fonts:QueueApply()

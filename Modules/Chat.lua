@@ -172,11 +172,32 @@ local function PlaceEditBox(chatFrame)
 	end
 end
 
+-- Blizzard narrows a header that is longer than half the input line to that half (SetWidth) and never frees it
+-- again: from then on the typed text starts far right of "Say:". With the suffix hidden the header is short again,
+-- so it gets its own width back and the text starts right after it (same insets as Blizzard's UpdateHeader).
+local function FixHeaderWidth(editBox)
+	local header, suffix = editBox.header, editBox.headerSuffix
+	if not header or not suffix or suffix:IsShown() then
+		return
+	end
+	if math.abs(ns.Number(header:GetWidth(), 0) - ns.Number(header:GetStringWidth(), 0)) < 1 then
+		return
+	end
+	header:SetWidth(0)
+	local language = editBox.languageHeader
+	local languageWidth = language and language:IsShown() and ns.Number(language:GetWidth(), 0) or 0
+	editBox:SetTextInsets(15 + ns.Number(header:GetWidth(), 0) + languageWidth, 13, 0, 0)
+end
+
 local function StyleEditBox(chatFrame)
 	local editBox = chatFrame.editBox
 	if not editBox then
 		return
 	end
+	if not editBoxHooked[editBox] and editBox.UpdateHeader then
+		hooksecurefunc(editBox, "UpdateHeader", ns.Measured("Chat: input header", FixHeaderWidth))
+	end
+	FixHeaderWidth(editBox)
 	local name = editBox:GetName()
 	for _, suffix in ipairs({ "Left", "Mid", "Right" }) do
 		local texture = _G[name .. suffix]

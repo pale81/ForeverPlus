@@ -2000,6 +2000,28 @@ end)()
 	print("chat edges reanchor OK")
 end)()
 ;(function()
+	-- Input line: a header Blizzard once narrowed to half the line gets its own width back
+	local chat = ns:GetModule("Chat")
+	local fix = uv(uv(uv(chat.OnLogin, "StyleAll"), "StyleChatFrame"), "StyleEditBox")
+	fix = fix and uv(fix, "FixHeaderWidth")
+	assert(fix, "FixHeaderWidth reachable")
+	local width, suffixShown, insets = 220, false, nil
+	local header = { GetWidth = function() return width end, GetStringWidth = function() return 40 end,
+		SetWidth = function(_, w) width = w == 0 and 40 or w end }
+	local box = { header = header, headerSuffix = { IsShown = function() return suffixShown end },
+		SetTextInsets = function(_, l) insets = l end }
+	fix(box)
+	assert(width == 40 and insets == 55, "header freed, text right after it")
+	insets, width, suffixShown = nil, 220, true
+	fix(box)
+	assert(width == 220 and insets == nil, "long header with suffix stays")
+	suffixShown = false
+	width = 40
+	fix(box)
+	assert(insets == nil, "fitting header untouched")
+	print("chat input header OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

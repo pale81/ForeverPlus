@@ -21,7 +21,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Reiterbeschriftungen blenden mit dem Chat aus (sichtbar bei Mouseover oder neuen Nachrichten) | ja |
 | | Chatschrift mit Outline | – |
 | | Reiter-Hintergründe (Allgemein, Kampflog, …) entfernt | – |
-| | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund; der getippte Text beginnt direkt nach „Sagen:“ (Blizzard hielt die Kopfzeile nach einem langen Kanalnamen auf halber Feldbreite fest, im Spiel ungeprüft) | – |
+| | Eingabefeld oben über den Reitern, ohne Rahmen/Hintergrund; der getippte Text beginnt direkt nach „Sagen:“ (Blizzard hielt die Kopfzeile nach einem langen Kanalnamen auf halber Feldbreite fest, samt Zusatz; `/fp diagnose` zeigt die Maße der Eingabezeile; im Spiel ungeprüft) | – |
 | | Chathintergrund-Regler auf 0 (100 % transparent) | ja |
 | | Pfeil hoch/runter holt gesendete Zeilen zurück (letzte 50, auch aus früheren Sitzungen) | ja |
 | | Mausrad scrollt den Chat (auch wenn Blizzards Einstellung beim Laden aus war); Shift + Mausrad springt an Anfang/Ende | ja |

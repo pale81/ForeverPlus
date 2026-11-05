@@ -1252,6 +1252,18 @@ do
 		ok, err = pcall(show, tip, 3)
 		assert(ok, "restricted tooltip: " .. tostring(err))
 		print("trainer compare restricted OK")
+		;(function()
+			-- Critical hits pop up like the experience: small, past their size, back to exactly 1
+			local ct = ns:GetModule("CombatText")
+			local s0, a0 = ct.CritPop(0)
+			assert(math.abs(s0 - 0.4) < 1e-9 and a0 == 0, "starts small and invisible")
+			local peak = 0
+			for t = 0, 0.6, 0.005 do peak = math.max(peak, (ct.CritPop(t))) end
+			assert(peak > 1.15 and peak < 1.4, "overshoots a little: " .. peak)
+			local s1, a1 = ct.CritPop(0.6)
+			assert(s1 == 1 and a1 == 1, "ends at its size")
+			print("crit pop OK")
+		end)()
 	end
 end
 do

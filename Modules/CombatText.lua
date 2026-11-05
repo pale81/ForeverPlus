@@ -18,6 +18,7 @@ local CombatText = ns:NewModule("CombatText", {
 		scale = 1,
 		critBold = true,     -- critical hits large with a thick outline
 		critShake = true,    -- and shaking at the start
+		critPop = true,      -- and popping up like the experience in the middle of the screen
 		colorOutgoing = "YELLOW",
 		colorCrit = "ORANGE",
 		colorIncoming = "RED",
@@ -34,6 +35,27 @@ local MAX_ACTIVE = 30
 local MAX_BASE = 130      -- pixels: a text starts above the ones still rising from its place, at most this high
 local SHAKE_TIME = 0.5   -- seconds a critical hit shakes
 local SHAKE_SIZE = 7     -- pixels
+local POP_END = 0.22     -- seconds: a critical hit has grown (overshooting a little)
+local SETTLE_END = 0.6   -- seconds: back at its size
+local POP_PEAK = 1.15    -- size at the end of the pop, relative to the size it keeps
+
+local function BackOut(t) -- overshoots a little, then settles (as the experience in the middle of the screen)
+	local c = 1.9
+	t = t - 1
+	return 1 + t * t * ((c + 1) * t + c)
+end
+
+-- Size (relative) and opacity of a critical hit that pops up, age seconds after it appeared: from 0.4 it grows past
+-- POP_PEAK, fades in during the first third, then shrinks back to 1.
+function CombatText.CritPop(age)
+	if age < POP_END then
+		local k = age / POP_END
+		return 0.4 + (POP_PEAK - 0.4) * BackOut(k), math.min(1, k * 3)
+	elseif age < SETTLE_END then
+		return POP_PEAK - (POP_PEAK - 1) * (age - POP_END) / (SETTLE_END - POP_END), 1
+	end
+	return 1, 1
+end
 
 local COLOR_VALUES = {
 	YELLOW = { 1, 0.82, 0.1 }, ORANGE = { 1, 0.5, 0.1 }, RED = { 1, 0.25, 0.25 }, GREEN = { 0.25, 1, 0.35 },
@@ -132,7 +154,15 @@ local function Update(_, delta)
 			local rise = RISE * (1 - (1 - k) * (1 - k))
 			entry.top = entry.y + rise + entry.height
 			Place(entry, rise)
-			entry.fs:SetAlpha(k > 0.6 and 1 - (k - 0.6) / 0.4 or 1)
+			local alpha = k > 0.6 and 1 - (k - 0.6) / 0.4 or 1
+			if entry.pop then
+				-- The height of the text, not its font: the font is not drawn anew in every picture.
+				local scale, popAlpha = CombatText.CritPop(entry.age)
+				entry.fs:SetTextHeight(entry.size * scale)
+				alpha = math.min(alpha, popAlpha)
+				entry.pop = entry.age < SETTLE_END or nil
+			end
+			entry.fs:SetAlpha(alpha)
 		end
 	end
 	if #active == 0 then
@@ -185,7 +215,15 @@ local function Spawn(text, kind, crit, plate)
 		end
 	end
 	local entry = { fs = fs, age = 0, plate = plate, group = group, anchor = anchors[group] or UIParent,
-		x = math.random(-8, 8), y = math.min(base, MAX_BASE), height = height, shake = crit and db.critShake }
+		x = math.random(-8, 8), y = math.min(base, MAX_BASE), height = height, shake = crit and db.critShake,
+		pop = crit and db.critPop or nil, size = size }
+	-- Always set: a pooled text may still carry the height of an earlier pop.
+	local scale, alpha = 1, 1
+	if entry.pop then
+		scale, alpha = CombatText.CritPop(0)
+	end
+	fs:SetTextHeight(size * scale)
+	fs:SetAlpha(alpha)
 	entry.top = entry.y + height
 	active[#active + 1] = entry
 	Place(entry, 0)
@@ -285,6 +323,7 @@ CombatText.options = {
 		format = function(v) return ("%d%%"):format(v * 100 + 0.5) end, new = true },
 	{ key = "critBold", type = "toggle", name = L.COMBATTEXT_CRIT_BOLD, desc = L.COMBATTEXT_CRIT_BOLD_DESC, parent = "enabled", new = true },
 	{ key = "critShake", type = "toggle", name = L.COMBATTEXT_CRIT_SHAKE, desc = L.COMBATTEXT_CRIT_SHAKE_DESC, parent = "enabled", new = true },
+	{ key = "critPop", type = "toggle", name = L.COMBATTEXT_CRIT_POP, desc = L.COMBATTEXT_CRIT_POP_DESC, parent = "enabled", new = true },
 	{ key = "colorOutgoing", type = "dropdown", name = L.COMBATTEXT_COLOR_OUTGOING, parent = "enabled", values = ColorChoices, new = true },
 	{ key = "colorCrit", type = "dropdown", name = L.COMBATTEXT_COLOR_CRIT, parent = "enabled", values = ColorChoices, new = true },
 	{ key = "colorIncoming", type = "dropdown", name = L.COMBATTEXT_COLOR_INCOMING, parent = "enabled", values = ColorChoices, new = true },

@@ -173,20 +173,46 @@ local function PlaceEditBox(chatFrame)
 end
 
 -- Blizzard narrows a header that is longer than half the input line to that half (SetWidth) and never frees it
--- again: from then on the typed text starts far right of "Say:". With the suffix hidden the header is short again,
--- so it gets its own width back and the text starts right after it (same insets as Blizzard's UpdateHeader).
+-- again; it compares that fixed width, so the suffix may stay too: from then on the typed text starts far right of
+-- "Say:". When the text of the header fits into half the line, the header gets its own width back, the suffix goes
+-- and the text starts right after it (same insets as Blizzard's UpdateHeader).
+local headerFixes, headerCalls = 0, 0
+
 local function FixHeaderWidth(editBox)
+	headerCalls = headerCalls + 1
 	local header, suffix = editBox.header, editBox.headerSuffix
-	if not header or not suffix or suffix:IsShown() then
+	if not header or not suffix then
 		return
 	end
-	if math.abs(ns.Number(header:GetWidth(), 0) - ns.Number(header:GetStringWidth(), 0)) < 1 then
+	local textWidth = ns.Number(header:GetStringWidth(), 0)
+	local boxWidth = ns.Number(editBox:GetWidth(), 0)
+	if boxWidth <= 0 or textWidth > boxWidth / 2 then
+		return -- really too long: Blizzard's shortening stays
+	end
+	if not suffix:IsShown() and math.abs(ns.Number(header:GetWidth(), 0) - textWidth) < 1 then
 		return
 	end
 	header:SetWidth(0)
+	suffix:Hide()
 	local language = editBox.languageHeader
 	local languageWidth = language and language:IsShown() and ns.Number(language:GetWidth(), 0) or 0
 	editBox:SetTextInsets(15 + ns.Number(header:GetWidth(), 0) + languageWidth, 13, 0, 0)
+	headerFixes = headerFixes + 1
+end
+
+-- For /fp diagnose: the measures of the input line, to see why the text starts where it does.
+function Chat:PrintStatus()
+	local editBox = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox
+	if not editBox or not editBox.header then
+		ns.PrintAlways("input line: -")
+		return
+	end
+	local header, suffix = editBox.header, editBox.headerSuffix
+	local left = editBox.GetTextInsets and editBox:GetTextInsets()
+	ns.PrintAlways(("input line: box %.0f, header %.0f (text %.0f), suffix %s %.0f, text inset %.0f, UpdateHeader %s, calls %d, fixed %d"):format(
+		ns.Number(editBox:GetWidth(), 0), ns.Number(header:GetWidth(), 0), ns.Number(header:GetStringWidth(), 0),
+		tostring(suffix and suffix:IsShown()), suffix and ns.Number(suffix:GetWidth(), 0) or 0, ns.Number(left, 0),
+		tostring(editBox.UpdateHeader ~= nil), headerCalls, headerFixes))
 end
 
 local function StyleEditBox(chatFrame)

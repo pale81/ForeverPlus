@@ -255,7 +255,7 @@ function Capture.DiagnoseText()
 	end
 	Section("Longest calls", table.concat(timings, "\n"))
 	local status = {}
-	for _, entry in ipairs({ { "Loot", "Loot" }, { "Talents", "Talents" }, { "RecipeRadar", "RecipeRadar" }, { "WorldMap", "WorldMap" } }) do
+	for _, entry in ipairs({ { "Chat", "Chat" }, { "Loot", "Loot" }, { "Talents", "Talents" }, { "RecipeRadar", "RecipeRadar" }, { "WorldMap", "WorldMap" } }) do
 		local module = ns:GetModule(entry[2])
 		if module and module.PrintStatus then
 			status[#status + 1] = ("%s: %s"):format(entry[1], CapturePrints(function()

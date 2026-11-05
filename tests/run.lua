@@ -2005,18 +2005,21 @@ end)()
 	local fix = uv(uv(uv(chat.OnLogin, "StyleAll"), "StyleChatFrame"), "StyleEditBox")
 	fix = fix and uv(fix, "FixHeaderWidth")
 	assert(fix, "FixHeaderWidth reachable")
-	local width, suffixShown, insets = 220, false, nil
-	local header = { GetWidth = function() return width end, GetStringWidth = function() return 40 end,
-		SetWidth = function(_, w) width = w == 0 and 40 or w end }
-	local box = { header = header, headerSuffix = { IsShown = function() return suffixShown end },
+	local width, textWidth, suffixShown, insets = 220, 40, false, nil
+	local header = { GetWidth = function() return width end, GetStringWidth = function() return textWidth end,
+		SetWidth = function(_, w) width = w == 0 and textWidth or w end }
+	local box = { header = header, GetWidth = function() return 440 end,
+		headerSuffix = { IsShown = function() return suffixShown end, Hide = function() suffixShown = false end },
 		SetTextInsets = function(_, l) insets = l end }
 	fix(box)
 	assert(width == 40 and insets == 55, "header freed, text right after it")
-	insets, width, suffixShown = nil, 220, true
+	insets, width, suffixShown = nil, 221, true
 	fix(box)
-	assert(width == 220 and insets == nil, "long header with suffix stays")
-	suffixShown = false
-	width = 40
+	assert(width == 40 and not suffixShown and insets == 55, "short text with stuck suffix: freed too")
+	insets, width, textWidth, suffixShown = nil, 220, 300, true
+	fix(box)
+	assert(width == 220 and suffixShown and insets == nil, "really long header keeps Blizzard's shortening")
+	textWidth, width, suffixShown = 40, 40, false
 	fix(box)
 	assert(insets == nil, "fitting header untouched")
 	print("chat input header OK")

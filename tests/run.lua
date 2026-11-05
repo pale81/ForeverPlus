@@ -2025,6 +2025,24 @@ end)()
 	print("chat input header OK")
 end)()
 ;(function()
+	-- Auction sell frame: one large line, the calculation for the tooltip
+	local A = ns:GetModule("Auction")
+	local saved = GetMoneyString
+	GetMoneyString = function(v) return tostring(v) .. "c" end
+	local s = A.SellSummary(306, 400, true, true)
+	assert(s.text == ns.L.AUCTION_SELL_PROFIT:format("+74c"), "profit: " .. s.text)
+	assert(#s.lines == 4 and s.lines[3]:find("380c", 1, true), "formula with net price")
+	s = A.SellSummary(306, 300, true, true)
+	assert(s.text == ns.L.AUCTION_SELL_BELOW:format("−21c") and #s.lines == 5, "warning large, details in tooltip")
+	s = A.SellSummary(306, 300, true, false)
+	assert(s.text == ns.L.AUCTION_SELL_LOSS:format("−21c"), "loss without warning option")
+	assert(A.SellSummary(306, 400, false, true) == nil, "only warning option, price fine: nothing")
+	assert(A.SellSummary(306, nil, true, false).text == ns.L.AUCTION_SELL_NO_PRICE, "no price yet")
+	assert(A.SellSummary(nil, 400, true, true) == nil, "no merchant price")
+	GetMoneyString = saved
+	print("auction sell summary OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

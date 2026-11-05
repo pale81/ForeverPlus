@@ -1347,42 +1347,19 @@ do
 	print("show upgrade empty slot", ok, err)
 end
 (function()
-	-- marked junk placement plan
+	-- a sort only leaves a trace: marked junk is not moved (the game's cleanup would put it back)
 	local items = ns:GetModule("Items")
 	local onSort = uv(uv(items.OnLogin, "QueueSort") and items.OnLogin, "OnSortStarted")
-	local step = uv(onSort, "PlacingStep")
-	local plan = uv(step, "PlanJunkMoves")
 	Enum.ItemQuality.Poor = 0
 	items.db.junkPerCharacter = false
 	items.db.junk = { [500] = true, [501] = true }
-	-- 10 slots, the items together at the front (as after the game's cleanup): marked at 2 and 4, greys at 9-10
-	local contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 500, quality = 1 }, [3] = { itemID = 2, quality = 1 },
-		[4] = { itemID = 501, quality = 1 }, [5] = { itemID = 3, quality = 1 }, [6] = { itemID = 4, quality = 1 },
-		[7] = { itemID = 5, quality = 1 }, [8] = { itemID = 6, quality = 1 }, [9] = { itemID = 90, quality = 0 }, [10] = { itemID = 91, quality = 0 } }
-	local slots = {}
-	for i = 1, 10 do slots[i] = { 0, i } end
-	C_Container.GetContainerItemInfo = function(_, slot) local c = contents[slot]; if c then c.hyperlink = "|Hitem:" .. c.itemID .. "|h"; end return c end
-	local moves = plan(slots)
-	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
-	local targets = {}
-	for _, m in ipairs(moves) do targets[m[2][2]] = true end
-	assert(#moves == 2 and targets[7] and targets[8], "marked before greys")
-	-- greys at the start: marked go after them
-	contents = { [1] = { itemID = 90, quality = 0 }, [2] = { itemID = 1, quality = 1 }, [3] = { itemID = 500, quality = 1 } }
-	moves = plan(slots)
-	for _, m in ipairs(moves) do print("  move", m[1][2], "->", m[2][2]) end
-	assert(#moves == 1 and moves[1][2][2] == 2, "after greys")
-	-- a gap in the front part: the marked item behind it moves into the gap, no free slots in between
-	contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 2, quality = 1 }, [5] = { itemID = 500, quality = 1 } }
-	moves = plan(slots)
-	assert(#moves == 1 and moves[1][1][2] == 5 and moves[1][2][2] == 3, "gap closed")
-	-- cleanup not done yet (items at the back, gaps in front): plain items stay, only the marked one moves
-	contents = { [6] = { itemID = 1, quality = 1 }, [7] = { itemID = 2, quality = 1 }, [8] = { itemID = 3, quality = 1 },
-		[9] = { itemID = 500, quality = 1 }, [10] = { itemID = 4, quality = 1 } }
-	local layout
-	moves, layout = plan(slots)
-	assert(#moves <= 1, "no plain items moved: " .. #moves)
-	assert(layout:find("markiert 1", 1, true) and layout:find("erste Lücke 1", 1, true), "layout for the trace: " .. layout)
+	local picked, savedPickup = 0, C_Container.PickupContainerItem
+	C_Container.PickupContainerItem = function() picked = picked + 1 end
+	local before = #items.trace
+	onSort()
+	C_Container.PickupContainerItem = savedPickup
+	assert(picked == 0 and #items.trace == math.min(before + 1, 80), "only traced")
+	assert(uv(onSort, "PlacingStep") == nil, "no placing left")
 	print("junk placement OK")
 end)()
 ;(function()

@@ -231,6 +231,11 @@ end
 
 -- Text input; onAccept(text) is called by the button. The text starts
 -- selected, so Ctrl+C copies it right away. extras: more buttons left of the main one, { { text, onClick(text) } }.
+-- A trace (/fp taschen verlauf, /fp blase verlauf) in a window to copy, like /fp diagnose.
+function ns.ShowTrace(header, lines)
+	ns.ShowEditWindow("Trace", ns.L.TRACE_TITLE, header .. "\n" .. table.concat(lines, "\n"), CLOSE, function() end, ns.L.TRACE_HINT)
+end
+
 function ns.ShowEditWindow(key, title, text, buttonText, onAccept, hint, extras)
 	local frame = windows[key]
 	if not frame then

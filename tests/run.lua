@@ -2428,6 +2428,36 @@ end)()
 	print("loot money OK")
 end)()
 ;(function()
+	-- Greyed self buffs in combat: a removed aura ends its greying, an unreadable removal ends all
+	local vis = ns:GetModule("Visuals")
+	local forget = vis.ForgetRemovedAuras
+	local function setup()
+		local active, ids = { Seal = true, Aura = true }, { [11] = "Seal", [12] = "Aura" }
+		for i = 1, 60 do
+			local n = debug.getupvalue(forget, i)
+			if not n then break end
+			if n == "activeAuras" then debug.setupvalue(forget, i, active) end
+			if n == "auraIDs" then debug.setupvalue(forget, i, ids) end
+		end
+		return active, ids
+	end
+	local active = setup()
+	forget({ removedAuraInstanceIDs = { 11 } })
+	assert(active.Seal == nil and active.Aura, "used-up seal no longer grey, other aura stays")
+	forget({ addedAuras = {} })
+	assert(active.Aura, "nothing removed: unchanged")
+	active = setup()
+	forget(nil)
+	assert(next(active) == nil, "unknown change: all greying ends")
+	active = setup()
+	local savedSecret = issecretvalue
+	issecretvalue = function(v) return v == 99 end
+	forget({ removedAuraInstanceIDs = { 99 } })
+	issecretvalue = savedSecret
+	assert(next(active) == nil, "secret removal: all greying ends")
+	print("active buff combat OK")
+end)()
+;(function()
 	-- Casts left: mana divided by the spell's cost.
 	local vis = ns:GetModule("Visuals")
 	local update = uv(uv(vis.OnLogin, "UpdateCastWatch"), "UpdateAllCasts")

@@ -14,7 +14,6 @@ local Items = ns:NewModule("Items", {
 		fullSound = true,   -- a sound when the bags are full
 		fullSoundChoice = "ping",
 		bagMenu = true,
-		sortMarkedJunk = true,
 		autoRepair = true,
 		repairGuild = true,
 		questReward = true,
@@ -1617,8 +1616,7 @@ end
 ---------------------------------------------------------------------------
 -- Bags: sorted by the game's own cleanup when they open
 ---------------------------------------------------------------------------
--- The last steps of sorting with their time (/fp taschen verlauf): who sorted, what the placing of the marked items
--- did, when the layout counted as settled. For seeing in what order things happen when the bags look odd.
+-- The last steps of sorting with their time (/fp taschen verlauf): who sorted, when the layout counted as settled. For seeing in what order things happen when the bags look odd.
 Items.trace = {}
 function Items.Trace(text, ...)
 	if select("#", ...) > 0 then
@@ -1640,9 +1638,8 @@ local SETTLE = 1.5 -- seconds the layout of the bags must stay the same (and unl
 local SETTLE_LOOK = 0.25 -- seconds between two looks at the layout
 local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the bags show
 local lastSort, sortQueued, sorting = 0, false, false
--- Layout of the bags after the last finished sort (items, counts, junk marks). While it is unchanged, opening the
--- bags sorts nothing: the game's cleanup would put the marked items back in their place and ForeverPlus would
--- move them away again, so the junk jumped to and fro on every opening.
+-- Layout of the bags after the last finished sort (items and counts). While it is unchanged, opening the bags sorts
+-- nothing.
 local sortedLayout
 local RecordLayout -- below
 
@@ -1739,246 +1736,36 @@ local function SortOnOpen()
 	WatchSort()
 end
 
--- After any sort (own or Blizzard's button) marked junk joins the grey
--- items, which the game's cleanup puts together. Waits until the bags are
--- quiet, then moves one item at a time.
-local PLACE_QUIET = 0.7  -- seconds without bag updates: the sort is done
-local SORT_TIMEOUT = 15
-local MOVE_INTERVAL = 0.1
-local placing -- state while waiting for the sort or moving items
-
 function Items.LayoutSignature()
 	local parts = {}
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			parts[#parts + 1] = info and (tostring(info.itemID) .. "x" .. tostring(info.stackCount) .. (IsMarked(info) and "m" or "")) or "-"
+			parts[#parts + 1] = info and (tostring(info.itemID) .. "x" .. tostring(info.stackCount)) or "-"
 		end
 	end
 	return table.concat(parts, ",")
 end
 
--- Called when a sort and the placing of the marked items are over.
+-- Called when a sort is over.
 function RecordLayout()
-	if not sorting and not placing and not InCombatLockdown() then
+	if not sorting and not InCombatLockdown() then
 		Items.Trace("Stand gemerkt")
 		sortedLayout = Items.LayoutSignature()
 	end
 end
 
--- Slots that take part in the cleanup, in bag order.
-local function SortedSlots()
-	local slots = {}
-	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-		local disabled
-		if bag == BACKPACK_CONTAINER then
-			disabled = C_Container.GetBackpackAutosortDisabled and C_Container.GetBackpackAutosortDisabled()
-		else
-			disabled = C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.DisableAutoSort)
-		end
-		local _, family = C_Container.GetContainerNumFreeSlots(bag)
-		if not disabled and (family or 0) == 0 then
-			for slot = 1, C_Container.GetContainerNumSlots(bag) do
-				slots[#slots + 1] = { bag, slot }
-			end
-		end
-	end
-	return slots
-end
-
-local function AnySlotLocked(slots)
-	for _, position in ipairs(slots) do
-		local info = C_Container.GetContainerItemInfo(position[1], position[2])
-		if info and info.isLocked then
-			return true
-		end
-	end
-	return false
-end
-
--- Moves (from, to) that put the marked items right next to the grey ones: before them when the greys lie at the
--- end of the items, after them when at the start. The items themselves lie together at the front (the game's cleanup
--- puts the free slots last); a marked item behind a gap moves into it, so the marked items never end in a far corner
--- with free slots in between. Only marked items are moved: closing gaps with plain items as well moved a whole bag
--- (16 moves) when the cleanup was not done yet, and the items jumped to and fro. A move to an occupied slot is a
--- swap; what a swap displaces is taken care of in the next round (the placing looks again after its moves).
--- The second result describes the layout for the trace.
-local function PlanJunkMoves(slots)
-	local isGrey, isMarked, isFilled = {}, {}, {}
-	local firstGrey, lastGrey, markedCount, count = nil, nil, 0, 0
-	for index, position in ipairs(slots) do
-		local info = C_Container.GetContainerItemInfo(position[1], position[2])
-		if info then
-			isFilled[index] = true
-			count = count + 1
-		end
-		if info and info.quality == Enum.ItemQuality.Poor then
-			isGrey[index] = true
-			firstGrey = firstGrey or index
-			lastGrey = index
-		elseif info and IsMarked(info) then
-			isMarked[index] = true
-			markedCount = markedCount + 1
-		end
-	end
-	local firstGap
-	for index = 1, count do
-		if not isFilled[index] then
-			firstGap = index
-			break
-		end
-	end
-	local layout = ("markiert %d, grau %d-%s, belegt %d von %d, erste Lücke %s"):format(markedCount, firstGrey or 0,
-		tostring(lastGrey or "-"), count, #slots, tostring(firstGap or "-"))
-	if markedCount == 0 then
-		return {}, layout
-	end
-	-- The items fill the slots 1 to count once the gaps are closed.
-	local block = {}
-	if firstGrey and firstGrey == 1 and lastGrey < count then
-		for index = lastGrey + 1, math.min(count, lastGrey + markedCount) do
-			block[#block + 1] = index
-		end
-	else
-		local stop = math.min(firstGrey or count + 1, count + 1) - 1
-		for index = stop, math.max(1, stop - markedCount + 1), -1 do
-			block[#block + 1] = index
-		end
-	end
-	local inBlock = {}
-	for _, index in ipairs(block) do
-		inBlock[index] = true
-	end
-	local moves, taken = {}, {}
-	local function Take(list)
-		for _, index in ipairs(list) do
-			if not taken[index] then
-				taken[index] = true
-				return index
-			end
-		end
-	end
-	-- Targets: free slots of the block and its plain items.
-	local blockHoles, plainInBlock = {}, {}
-	for index = 1, count do
-		if not isFilled[index] then
-			if inBlock[index] then
-				blockHoles[#blockHoles + 1] = index
-			end
-		elseif inBlock[index] and not isMarked[index] and not isGrey[index] then
-			plainInBlock[#plainInBlock + 1] = index
-		end
-	end
-	-- 1. Marked items behind the front part move into its gaps.
-	for index = count + 1, #slots do
-		if isMarked[index] then
-			local target = Take(blockHoles) or Take(plainInBlock)
-			if target then
-				moves[#moves + 1] = { slots[index], slots[target] }
-			end
-		end
-	end
-	-- 2. Marked items of the front part outside the block swap with plain items of the block, farthest first.
-	local outside = {}
-	for index in pairs(isMarked) do
-		if index <= count and not inBlock[index] then
-			outside[#outside + 1] = index
-		end
-	end
-	local reference = block[1] or 1
-	table.sort(outside, function(a, b)
-		return math.abs(a - reference) > math.abs(b - reference)
-	end)
-	for _, index in ipairs(plainInBlock) do
-		if not taken[index] then
-			local from = table.remove(outside)
-			if not from then
-				break
-			end
-			taken[index] = true
-			moves[#moves + 1] = { slots[from], slots[index] }
-		end
-	end
-	return moves, layout
-end
-
-local function StopPlacing(finished, reason)
-	if placing then
-		Items.Trace("Platzieren beendet (%s)", finished and "fertig" or ("abgebrochen: " .. (reason or "neues Sortieren")))
-	end
-	if placing and placing.ticker then
-		placing.ticker:Cancel()
-	end
-	placing = nil
-	if finished then
-		RecordLayout()
-	end
-end
-
-local function PlacingStep()
-	local state = placing
-	if not state or InCombatLockdown() or GetCursorInfo() then
-		StopPlacing(false, InCombatLockdown() and "Kampf" or "Gegenstand am Zeiger")
-		return
-	end
-	local now = GetTime()
-	if now - state.started > SORT_TIMEOUT then
-		StopPlacing(false, "Zeitgrenze")
-		return
-	end
-	if not state.moves then
-		-- Waiting for the sort to finish (its result has no free slot between the items; for a few seconds more
-		-- a layout with gaps counts as not finished).
-		-- The first time the layout must have been still for SETTLE seconds (the game's cleanup works in bursts);
-		-- after moves of our own a short quiet is enough.
-		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) or not LayoutSettled(state.rounds and 0.5 or nil) then
-			return
-		end
-		local layout
-		state.moves, layout = PlanJunkMoves(state.slots)
-		state.next = 1
-		Items.Trace("Plan: %d Züge (Runde %d, %.1f s seit dem Sortieren; %s)", #state.moves, state.rounds or 1,
-			now - state.started, layout)
-	end
-	local move = state.moves[state.next]
-	if not move then
-		-- The game's cleanup can still be moving things: after moves, look once more (up to three rounds).
-		if #state.moves > 0 and (state.rounds or 1) < 3 then
-			state.rounds = (state.rounds or 1) + 1
-			state.moves = nil
-			state.lastUpdate = now
-			return
-		end
-		StopPlacing(true)
-		return
-	end
-	if AnySlotLocked({ move[1], move[2] }) then
-		return
-	end
-	C_Container.PickupContainerItem(move[1][1], move[1][2])
-	C_Container.PickupContainerItem(move[2][1], move[2][2])
-	ClearCursor()
-	state.next = state.next + 1
-end
-
+-- Marked junk is not moved after a sort any more: the game's cleanup puts each item back in its place, so the marked
+-- items jumped to and fro on every sort. They keep their coin and are sold with the greys.
 local function OnSortStarted()
 	Items.Trace("Sortieren gestartet von: %s", Items.sortSource or "Blizzard (Knopf, Taschenmenü) oder anderes")
-	-- Not in combat and not in windows in which other things move items (merchant, bank, mail, trade).
-	if not Items.db.sortMarkedJunk or InCombatLockdown() or OtherWindowOpen() then
-		return
-	end
-	StopPlacing()
-	ResetSettle()
-	placing = { started = GetTime(), lastUpdate = GetTime(), slots = SortedSlots() }
-	placing.ticker = C_Timer.NewTicker(MOVE_INTERVAL, PlacingStep)
 end
 
--- The game's cleanup button: while nothing changed since the last finished sort it does nothing (the cleanup
--- would shuffle everything and ForeverPlus would move the marked items back).
+-- The game's cleanup button: while nothing changed since the last finished sort it does nothing.
 local sortOverlay
 
 local function BagsUnchanged()
-	return Items.db.sortSkip and sortedLayout and not sorting and not placing and not InCombatLockdown()
+	return Items.db.sortSkip and sortedLayout and not sorting and not InCombatLockdown()
 		and sortedLayout == Items.LayoutSignature()
 end
 
@@ -2013,12 +1800,6 @@ local function UpdateSortOverlay()
 		sortOverlay:SetScript("OnLeave", GameTooltip_Hide)
 	end
 	sortOverlay:SetShown(Items.db.sortSkip and true or false)
-end
-
-function Items:BAG_UPDATE()
-	if placing and not placing.moves then
-		placing.lastUpdate = GetTime()
-	end
 end
 
 -- Opening all bags opens each frame; one sort after the last of them.
@@ -2535,7 +2316,6 @@ function Items:Refresh()
 	self:ToggleEvent("LOOT_BIND_CONFIRM", db.autoBind)
 	self:ToggleEvent("CONFIRM_LOOT_ROLL", db.autoBind)
 	self:ToggleEvent("LOOT_HISTORY_UPDATE_DROP", db.rollCounts)
-	self:ToggleEvent("BAG_UPDATE", db.sortMarkedJunk)
 	self:ToggleEvent("BAG_UPDATE_DELAYED", db.upgradePopup, ns.Measured("Items: upgrade popup", ScanNewItems))
 	-- Equipping is not possible in combat: hidden meanwhile, shown again after.
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", db.upgradePopup, function()
@@ -2570,6 +2350,8 @@ function Items:OnInitialize()
 		self.db.sellMessage, self.db.repairMessage, self.db.markMessage = false, false, false
 	end
 	self.db.messages = nil
+	-- Marked junk is no longer moved after a sort (the option is gone).
+	self.db.sortMarkedJunk = nil
 end
 
 function Items:OnLogin()
@@ -2633,7 +2415,6 @@ Items.options = {
 	{ key = "sortSkip", type = "toggle", name = L.ITEMS_SORT_SKIP, desc = L.ITEMS_SORT_SKIP_DESC, new = true },
 	{ key = "bagMenu", type = "toggle", name = L.ITEMS_BAG_MENU, desc = L.ITEMS_BAG_MENU_DESC },
 	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
-	{ key = "sortMarkedJunk", type = "toggle", name = L.ITEMS_SORT_JUNK, desc = L.ITEMS_SORT_JUNK_DESC },
 	{ key = "fullSound", type = "toggle", name = L.ITEMS_FULL_SOUND, desc = L.ITEMS_FULL_SOUND_DESC, new = true },
 	{ key = "fullSoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "fullSound", new = true, values = function()
 		return ns.AlertSounds and ns.AlertSounds.choices or {}

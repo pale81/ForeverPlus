@@ -589,6 +589,42 @@ end
 
 -- Rebuilds the aura name set; recolours only when it changed.
 local auraWatcher
+local auraIDs = {} -- auraInstanceID -> name, from the last readable look at the auras
+
+-- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
+-- until the fight ended. A removed aura ends its greying; when the removal cannot be read, all greying ends
+-- (a usable spell shown grey is worse than an active one shown normal).
+local function ForgetRemovedAuras(updateInfo)
+	if not next(activeAuras) then
+		return
+	end
+	local ok, result = pcall(function()
+		if not updateInfo or updateInfo.isFullUpdate then
+			return "all"
+		end
+		local changed = false
+		for _, id in ipairs(updateInfo.removedAuraInstanceIDs or {}) do
+			if issecretvalue and issecretvalue(id) then
+				return "all"
+			end
+			local name = auraIDs[id]
+			if name then
+				activeAuras[name], auraIDs[id] = nil, nil
+				changed = true
+			end
+		end
+		return changed and "some" or nil
+	end)
+	if not ok or result == "all" then
+		wipe(activeAuras)
+		wipe(auraIDs)
+		RecolorAll()
+	elseif result then
+		RecolorAll()
+	end
+end
+
+Visuals.ForgetRemovedAuras = ForgetRemovedAuras
 local function UpdateActiveAuras()
 	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then
 		return
@@ -600,7 +636,7 @@ local function UpdateActiveAuras()
 		return
 	end
 	auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
-	local names = {}
+	local names, ids = {}, {}
 	local index = 1
 	while true do
 		local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
@@ -614,9 +650,14 @@ local function UpdateActiveAuras()
 		local name = aura.name
 		if name and not (issecretvalue and issecretvalue(name)) then
 			names[name] = true
+			local id = aura.auraInstanceID
+			if id and not (issecretvalue and issecretvalue(id)) then
+				ids[id] = name
+			end
 		end
 		index = index + 1
 	end
+	auraIDs = ids
 	local changed = false
 	for name in pairs(names) do
 		if not activeAuras[name] then
@@ -654,7 +695,12 @@ local function UpdateAuraWatch()
 	local enabled = Visuals.db.actionColors and Visuals.db.colorActiveBuff
 	if enabled and not auraWatcher then
 		auraWatcher = CreateFrame("Frame")
-		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", QueueAuraUpdate))
+		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
+			if event == "UNIT_AURA" and C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
+				ForgetRemovedAuras(updateInfo)
+			end
+			QueueAuraUpdate()
+		end))
 	end
 	if auraWatcher then
 		if enabled then

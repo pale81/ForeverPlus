@@ -692,11 +692,19 @@ local function ShowTrainerCompare(tooltip, index)
 		return
 	end
 	-- Beside the tooltip, on the side with room; a second one goes further out.
+	-- A tooltip hanging off a restricted region (the dialog bubble at an NPC's nameplate) cannot be measured: the
+	-- call is an error, not nil. Then the cursor stands in for its edge.
 	local width = 0
 	for _, tip in ipairs(shown) do
-		width = width + ns.Number(tip:GetWidth(), 0)
+		tip:ClearAllPoints()
+		local ok, value = pcall(tip.GetWidth, tip)
+		width = width + (ok and ns.Number(value, 0) or 0)
 	end
-	local right = ns.Number(tooltip:GetRight(), 0) * tooltip:GetEffectiveScale()
+	local ok, edge = pcall(tooltip.GetRight, tooltip)
+	if not ok then
+		edge = ns.Number(GetCursorPosition(), 0) / tooltip:GetEffectiveScale() + 300
+	end
+	local right = ns.Number(edge, 0) * tooltip:GetEffectiveScale()
 	local toRight = right + width * tooltip:GetEffectiveScale() <= ns.Number(GetScreenWidth(), 0) * ns.Number(UIParent:GetEffectiveScale(), 1)
 	local previous = tooltip
 	for _, tip in ipairs(shown) do

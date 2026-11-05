@@ -2224,12 +2224,20 @@ function Dialog.PrintStatus()
 	local options = C_GossipInfo and C_GossipInfo.GetOptions and C_GossipInfo.GetOptions() or {}
 	local available = C_GossipInfo and C_GossipInfo.GetAvailableQuests and C_GossipInfo.GetAvailableQuests() or {}
 	local active = C_GossipInfo and C_GossipInfo.GetActiveQuests and C_GossipInfo.GetActiveQuests() or {}
-	local point, relativeTo, relativePoint, x, y
+	local point, relativeTo, relativePoint, x, y, height
 	if bubble then
-		point, relativeTo, relativePoint, x, y = bubble:GetPoint(1)
+		-- At an NPC's plate the bubble is a restricted region: measuring it is an error, not nil.
+		local ok
+		ok, point, relativeTo, relativePoint, x, y = pcall(bubble.GetPoint, bubble, 1)
+		if not ok then
+			point, relativeTo, relativePoint, x, y = "(Plakette, nicht messbar)", nil, nil, nil, nil
+		end
+		local measured
+		ok, measured = pcall(bubble.GetHeight, bubble)
+		height = ok and ns.Number(measured, 0) or 0
 	end
 	ns.PrintAlways(L.DIALOG_STATUS, Dialog.db.enabled and "ja" or "nein", bubble and "ja" or "nein",
-		bubble and bubble:IsShown() and "ja" or "nein", bubble and ns.Number(bubble:GetHeight(), 0) or 0,
+		bubble and bubble:IsShown() and "ja" or "nein", height or 0,
 		tostring(point), tostring(relativeTo and relativeTo.GetName and relativeTo:GetName() or relativeTo),
 		tostring(relativePoint), ns.Number(x, 0), ns.Number(y, 0), #options, #available, #active,
 		GossipFrame and GossipFrame:IsShown() and "ja" or "nein", GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)

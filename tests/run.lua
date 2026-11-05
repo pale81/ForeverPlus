@@ -1967,6 +1967,16 @@ end)()
 	print("dialog plate by token OK")
 end)()
 ;(function()
+	-- New ability: first free slot of the bars in order; none when all are full
+	local qol = ns:GetModule("QoL")
+	local used = { [1] = true, [2] = true, [61] = true }
+	local has = function(slot) return used[slot] end
+	assert(qol.FirstFreeSlot({ { 1, 2, 3 }, { 61, 62 } }, has) == 3, "main bar first")
+	assert(qol.FirstFreeSlot({ { 1, 2 }, { 61, 62 } }, has) == 62, "then bar 2")
+	assert(qol.FirstFreeSlot({ { 1, 2 }, { 61 } }, has) == nil, "all full")
+	print("auto place slot OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

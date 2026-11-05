@@ -37,6 +37,7 @@ local QoL = ns:NewModule("QoL", {
 		hideMacroNames = true,
 		hideMinimapButtons = true,
 		rankUp = true,
+		autoPlace = true, -- a newly learned ability goes to the first free slot of the bars on show
 	},
 })
 
@@ -437,12 +438,86 @@ local function RankUp(newID)
 	end
 end
 
+---------------------------------------------------------------------------
+-- New abilities: the game puts a newly learned spell on the bars only while a tutorial allows it (CVar
+-- AutoPushSpellToActionBar) and only in certain places; otherwise it lands nowhere. Here it goes to the first free
+-- slot of the main bar, then of bars 2 and 3 when they are on show. Passive spells, guild perks and spells that are
+-- on a bar already (also a lower rank of them) are left out.
+---------------------------------------------------------------------------
+local PLACE_BARS = { { "ActionButton" }, { "MultiBarBottomLeftButton", "MultiBarBottomLeft" },
+	{ "MultiBarBottomRightButton", "MultiBarBottomRight" } }
+
+-- The first slot of the lists that has no action (slots in order), or nil.
+function QoL.FirstFreeSlot(slotLists, hasAction)
+	for _, slots in ipairs(slotLists) do
+		for _, slot in ipairs(slots) do
+			if not hasAction(slot) then
+				return slot
+			end
+		end
+	end
+end
+
+local function VisibleBarSlots()
+	local lists = {}
+	for _, bar in ipairs(PLACE_BARS) do
+		local frame = bar[2] and _G[bar[2]]
+		if not bar[2] or (frame and frame:IsShown()) then
+			local slots = {}
+			for index = 1, 12 do
+				local button = _G[bar[1] .. index]
+				local slot = button and ns.Number(button.action, nil)
+				if slot then
+					slots[#slots + 1] = slot
+				end
+			end
+			lists[#lists + 1] = slots
+		end
+	end
+	return lists
+end
+
+local function OnBars(spellID)
+	local found = C_ActionBar and C_ActionBar.FindSpellActionButtons and C_ActionBar.FindSpellActionButtons(spellID)
+	if found and #found > 0 then
+		return true
+	end
+	local name = C_Spell.GetSpellName(spellID)
+	for slot = 1, MAX_ACTION_SLOT do
+		if HasAction(slot) then
+			local actionType, id = GetActionInfo(slot)
+			if actionType == "spell" and (id == spellID or (name and C_Spell.GetSpellName(id) == name)) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function AutoPlace(spellID)
+	if C_Spell.IsSpellPassive(spellID) or OnBars(spellID) or GetCursorInfo() then
+		return
+	end
+	local slot = QoL.FirstFreeSlot(VisibleBarSlots(), HasAction)
+	if slot then
+		C_Spell.PickupSpell(spellID)
+		PlaceAction(slot)
+		ClearCursor()
+	end
+end
+
 function QoL:UpdateRankUp()
-	self:ToggleEvent("LEARNED_SPELL_IN_SKILL_LINE", self.db.rankUp, function(_, _, spellID)
-		-- A short delay lets the spell book know the new rank first.
+	local db = self.db
+	self:ToggleEvent("LEARNED_SPELL_IN_SKILL_LINE", db.rankUp or db.autoPlace, function(_, _, spellID, _, isGuildPerk)
+		-- A short delay lets the spell book know the new rank first (and the game push the spell itself).
 		C_Timer.After(0.5, function()
 			ns.RunOutOfCombat(function()
-				RankUp(spellID)
+				if db.rankUp then
+					RankUp(spellID)
+				end
+				if db.autoPlace and not isGuildPerk then
+					AutoPlace(spellID)
+				end
 			end)
 		end)
 	end)
@@ -513,7 +588,7 @@ function QoL:OnOptionChanged(key)
 		self:UpdateNameplates()
 	elseif key == "hideMinimapButtons" then
 		self:UpdateMinimapButtons()
-	elseif key == "rankUp" then
+	elseif key == "rankUp" or key == "autoPlace" then
 		self:UpdateRankUp()
 	end
 end
@@ -556,6 +631,7 @@ QoL.options = {
 	{ key = "hideHotkeys", type = "toggle", name = L.QOL_HIDE_HOTKEYS, parent = "actionText" },
 	{ key = "hideMacroNames", type = "toggle", name = L.QOL_HIDE_MACRO_NAMES, parent = "actionText" },
 	{ key = "rankUp", type = "toggle", name = L.QOL_RANK_UP, desc = L.QOL_RANK_UP_DESC },
+	{ key = "autoPlace", type = "toggle", name = L.QOL_AUTO_PLACE, desc = L.QOL_AUTO_PLACE_DESC, new = true },
 	{ type = "header", name = L.QOL_BAGS_HEADER },
 	{ type = "header", name = L.QOL_MINIMAP_HEADER },
 	{ key = "hideMinimapButtons", type = "toggle", name = L.QOL_HIDE_MINIMAP_BUTTONS, desc = L.QOL_HIDE_MINIMAP_BUTTONS_DESC },

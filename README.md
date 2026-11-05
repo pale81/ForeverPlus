@@ -26,7 +26,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 | | Pfeil hoch/runter holt gesendete Zeilen zurück (letzte 50, auch aus früheren Sitzungen) | ja |
 | | Mausrad scrollt den Chat (auch wenn Blizzards Einstellung beim Laden aus war); Shift + Mausrad springt an Anfang/Ende | ja |
 | | Kopierknopf oben rechts im Chat (bei Mouseover): letzte 50 Zeilen als markierter Text (Strg+C), Links als Klartext | ja |
-| | Chat im Bearbeitungsmodus bis in die Ecken und an die Ränder (links, rechts, unten) verschiebbar; oben bleibt Platz für die Reiter, am oberen Rand steht das Eingabefeld unter dem Chat | ja |
+| | Chat im Bearbeitungsmodus bis in die Ecken und an die Ränder (links, rechts, unten) verschiebbar; oben bleibt Platz für die Reiter, am oberen Rand steht das Eingabefeld unter dem Chat; nach dem Laden schob Blizzards Randbegrenzung (mit der Knopfspalte) einen Chat am linken Rand nach rechts, jetzt kommt er danach wieder auf seinen Platz aus dem Bearbeitungsmodus (im Spiel ungeprüft) | ja |
 | | Chat der letzten Sitzung behalten (je Fenster einstellbare Zeilenzahl, geschützte Nachrichten ausgenommen) | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |

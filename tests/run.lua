@@ -1977,6 +1977,29 @@ end)()
 	print("auto place slot OK")
 end)()
 ;(function()
+	-- Chat at the left edge: after Blizzard's insets pushed it, it goes back to its Edit Mode place
+	local chat = ns:GetModule("Chat")
+	local apply = uv(uv(uv(chat.OnLogin, "StyleAll"), "StyleChatFrame"), "HookEdges")
+	apply = apply and uv(apply, "ApplyEdges")
+	assert(apply, "ApplyEdges reachable")
+	local insets = { -40, 0, 50, 0 }
+	local anchored = 0
+	local frame = { systemInfo = {}, GetLeft = function() return 0 end,
+		GetClampRectInsets = function() return unpack(insets) end,
+		SetClampRectInsets = function(_, l, r, t, b) insets = { l, r, t, b } end,
+		ApplySystemAnchor = function() anchored = anchored + 1 end }
+	local db = chat.db
+	local saved = { db.chatEdges, db.hideButtons, InCombatLockdown }
+	db.chatEdges, db.hideButtons = true, true
+	InCombatLockdown = function() return false end
+	apply(frame)
+	assert(insets[1] == 0 and anchored == 1, "own insets, placed again")
+	apply(frame)
+	assert(anchored == 1, "unchanged insets: not placed again")
+	db.chatEdges, db.hideButtons, InCombatLockdown = saved[1], saved[2], saved[3]
+	print("chat edges reanchor OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

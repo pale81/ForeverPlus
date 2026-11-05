@@ -213,6 +213,7 @@ read_globals = {
 	"DressUpFrame",
 	"Enum",
 	"EventRegistry",
+	"TextSizeManager",
 	"EventUtil",
 	"FCF_GetCurrentChatFrame",
 	"FCF_SetWindowAlpha",

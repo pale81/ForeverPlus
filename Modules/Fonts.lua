@@ -48,6 +48,25 @@ local function GroupOf(name, size)
 	return "large"
 end
 
+-- Blizzard's text size setting (TextSizeManager, CVar userFontScale) sets the height of every font that can be
+-- scaled by the user, once after VARIABLES_LOADED and on every change, and so overwrote our sizes ("bigger, then
+-- small again"). For those fonts the base height comes from Blizzard, its scale is multiplied in, and after each of
+-- its updates our sizes are set again.
+local function BlizzardScale(name)
+	local manager = TextSizeManager
+	local fonts = manager and manager.GetFonts and manager:GetFonts()
+	local data = fonts and fonts[name]
+	local baseHeight = data and ns.Number(data.baseHeight, 0) or 0
+	if baseHeight <= 0 then
+		return 1, nil
+	end
+	local ok, scale = pcall(manager.GetScale, manager)
+	scale = ok and ns.Number(scale, 1) or 1
+	return scale > 0 and scale or 1, baseHeight
+end
+
+Fonts.BlizzardScale = BlizzardScale
+
 -- Remembers face and size of font objects the first time they are seen.
 local function Collect()
 	local added
@@ -58,10 +77,12 @@ local function Collect()
 			local font = _G[name]
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
 				local face, size = font:GetFont()
+				local _, baseHeight = BlizzardScale(name)
+				size = baseHeight or size
 				if face and size and size > 0 then
 					local data = ns.FontFamilies
 					local family = data and (data.families[name] and name or data.inherits[name])
-					local entry = { font = font, face = face, size = size, group = GroupOf(name, size),
+					local entry = { name = name, font = font, face = face, size = size, group = GroupOf(name, size),
 						members = family and data.families[family] or nil }
 					originals[name] = entry
 					added = added or {}
@@ -132,7 +153,7 @@ end
 
 local function Apply(entry)
 	local db = Fonts.db
-	local scale = db.size / 100 * (db["size_" .. entry.group] or 100) / 100
+	local scale = db.size / 100 * (db["size_" .. entry.group] or 100) / 100 * BlizzardScale(entry.name)
 	local size = floor(entry.size * scale * 2 + 0.5) / 2
 	local face = FaceFor(entry.group, entry.face)
 	local currentFace, currentSize, flags = entry.font:GetFont()
@@ -221,6 +242,15 @@ end
 
 function Fonts:OnInitialize()
 	self:ApplyAll()
+	if EventRegistry and EventRegistry.RegisterCallback then
+		EventRegistry:RegisterCallback("TextSizeManager.OnTextScaleUpdated", ns.Measured("Fonts: after text size", function()
+			if fontsChanged then
+				for _, entry in pairs(originals) do
+					Apply(entry)
+				end
+			end
+		end), self)
+	end
 	-- Load on demand addons bring new font objects.
 	self:RegisterEvent("ADDON_LOADED", function()
 		local added = Collect()

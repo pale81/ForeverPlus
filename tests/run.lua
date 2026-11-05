@@ -278,6 +278,21 @@ assert(ChatFontNormal.face == "Fonts\\skurri.ttf", "chat face")
 for k, v in pairs(fonts.defaults) do fonts.db[k] = v end
 fonts:ApplyAll()
 assert(GameFontNormal.size == 12 and GameFontNormal.face == "Fonts\\FRIZQT__.TTF", "restore")
+do
+-- Blizzard's text size manager scales tooltip text by 1.2 and set its height back: ours comes again, scale included
+local savedManager = TextSizeManager
+TextSizeManager = { GetFonts = function() return { GameTooltipText = { baseHeight = 12 } } end, GetScale = function() return 1.2 end }
+fonts.db.size_tooltip = 150
+fonts:ApplyAll()
+assert(GameTooltipText.size == 21.5, "tooltip with Blizzard's scale " .. GameTooltipText.size)
+GameTooltipText:SetFont(GameTooltipText.face, 14.4, "")
+fonts:ApplyAll()
+assert(GameTooltipText.size == 21.5, "set again after Blizzard's update " .. GameTooltipText.size)
+assert(GameFontNormal.size == 12, "fonts outside Blizzard's list unscaled")
+for k, v in pairs(fonts.defaults) do fonts.db[k] = v end
+fonts:ApplyAll()
+TextSizeManager = savedManager
+end
 print("fonts OK")
 -- Junk list + key binding
 local items = ns:GetModule("Items")

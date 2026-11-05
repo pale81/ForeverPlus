@@ -1631,10 +1631,7 @@ function Items.Trace(text, ...)
 end
 
 function Items.PrintTrace()
-	ns.PrintAlways(L.ITEMS_TRACE, #Items.trace)
-	for _, line in ipairs(Items.trace) do
-		DEFAULT_CHAT_FRAME:AddMessage("  " .. line)
-	end
+	ns.ShowTrace(L.ITEMS_TRACE:format(#Items.trace), Items.trace)
 end
 
 local SORT_PAUSE = 3 -- seconds between automatic sorts
@@ -1801,9 +1798,11 @@ end
 
 -- Moves (from, to) that put the marked items right next to the grey ones: before them when the greys lie at the
 -- end of the items, after them when at the start. The items themselves lie together at the front (the game's cleanup
--- puts the free slots last); a gap among them is closed (items behind the gap move into it), so the marked items
--- never end in a far corner with free slots in between. A move to an occupied slot is a swap; what a swap
--- displaces is taken care of in the next round (the placing looks again after its moves).
+-- puts the free slots last); a marked item behind a gap moves into it, so the marked items never end in a far corner
+-- with free slots in between. Only marked items are moved: closing gaps with plain items as well moved a whole bag
+-- (16 moves) when the cleanup was not done yet, and the items jumped to and fro. A move to an occupied slot is a
+-- swap; what a swap displaces is taken care of in the next round (the placing looks again after its moves).
+-- The second result describes the layout for the trace.
 local function PlanJunkMoves(slots)
 	local isGrey, isMarked, isFilled = {}, {}, {}
 	local firstGrey, lastGrey, markedCount, count = nil, nil, 0, 0
@@ -1822,8 +1821,17 @@ local function PlanJunkMoves(slots)
 			markedCount = markedCount + 1
 		end
 	end
+	local firstGap
+	for index = 1, count do
+		if not isFilled[index] then
+			firstGap = index
+			break
+		end
+	end
+	local layout = ("markiert %d, grau %d-%s, belegt %d von %d, erste Lücke %s"):format(markedCount, firstGrey or 0,
+		tostring(lastGrey or "-"), count, #slots, tostring(firstGap or "-"))
 	if markedCount == 0 then
-		return {}
+		return {}, layout
 	end
 	-- The items fill the slots 1 to count once the gaps are closed.
 	local block = {}
@@ -1850,25 +1858,21 @@ local function PlanJunkMoves(slots)
 			end
 		end
 	end
-	-- Targets: free slots of the front part (in or outside the block), and the plain items of the block.
-	local blockHoles, plainHoles, plainInBlock = {}, {}, {}
+	-- Targets: free slots of the block and its plain items.
+	local blockHoles, plainInBlock = {}, {}
 	for index = 1, count do
 		if not isFilled[index] then
-			local list = inBlock[index] and blockHoles or plainHoles
-			list[#list + 1] = index
+			if inBlock[index] then
+				blockHoles[#blockHoles + 1] = index
+			end
 		elseif inBlock[index] and not isMarked[index] and not isGrey[index] then
 			plainInBlock[#plainInBlock + 1] = index
 		end
 	end
-	-- 1. Items behind the front part move into its gaps.
+	-- 1. Marked items behind the front part move into its gaps.
 	for index = count + 1, #slots do
-		if isFilled[index] then
-			local target
-			if isMarked[index] then
-				target = Take(blockHoles) or Take(plainInBlock)
-			else
-				target = Take(plainHoles) or Take(blockHoles)
-			end
+		if isMarked[index] then
+			local target = Take(blockHoles) or Take(plainInBlock)
 			if target then
 				moves[#moves + 1] = { slots[index], slots[target] }
 			end
@@ -1895,7 +1899,7 @@ local function PlanJunkMoves(slots)
 			moves[#moves + 1] = { slots[from], slots[index] }
 		end
 	end
-	return moves
+	return moves, layout
 end
 
 local function StopPlacing(finished, reason)
@@ -1930,9 +1934,11 @@ local function PlacingStep()
 		if now - state.lastUpdate < PLACE_QUIET or AnySlotLocked(state.slots) or not LayoutSettled(state.rounds and 0.5 or nil) then
 			return
 		end
-		state.moves = PlanJunkMoves(state.slots)
+		local layout
+		state.moves, layout = PlanJunkMoves(state.slots)
 		state.next = 1
-		Items.Trace("Plan: %d Züge (Runde %d, %.1f s seit dem Sortieren)", #state.moves, state.rounds or 1, now - state.started)
+		Items.Trace("Plan: %d Züge (Runde %d, %.1f s seit dem Sortieren; %s)", #state.moves, state.rounds or 1,
+			now - state.started, layout)
 	end
 	local move = state.moves[state.next]
 	if not move then

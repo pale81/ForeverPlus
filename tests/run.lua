@@ -1376,6 +1376,13 @@ end
 	contents = { [1] = { itemID = 1, quality = 1 }, [2] = { itemID = 2, quality = 1 }, [5] = { itemID = 500, quality = 1 } }
 	moves = plan(slots)
 	assert(#moves == 1 and moves[1][1][2] == 5 and moves[1][2][2] == 3, "gap closed")
+	-- cleanup not done yet (items at the back, gaps in front): plain items stay, only the marked one moves
+	contents = { [6] = { itemID = 1, quality = 1 }, [7] = { itemID = 2, quality = 1 }, [8] = { itemID = 3, quality = 1 },
+		[9] = { itemID = 500, quality = 1 }, [10] = { itemID = 4, quality = 1 } }
+	local layout
+	moves, layout = plan(slots)
+	assert(#moves <= 1, "no plain items moved: " .. #moves)
+	assert(layout:find("markiert 1", 1, true) and layout:find("erste Lücke 1", 1, true), "layout for the trace: " .. layout)
 	print("junk placement OK")
 end)()
 ;(function()
@@ -2427,6 +2434,21 @@ end)()
 	print("  ", out[1])
 	assert(#out == 1 and out[1]:find("6") and out[1]:find("81c"), "one line")
 	print("loot money OK")
+end)()
+;(function()
+	-- Traces open in a window to copy
+	local saved, shown = ns.ShowEditWindow, nil
+	ns.ShowEditWindow = function(key, _, text) shown = { key, text } end
+	local items = ns:GetModule("Items")
+	local savedTrace = items.trace
+	items.trace = { "1.00 a", "2.00 b" }
+	items.PrintTrace()
+	assert(shown and shown[1] == "Trace" and shown[2]:find("1.00 a\n2.00 b", 1, true), "bags trace in window")
+	shown = nil
+	ns:GetModule("Dialog").PrintTrace()
+	assert(shown and shown[1] == "Trace", "bubble trace in window")
+	items.trace, ns.ShowEditWindow = savedTrace, saved
+	print("trace window OK")
 end)()
 ;(function()
 	-- Greyed self buffs in combat: a removed aura ends its greying, an unreadable removal ends all

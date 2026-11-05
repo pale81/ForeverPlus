@@ -2213,10 +2213,7 @@ end
 
 -- /fp blase verlauf: the last steps with their time.
 function Dialog.PrintTrace()
-	ns.PrintAlways(L.DIALOG_TRACE, #trace)
-	for _, line in ipairs(trace) do
-		DEFAULT_CHAT_FRAME:AddMessage("  " .. line)
-	end
+	ns.ShowTrace(L.DIALOG_TRACE:format(#trace), trace)
 end
 
 -- /fp blase: state of the bubble and of what the conversation offers.

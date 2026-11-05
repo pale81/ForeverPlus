@@ -206,13 +206,26 @@ end
 local TAB_ROOM = 30
 local edgeHooked = {}
 
+local reanchoring = false
+
+-- Blizzard's insets come first (also after every /reload): with them a chat at the left edge is pushed right by the
+-- width of the button column, and stayed there once our insets were back. So after the insets changed, the chat
+-- goes to its place from Edit Mode again.
 local function ApplyEdges(chatFrame)
 	if not Chat.db.chatEdges or not chatFrame:GetLeft() then
 		return
 	end
-	local left, _, top = chatFrame:GetClampRectInsets()
+	local left, right, top, bottom = chatFrame:GetClampRectInsets()
 	-- The button column only stays in the clamp while it is shown.
-	chatFrame:SetClampRectInsets(Chat.db.hideButtons and 0 or left, 0, math.min(top, TAB_ROOM), 0)
+	local newLeft, newTop = Chat.db.hideButtons and 0 or left, math.min(top, TAB_ROOM)
+	chatFrame:SetClampRectInsets(newLeft, 0, newTop, 0)
+	local changed = newLeft ~= left or right ~= 0 or newTop ~= top or bottom ~= 0
+	if changed and not reanchoring and chatFrame.systemInfo and chatFrame.ApplySystemAnchor
+		and not InCombatLockdown() and not ns:IsEditModeActive() then
+		reanchoring = true
+		pcall(chatFrame.ApplySystemAnchor, chatFrame)
+		reanchoring = false
+	end
 end
 
 local function HookEdges(chatFrame)

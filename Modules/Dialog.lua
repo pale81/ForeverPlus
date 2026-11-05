@@ -640,10 +640,11 @@ local function CreateButton(frame)
 end
 
 local Render
+local RenderFailed -- set below, once Blizzard's window can take over
 
 -- Blocks: { text }, { title }, { rows }, { items, header, choose }, { money }.
 -- buttons: { text, action, enabled }.
-Render = function(view)
+local function RenderView(view)
 	local frame = bubble
 	local palette = Palette()
 	local usePlayer = Dialog.db.style == "PLAYER" and frame.hasArt
@@ -890,7 +891,17 @@ Render = function(view)
 		y = y - BLOCK_GAP
 	end
 	frame:SetHeight(math.max(y, 20))
+	frame.lastUsed = used
 	StartReveal(view, paragraphs)
+end
+
+-- An error halfway left the bubble on screen with all its content hidden (empty until closed by hand): Blizzard's
+-- window takes over instead, and the error is in the trace.
+Render = function(view)
+	local ok, err = pcall(RenderView, view)
+	if not ok then
+		RenderFailed(err)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1127,6 +1138,15 @@ local function UseBlizzard()
 	ns.ShowFriendlyPlates(false)
 end
 
+RenderFailed = function(err)
+	Trace("Fehler beim Zeichnen: %s", tostring(err))
+	if not Dialog.reported then
+		Dialog.reported = true
+		ns.Print(L.DIALOG_ERROR:format(tostring(err)))
+	end
+	UseBlizzard()
+end
+
 -- The small grey book at the lower right of the merchant list: dull, brighter under the mouse, a red x over it
 -- while unusable and known wares are hidden.
 function Dialog.UpdateFilter()
@@ -1282,6 +1302,11 @@ local function Show(view, fromBack)
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	current = { view = view }
 	Render(view)
+	if not current then
+		return -- drawing failed, Blizzard's window shows the step
+	end
+	local used = bubble.lastUsed
+	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
 	KeepOnScreen(Dialog.db.onScreen)
 	Place()
 	bubble:Show()

@@ -1950,6 +1950,23 @@ end)()
 	print("dialog render error OK")
 end)()
 ;(function()
+	-- The NPC's plate whose fields Blizzard has not filled yet is found by its unit token.
+	local dialog = ns:GetModule("Dialog")
+	local find = uv(uv(uv(dialog.GoBack, "Show"), "Place"), "NpcNameplate")
+	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
+	local plate = { IsForbidden = function() return false end } -- no unitToken yet
+	UnitExists = function(token) return token == "nameplate3" end
+	UnitGUID = function(token) return token == "nameplate3" and "Creature-NPC" or nil end
+	UnitIsUnit = function() return false end
+	C_NamePlate = { GetNamePlates = function() return { plate } end,
+		GetNamePlateForUnit = function(token) return token == "nameplate3" and plate or nil end }
+	setuv(find, "npcGuid", "Creature-NPC")
+	assert(find() == plate, "plate found by its unit token")
+	setuv(find, "npcGuid", nil)
+	UnitExists, UnitGUID, C_NamePlate, UnitIsUnit = saved[1], saved[2], saved[3], saved[4]
+	print("dialog plate by token OK")
+end)()
+;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.
 	local indent = ns:GetModule("ChatIndent")
 	assert(indent and indent.Wrap, "chat indent module")

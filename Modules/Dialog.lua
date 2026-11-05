@@ -940,6 +940,18 @@ local function NpcNameplate()
 				return plate
 			end
 		end
+		-- The fields of a plate are filled by Blizzard's own handler of NAME_PLATE_UNIT_ADDED, which may run after
+		-- ours: then no field names the NPC yet and the bubble stayed at the top of the screen. The unit tokens of
+		-- the plates themselves are asked instead.
+		for index = 1, 100 do
+			local token = "nameplate" .. index
+			if UnitExists(token) and Matches(token) then
+				local nameplate = C_NamePlate.GetNamePlateForUnit(token)
+				if nameplate and not nameplate:IsForbidden() then
+					return nameplate
+				end
+			end
+		end
 		-- The plate of the talk unit itself, when it is still the same NPC.
 		if unit and Matches(unit) then
 			local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
@@ -981,7 +993,8 @@ end
 local function Place()
 	bubble:ClearAllPoints()
 	local nameplate = NpcNameplate()
-	Trace("Platz: %s", nameplate and "Plakette des NPCs" or "oben am Bildschirm")
+	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
+		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
 	if nameplate then
 		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
 		if Dialog.db.hidePlate then
@@ -2154,10 +2167,15 @@ function Dialog:Apply()
 		self:ToggleEvent(event, on, self.OnConversation)
 	end
 	-- The plate of the NPC appears after the start of the talk: the bubble moves onto it.
-	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
+	-- Once more a picture later, when Blizzard's handler has filled the plate.
+	local function PlaceOnPlate()
 		if current and bubble and bubble:IsShown() and NpcNameplate() then
 			Place()
 		end
+	end
+	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
+		PlaceOnPlate()
+		C_Timer.After(0, PlaceOnPlate)
 	end)
 	-- A plate that goes away may be given to another unit: the bubble is placed again (on the plate of the NPC,
 	-- else at the top of the screen) instead of staying on a frame that now belongs to someone else.

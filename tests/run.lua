@@ -1967,6 +1967,29 @@ end)()
 	print("dialog plate by token OK")
 end)()
 ;(function()
+	-- The bubble stays wholly on the screen while the option "on screen" is on
+	local dialog = ns:GetModule("Dialog")
+	local place = uv(uv(dialog.GoBack, "Show"), "Place")
+	local clamped
+	local bubble = { ClearAllPoints = function() end, SetPoint = function() end,
+		SetClampedToScreen = function(_, on) clamped = on end }
+	local savedBubble = uv(place, "bubble")
+	local savedFind = uv(place, "NpcNameplate")
+	setuv(place, "bubble", bubble)
+	setuv(place, "NpcNameplate", function() return nil end)
+	local savedPlates, savedScreen = dialog.db.plates, dialog.db.onScreen
+	dialog.db.plates, dialog.db.onScreen = false, true
+	place()
+	assert(clamped == true, "clamped with the option")
+	dialog.db.onScreen = false
+	place()
+	assert(clamped == false, "free without it")
+	dialog.db.plates, dialog.db.onScreen = savedPlates, savedScreen
+	setuv(place, "bubble", savedBubble)
+	setuv(place, "NpcNameplate", savedFind)
+	print("dialog clamp OK")
+end)()
+;(function()
 	-- New ability: first free slot of the bars in order; none when all are full
 	local qol = ns:GetModule("QoL")
 	local used = { [1] = true, [2] = true, [61] = true }

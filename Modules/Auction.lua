@@ -438,16 +438,59 @@ end
 -- Sell frames: merchant comparison and warning below the post button (above it sits the game's total price, which
 -- the lines covered)
 ---------------------------------------------------------------------------
-local sellWarnings = {}
 local sellVendorInfo = {}
 
-local function UpdateSellWarning(frame, unitPrice)
-	local text = sellWarnings[frame]
-	if not text then
-		text = frame:CreateFontString(nil, "OVERLAY", "GameFontRedSmall")
-		text:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -24)
-		sellWarnings[frame] = text
+-- What the sell frame shows below the post button: one large line (warning, profit or loss per item) and, for the
+-- tooltip, the calculation behind it. nil when nothing is shown.
+function Auction.SellSummary(vendor, unitGross, profitOn, warningOn)
+	if not vendor or not (profitOn or warningOn) then
+		return nil
 	end
+	local unitNet = NetAuctionPrice(unitGross)
+	local profit = unitNet and (unitNet - vendor) or nil
+	local money = function(value)
+		return GetMoneyString(value, true)
+	end
+	local summary = { lines = {
+		L.AUCTION_SELL_MERCHANT:format(money(vendor)),
+		L.AUCTION_SELL_PRICE:format(unitGross and unitGross > 0 and money(unitGross) or L.AUCTION_SELL_NO_PRICE),
+		L.AUCTION_SELL_NET:format(unitNet and money(unitNet) or L.AUCTION_SELL_NO_PRICE),
+	} }
+	if not profit then
+		summary.text, summary.color = L.AUCTION_SELL_NO_PRICE, { 1, 0.82, 0 }
+		return summary
+	end
+	local amount = (profit >= 0 and "+" or "−") .. money(math.abs(profit))
+	summary.lines[#summary.lines + 1] = L.AUCTION_SELL_RESULT:format(amount)
+	if warningOn and profit <= 0 then
+		summary.text, summary.color = L.AUCTION_SELL_BELOW:format(amount), { 1, 0.25, 0.25 }
+		summary.lines[#summary.lines + 1] = L.AUCTION_BELOW_VENDOR:format(money(vendor))
+	elseif not profitOn then
+		return nil
+	elseif profit > 0 then
+		summary.text, summary.color = L.AUCTION_SELL_PROFIT:format(amount), { 0.2, 1, 0.2 }
+	elseif profit < 0 then
+		summary.text, summary.color = L.AUCTION_SELL_LOSS:format(amount), { 1, 0.25, 0.25 }
+	else
+		summary.text, summary.color = L.AUCTION_SELL_PROFIT:format(amount), { 1, 0.82, 0 }
+	end
+	return summary
+end
+
+local function ShowSellTooltip(hover)
+	local summary = hover.summary
+	if not summary then
+		return
+	end
+	GameTooltip:SetOwner(hover, "ANCHOR_TOP")
+	GameTooltip:AddLine(summary.text, unpack(summary.color))
+	for _, line in ipairs(summary.lines) do
+		GameTooltip:AddLine(line, 1, 1, 1)
+	end
+	GameTooltip:Show()
+end
+
+local function UpdateSellWarning(frame, unitPrice)
 	local location = frame:GetItem()
 	local itemID = location and C_Item.DoesItemExist(location) and C_Item.GetItemID(location)
 	local vendor = VendorPrice(itemID)
@@ -466,36 +509,30 @@ local function UpdateSellWarning(frame, unitPrice)
 	if frame.GetPrice and not frame.GetUnitPrice and quantity > 1 then
 		unitGross = unitPrice and floor(unitPrice / quantity) or nil
 	end
-	local unitNet = NetAuctionPrice(unitGross)
-	local unitProfit = vendor and unitNet and (unitNet - vendor) or nil
-	if Auction.db.vendorWarning and vendor and unitProfit and unitProfit <= 0 then
-		text:SetText(L.AUCTION_BELOW_VENDOR:format(GetMoneyString(vendor, true)))
-		text:Show()
-	else
-		text:Hide()
-	end
-
 	local info = sellVendorInfo[frame]
 	if not info then
-		info = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		info = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		info:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -6)
+		-- A font string takes no mouse: a frame over it carries the tooltip with the calculation.
+		info.hover = CreateFrame("Frame", nil, frame)
+		info.hover:SetAllPoints(info)
+		info.hover:SetScript("OnEnter", ShowSellTooltip)
+		info.hover:SetScript("OnLeave", GameTooltip_Hide)
 		sellVendorInfo[frame] = info
 	end
-	if (Auction.db.vendorProfit or Auction.db.vendorWarning) and vendor then
-		local sign = unitProfit and (unitProfit >= 0 and "+" or "−") or ""
-		local result = unitProfit and (sign .. GetMoneyString(math.abs(unitProfit), true)) or L.AUCTION_SELL_NO_PRICE
-		info:SetText(L.AUCTION_SELL_VENDOR_INFO:format(GetMoneyString(vendor, true),
-			unitNet and GetMoneyString(unitNet, true) or L.AUCTION_SELL_NO_PRICE, result))
-		if unitProfit and unitProfit > 0 then
-			info:SetTextColor(0.2, 1, 0.2)
-		elseif unitProfit and unitProfit < 0 then
-			info:SetTextColor(1, 0.25, 0.25)
-		else
-			info:SetTextColor(1, 0.82, 0)
-		end
+	local summary = Auction.SellSummary(vendor, unitGross, Auction.db.vendorProfit, Auction.db.vendorWarning)
+	info.hover.summary = summary
+	if summary then
+		info:SetText(summary.text)
+		info:SetTextColor(unpack(summary.color))
 		info:Show()
+		info.hover:Show()
+		if GameTooltip:GetOwner() == info.hover then
+			ShowSellTooltip(info.hover)
+		end
 	else
 		info:Hide()
+		info.hover:Hide()
 	end
 end
 

@@ -1246,6 +1246,12 @@ do
 			GetEffectiveScale = function() return 1 end, GetScale = function() return 1 end }, { __index = function() return function() end end })
 		local ok, err = pcall(show, tip, 3)
 		print("trainer compare run", ok, err)
+		-- In the bubble at a nameplate the tooltip cannot be measured (error): the comparison still shows.
+		tip.GetRight = function() error("Can't measure restricted regions") end
+		GetCursorPosition = function() return 400, 300 end
+		ok, err = pcall(show, tip, 3)
+		assert(ok, "restricted tooltip: " .. tostring(err))
+		print("trainer compare restricted OK")
 	end
 end
 do

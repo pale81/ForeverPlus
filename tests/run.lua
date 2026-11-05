@@ -855,6 +855,21 @@ local pat = "^" .. DPS_TEMPLATE:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0"):gsub(
 print("  pattern", pat, ("(7,3 Schaden pro Sekunde)"):match(pat))
 assert(("(7,3 Schaden pro Sekunde)"):match(pat) == "7,3")
 print("upgrade trees OK")
+-- Upgrade sign: the pop always ends at exactly size 1 and fully visible
+do
+	local items = ns:GetModule("Items")
+	local s0, a0, d0 = items.PopScale(0)
+	assert(s0 == 0.25 and a0 == 0 and d0 == false)
+	local sPeak = items.PopScale(0.2199)
+	assert(sPeak > 1.3 and sPeak <= 1.35)
+	local s1, a1, d1 = items.PopScale(0.38)
+	assert(s1 == 1 and a1 == 1 and d1 == true)
+	for t = 0, 0.5, 0.01 do
+		local s = items.PopScale(t)
+		assert(s > 0 and s <= 1.35)
+	end
+	print("upgrade pop OK")
+end
 -- Group finder: classes and missing roles
 local gf = ns:GetModule("GroupFinder")
 local updateEntry = uv(gf.OnOptionChanged, "RefreshAll") and uv(uv(gf.OnOptionChanged, "RefreshAll"), "UpdateEntry")
@@ -1899,6 +1914,22 @@ end)()
 	GetMerchantItemLink = function() return nil end
 	ns.MerchantTools = tools
 	print("merchant view OK")
+end)()
+;(function()
+	-- Drawing the bubble fails halfway: no empty bubble stays, Blizzard's window takes the step.
+	local dialog = ns:GetModule("Dialog")
+	local render = uv(dialog.Rerender, "Render")
+	local body = uv(render, "RenderView")
+	local printed = ns.Print
+	ns.Print = function() end
+	setuv(render, "RenderView", function() error("kaputt") end)
+	setuv(dialog.Rerender, "current", { view = { kind = "GOSSIP_SHOW" } })
+	render({ kind = "GOSSIP_SHOW" })
+	assert(uv(dialog.Rerender, "current") == nil, "after a drawing error the bubble lets go of the step")
+	setuv(render, "RenderView", body)
+	ns.Print = printed
+	dialog.reported = nil
+	print("dialog render error OK")
 end)()
 ;(function()
 	-- Chat with hanging indent: continuation lines start with blanks as wide as the timestamp.

@@ -556,6 +556,20 @@ end
 
 local ShowNextUpgrade
 
+-- Size and opacity of the big sign t seconds into its pop: grows from a quarter to 1.35 (eased out), settles to 1,
+-- fades in during the first 0.12 s. Third value true once it is over (size 1, fully visible).
+local POP_GROW, POP_SETTLE, POP_FADE = 0.22, 0.16, 0.12
+function Items.PopScale(t)
+	local alpha = math.min(1, t / POP_FADE)
+	if t < POP_GROW then
+		local p = 1 - (1 - t / POP_GROW) ^ 2
+		return 0.25 + 1.1 * p, alpha, false
+	elseif t < POP_GROW + POP_SETTLE then
+		return 1.35 - 0.35 * (t - POP_GROW) / POP_SETTLE, 1, false
+	end
+	return 1, 1, true
+end
+
 local function CreateUpgradeFrame()
 	local frame = ns.CreatePanel("ForeverPlusUpgradeFrame", { close = true })
 	frame:SetSize(400, 214)
@@ -611,25 +625,35 @@ local function CreateUpgradeFrame()
 		arrow:SetPoint("RIGHT", big.Text, "LEFT", -6 - (index - 1) * 2, 0)
 		big.Arrows[index] = arrow
 	end
-	local pop = big:CreateAnimationGroup()
-	local grow = pop:CreateAnimation("Scale")
-	grow:SetOrder(1)
-	grow:SetDuration(0.22)
-	grow:SetScaleFrom(0.25, 0.25)
-	grow:SetScaleTo(1.35, 1.35)
-	grow:SetSmoothing("OUT")
-	local settle = pop:CreateAnimation("Scale")
-	settle:SetOrder(2)
-	settle:SetDuration(0.16)
-	settle:SetScaleFrom(1.35, 1.35)
-	settle:SetScaleTo(1, 1)
-	settle:SetSmoothing("IN_OUT")
-	local fadeIn = pop:CreateAnimation("Alpha")
-	fadeIn:SetOrder(1)
-	fadeIn:SetDuration(0.12)
-	fadeIn:SetFromAlpha(0)
-	fadeIn:SetToAlpha(1)
-	big.Pop = pop
+	-- The pop is driven by SetScale, not by a Scale animation: the animation left the sign tiny (and its letters
+	-- garbled) at times, even after Stop(). SetScale ends at an exact size, and the text is drawn at that size.
+	local CENTER_Y = -92 - 28 -- centre of the sign below the top of the window
+	local function SetPop(scale, alpha)
+		big:SetScale(scale)
+		big:ClearAllPoints()
+		big:SetPoint("CENTER", frame, "TOP", 0, CENTER_Y / scale) -- offsets count in the sign's own scale
+		big:SetAlpha(alpha)
+	end
+	function big.FinishPop()
+		big.popTime = nil
+		ns.SetUpdate(big, "Items: upgrade pop", nil)
+		SetPop(1, 1)
+	end
+	function big.PlayPop()
+		big.popTime = 0
+		SetPop(Items.PopScale(0))
+		ns.SetUpdate(big, "Items: upgrade pop", function(_, elapsed)
+			big.popTime = big.popTime + elapsed
+			local scale, alpha, done = Items.PopScale(big.popTime)
+			if done then
+				big.FinishPop()
+			else
+				SetPop(scale, alpha)
+			end
+		end)
+	end
+	-- Hidden halfway (combat, closed): the sign must not wait at a small size for the next time.
+	big:SetScript("OnHide", big.FinishPop)
 	-- The arrows keep lifting a little, so the sign stays alive.
 	local lift = big:CreateAnimationGroup()
 	lift:SetLooping("BOUNCE")
@@ -842,19 +866,8 @@ function ShowNextUpgrade()
 	frame:Show()
 	Celebrate(frame)
 	if not retail then
-		big.Pop:Stop()
-		big.Pop:Play()
+		big.PlayPop()
 		big.Lift:Play()
-		-- The big sign ends at full size and opacity whatever the animation did (it stayed tiny, with garbled
-		-- characters, at times).
-		big.popToken = (big.popToken or 0) + 1
-		local token = big.popToken
-		C_Timer.After(0.6, function()
-			if big.popToken == token then
-				big.Pop:Stop()
-				big:SetAlpha(1)
-			end
-		end)
 	else
 		big.Lift:Stop()
 	end

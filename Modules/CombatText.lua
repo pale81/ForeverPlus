@@ -35,9 +35,10 @@ local MAX_ACTIVE = 30
 local MAX_BASE = 130      -- pixels: a text starts above the ones still rising from its place, at most this high
 local SHAKE_TIME = 0.5   -- seconds a critical hit shakes
 local SHAKE_SIZE = 7     -- pixels
-local POP_END = 0.22     -- seconds: a critical hit has grown (overshooting a little)
-local SETTLE_END = 0.6   -- seconds: back at its size
-local POP_PEAK = 1.15    -- size at the end of the pop, relative to the size it keeps
+local POP_END = 0.2      -- seconds: a critical hit has grown (overshooting)
+local HOLD_END = 0.45    -- seconds: it stays large this long, so the jump can be seen
+local SETTLE_END = 0.75  -- seconds: back at its size
+local POP_PEAK = 1.6     -- size at the end of the pop, relative to the size it keeps (the experience grows to 1.7)
 
 local function BackOut(t) -- overshoots a little, then settles (as the experience in the middle of the screen)
 	local c = 1.9
@@ -46,13 +47,15 @@ local function BackOut(t) -- overshoots a little, then settles (as the experienc
 end
 
 -- Size (relative) and opacity of a critical hit that pops up, age seconds after it appeared: from 0.4 it grows past
--- POP_PEAK, fades in during the first third, then shrinks back to 1.
+-- POP_PEAK (visible after a sixth of the pop), stays large for a moment, then shrinks back to 1.
 function CombatText.CritPop(age)
 	if age < POP_END then
 		local k = age / POP_END
-		return 0.4 + (POP_PEAK - 0.4) * BackOut(k), math.min(1, k * 3)
+		return 0.4 + (POP_PEAK - 0.4) * BackOut(k), math.min(1, k * 6)
+	elseif age < HOLD_END then
+		return POP_PEAK, 1
 	elseif age < SETTLE_END then
-		return POP_PEAK - (POP_PEAK - 1) * (age - POP_END) / (SETTLE_END - POP_END), 1
+		return POP_PEAK - (POP_PEAK - 1) * (age - HOLD_END) / (SETTLE_END - HOLD_END), 1
 	end
 	return 1, 1
 end

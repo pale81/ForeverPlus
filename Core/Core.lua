@@ -694,6 +694,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("WorldMap"):PrintStatus()
 	elseif msg == "mausrad" or msg == "wheel" then
 		ns.StartWheelCheck()
+	elseif msg == "schrift" or msg == "font" then
+		ns:GetModule("Fonts").Inspect()
 	elseif msg == "taschen verlauf" or msg == "bags trace" then
 		ns:GetModule("Items").PrintTrace()
 	elseif msg == "junk" or msg == "schrott" then

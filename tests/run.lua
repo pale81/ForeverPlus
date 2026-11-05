@@ -2436,6 +2436,27 @@ end)()
 	print("loot money OK")
 end)()
 ;(function()
+	-- /fp schrift: font object and group of the texts under the mouse
+	local fonts = ns:GetModule("Fonts")
+	local function fs(text, object, visible)
+		return { GetObjectType = function() return "FontString" end, IsVisible = function() return visible end,
+			GetText = function() return text end, GetFontObject = function() return object end,
+			GetFont = function() return "x", 12 end }
+	end
+	local tex = { GetObjectType = function() return "Texture" end }
+	local frame = { GetRegions = function()
+		return tex, fs("|cffff0000Schwert|r", GameTooltipText, true), fs("versteckt", GameTooltipText, false),
+			fs("eigen", nil, true)
+	end }
+	GameTooltipText.GetName = function() return "GameTooltipText" end
+	local lines = fonts.InspectLines({ frame, { GetRegions = function() error("restricted") end } })
+	assert(#lines == 2, "visible texts only, restricted frame skipped: " .. #lines)
+	assert(lines[1]:find("Schwert", 1, true) and not lines[1]:find("|c", 1, true)
+		and lines[1]:find("GameTooltipText", 1, true) and lines[1]:find(ns.L.FONTS_GROUP_tooltip, 1, true), lines[1])
+	assert(lines[2]:find(ns.L.FONTS_INSPECT_OWN, 1, true), lines[2])
+	print("font inspect OK")
+end)()
+;(function()
 	-- Traces open in a window to copy
 	local saved, shown = ns.ShowEditWindow, nil
 	ns.ShowEditWindow = function(key, _, text) shown = { key, text } end

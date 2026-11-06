@@ -271,7 +271,30 @@ function Fonts.Inspect()
 	if #lines == 0 then
 		lines[1] = L.FONTS_INSPECT_NONE
 	end
+	Fonts.SaveInspect(lines)
 	ns.ShowTrace(L.FONTS_INSPECT_HEADER, lines)
+end
+
+-- Keeps the last results with the slider values in the saved variables, to read them after /reload.
+local INSPECT_KEEP = 10
+function Fonts.SaveInspect(lines)
+	local settings = {}
+	for _, key in ipairs({ "face", "size" }) do
+		settings[#settings + 1] = key .. "=" .. tostring(Fonts.db[key])
+	end
+	for _, group in ipairs(GROUPS) do
+		settings[#settings + 1] = group .. "=" .. tostring(Fonts.db["face_" .. group]) .. "/" .. tostring(Fonts.db["size_" .. group])
+	end
+	local saved = type(ns.db.fontInspect) == "table" and ns.db.fontInspect or {}
+	local entry = { date("%Y-%m-%d %H:%M:%S"), table.concat(settings, " ") }
+	for _, line in ipairs(lines) do
+		entry[#entry + 1] = line
+	end
+	table.insert(saved, entry)
+	while #saved > INSPECT_KEEP do
+		table.remove(saved, 1)
+	end
+	ns.db.fontInspect = saved
 end
 
 -- Sliders fire on every step; apply once the value settles.

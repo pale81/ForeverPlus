@@ -2454,6 +2454,12 @@ end)()
 	assert(lines[1]:find("Schwert", 1, true) and not lines[1]:find("|c", 1, true)
 		and lines[1]:find("GameTooltipText", 1, true) and lines[1]:find(ns.L.FONTS_GROUP_tooltip, 1, true), lines[1])
 	assert(lines[2]:find(ns.L.FONTS_INSPECT_OWN, 1, true), lines[2])
+	ns.db.fontInspect = nil
+	for _ = 1, 12 do
+		fonts.SaveInspect(lines)
+	end
+	assert(#ns.db.fontInspect == 10 and #ns.db.fontInspect[10] == 4, "keeps last 10 with time and settings")
+	assert(ns.db.fontInspect[1][2]:find("tooltip=", 1, true) and ns.db.fontInspect[1][3] == lines[1], ns.db.fontInspect[1][2])
 	print("font inspect OK")
 end)()
 ;(function()

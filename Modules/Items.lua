@@ -817,7 +817,7 @@ local function Celebrate(frame)
 	frame.Glow.Breathe:Play()
 	frame.Popup:Play()
 	-- The window ends at its normal size whatever the animation did (it stayed small at times).
-	frame.popupToken = (frame.popupToken or 0) + 1
+	frame.popupToken = ns.Number(frame.popupToken, 0) + 1
 	local token = frame.popupToken
 	C_Timer.After(0.5, function()
 		if frame.popupToken == token then

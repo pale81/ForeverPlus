@@ -1341,10 +1341,10 @@ do
 	ITEM_QUALITY_COLORS = { [2] = { r = 0, g = 1, b = 0 } }
 	GetInventoryItemLink = function() return "|Hitem:1|h[Alt]|h" end
 	local ok, err = pcall(showNext)
-	print("show upgrade", ok, err)
+	assert(ok, "show upgrade: " .. tostring(err))
 	queue[1] = { link = "x", score = 5, equippedScore = 0 }
 	ok, err = pcall(showNext)
-	print("show upgrade empty slot", ok, err)
+	assert(ok, "show upgrade empty slot: " .. tostring(err))
 end
 (function()
 	-- a sort only leaves a trace: marked junk is not moved (the game's cleanup would put it back)

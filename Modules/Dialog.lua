@@ -990,12 +990,18 @@ local function HidePlate(plate)
 	end
 end
 
-local function Place()
+-- `exclude`: a plate that is going away (NAME_PLATE_UNIT_REMOVED); it still names the NPC at that moment
+-- but is given to another unit next (the bubble then jumped onto the player or another unit).
+local function Place(exclude)
 	bubble:ClearAllPoints()
 	-- The game keeps the whole bubble on the screen (title cut off at the top edge when the NPC's head was near it);
 	-- a setter only, so it also works while the bubble hangs on a plate that cannot be measured.
 	pcall(bubble.SetClampedToScreen, bubble, Dialog.db.onScreen and true or false)
 	local nameplate = NpcNameplate()
+	if nameplate and nameplate == exclude then
+		nameplate = nil
+	end
+	Dialog.anchorPlate = nameplate
 	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
 		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
 	if nameplate then
@@ -2181,21 +2187,12 @@ function Dialog:Apply()
 	end
 	-- The plate of the NPC appears after the start of the talk: the bubble moves onto it.
 	-- Once more a picture later, when Blizzard's handler has filled the plate.
-	local function PlaceOnPlate()
-		if current and bubble and bubble:IsShown() and NpcNameplate() then
-			Place()
-		end
-	end
 	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
-		PlaceOnPlate()
-		C_Timer.After(0, PlaceOnPlate)
+		Dialog.OnPlateAdded()
+		C_Timer.After(0, Dialog.OnPlateAdded)
 	end)
-	-- A plate that goes away may be given to another unit: the bubble is placed again (on the plate of the NPC,
-	-- else at the top of the screen) instead of staying on a frame that now belongs to someone else.
-	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, function()
-		if current and bubble and bubble:IsShown() then
-			Place()
-		end
+	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, function(_, _, unit)
+		Dialog.OnPlateRemoved(unit)
 	end)
 	-- Selecting a quest in the gossip closes the gossip and opens the quest: only a
 	-- close with no new step right after ends the bubble.
@@ -2238,6 +2235,28 @@ function Dialog.PrintTrace()
 end
 
 -- /fp blase: state of the bubble and of what the conversation offers.
+-- A plate came: the bubble moves when the NPC's plate is another frame than the one it hangs on (also when the
+-- frame it hangs on now belongs to someone else: then to the top of the screen).
+function Dialog.OnPlateAdded()
+	if current and bubble and bubble:IsShown() and NpcNameplate() ~= Dialog.anchorPlate then
+		Place()
+	end
+end
+
+-- A plate that goes away is given to another unit next: the bubble is placed again without it.
+function Dialog.OnPlateRemoved(unit)
+	if not (current and bubble and bubble:IsShown()) then
+		return
+	end
+	local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
+	plate = ok and plate or nil
+	if not plate then
+		Place()
+	elseif plate == Dialog.anchorPlate then
+		Place(plate)
+	end
+end
+
 function Dialog.PrintStatus()
 	local options = C_GossipInfo and C_GossipInfo.GetOptions and C_GossipInfo.GetOptions() or {}
 	local available = C_GossipInfo and C_GossipInfo.GetAvailableQuests and C_GossipInfo.GetAvailableQuests() or {}

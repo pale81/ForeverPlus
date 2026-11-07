@@ -3201,9 +3201,21 @@ end)()
 	handlers.QUEST_LOG_UPDATE()
 	handlers.QUEST_LOG_UPDATE()
 	assert(ns.db.objectivePoints[701] and ns.db.objectivePoints[701][1][1][4] == 1, "recorded at the quest log update, once")
+	-- the first update after loading only sets the counts: a count already reached gets no point here
+	count = 2
+	O.OnObjectiveUpdate(703, "watch")
+	assert(not ns.db.objectivePoints[703], "count reached before /reload: no point")
+	assert(ns.db.objectiveTrace[#ns.db.objectiveTrace]:find("703/1", 1, true)
+		and ns.db.objectiveTrace[#ns.db.objectiveTrace]:find("Anfang", 1, true), ns.db.objectiveTrace[#ns.db.objectiveTrace])
+	count = 3
+	O.OnObjectiveUpdate(703, "log")
+	assert(ns.db.objectivePoints[703] and ns.db.objectivePoints[703][1][1][4] == 1, "next step after loading is recorded")
 	-- a progress bar counts in percent
-	GetQuestProgressBarPercent = function() return 40 end
+	local percent = 0
+	GetQuestProgressBarPercent = function() return percent end
 	C_QuestLog.GetQuestObjectives = function() return { { type = "progressbar", numFulfilled = 0, finished = false } } end
+	O.OnObjectiveUpdate(702)
+	percent = 40
 	O.OnObjectiveUpdate(702)
 	GetQuestProgressBarPercent = nil
 	assert(ns.db.objectivePoints[702], "progress bar point")

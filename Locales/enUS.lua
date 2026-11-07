@@ -874,6 +874,7 @@ L.LOOTSRC_MORE = "… and %d more sources"
 L.LOOTSRC_EXPORT_HEADER = "-- ForeverPlus loot: { source, name, loot windows, { [item] = count } }"
 
 L.OBS_TITLE = "Observations"
+L.OBS_TRACE = "Quest objective trace (last %d reports: time, event, quest/objective, type, count/required, whether a place was kept):"
 L.OBS_RECORD = "Remember quests and places"
 L.OBS_RECORD_DESC = "Remembers which quests an NPC offers and takes back, where you stood when a quest objective counted, and where creatures lay when their loot window opened (stored locally only, nothing is sent). /fp export shows it as text to pass on so it ships with an update."
 L.OBS_EXPORT_NPCS = "-- ForeverPlus NPCs: { NPC, name, { quests offered }, { quests taken }, { { map, x, y, count } } },"

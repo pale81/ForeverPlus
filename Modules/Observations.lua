@@ -145,8 +145,29 @@ end
 -- Objectives and creatures
 ---------------------------------------------------------------------------
 local lastCounts = {} -- questID -> { count per objective }
+local pending = {}    -- questIDs whose objectives changed, read again at the next QUEST_LOG_UPDATE
+local TRACE_KEEP = 40
 
-function Observations.OnObjectiveUpdate(questID)
+-- Last objective updates (saved, to read after /reload): what the game reported and whether a point was kept.
+local function Trace(text, ...)
+	local trace = type(ns.db.objectiveTrace) == "table" and ns.db.objectiveTrace or {}
+	ns.db.objectiveTrace = trace
+	trace[#trace + 1] = date("%H:%M:%S ") .. text:format(...)
+	while #trace > TRACE_KEEP do
+		table.remove(trace, 1)
+	end
+end
+
+-- Progress of one objective: the count, or the percent of a progress bar (its count stays 0).
+local function Progress(questID, objective)
+	local fulfilled = ns.Number(objective.numFulfilled, 0)
+	if objective.type == "progressbar" and GetQuestProgressBarPercent then
+		fulfilled = math.max(fulfilled, ns.Number(GetQuestProgressBarPercent(questID), 0))
+	end
+	return fulfilled
+end
+
+function Observations.OnObjectiveUpdate(questID, source)
 	questID = ns.Number(questID)
 	local objectives = questID and C_QuestLog.GetQuestObjectives(questID)
 	if not objectives then
@@ -156,8 +177,11 @@ function Observations.OnObjectiveUpdate(questID)
 	lastCounts[questID] = last
 	local mapID, x, y = PlayerPosition()
 	for index, objective in ipairs(objectives) do
-		local fulfilled = ns.Number(objective.numFulfilled, 0)
-		if mapID and fulfilled > (last[index] or 0) then
+		local fulfilled = Progress(questID, objective)
+		local raised = fulfilled > (last[index] or 0)
+		Trace("%s %d/%d %s %s/%s%s", source or "?", questID, index, tostring(objective.type), tostring(fulfilled),
+			tostring(objective.numRequired), raised and (mapID and " Punkt" or " ohne Ort") or "")
+		if mapID and raised then
 			local byQuest = ns.db.objectivePoints[questID]
 			if not byQuest and Observations.objectiveCount < MAX_ENTRIES then
 				byQuest = {}
@@ -397,9 +421,32 @@ function Observations:Apply()
 	self:ToggleEvent("GOSSIP_SHOW", on, OnGossipShow)
 	self:ToggleEvent("QUEST_DETAIL", on, OnQuestDetail)
 	self:ToggleEvent("QUEST_COMPLETE", on, OnQuestComplete)
+	-- The game may send QUEST_WATCH_UPDATE before the new count is in the quest log: read again at the next
+	-- QUEST_LOG_UPDATE (the counts kept per objective stop a step from counting twice).
 	self:ToggleEvent("QUEST_WATCH_UPDATE", on, function(_, _, questID)
-		Observations.OnObjectiveUpdate(questID)
+		Observations.OnObjectiveUpdate(questID, "watch")
+		questID = ns.Number(questID)
+		if questID then
+			pending[questID] = true
+		end
 	end)
+	self:ToggleEvent("QUEST_LOG_UPDATE", on, Observations.OnQuestLogUpdate)
+end
+
+function Observations.OnQuestLogUpdate()
+	if next(pending) == nil then
+		return
+	end
+	local quests = pending
+	pending = {}
+	for questID in pairs(quests) do
+		Observations.OnObjectiveUpdate(questID, "log")
+	end
+end
+
+function Observations.PrintTrace()
+	local trace = type(ns.db.objectiveTrace) == "table" and ns.db.objectiveTrace or {}
+	ns.ShowTrace(L.OBS_TRACE:format(#trace), trace)
 end
 
 function Observations:OnLogin()

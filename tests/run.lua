@@ -1347,6 +1347,26 @@ do
 	assert(ok, "show upgrade empty slot: " .. tostring(err))
 end
 (function()
+	-- unspent talent points: the currencies of the active tree, shown on the micro button
+	local talents = ns:GetModule("Talents")
+	local savedCT, savedTraits = C_ClassTalents, C_Traits
+	C_ClassTalents = { GetActiveConfigID = function() return 7 end }
+	C_Traits = { GetConfigInfo = function() return { treeIDs = { 3 } } end,
+		GetTreeCurrencyInfo = function(configID, treeID) return configID == 7 and treeID == 3 and { { quantity = 2 }, { quantity = -1 } } or {} end }
+	assert(talents.UnspentPoints() == 2, "unspent points " .. talents.UnspentPoints())
+	PlayerSpellsMicroButton = CreateFrame("Button")
+	talents.db.unspentBadge = true
+	talents.UpdateUnspent()
+	assert(talents.unspentBadge and talents.unspentBadge:IsShown() == true, "badge shown")
+	C_Traits.GetTreeCurrencyInfo = function() return { { quantity = 0 } } end
+	talents.UpdateUnspent()
+	assert(talents.unspentBadge:IsShown() ~= true, "badge hidden without points")
+	C_ClassTalents = { GetActiveConfigID = function() return nil end }
+	assert(talents.UnspentPoints() == 0, "no tree, no points")
+	C_ClassTalents, C_Traits, PlayerSpellsMicroButton = savedCT, savedTraits, nil
+	print("unspent talents OK")
+end)()
+;(function()
 	-- a sort only leaves a trace: marked junk is not moved (the game's cleanup would put it back)
 	local items = ns:GetModule("Items")
 	local onSort = uv(uv(items.OnLogin, "QueueSort") and items.OnLogin, "OnSortStarted")

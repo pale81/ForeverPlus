@@ -9,6 +9,7 @@ local Talents = ns:NewModule("Talents", {
 	defaults = {
 		enabled = true,
 		planner = true,
+		unspentBadge = true,
 		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
@@ -1365,6 +1366,77 @@ function Talents:OnLogin()
 		end)
 	end)
 	self:RegisterEvent("SPELLS_CHANGED", QueueGlowUpdate)
+	for _, event in ipairs({ "PLAYER_LEVEL_UP", "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
+		"ACTIVE_COMBAT_CONFIG_CHANGED", "PLAYER_ENTERING_WORLD" }) do
+		ns:RegisterEvent(event, Talents.UpdateUnspent, Talents.QueueUnspent)
+	end
+	Talents.QueueUnspent()
+end
+
+---------------------------------------------------------------------------
+-- Unspent talent points: a number on the talent button of the micro menu
+---------------------------------------------------------------------------
+-- Points the player can still spend: the currencies of the active talent tree (the game's own count).
+function Talents.UnspentPoints()
+	local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+	local info = configID and C_Traits.GetConfigInfo(configID)
+	local treeID = info and info.treeIDs and info.treeIDs[1]
+	if not treeID then
+		return 0
+	end
+	local points = 0
+	for _, currency in ipairs(C_Traits.GetTreeCurrencyInfo(configID, treeID, false) or {}) do
+		points = points + math.max(ns.Number(currency.quantity, 0), 0)
+	end
+	return points
+end
+
+function Talents.UpdateUnspent()
+	local button = PlayerSpellsMicroButton or TalentMicroButton
+	if not button then
+		return
+	end
+	local points = Talents.db.unspentBadge and Talents.UnspentPoints() or 0
+	local badge = Talents.unspentBadge
+	if points <= 0 then
+		if badge then
+			badge:Hide()
+		end
+		return
+	end
+	if not badge then
+		badge = CreateFrame("Frame", nil, button)
+		badge:SetSize(18, 18)
+		badge:SetPoint("TOPRIGHT", button, "TOPRIGHT", 4, 2)
+		badge:SetFrameLevel(button:GetFrameLevel() + 5)
+		badge.Back = badge:CreateTexture(nil, "ARTWORK")
+		badge.Back:SetAllPoints()
+		badge.Back:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+		badge.Back:SetVertexColor(0.75, 0.05, 0.05)
+		badge.Text = badge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		badge.Text:SetPoint("CENTER", 0, 0)
+		badge.Pulse = badge:CreateAnimationGroup()
+		badge.Pulse:SetLooping("BOUNCE")
+		local fade = badge.Pulse:CreateAnimation("Alpha")
+		fade:SetFromAlpha(1)
+		fade:SetToAlpha(0.55)
+		fade:SetDuration(0.8)
+		badge:EnableMouse(false) -- clicks and the tooltip stay with the button
+		Talents.unspentBadge = badge
+	end
+	badge.Text:SetText(points)
+	badge:Show()
+	badge.Pulse:Play()
+end
+
+function Talents.QueueUnspent()
+	if not Talents.unspentPending then
+		Talents.unspentPending = true
+		C_Timer.After(0.5, function()
+			Talents.unspentPending = false
+			Talents.UpdateUnspent()
+		end)
+	end
 end
 
 -- /fp talente: where the plan bar is and whether it shows.
@@ -1397,10 +1469,12 @@ end
 
 function Talents:OnOptionChanged()
 	self:Update()
+	Talents.UpdateUnspent()
 	QueuePlanUpdate()
 end
 
 Talents.options = {
 	{ key = "enabled", type = "toggle", name = L.TALENTS_ENABLE, desc = L.TALENTS_ENABLE_DESC },
 	{ key = "planner", type = "toggle", name = L.TALENTS_PLANNER, desc = L.TALENTS_PLANNER_DESC },
+	{ key = "unspentBadge", type = "toggle", name = L.TALENTS_UNSPENT, desc = L.TALENTS_UNSPENT_DESC },
 }

@@ -38,7 +38,7 @@ read_globals = {
 	"Menu",
 	"SetItemButtonTexture", "SetItemButtonQuality", "C_NewItems",
 	"SKILL_RANK_UP", "ERR_LEARN_SPELL_S", "ERR_LEARN_ABILITY_S", "ERR_LEARN_PASSIVE_S", "FACTION_STANDING_INCREASED", "FACTION_STANDING_DECREASED",
-	"PlayerSpellsUtil", "TalentMicroButton", "ExportUtil",
+	"PlayerSpellsUtil", "TalentMicroButton", "PlayerSpellsMicroButton", "ExportUtil",
 	"GossipFrame",
 	"QuestFrame",
 	"GameTooltip_AddErrorLine", "RESET",

@@ -999,6 +999,13 @@ local function Place()
 	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
 		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
 	if nameplate then
+		local ok, top, bottom = pcall(function()
+			return nameplate:GetTop(), nameplate:GetBottom()
+		end)
+		local function Pixel(value)
+			return ok and ns.Number(value) and ("%d"):format(value) or "?"
+		end
+		Trace("Plakette: oben %s, unten %s, Bildschirm %d", Pixel(top), Pixel(bottom), ns.Number(UIParent:GetHeight(), 0))
 		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
 		if Dialog.db.hidePlate then
 			HidePlate(nameplate)
@@ -2211,6 +2218,14 @@ end
 
 -- The bubble is meant to be the conversation window: on once, then the player's choice stays.
 function Dialog:OnInitialize()
+	-- The trace is kept in the saved variables (the last 100 steps), to read it after /reload.
+	if type(ns.db.bubbleTrace) ~= "table" then
+		ns.db.bubbleTrace = {}
+	end
+	for _, line in ipairs(trace) do
+		table.insert(ns.db.bubbleTrace, line)
+	end
+	trace = ns.db.bubbleTrace
 	if self.db.onByDefault == nil then
 		self.db.onByDefault = true
 		self.db.enabled = true

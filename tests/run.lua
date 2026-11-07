@@ -2494,6 +2494,7 @@ end)()
 	shown = nil
 	ns:GetModule("Dialog").PrintTrace()
 	assert(shown and shown[1] == "Trace", "bubble trace in window")
+	assert(type(ns.db.bubbleTrace) == "table", "bubble trace kept in the saved variables")
 	items.trace, ns.ShowEditWindow = savedTrace, saved
 	print("trace window OK")
 end)()

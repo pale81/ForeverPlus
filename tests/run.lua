@@ -2010,6 +2010,42 @@ end)()
 	print("dialog clamp OK")
 end)()
 ;(function()
+	-- The NPC's plate goes away and is given to another unit (the player): the bubble does not stay on it.
+	local dialog = ns:GetModule("Dialog")
+	local place = uv(uv(dialog.GoBack, "Show"), "Place")
+	local anchored
+	local bubble = { ClearAllPoints = function() anchored = nil end, SetPoint = function(_, _, to) anchored = to end,
+		SetClampedToScreen = function() end, IsShown = function() return true end }
+	local plateA, plateB = {}, {}
+	local npcPlate = plateA
+	local saved = { uv(place, "bubble"), uv(place, "NpcNameplate"), uv(dialog.OnPlateAdded, "current"), C_NamePlate,
+		dialog.db.plates, dialog.db.hidePlate }
+	setuv(place, "bubble", bubble)
+	setuv(place, "NpcNameplate", function() return npcPlate end)
+	setuv(dialog.OnPlateAdded, "current", {})
+	C_NamePlate = { GetNamePlates = function() return {} end, GetNamePlateForUnit = function() return plateA end }
+	dialog.db.plates, dialog.db.hidePlate = false, false
+	place()
+	assert(anchored == plateA and dialog.anchorPlate == plateA, "on the NPC's plate")
+	-- removed: the plate still names the NPC at this moment
+	dialog.OnPlateRemoved("nameplate1")
+	assert(anchored == UIParent and dialog.anchorPlate == nil, "off the plate that goes away")
+	-- the frame comes back for the player: not the NPC's plate, the bubble stays where it is
+	npcPlate = nil
+	dialog.OnPlateAdded()
+	assert(anchored == UIParent, "not onto the player")
+	-- the NPC's plate comes back as another frame
+	npcPlate = plateB
+	dialog.OnPlateAdded()
+	assert(anchored == plateB, "back on the NPC")
+	setuv(place, "bubble", saved[1])
+	setuv(place, "NpcNameplate", saved[2])
+	setuv(dialog.OnPlateAdded, "current", saved[3])
+	C_NamePlate, dialog.db.plates, dialog.db.hidePlate = saved[4], saved[5], saved[6]
+	dialog.anchorPlate = nil
+	print("dialog plate reuse OK")
+end)()
+;(function()
 	-- New ability: first free slot of the bars in order; none when all are full
 	local qol = ns:GetModule("QoL")
 	local used = { [1] = true, [2] = true, [61] = true }

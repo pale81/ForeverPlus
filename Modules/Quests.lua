@@ -1199,7 +1199,7 @@ end
 function Quests.WowheadURL(questID)
 	local locale = ({ deDE = "de/", frFR = "fr/", esES = "es/", esMX = "mx/", ptBR = "pt/", ruRU = "ru/", koKR = "ko/",
 		zhCN = "cn/", zhTW = "tw/", itIT = "it/" })[GetLocale()] or ""
-	return ("https://www.wowhead.com/classic/%squest=%d"):format(locale, questID)
+	return ("https://www.wowhead.com/forever/%squest=%d"):format(locale, questID)
 end
 
 function Quests.AddWowheadEntry(rootDescription, questID)

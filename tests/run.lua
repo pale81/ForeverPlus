@@ -1354,7 +1354,7 @@ end
 	Menu = { ModifyMenu = function(tag, fn) modifiers[tag] = fn end }
 	GetLocale = function() return "deDE" end
 	ns.ShowEditWindow = function(key, _, text) shown = { key, text } end
-	assert(quests.WowheadURL(783) == "https://www.wowhead.com/classic/de/quest=783", quests.WowheadURL(783))
+	assert(quests.WowheadURL(783) == "https://www.wowhead.com/forever/de/quest=783", quests.WowheadURL(783))
 	local function Root()
 		local root = { buttons = {} }
 		root.CreateDivider = function() end

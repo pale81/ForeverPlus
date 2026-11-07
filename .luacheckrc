@@ -317,6 +317,7 @@ read_globals = {
 	"IsFlying",
 	"WorldMapFrame",
 	"date",
+	"GetQuestProgressBarPercent",
 	"floor",
 	"hooksecurefunc",
 	"issecretvalue",

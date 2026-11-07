@@ -873,6 +873,7 @@ L.LOOTSRC_MORE = "… und %d weitere Quellen"
 L.LOOTSRC_EXPORT_HEADER = "-- ForeverPlus Beute: { Quelle, Name, Beutefenster, { [Gegenstand] = Anzahl } }"
 
 L.OBS_TITLE = "Beobachtungen"
+L.OBS_TRACE = "Verlauf der Questziele (die letzten %d Meldungen: Uhrzeit, Ereignis, Quest/Ziel, Typ, Stand/nötig, ob ein Ort gemerkt wurde):"
 L.OBS_RECORD = "Quests und Orte merken"
 L.OBS_RECORD_DESC = "Merkt sich, welche Quests ein NPC anbietet und abnimmt, wo du standest, als ein Questziel zählte, und wo Kreaturen lagen, als ihr Beutefenster aufging (nur lokal, nichts wird gesendet). /fp export gibt es als Text zum Weitergeben aus, damit es in ein Update kommt."
 L.OBS_EXPORT_NPCS = "-- ForeverPlus NPCs: { NPC, Name, { angebotene Quests }, { abgenommene Quests }, { { Karte, x, y, Anzahl } } },"

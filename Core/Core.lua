@@ -704,6 +704,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("DataCapture").Export()
 	elseif msg:find("^daten") or msg:find("^data") then
 		ns:GetModule("DataCapture").Command(msg)
+	elseif msg == "ziele verlauf" or msg == "objectives trace" then
+		ns:GetModule("Observations").PrintTrace()
 	elseif msg == "blase verlauf" or msg == "bubble trace" then
 		ns:GetModule("Dialog").PrintTrace()
 	elseif msg == "blase" or msg == "bubble" then

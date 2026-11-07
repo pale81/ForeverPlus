@@ -3093,6 +3093,27 @@ end)()
 	assert(#points == 1 and points[1][1] == 1436 and points[1][2] == 50 and points[1][3] == 50, "objective point recorded")
 	O.OnObjectiveUpdate(700)
 	assert(#O.ObjectivePoints(700, 1) == 1 and ns.db.objectivePoints[700][1][1][4] == 1, "no change, no new point")
+	-- the count arrives only after QUEST_WATCH_UPDATE: read again at the next QUEST_LOG_UPDATE, once
+	local handlers = {}
+	local savedToggle = O.ToggleEvent
+	O.ToggleEvent = function(_, event, _, fn) handlers[event] = fn end
+	O:Apply()
+	O.ToggleEvent = savedToggle
+	count = 0
+	handlers.QUEST_WATCH_UPDATE(nil, "QUEST_WATCH_UPDATE", 701)
+	assert(not ns.db.objectivePoints[701], "count not up yet")
+	count = 4
+	handlers.QUEST_LOG_UPDATE()
+	handlers.QUEST_LOG_UPDATE()
+	assert(ns.db.objectivePoints[701] and ns.db.objectivePoints[701][1][1][4] == 1, "recorded at the quest log update, once")
+	-- a progress bar counts in percent
+	GetQuestProgressBarPercent = function() return 40 end
+	C_QuestLog.GetQuestObjectives = function() return { { type = "progressbar", numFulfilled = 0, finished = false } } end
+	O.OnObjectiveUpdate(702)
+	GetQuestProgressBarPercent = nil
+	assert(ns.db.objectivePoints[702], "progress bar point")
+	assert(#ns.db.objectiveTrace > 0 and ns.db.objectiveTrace[#ns.db.objectiveTrace]:find("702/1 progressbar 40", 1, true),
+		ns.db.objectiveTrace[#ns.db.objectiveTrace])
 	O.db.record = true
 	O.Creature(6)
 	O.Creature(6)

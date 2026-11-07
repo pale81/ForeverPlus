@@ -21,6 +21,7 @@ local Quests = ns:NewModule("Quests", {
 		readyOnly = false,
 		readyButton = true,
 		trackerPreview = true,
+		wowheadLink = true,
 		foreverMark = true,
 		foreverMarkStyle = "ICON",
 		foreverWatermark = true,
@@ -1193,8 +1194,47 @@ local function OnHeaderEnter(_, block)
 	end
 end
 
+-- Wowhead link in the right-click menus of the tracker and the quest log (Shift-click is the game's own
+-- "stop tracking", so it is not used). An addon cannot open a browser: the link shows in a window to copy.
+function Quests.WowheadURL(questID)
+	local locale = ({ deDE = "de/", frFR = "fr/", esES = "es/", esMX = "mx/", ptBR = "pt/", ruRU = "ru/", koKR = "ko/",
+		zhCN = "cn/", zhTW = "tw/", itIT = "it/" })[GetLocale()] or ""
+	return ("https://www.wowhead.com/classic/%squest=%d"):format(locale, questID)
+end
+
+function Quests.AddWowheadEntry(rootDescription, questID)
+	questID = ns.Number(questID)
+	if not (Quests.db.wowheadLink and questID and questID > 0) then
+		return
+	end
+	rootDescription:CreateDivider()
+	rootDescription:CreateButton(L.QUESTS_WOWHEAD, function()
+		ns.ShowEditWindow("Wowhead", L.QUESTS_WOWHEAD, Quests.WowheadURL(questID), CLOSE, function() end, L.QUESTS_WOWHEAD_HINT)
+	end)
+end
+
+function Quests.HookWowheadMenus()
+	if not (Menu and Menu.ModifyMenu) then
+		return
+	end
+	-- The tracker's menu carries no quest: it is the block under the mouse (OnBlockHeaderEnter).
+	Menu.ModifyMenu("MENU_QUEST_OBJECTIVE_TRACKER", function(_, rootDescription)
+		Quests.AddWowheadEntry(rootDescription, Quests.hoveredQuest)
+	end)
+	-- The quest log's menu belongs to the title button, which holds the quest (the waypoint menu with the same
+	-- tag has none and gets no entry).
+	Menu.ModifyMenu("MENU_QUEST_MAP_LOG_TITLE", function(owner, rootDescription)
+		Quests.AddWowheadEntry(rootDescription, type(owner) == "table" and owner.questID)
+	end)
+end
+
 local function HookPreview()
 	for _, tracker in ipairs({ QuestObjectiveTracker or false, CampaignQuestObjectiveTracker or false }) do
+		if tracker and tracker.OnBlockHeaderEnter then
+			hooksecurefunc(tracker, "OnBlockHeaderEnter", function(_, block)
+				Quests.hoveredQuest = block and block.id
+			end)
+		end
 		if tracker and tracker.OnBlockHeaderEnter and tracker.OnBlockHeaderLeave then
 			hooksecurefunc(tracker, "OnBlockHeaderEnter", ns.Measured("Quests: tracker preview", OnHeaderEnter))
 			hooksecurefunc(tracker, "OnBlockHeaderLeave", ns.QuestPreview.Hide)
@@ -1203,6 +1243,7 @@ local function HookPreview()
 end
 
 function Quests:OnLogin()
+	Quests.HookWowheadMenus()
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Quests: drop objectives", OnUnitTooltip))
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
@@ -1326,6 +1367,7 @@ Quests.options = {
 	{ key = "readyOnly", type = "toggle", name = L.QUESTS_READY_ONLY, desc = L.QUESTS_READY_ONLY_DESC },
 	{ key = "readyButton", type = "toggle", name = L.QUESTS_READY_BUTTON, desc = L.QUESTS_READY_BUTTON_DESC },
 	{ key = "trackerPreview", type = "toggle", name = L.QUESTS_TRACKER_PREVIEW, desc = L.QUESTS_TRACKER_PREVIEW_DESC },
+	{ key = "wowheadLink", type = "toggle", name = L.QUESTS_WOWHEAD_OPTION, desc = L.QUESTS_WOWHEAD_OPTION_DESC },
 	{ type = "header", name = L.QUESTS_SHARE_HEADER },
 	{ key = "shareDone", type = "toggle", name = L.QUESTS_SHARE_DONE, desc = L.QUESTS_SHARE_DONE_DESC, new = true },
 	{ key = "sharePartial", type = "toggle", name = L.QUESTS_SHARE_PARTIAL, desc = L.QUESTS_SHARE_PARTIAL_DESC, new = true },

@@ -1347,6 +1347,44 @@ do
 	assert(ok, "show upgrade empty slot: " .. tostring(err))
 end
 (function()
+	-- Wowhead link in the right-click menus of tracker and quest log
+	local quests = ns:GetModule("Quests")
+	local savedMenu, savedLocale, savedEdit = Menu, GetLocale, ns.ShowEditWindow
+	local modifiers, shown = {}, nil
+	Menu = { ModifyMenu = function(tag, fn) modifiers[tag] = fn end }
+	GetLocale = function() return "deDE" end
+	ns.ShowEditWindow = function(key, _, text) shown = { key, text } end
+	assert(quests.WowheadURL(783) == "https://www.wowhead.com/classic/de/quest=783", quests.WowheadURL(783))
+	local function Root()
+		local root = { buttons = {} }
+		root.CreateDivider = function() end
+		root.CreateButton = function(_, text, fn) root.buttons[#root.buttons + 1] = { text, fn } end
+		return root
+	end
+	quests.db.wowheadLink = true
+	quests.HookWowheadMenus()
+	quests.hoveredQuest = 783
+	local root = Root()
+	modifiers.MENU_QUEST_OBJECTIVE_TRACKER(nil, root)
+	assert(#root.buttons == 1 and root.buttons[1][1] == ns.L.QUESTS_WOWHEAD, "tracker entry")
+	root.buttons[1][2]()
+	assert(shown and shown[1] == "Wowhead" and shown[2]:find("quest=783", 1, true), "link window")
+	root = Root()
+	modifiers.MENU_QUEST_MAP_LOG_TITLE({ questID = 42 }, root)
+	root.buttons[1][2]()
+	assert(shown[2]:find("quest=42", 1, true), "quest log entry")
+	root = Root()
+	modifiers.MENU_QUEST_MAP_LOG_TITLE({}, root)
+	assert(#root.buttons == 0, "waypoint menu without quest: no entry")
+	quests.db.wowheadLink = false
+	root = Root()
+	modifiers.MENU_QUEST_OBJECTIVE_TRACKER(nil, root)
+	assert(#root.buttons == 0, "option off")
+	quests.db.wowheadLink, quests.hoveredQuest = true, nil
+	Menu, GetLocale, ns.ShowEditWindow = savedMenu, savedLocale, savedEdit
+	print("wowhead link OK")
+end)()
+;(function()
 	-- unspent talent points: the currencies of the active tree, shown on the micro button
 	local talents = ns:GetModule("Talents")
 	local savedCT, savedTraits = C_ClassTalents, C_Traits

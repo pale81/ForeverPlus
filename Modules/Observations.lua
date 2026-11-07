@@ -173,14 +173,17 @@ function Observations.OnObjectiveUpdate(questID, source)
 	if not objectives then
 		return
 	end
+	-- The first update of a quest since loading only sets the counts to compare with: after /reload or for a
+	-- quest just taken, counts already reached were not reached here (they were kept at the next spot).
+	local first = lastCounts[questID] == nil
 	local last = lastCounts[questID] or {}
 	lastCounts[questID] = last
 	local mapID, x, y = PlayerPosition()
 	for index, objective in ipairs(objectives) do
 		local fulfilled = Progress(questID, objective)
-		local raised = fulfilled > (last[index] or 0)
+		local raised = not first and fulfilled > (last[index] or 0)
 		Trace("%s %d/%d %s %s/%s%s", source or "?", questID, index, tostring(objective.type), tostring(fulfilled),
-			tostring(objective.numRequired), raised and (mapID and " Punkt" or " ohne Ort") or "")
+			tostring(objective.numRequired), first and " Anfang" or raised and (mapID and " Punkt" or " ohne Ort") or "")
 		if mapID and raised then
 			local byQuest = ns.db.objectivePoints[questID]
 			if not byQuest and Observations.objectiveCount < MAX_ENTRIES then

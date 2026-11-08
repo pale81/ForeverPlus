@@ -14,7 +14,8 @@ from collections import defaultdict
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POINTS_PER_ROW = 5
 SUFFICIENT, REQUIRED = 2, 3  # edge types: one source at full rank is enough / every source is needed
-ROW_TOLERANCE = 50  # node positions of one row differ by up to 10 units
+ROW_TOLERANCE = 50
+ERRORS = []  # wrong names or ranks: reported together, nothing is written  # node positions of one row differ by up to 10 units
 
 # class file -> trait tree of the class (the tree 1083 is an older Druid copy)
 CLASS_TREE = {
@@ -58,21 +59,21 @@ BUILDS = {
     ],
     'PALADIN': [
         (None, None, {0: 31, 1: 20}, {
-            0: ['Holy Shock', 'Illumination', 'Divine Favor', 'Holy Power', "Light's Vigil", 'Divine Intellect', 'Healing Light',
+            0: ['Holy Shock', 'Illumination', 'Divine Favor', 'Holy Power', "Light's Vigil", 'Healing Light',
                 'Divine Precision', 'Infusion of Light', 'Reverence', 'Improved Seals', 'Purifying Power', 'Consecrated Ground'],
             1: ['Redoubt', 'Toughness', 'Precision', "Guardian's Favor", 'Anticipation']}),
         (None, None, {1: 31, 0: 20}, {
             1: ['Holy Shield', 'Iron Creed', 'Reckoning', "Templar's Bulwark", 'One-Handed Weapon Specialization',
                 'Shield Specialization', 'Redoubt', 'Toughness', 'Precision', 'Improved Righteous Fury', 'Sacred Duty',
                 'Anticipation', 'Improved Hammer of Justice', 'Swift Judgement'],
-            0: ['Divine Strength', 'Divine Intellect', 'Healing Light', 'Improved Seals', 'Spiritual Focus']}),
+            0: ['Divine Strength', 'Healing Light', 'Improved Seals', 'Spiritual Focus']}),
         (None, None, {2: 31, 1: 20}, {
             2: ['Twist of Light', 'Champion of the Light', 'Instrument of Law', 'Two-Handed Weapon Specialization', 'Vengeance',
                 'Repentance', 'Conviction', 'Sanctified Judgement', 'Seal of Command', 'Benediction', 'Vindication',
                 'Pursuit of Justice', 'Improved Judgement', 'Sacred Arbiter', 'Eye for an Eye'],
             1: ['Precision', 'Toughness', 'Redoubt', "Guardian's Favor", 'Anticipation']}),
         ('Schockadin (Heilig/Vergeltung)', 'Shockadin (Holy/Retribution)', {0: 31, 2: 20}, {
-            0: ['Holy Shock', 'Illumination', 'Divine Favor', 'Holy Power', "Light's Vigil", 'Divine Intellect', 'Healing Light',
+            0: ['Holy Shock', 'Illumination', 'Divine Favor', 'Holy Power', "Light's Vigil", 'Healing Light',
                 'Divine Precision', 'Infusion of Light', 'Reverence'],
             2: ['Benediction', 'Conviction', 'Improved Judgement', 'Vindication', 'Seal of Command']}),
     ],
@@ -100,14 +101,14 @@ BUILDS = {
     'ROGUE': [
         (None, None, {0: 31, 1: 20}, {
             0: ['Mutilate', 'Venom', 'Seal Fate', 'Malice', 'Lethality', 'Ruthlessness', 'Relentless Strikes', 'Cold Blood',
-                'Improved Poisons', 'Vile Poisons', 'Remorseless Attacks', 'Improved Kidney Shot', 'Murder', 'Vigor',
+                'Improved Poisons', 'Vile Poisons', 'Remorseless Attacks', 'Improved Kidney Shot', 'Blood Splatter', 'Vigor',
                 'Improved Slice and Dice'],
             1: ['Improved Eviscerate', 'Improved Sinister Strike', 'Precision', 'Puncturing Wounds', 'Lightning Reflexes']}),
         (None, None, {1: 31, 0: 20}, {
             1: ['Adrenaline Rush', 'Blade Flurry', 'Dual Wield Specialization', 'Hack and Slash', 'Weapon Expertise',
                 'Aggression', 'Precision', 'Improved Sinister Strike', 'Improved Eviscerate', 'Lightning Reflexes',
                 'Puncturing Wounds', 'Flawless Execution', 'Improved Kick', 'Endurance', 'Riposte'],
-            0: ['Malice', 'Lethality', 'Ruthlessness', 'Remorseless Attacks', 'Murder']}),
+            0: ['Malice', 'Lethality', 'Ruthlessness', 'Remorseless Attacks', 'Vigor']}),
         (None, None, {2: 31, 1: 20}, {
             2: ['Thousand Cuts', 'Cutthroat', 'Quietus', 'Preparation', 'Premeditation', 'Hemorrhage', 'Dirty Deeds',
                 'Serrated Blades', 'Heightened Senses', 'Initiative', 'Ghostly Strike', 'Improved Ambush', 'Elusiveness',
@@ -115,7 +116,7 @@ BUILDS = {
             1: ['Improved Sinister Strike', 'Lightning Reflexes', 'Precision', 'Improved Eviscerate', 'Dual Wield Specialization']}),
         ('Meucheln/Täuschung (Dolche)', 'Assassination/Subtlety (daggers)', {0: 31, 2: 20}, {
             0: ['Mutilate', 'Venom', 'Seal Fate', 'Malice', 'Lethality', 'Ruthlessness', 'Relentless Strikes', 'Cold Blood',
-                'Improved Poisons', 'Vile Poisons', 'Remorseless Attacks', 'Murder'],
+                'Improved Poisons', 'Vile Poisons', 'Remorseless Attacks', 'Blood Splatter'],
             2: ['Master of Deception', 'Opportunity', 'Camouflage', 'Setup', 'Initiative', 'Elusiveness']}),
     ],
     'PRIEST': [
@@ -126,14 +127,14 @@ BUILDS = {
             1: ['Holy Specialization', 'Divine Fury', 'Improved Renew', 'Spell Warding']}),
         (None, None, {1: 31, 0: 20}, {
             1: ['Prayer of Mending', 'Spiritual Healing', 'Spiritual Guidance', 'Litany of Light', 'Spirit of Redemption',
-                'Improved Healing', 'Binding Heal', 'Searing Light', 'Holy Reach', 'Inspiration', 'Blessed Recovery',
+                'Improved Healing', 'Holy Binding', 'Searing Light', 'Holy Reach', 'Inspiration', 'Blessed Recovery',
                 'Holy Nova', 'Divine Fury', 'Spell Warding', 'Holy Specialization', 'Improved Renew'],
             0: ['Power in Light', 'Twin Disciplines', 'Silent Resolve', 'Improved Power Word: Shield', 'Mental Agility',
                 'Inner Focus']}),
         (None, None, {2: 31, 0: 20}, {
             2: ['Shadowform', 'Darkness', 'Early Demise', 'Devouring Contagion', 'Silence', 'Shadow Weaving', 'Vampiric Embrace',
                 'Improved Mind Blast', 'Improved Mind Flay', 'Mind Flay', 'Shadow Focus', 'Blackout', 'Spirit Tap',
-                'Shadow Affinity', 'Improved Shadow Word: Pain'],
+                'Improved Shadow Word: Pain'],
             0: ['Twin Disciplines', 'Power in Light', 'Silent Resolve', 'Improved Power Word: Shield', 'Meditation',
                 'Mental Agility', 'Inner Focus']}),
         ('Schatten/Heilig', 'Shadow/Holy', {2: 31, 1: 20}, {
@@ -144,7 +145,7 @@ BUILDS = {
     'SHAMAN': [
         (None, None, {0: 31, 2: 20}, {
             0: ['Convection', 'Concussion', 'Call of Flame', 'Elemental Focus', 'Reverberation', 'Elemental Devastation',
-                'Call of Thunder', 'Lightning Overload', 'Elemental Fury', 'Lava Burst', 'Elemental Alacrity', 'Elemental Reach'],
+                'Call of Thunder', 'Lightning Overload', 'Elemental Fury', 'Lightning Mastery', 'Elemental Alacrity', 'Elemental Reach'],
             2: ['Totemic Focus', 'Tidal Focus', 'Natural Grace', 'Mindfulness', 'Water Shield']}),
         (None, None, {1: 31, 0: 20}, {
             1: ['Thundering Strikes', 'Ancestral Knowledge', 'Flurry', 'Elemental Weapons', 'Shamanistic Focus', 'Stormstrike',
@@ -164,27 +165,27 @@ BUILDS = {
     'MAGE': [
         (None, None, {0: 31, 2: 20}, {
             0: ['Arcane Power', 'Presence of Mind', 'Arcane Instability', 'Arcane Mind', 'Arcane Blast', 'Missile Barrage',
-                'Arcane Meditation', 'Arcane Concentration', 'Arcane Focus', 'Arcane Impact', 'Arcane Geometry',
+                'Arcane Meditation', 'Arcane Concentration', 'Arcane Wrath', 'Arcane Impact', 'Arcane Geometry',
                 'Improved Counterspell', 'Arcane Subtlety', 'Magic Absorption'],
-            2: ['Elemental Precision', 'Improved Frostbolt', 'Ice Shards', 'Piercing Ice', 'Frost Channeling']}),
+            2: ['Precision', 'Improved Frostbolt', 'Ice Shards', 'Frostbite', 'Frost Channeling']}),
         (None, None, {1: 31, 2: 20}, {
-            1: ['Combustion', 'Fire Power', 'Critical Mass', 'Ignite', 'Improved Fireball', 'Incineration', 'Pyroblast',
-                'Blast Wave', 'Master of Elements', 'Heating Up', 'Impact', 'Burning Soul', 'Improved Scorch', 'Wake of Fire'],
-            2: ['Elemental Precision', 'Improved Frostbolt', 'Ice Shards', 'Piercing Ice', 'Frost Channeling']}),
+            1: ['Combustion', 'Fire Power', 'Critical Mass', 'Ignite', 'Incineration', 'Accelerant', 'Pyroblast',
+                'Blast Wave', 'Master of Elements', 'Heating Up', 'Impact', 'Burning Soul', 'Improved Scorch', 'Flame Throwing'],
+            2: ['Precision', 'Improved Frostbolt', 'Ice Shards', 'Frostbite', 'Frost Channeling']}),
         (None, None, {2: 31, 0: 20}, {
             2: ['Ice Barrier', "Winter's Chill", 'Fingers of Frost', 'Cold Snap', 'Improved Cone of Cold', 'Shatter', 'Ice Block',
-                'Ice Lance', 'Arctic Reach', 'Piercing Ice', 'Elemental Precision', 'Improved Frostbolt', 'Ice Shards',
+                'Ice Lance', 'Arctic Reach', 'Fingers of Frost', 'Precision', 'Improved Frostbolt', 'Ice Shards',
                 'Permafrost', 'Frostbite', 'Frost Channeling'],
-            0: ['Arcane Focus', 'Arcane Concentration', 'Arcane Subtlety', 'Arcane Geometry', 'Arcane Impact', 'Arcane Blast']}),
+            0: ['Arcane Concentration', 'Arcane Subtlety', 'Arcane Geometry', 'Arcane Impact', 'Arcane Blast']}),
         ('Frost/Feuer', 'Frost/Fire', {2: 31, 1: 20}, {
             2: ['Ice Barrier', "Winter's Chill", 'Fingers of Frost', 'Cold Snap', 'Shatter', 'Ice Block', 'Ice Lance',
-                'Piercing Ice', 'Elemental Precision', 'Improved Frostbolt', 'Ice Shards', 'Permafrost'],
-            1: ['Improved Fireball', 'Ignite', 'Impact', 'Incineration', 'Improved Scorch']}),
+                'Fingers of Frost', 'Precision', 'Improved Frostbolt', 'Ice Shards', 'Permafrost'],
+            1: ['Incineration', 'Ignite', 'Impact', 'Accelerant', 'Improved Scorch']}),
     ],
     'WARLOCK': [
         (None, None, {0: 31, 1: 20}, {
             0: ['Shadow Mastery', 'Siphon Life', 'Soul Siphon', 'Malevolence', 'Nightfall', 'Pandemic', 'Fel Concentration',
-                'Improved Bane of Agony', 'Amplify Curse', 'Malediction', 'Improved Corruption', 'Suppression'],
+                'Improved Bane of Agony', 'Amplify Curse', 'Wrack', 'Improved Corruption', 'Suppression'],
             1: ['Demonic Embrace', 'Improved Imp', 'Fel Vitality', 'Unholy Power', 'Improved Voidwalker']}),
         (None, None, {1: 31, 2: 20}, {
             1: ['Master Demonologist', 'Demonic Knowledge', 'Soul Link', 'Demonic Sacrifice', 'Decimation', 'Master Summoner',
@@ -194,7 +195,7 @@ BUILDS = {
         (None, None, {2: 31, 0: 20}, {
             2: ['Incinerate', 'Shadow and Flame', 'Fire and Brimstone', 'Pyroclasm', 'Conflagrate', 'Shadowburn', 'Ruin',
                 'Intensity', 'Agonizing Flames', 'Bane', 'Improved Shadow Bolt', 'Cataclysm', 'Aftermath', 'Molten Skin'],
-            0: ['Suppression', 'Improved Corruption', 'Malediction', 'Soul Harvest', 'Improved Drains']}),
+            0: ['Suppression', 'Improved Corruption', 'Soul Harvest', 'Improved Drains']}),
         ('Opferung (Dämonologie/Zerstörung)', 'Sacrifice (Demonology/Destruction)', {1: 21, 2: 30}, {
             1: ['Demonic Embrace', 'Improved Imp', 'Fel Vitality', 'Unholy Power', 'Demonic Aegis', 'Demonic Sacrifice',
                 'Improved Voidwalker', 'Master Summoner'],
@@ -206,23 +207,82 @@ BUILDS = {
             0: ['Moonkin Form', 'Moonfury', 'Eclipse', "Nature's Grace", 'Vengeance', 'Improved Starfire', 'Overgrowth',
                 'Insect Swarm', 'Improved Wrath', 'Genesis', 'Improved Entangling Roots', "Nature's Splendor",
                 'Improved Moonfire', "Nature's Majesty", 'Moonglow'],
-            2: ["Nature's Focus", 'Furor', 'Naturalist', 'Subtlety', 'Natural Shapeshifter']}),
+            2: ["Nature's Focus", 'Heart of the Wild', 'Naturalist', 'Subtlety', 'Natural Shapeshifter']}),
         (None, None, {1: 31, 2: 20}, {
-            1: ['Berserk', 'Natural Reaction', 'Rend and Tear', 'Leader of the Pack', 'Predatory Strikes',
-                'Improved Shifting Power', 'Shifting Power', 'Primal Bite', 'Blood Frenzy', 'Natural Instinct', 'Savage Fury',
-                'Sharpened Claws', 'Shredding Attacks', 'Feral Charge', 'Feral Swiftness', 'Ferocity', 'Heart of the Wild'],
-            2: ['Furor', 'Naturalist', "Nature's Focus", 'Natural Shapeshifter']}),
+            1: ['Primal Bite', 'Natural Reaction', 'Rend and Tear', 'Leader of the Pack', 'Predatory Strikes',
+                'Shifting Power', 'Primal Bite', 'Blood Frenzy', 'Natural Instinct', 'Savage Fury',
+                'Sharpened Claws', 'Shredding Attacks', 'Feral Charge', 'Feral Swiftness', 'Ferocity', 'Furor'],
+            2: ['Heart of the Wild', 'Naturalist', "Nature's Focus", 'Natural Shapeshifter']}),
         (None, None, {2: 31, 1: 20}, {
             2: ['Wild Growth', 'Improved Regrowth', 'Swiftmend', "Nature's Swiftness", 'Living Spirit', 'Improved Tranquility',
-                'Improved Rejuvenation', 'Tranquil Spirit', 'Gift of the Earthmother', 'Gift of Nature', 'Reflection',
-                'Naturalist', 'Subtlety', 'Natural Shapeshifter', 'Furor', "Nature's Focus"],
-            1: ['Ferocity', 'Heart of the Wild', 'Feral Instinct', 'Feral Swiftness', 'Thick Hide']}),
+                'Improved Rejuvenation', 'Tranquil Spirit', 'Bloom', 'Gift of Nature', 'Reflection',
+                'Naturalist', 'Subtlety', 'Natural Shapeshifter', 'Heart of the Wild', "Nature's Focus"],
+            1: ['Ferocity', 'Furor', 'Feral Instinct', 'Feral Swiftness', 'Thick Hide']}),
         ('Bär (Wilder Kampf/Wiederherstellung)', 'Bear (Feral/Restoration)', {1: 31, 2: 20}, {
-            1: ['Thick Hide', 'Feral Instinct', 'Heart of the Wild', 'Brutal Impact', 'Sharpened Claws', 'Predatory Strikes',
-                'Natural Reaction', 'Feral Charge', 'Savage Fury', 'Leader of the Pack', 'Berserk', 'Ferocity'],
-            2: ['Furor', 'Naturalist', "Nature's Focus", 'Natural Shapeshifter']}),
+            1: ['Thick Hide', 'Feral Instinct', 'Furor', 'Brutal Impact', 'Sharpened Claws', 'Predatory Strikes',
+                'Natural Reaction', 'Feral Charge', 'Savage Fury', 'Leader of the Pack', 'Primal Bite', 'Ferocity'],
+            2: ['Heart of the Wild', 'Naturalist', "Nature's Focus", 'Natural Shapeshifter']}),
     ],
 }
+
+
+# Builds of the WoW Forever class guides of buffed.de (November 2026), replacing our own suggestions of the same
+# specialisation: the talents with the ranks the guide names, in its order. The guides for paladins stop at about
+# level 40: their main tree is the guide's, the rest (`fill`) our suggestion. Index: place in BUILDS[class].
+GUIDES = {
+    'ROGUE': {
+        0: {'talents': [('Gnadenlose Angriffe', 2), ('Tücke', 5), ('Verbessertes Zerhäckseln', 3), ('Tödlichkeit', 2),
+                        ('Skrupellosigkeit', 3), ('Kaltblütigkeit', 1), ('Verbesserte Gifte', 5), ('Toxin', 1),
+                        ('Unerbittliche Stöße', 5), ('Schicksal besiegeln', 3), ('Verstümmeln', 1),
+                        ('Günstige Gelegenheit', 5), ('Blitzartige Reflexe', 5), ('Durchbohrende Wunden', 3),
+                        ('Präzision', 3), ('Verbessertes Sprinten', 2), ('Durchhaltevermögen', 2)]},
+        1: {'talents': [('Efficient Strikes', 2), ('Gnadenstoß', 3), ('Abwehr', 3), ('Präzision', 3), ('Riposte', 1),
+                        ('Durchhaltevermögen', 2), ('Composure', 2), ('Perfekte Ausführung', 1), ('Aggression', 3),
+                        ('Klingenwirbel', 1), ('Niedermetzeln', 5), ('Beidhändigkeitsspezialisierung', 2),
+                        ('Flash of Steel', 5), ('Adrenalinrausch', 1), ('Waffenexperte', 2),
+                        ('Tücke', 5), ('Skrupellosigkeit', 3), ('Verbessertes Zerhäckseln', 3), ('Lebenskraft', 2),
+                        ('Tödlichkeit', 2)]},
+        2: {'talents': [('Günstige Gelegenheit', 5), ('Camouflage', 3), ('Verbesserter Hinterhalt', 3), ('Initiative', 3),
+                        ('Gezahnte Klingen', 3), ('Geisterhafter Stoß', 1), ('Konzentration', 1), ('Gemeinheiten', 2),
+                        ('Blutsturz', 1), ('Vorbereitung', 1), ('Flüchtigkeit', 2), ('Boot Knife', 5), ('Todesmal', 1),
+                        ('Gnadenstoß', 3), ('Effiziente Schläge', 2), ('Präzision', 3), ('Tücke', 5),
+                        ('Skrupellosigkeit', 3), ('Verbessertes Zerhäckseln', 3), ('Blood Splatter', 1)]},
+    },
+    'HUNTER': {
+        0: {'talents': [('Tödliche Aspekte', 5), ('Konzentriertes Feuer', 2), ('Verbessertes Tier wiederbeleben', 2),
+                        ('Belastbarkeit-Ausbildung', 1), ('Entfesselter Zorn', 5), ('Falke beschwören', 1),
+                        ('Erhöhte Tiergeschwindigkeit', 1), ('Wildheit', 5), ('Einschüchterung', 1), ('Orientierung', 1),
+                        ('Wildtierdisziplin', 1), ('Raserei', 5), ('Zorn des Wildtiers', 1),
+                        ('Tödliche Angriffe', 5), ('Sorgfältiges Zielen', 5), ('Effizienz', 5), ('Aura des Volltreffers', 1),
+                        ('Todbringende Schüsse', 4)]},
+        1: {'talents': [('Tödliche Angriffe', 5), ('Sorgfältiges Zielen', 5), ('Falkenauge', 3), ('Schneller Tod', 2),
+                        ('Todbringende Schüsse', 5), ('Aura des Volltreffers', 1), ('Sperrfeuer', 3), ('Streuschuss', 1),
+                        ('Distanzwaffen-Spezialisierung', 5), ('Heckenschützenschuss', 1), ('Effizienz', 5),
+                        ('Rasche Erholung', 2), ('Verbesserte Stiche und Bisse', 3),
+                        ('Tödliche Aspekte', 5), ('Verbessertes Fährtenlesen', 5)]},
+    },
+    'PALADIN': {
+        0: {'talents': [('Spiritueller Fokus', 5), ('Heilendes Licht', 3), ('Andacht', 2), ('Illumination', 5),
+                        ('Eid des Lichts', 1), ('Lichtinfusion', 2), ('Göttliche Gunst', 1), ('Reinigende Macht', 2),
+                        ('Heiliger Schock', 1), ('Grenzenloses Licht', 2), ('Göttliche Präzision', 2), ('Heilige Kraft', 5),
+                        ('Lichtwacht', 1), ('Göttliche Weisheit', 5)],
+            'fill': {1: 14}, 'fill_priorities': {1: ['Redoubt', 'Toughness', 'Precision', "Guardian's Favor", 'Anticipation']}},
+        1: {'talents': [('Verschanzen', 5), ('Präzision', 3), ('Heilige Pflicht', 2), ('Schild-Spezialisierung', 2),
+                        ('Zähigkeit', 3), ('Bollwerk des Templers', 1), ('Vorahnung', 5), ('Schnelles Richturteil', 1),
+                        ('Verbesserter Zorn der Gerechtigkeit', 3), ('Heiliger Schild', 1), ('Abrechnung', 5),
+                        ('Eiserner Glaube', 3), ('Schildgeschworen', 1)],
+            'fill': {2: 16}, 'fill_priorities': {2: ['Abwehr', 'Verbessertes Richturteil', 'Segnung', 'Überzeugung']}},
+        2: {'talents': [('Segnung', 5), ('Verbessertes Richturteil', 2), ('Gesegnetes Richturteil', 3),
+                        ('Siegel des Befehls', 1), ('Überzeugung', 3), ('Streben nach Gerechtigkeit', 2),
+                        ('Zweihandwaffen-Spezialisierung', 3), ('Heiliger Richter', 1), ('Rache', 3), ('Buße', 1),
+                        ('Rechtschaffene Schwächung', 1), ('Champion des Lichts', 5), ('Entfesselter Zorn', 1)],
+            'fill': {0: 20}, 'fill_priorities': {0: ['Göttliche Stärke', 'Verbesserte Siegel',
+                                                      'Healing Light', 'Spiritual Focus']}},
+    },
+}
+for _class, _builds in GUIDES.items():
+    for _index, _guide in _builds.items():
+        BUILDS[_class][_index] = _guide
 
 
 def rows(folder, name):
@@ -231,8 +291,12 @@ def rows(folder, name):
 
 
 def load_tree(folder):
-    """Nodes per class tree: {tree: [dict(id, spec, row, x, ranks, name, edges)]}."""
+    """Nodes per class tree: {tree: [dict(id, spec, row, x, ranks, name, de, edges)]}."""
     names = {r['ID']: r['Name_lang'] for r in rows(folder, 'SpellName')}
+    # German names (SpellName_deDE.csv, wago.tools with locale=deDE) for the builds of German guides.
+    german = {}
+    if os.path.exists(os.path.join(folder, 'SpellName_deDE.csv')):
+        german = {r['ID']: r['Name_lang'] for r in rows(folder, 'SpellName_deDE')}
     definitions = {r['ID']: r for r in rows(folder, 'TraitDefinition')}
     entries = {r['ID']: r for r in rows(folder, 'TraitNodeEntry')}
     first_entry = {}
@@ -249,7 +313,7 @@ def load_tree(folder):
             spell = definitions[entry['TraitDefinitionID']]['SpellID']
             trees[int(n['TraitTreeID'])].append({
                 'id': n['ID'], 'x': int(n['PosX']), 'y': int(n['PosY']), 'max': int(entry['MaxRanks']),
-                'name': names.get(spell, '?'), 'edges': edges.get(n['ID'], []),
+                'name': names.get(spell, '?'), 'de': german.get(spell), 'edges': edges.get(n['ID'], []),
             })
     for nodes in trees.values():
         # Rows: positions that differ by a few units (2120 / 2130) are one row.
@@ -265,7 +329,34 @@ def load_tree(folder):
     return trees
 
 
-def make_build(nodes, allocation, priorities, label):
+def resolve_guide(nodes, guide, label):
+    """A build of a guide: talents with their ranks (German or English names, any tree) become points per
+    tree, priorities in the listed order and the rank of each talent as its cap; `fill` adds points to trees
+    the guide does not name, with their own priorities."""
+    allocation, priorities, caps = defaultdict(int), defaultdict(list), {}
+    for name, rank in guide['talents']:
+        found = [n for n in nodes if name in (n['name'], n['de'])]
+        if len(found) != 1:
+            ERRORS.append('%s: talent %r found %d times' % (label, name, len(found))); continue
+        n = found[0]
+        if rank > n['max']:
+            ERRORS.append('%s: %r has only %d ranks' % (label, name, n['max'])); rank = n['max']
+        allocation[n['spec']] += rank
+        priorities[n['spec']].append(n['name'])
+        caps[n['id']] = rank
+    for spec, points in guide.get('fill', {}).items():
+        allocation[spec] += points
+        for name in guide.get('fill_priorities', {}).get(spec, []):
+            found = [n for n in nodes if n['spec'] == spec and name in (n['name'], n['de'])]
+            if len(found) != 1:
+                ERRORS.append('%s: fill talent %r found %d times' % (label, name, len(found))); continue
+            if found[0]['name'] not in priorities[spec]:
+                priorities[spec].append(found[0]['name'])
+    return dict(allocation), dict(priorities), caps
+
+
+def make_build(nodes, allocation, priorities, label, caps=None):
+    caps = caps or {}
     by_id = {n['id']: n for n in nodes}
     by_name = {}
     for n in nodes:
@@ -273,7 +364,8 @@ def make_build(nodes, allocation, priorities, label):
     for spec, names in priorities.items():
         for name in names:
             if (spec, name) not in by_name:
-                raise SystemExit('%s: unknown talent %r in specialisation %d' % (label, name, spec))
+                ERRORS.append('%s: unknown talent %r in specialisation %d' % (label, name, spec))
+    priorities = {spec: [name for name in names if (spec, name) in by_name] for spec, names in priorities.items()}
     rank = {n['id']: 0 for n in nodes}
     spent = defaultdict(int)
 
@@ -281,7 +373,7 @@ def make_build(nodes, allocation, priorities, label):
         return sum(rank[n['id']] for n in nodes if n['spec'] == spec and n['row'] < row)
 
     def addable(n):
-        if rank[n['id']] >= n['max'] or spent[n['spec']] >= allocation.get(n['spec'], 0):
+        if rank[n['id']] >= caps.get(n['id'], n['max']) or spent[n['spec']] >= allocation.get(n['spec'], 0):
             return False
         if above(n['spec'], n['row']) < n['row'] * POINTS_PER_ROW:
             return False
@@ -328,7 +420,7 @@ def make_build(nodes, allocation, priorities, label):
     for spec, names in priorities.items():
         for name in names:
             n = by_name[(spec, name)]
-            if rank[n['id']] < n['max']:
+            if rank[n['id']] < caps.get(n['id'], n['max']):
                 missing.append('%s %d/%d' % (name, rank[n['id']], n['max']))
     return {i: r for i, r in rank.items() if r > 0}, spent, missing
 
@@ -342,9 +434,18 @@ def main(folder, build):
     for class_file, tree in CLASS_TREE.items():
         nodes = trees[tree]
         out.append('\t%s = {' % class_file)
-        for de, en, allocation, priorities in BUILDS[class_file]:
-            label = '%s %s' % (class_file, de or allocation)
-            ranks, spent, missing = make_build(nodes, allocation, priorities, label)
+        for build in BUILDS[class_file]:
+            if isinstance(build, dict):
+                de, en = build.get('de'), build.get('en')
+                label = '%s %s' % (class_file, de or build['talents'][0][0])
+                allocation, priorities, caps = resolve_guide(nodes, build, label)
+                if sum(allocation.values()) != 51:
+                    ERRORS.append('%s: %d points instead of 51' % (label, sum(allocation.values())))
+            else:
+                de, en, allocation, priorities = build
+                label = '%s %s' % (class_file, de or allocation)
+                caps = None
+            ranks, spent, missing = make_build(nodes, allocation, priorities, label, caps)
             specs = SPECS[class_file]
             main_spec = max(allocation, key=lambda s: allocation[s])
             summary = '/'.join(str(spent[s]) for s in range(3))
@@ -356,6 +457,8 @@ def main(folder, build):
             out.append('\t\t{ de = "%s", en = "%s", points = "%s", ranks = "%s" },' % (de, en, summary, text))
         out.append('\t},')
     out.append('}')
+    if ERRORS:
+        raise SystemExit('\n'.join(ERRORS) + '\nnothing written')
     path = os.path.join(ROOT, 'Data', 'TalentPresets.lua')
     with open(path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(out) + '\n')

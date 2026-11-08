@@ -510,6 +510,54 @@ Symbols.AddSource(function(mapID, add)
 	end
 end)
 
+-- Weapon masters of the player's faction on their city map (Data/WeaponMasters.lua); masters standing together
+-- share one symbol. The tooltip lists the weapons each teaches, those the player's class can learn brighter.
+function Symbols.WeaponMasterGroups(mapID, faction)
+	local groups = {}
+	for _, master in ipairs(ns.WeaponMasters or {}) do
+		if master[1] == mapID and master[4] == faction then
+			local group
+			for _, known in ipairs(groups) do
+				if math.abs(known.x - master[2]) < 1.5 and math.abs(known.y - master[3]) < 1.5 then
+					group = known
+				end
+			end
+			if not group then
+				group = { x = master[2], y = master[3], masters = {} }
+				groups[#groups + 1] = group
+			end
+			group.masters[#group.masters + 1] = master
+		end
+	end
+	return groups
+end
+
+local function WeaponMasterTooltip(tooltip, symbol)
+	local _, classFile = UnitClass("player")
+	for _, master in ipairs(symbol.data.masters) do
+		tooltip:AddLine(master[5], 1, 1, 1)
+		tooltip:AddLine(L.WORLDMAP_WEAPON_MASTER, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+		for _, skill in ipairs(master[6]) do
+			local usable = ns.WeaponSkillClasses[skill] and ns.WeaponSkillClasses[skill][classFile]
+			local shade = usable and 0.95 or 0.5
+			tooltip:AddLine("  " .. (L["WEAPON_" .. skill] or skill), shade, shade, shade)
+		end
+	end
+	tooltip:AddLine(L.WORLDMAP_WEAPON_COST, 0.6, 0.6, 0.6, true)
+end
+
+Symbols.AddSource(function(mapID, add)
+	if not Options().weaponMasters or IsContinent(mapID) then
+		return
+	end
+	local faction = UnitFactionGroup("player")
+	local letter = faction == "Alliance" and "A" or faction == "Horde" and "H" or nil
+	for _, group in ipairs(Symbols.WeaponMasterGroups(mapID, letter)) do
+		add(group.x / 100, group.y / 100, { kind = "weapons", texture = [[Interface\Icons\INV_Sword_04]], round = true, size = INN_SIZE + 2, data = group,
+			tooltip = WeaponMasterTooltip })
+	end
+end)
+
 -- Towns on the map they belong to, capitals on the zone and continent maps
 -- around them (not on their own city map).
 Symbols.AddSource(function(mapID, add)

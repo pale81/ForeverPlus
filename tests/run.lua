@@ -2501,6 +2501,28 @@ end)()
 	noPower = false
 	shown, _, _, waiting = evaluate(reminder, 60)
 	assert(shown and not waiting, "mana back: shown")
+	-- The target first, then oneself; the target's buff is read on the target
+	assert(buffs.BuffUnit(true, true) == "target" and buffs.BuffUnit(true, false) == "player"
+		and buffs.BuffUnit(false, false) == nil, "who the button buffs")
+	local onUnit
+	setuv(evaluate, "FindAura", function(_, unit) onUnit = unit return 30 end)
+	local missing, expiring = buffs.EvaluateTarget(reminder, 60)
+	assert(onUnit == "target" and missing and expiring, "target's buff runs out: shown faded")
+	setuv(evaluate, "FindAura", function() return 0 end)
+	assert(not buffs.EvaluateTarget(reminder, 60), "target has it: no button")
+	-- The whole bar: a friendly player in the target lacks Intellect, the player has it
+	local saved = { UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName }
+	UnitExists, UnitIsPlayer = function() return true end, function() return true end
+	UnitIsUnit = function(a, b) return a == b end
+	UnitCanAssist, UnitIsConnected = function() return true end, function() return true end
+	UnitIsDeadOrGhost, UnitName = function() return false end, function(unit) return unit == "target" and "Brann" or "Ich" end
+	setuv(evaluate, "FindAura", function(_, unit) if unit == "target" then return nil end return 0 end)
+	assert(uv(update, "bar"), "bar built at login")
+	update()
+	local first = uv(update, "buttons")[1]
+	assert(first and first.shown and first.targetName == "Brann", "button buffs the target, named below")
+	UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName = unpack(saved)
+	setuv(evaluate, "FindAura", function() return nil end)
 	print("buff power OK")
 end)()
 ;(function()

@@ -16,6 +16,7 @@ local Buffs = ns:NewModule("Buffs", {
 		skipFishing = true,
 		expiringAlpha = 0.3,
 		wheelCast = false,
+		targetBuffs = true, -- buffs that can be given to others: also for a friendly player in the target
 		classes = {},
 	},
 })
@@ -28,27 +29,28 @@ local UPDATE_DELAY = 0.1
 -- cast: spells offered for casting (first known one when set to automatic).
 -- weapon: Enum.WeaponSlot checked for a temporary enchant instead of an aura.
 -- items: { [label] = { itemIDs high to low rank } } for rogue poisons.
+-- others: can be cast on other players too (the button buffs a friendly target that lacks it first).
 local REMINDERS = {
 	MAGE = {
-		{ key = "intellect", auras = { 1459, 23028 }, cast = { 1459, 23028 } },
+		{ key = "intellect", auras = { 1459, 23028 }, cast = { 1459, 23028 }, others = true },
 		{ key = "armor", auras = { 6117, 7302, 168 }, cast = { 6117, 7302, 168 } },
 	},
 	PRIEST = {
-		{ key = "fortitude", auras = { 1243, 21562 }, cast = { 1243, 21562 } },
+		{ key = "fortitude", auras = { 1243, 21562 }, cast = { 1243, 21562 }, others = true },
 		{ key = "innerFire", auras = { 588 }, cast = { 588 } },
-		{ key = "spirit", auras = { 14752, 27681 }, cast = { 14752, 27681 } },
+		{ key = "spirit", auras = { 14752, 27681 }, cast = { 14752, 27681 }, others = true },
 		{ key = "shadowform", auras = { 15473 }, cast = { 15473 } },
-		{ key = "shadowProtection", auras = { 976, 27683 }, cast = { 976, 27683 }, default = false },
+		{ key = "shadowProtection", auras = { 976, 27683 }, cast = { 976, 27683 }, default = false, others = true },
 	},
 	DRUID = {
-		{ key = "wild", auras = { 1126, 21849 }, cast = { 1126, 21849 } },
-		{ key = "thorns", auras = { 467 }, cast = { 467 } },
+		{ key = "wild", auras = { 1126, 21849 }, cast = { 1126, 21849 }, others = true },
+		{ key = "thorns", auras = { 467 }, cast = { 467 }, others = true },
 		{ key = "clarity", auras = { 16864 }, cast = { 16864 } },
 		{ key = "trackHumanoids", tracking = true, auras = { 5225 }, cast = { 5225 }, default = false },
 	},
 	PALADIN = {
 		{ key = "blessing", auras = { 19740, 19742, 20217, 1038, 19977, 20911, 25782, 25894, 25898, 25895, 25890, 25899 },
-			cast = { 19740, 19742, 20217, 1038, 19977, 20911 } },
+			cast = { 19740, 19742, 20217, 1038, 19977, 20911 }, others = true },
 		{ key = "aura", auras = { 465, 7294, 19746, 19876, 19888, 19891, 20218 },
 			cast = { 465, 7294, 19746, 20218, 19876, 19888, 19891 } },
 		{ key = "righteousFury", auras = { 25780 }, cast = { 25780 }, default = false },
@@ -120,11 +122,15 @@ local function IsKnown(spellID)
 	return name and C_SpellBook.FindSpellBookSlotForSpell(name) ~= nil
 end
 
--- Returns the remaining time (0 = permanent) of the first matching buff, or nil.
-local function FindAura(spellIDs)
+-- Returns the remaining time (0 = permanent) of the first matching buff, or nil. unit: "player" when left out.
+local function FindAura(spellIDs, unit)
 	for _, spellID in ipairs(spellIDs) do
 		local name = SpellName(spellID)
-		local aura = name and C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+		local aura = name and C_UnitAuras.GetAuraDataBySpellName(unit or "player", name, "HELPFUL")
+		-- Another player's buff whose time cannot be read counts as there (no button for a buff they have).
+		if aura and unit and unit ~= "player" and issecretvalue and issecretvalue(aura.expirationTime) then
+			return 0
+		end
 		if aura and not (issecretvalue and issecretvalue(aura.expirationTime)) then
 			if aura.expirationTime == 0 then
 				return 0
@@ -207,6 +213,9 @@ local function ButtonOnEnter(self)
 	elseif self.itemID then
 		GameTooltip:SetItemByID(self.itemID)
 	end
+	if self.targetName then
+		GameTooltip:AddLine(L.BUFFS_ON_TARGET:format(self.targetName), 0.4, 1, 0.4)
+	end
 	GameTooltip:Show()
 end
 
@@ -231,6 +240,12 @@ local function CreateButton(index)
 	alert:SetPoint("CENTER")
 	alert.animationPlaying = true -- restart the loop after the bar was hidden in combat
 	button.Alert = alert
+	-- The name of the target the button buffs (empty while it buffs the player).
+	button.Who = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+	button.Who:SetPoint("TOP", button, "BOTTOM", 0, -2)
+	button.Who:SetWidth(button:GetWidth() + 24)
+	button.Who:SetWordWrap(false)
+	button.Who:SetTextColor(0.4, 1, 0.4)
 	button:Hide()
 	buttons[index] = button
 	return button
@@ -249,8 +264,10 @@ local function LayoutButtons()
 	end
 end
 
-local function SetupButton(button, reminder)
-	button.spellID, button.itemID = nil, nil
+-- unit: who the spell goes to ("player" or "target").
+local function SetupButton(button, reminder, unit)
+	button.spellID, button.itemID, button.targetName = nil, nil, nil
+	button.Who:SetText("")
 	if reminder.items then
 		local itemID = PickPoison(reminder)
 		if not itemID then
@@ -271,9 +288,14 @@ local function SetupButton(button, reminder)
 		button:SetAttribute("spell", SpellName(spellID))
 		button:SetAttribute("item", nil)
 		button:SetAttribute("target-slot", nil)
-		button:SetAttribute("unit", "player")
+		button:SetAttribute("unit", unit or "player")
 		button.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
 		button.spellID = spellID
+		if unit == "target" then
+			local name = UnitName("target")
+			button.targetName = type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name or "?"
+			button.Who:SetText(button.targetName)
+		end
 	end
 	return true
 end
@@ -337,6 +359,46 @@ local function Evaluate(reminder, threshold)
 	return true, nil, remaining ~= nil
 end
 
+-- A friendly, living player other than oneself in the target, who could get a buff.
+local function FriendlyTarget()
+	local function Yes(value)
+		return value and not (issecretvalue and issecretvalue(value)) and true or false
+	end
+	return Yes(UnitExists("target")) and Yes(UnitIsPlayer("target")) and not Yes(UnitIsUnit("target", "player"))
+		and Yes(UnitCanAssist("player", "target")) and not Yes(UnitIsDeadOrGhost("target"))
+		and UnitIsConnected("target") ~= false
+end
+
+-- A buff for others that the friendly target lacks (or that runs out within the threshold): shown, whether it is
+-- only expiring, seconds until it should be checked again.
+local function EvaluateTarget(reminder, threshold)
+	local spellID = PickSpell(reminder)
+	if not spellID then
+		return false
+	end
+	local remaining = FindAura(reminder.auras, "target")
+	if remaining == 0 then
+		return false
+	end
+	if remaining and remaining > threshold then
+		return false, false, remaining - threshold
+	end
+	if LacksPower(spellID) then
+		return false
+	end
+	return true, remaining ~= nil
+end
+Buffs.EvaluateTarget = EvaluateTarget
+
+-- Who one button buffs: the target first (the player's own buff follows once the target has it), else the player.
+function Buffs.BuffUnit(selfMissing, targetMissing)
+	if targetMissing then
+		return "target"
+	elseif selfMissing then
+		return "player"
+	end
+end
+
 local function Update()
 	updatePending = false
 	if InCombatLockdown() or not bar then
@@ -357,15 +419,32 @@ local function Update()
 	local resting = IsResting() and not Buffs.db.restingZones
 	local flying = UnitOnTaxi("player") or IsFlying()
 	local fishing = Buffs.db.skipFishing and ns.HasFishingPole and ns.HasFishingPole()
-	if Buffs.db.enabled and not resting and not flying and not fishing and not UnitIsDeadOrGhost("player") then
+	-- A friendly target is buffed also in rest areas (cities, inns): choosing the target is the request.
+	local active = Buffs.db.enabled and not flying and not fishing and not UnitIsDeadOrGhost("player")
+	local target = active and Buffs.db.targetBuffs and FriendlyTarget()
+	if active then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck, expiring, noPower = Evaluate(reminder, threshold)
+				local missing, recheck, expiring, noPower
+				if not resting then
+					missing, recheck, expiring, noPower = Evaluate(reminder, threshold)
+				end
 				waitingForPower = waitingForPower or noPower
-				if missing then
+				local targetMissing, targetExpiring, targetRecheck
+				if target and reminder.others then
+					targetMissing, targetExpiring, targetRecheck = EvaluateTarget(reminder, threshold)
+					if targetRecheck then
+						nextCheck = nextCheck and min(nextCheck, targetRecheck) or targetRecheck
+					end
+				end
+				local unit = Buffs.BuffUnit(missing, targetMissing)
+				if unit then
+					if unit == "target" then
+						expiring = targetExpiring
+					end
 					local button = buttons[count + 1] or CreateButton(count + 1)
-					if SetupButton(button, reminder) then
+					if SetupButton(button, reminder, unit) then
 						count = count + 1
 						-- Buffs about to expire are shown faded, missing ones fully.
 						button:SetAlpha(expiring and Buffs.db.expiringAlpha or 1)
@@ -449,7 +528,8 @@ local function CreateBar()
 	end)
 
 	events = CreateFrame("Frame")
-	events:RegisterUnitEvent("UNIT_AURA", "player")
+	events:RegisterUnitEvent("UNIT_AURA", "player", "target")
+	events:RegisterEvent("PLAYER_TARGET_CHANGED")
 	events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -537,6 +617,8 @@ function Buffs:options()
 		{ key = "scale", type = "slider", name = L.BUFFS_SCALE, parent = "enabled", min = 0.5, max = 1.5, step = 0.05,
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
+		{ key = "targetBuffs", type = "toggle", name = L.BUFFS_TARGET, desc = L.BUFFS_TARGET_DESC, parent = "enabled",
+			new = true },
 		{ key = "restingZones", type = "toggle", name = L.BUFFS_RESTING, desc = L.BUFFS_RESTING_DESC, parent = "enabled" },
 		{ key = "skipFishing", type = "toggle", name = L.BUFFS_SKIP_FISHING, desc = L.BUFFS_SKIP_FISHING_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",

@@ -18,9 +18,16 @@ local MEDIA = [[Interface\AddOns\ForeverPlus\Media\Readable\]]
 
 -- Geometry in frame units. `coords`: the used part of the texture. Text areas: left, top, right, bottom inset.
 local LOOKS = {
+	-- The open book of the game's spell book (two painted pages with gold corners and a ribbon, 806 + 807 x 805);
+	-- without these atlases our own drawn book (BOOK_OWN).
 	BOOK = {
+		atlases = { "spellbook-background-evergreen-left", "spellbook-background-evergreen-right" },
+		width = 1000, height = 499,
+		pages = { { 50, 52, 530, 70 }, { 532, 52, 46, 54 } }, -- left page, right page
+	},
+	BOOK_OWN = {
 		art = "book", width = 1000, height = 656, coords = { 0, 1, 0, 672 / 1024 },
-		pages = { { 82, 62, 533, 74 }, { 533, 62, 82, 74 } }, -- left page, right page
+		pages = { { 82, 62, 533, 74 }, { 533, 62, 82, 74 } },
 	},
 	SHEET = {
 		art = "parchment", width = 478, height = 589, coords = { 48 / 512, 464 / 512, 0, 1 },
@@ -30,7 +37,7 @@ local LOOKS = {
 
 -- Colours per material: tint of the art, text, title, engraved light edge (shadow), divider.
 local STYLES = {
-	Parchment = { art = "parchment", tint = { 1, 1, 1 }, text = { 0.23, 0.15, 0.08 }, title = { 0.42, 0.16, 0.05 },
+	Parchment = { art = "parchment", tint = { 1, 1, 1 }, text = { 0.33, 0.21, 0.09 }, title = { 0.47, 0.17, 0.05 },
 		divider = { 0.45, 0.28, 0.12, 0.85 } },
 	Stone = { art = "stone", tint = { 0.70, 0.69, 0.66 }, text = { 0.15, 0.14, 0.13 }, title = { 0.12, 0.11, 0.10 },
 		shadow = { 1, 1, 1, 0.30 }, divider = { 0.18, 0.17, 0.16, 0.75 } },
@@ -244,6 +251,27 @@ local function CreateView()
 	frame.Shadow:SetAlpha(0.8)
 	frame.Art = frame:CreateTexture(nil, "BACKGROUND")
 	frame.Art:SetAllPoints()
+	-- The game's open book: two pages side by side, a soft shadow in the fold, the ribbon over it.
+	frame.PageLeft = frame:CreateTexture(nil, "BACKGROUND")
+	frame.PageLeft:SetPoint("TOPLEFT")
+	frame.PageLeft:SetPoint("BOTTOMRIGHT", frame, "BOTTOM")
+	frame.PageRight = frame:CreateTexture(nil, "BACKGROUND")
+	frame.PageRight:SetPoint("TOPLEFT", frame, "TOP")
+	frame.PageRight:SetPoint("BOTTOMRIGHT")
+	frame.Fold = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
+	frame.Fold:SetTexture([[Interface\Buttons\WHITE8X8]])
+	frame.Fold:SetSize(60, 1)
+	frame.Fold:SetPoint("TOP", 0, -4)
+	frame.Fold:SetPoint("BOTTOM", 0, 4)
+	frame.Fold:SetGradient("HORIZONTAL", CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.28))
+	frame.FoldRight = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
+	frame.FoldRight:SetTexture([[Interface\Buttons\WHITE8X8]])
+	frame.FoldRight:SetPoint("TOPLEFT", frame.Fold, "TOPRIGHT")
+	frame.FoldRight:SetPoint("BOTTOMLEFT", frame.Fold, "BOTTOMRIGHT")
+	frame.FoldRight:SetWidth(60)
+	frame.FoldRight:SetGradient("HORIZONTAL", CreateColor(0, 0, 0, 0.28), CreateColor(0, 0, 0, 0))
+	frame.Ribbon = frame:CreateTexture(nil, "BORDER")
+	frame.Ribbon:SetPoint("TOP", 0, 0)
 
 	frame.Title = frame:CreateFontString(nil, "ARTWORK", "Fancy24Font")
 	frame.Title:SetJustifyH("CENTER")
@@ -289,14 +317,24 @@ local function StyleText(text, style)
 	text:SetSpacing("P", 3)
 end
 
-local function SetPageText(holder, text, width)
+-- The text keeps the height of its page (it vanished when it was set to a height measured before the text was
+-- laid out); a longer text grows to its own height a picture later, then the page scrolls.
+function Readable.TextHeight(page, content)
+	content = ns.Number(content, 0)
+	return content > page and content + 10 or page
+end
+
+local function SetPageText(holder, text, width, height)
 	holder.Text:SetWidth(width)
-	holder.Text:SetHeight(1)
+	holder.Text:SetHeight(height)
 	holder.Text:SetText(text or "")
-	local height = holder.Text.GetContentHeight and ns.Number(holder.Text:GetContentHeight()) or nil
-	holder.Text:SetHeight(math.max(height or 1000, 1) + 10)
 	holder.Scroll:SetVerticalScroll(0)
 	holder.Fade:Play()
+	C_Timer.After(0, function()
+		if holder.Text.GetContentHeight then
+			holder.Text:SetHeight(Readable.TextHeight(height, holder.Text:GetContentHeight()))
+		end
+	end)
 end
 
 local function WithCreator(text)
@@ -312,15 +350,32 @@ end
 local function Draw(look, material, pages)
 	view = view or CreateView()
 	local frame = view
-	local geometry = LOOKS[look]
+	local gameBook = look == "BOOK" and C_Texture.GetAtlasInfo(LOOKS.BOOK.atlases[1]) ~= nil
+		and C_Texture.GetAtlasInfo(LOOKS.BOOK.atlases[2]) ~= nil
+	local geometry = LOOKS[look == "BOOK" and not gameBook and "BOOK_OWN" or look]
 	local style = STYLES[material] or STYLES.Parchment
 	frame.look = look
 	frame:SetSize(geometry.width, geometry.height)
 	local room = ns.Number(UIParent:GetHeight(), 768) * 0.9
 	frame:SetScale(math.min(1, room / geometry.height))
-	frame.Art:SetTexture(MEDIA .. (look == "BOOK" and geometry.art or style.art))
-	frame.Art:SetTexCoord(unpack(geometry.coords))
-	frame.Art:SetVertexColor(style.tint[1], style.tint[2], style.tint[3])
+	frame.Art:SetShown(not gameBook)
+	for _, part in ipairs({ frame.PageLeft, frame.PageRight, frame.Fold, frame.FoldRight, frame.Ribbon }) do
+		part:SetShown(gameBook)
+	end
+	if gameBook then
+		frame.PageLeft:SetAtlas(geometry.atlases[1])
+		frame.PageRight:SetAtlas(geometry.atlases[2])
+		local ribbon = C_Texture.GetAtlasInfo("spellbook-background-evergreen-ribbon")
+		frame.Ribbon:SetShown(ribbon ~= nil)
+		if ribbon then
+			frame.Ribbon:SetAtlas("spellbook-background-evergreen-ribbon")
+			frame.Ribbon:SetSize(102 * geometry.height / 805, 557 * geometry.height / 805)
+		end
+	else
+		frame.Art:SetTexture(MEDIA .. (look == "BOOK" and geometry.art or style.art))
+		frame.Art:SetTexCoord(unpack(geometry.coords))
+		frame.Art:SetVertexColor(style.tint[1], style.tint[2], style.tint[3])
+	end
 	local title = ItemTextGetItem() or ""
 	local first = pages[1] and pages[1].page == 1
 	for index, holder in ipairs(frame.Pages) do
@@ -334,7 +389,8 @@ local function Draw(look, material, pages)
 			holder:SetPoint("BOTTOMRIGHT", -area[3], area[4])
 			holder.Scroll:SetAllPoints()
 			StyleText(holder.Text, style)
-			SetPageText(holder, WithCreator(page.text), geometry.width - area[1] - area[3])
+			SetPageText(holder, WithCreator(page.text), geometry.width - area[1] - area[3],
+				math.max(1, geometry.height - top - area[4]))
 			local several = look == "BOOK" or page.hasNext or page.page > 1
 			holder.Number:SetText(several and L.READABLE_PAGE:format(page.page) or "")
 			holder.Number:SetTextColor(style.divider[1], style.divider[2], style.divider[3])

@@ -3350,6 +3350,8 @@ end)()
 	local look, material = R.Look("Stone", 1, true)
 	assert(look == "SHEET" and material == "Stone", "stone stays a plate, also with several pages")
 	assert(select(2, R.Look("Valentine", 1, false)) == "Parchment", "unknown material on parchment")
+	assert(R.TextHeight(400, 0) == 400 and R.TextHeight(400, nil) == 400, "text keeps the page height before layout")
+	assert(R.TextHeight(400, 620) == 630, "longer text grows and scrolls")
 	-- a book of five pages, as the game hands them out one at a time
 	local saved = { ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem,
 		ItemTextGetText, ItemTextGetCreator, ItemTextNextPage, ItemTextPrevPage, C_Timer.After }

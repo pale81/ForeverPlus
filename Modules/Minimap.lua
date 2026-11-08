@@ -8,6 +8,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 	order = 3,
 	defaults = {
 		worldMapCoords = true,
+		wholeCoords = false, -- coordinates without the decimal place
 		trackingIcons = true,
 		trackingEntries = true,
 		campfires = false,
@@ -169,6 +170,14 @@ function MinimapCoords:UNIT_SPELLCAST_SUCCEEDED(_, unit, _, spellID)
 	PositionCampfires()
 end
 
+-- Coordinates in percent of the map, with one decimal place or (option) whole numbers.
+function MinimapCoords.Format(x, y)
+	if MinimapCoords.db.wholeCoords then
+		return ("%d, %d"):format(floor(x + 0.5), floor(y + 0.5))
+	end
+	return ("%.1f, %.1f"):format(x, y)
+end
+
 local UPDATE_INTERVAL = 0.2
 local text, ticker, lastX, lastY
 
@@ -186,7 +195,7 @@ local function Update()
 	x, y = floor(x * 1000 + 0.5), floor(y * 1000 + 0.5)
 	if x ~= lastX or y ~= lastY then
 		lastX, lastY = x, y
-		text:SetFormattedText("%.1f, %.1f", x / 10, y / 10)
+		text:SetText(MinimapCoords.Format(x / 10, y / 10))
 	end
 end
 
@@ -224,7 +233,7 @@ local function FormatCoords(x, y)
 	if not x or not y then
 		return "–"
 	end
-	return ("%.1f, %.1f"):format(x * 100, y * 100)
+	return MinimapCoords.Format(x * 100, y * 100)
 end
 
 local function UpdateMapCoords()
@@ -524,7 +533,12 @@ function MinimapCoords:OnLogin()
 end
 
 function MinimapCoords:OnOptionChanged(key)
-	if key == "campfires" then
+	if key == "wholeCoords" then
+		lastX, lastY = nil, nil
+		if text then
+			Update()
+		end
+	elseif key == "campfires" then
 		self:ToggleEvent("UNIT_SPELLCAST_SUCCEEDED", self.db.campfires)
 		PositionCampfires()
 	elseif key == "symbolScale" then
@@ -548,6 +562,7 @@ end
 
 MinimapCoords.options = {
 	{ key = "worldMapCoords", type = "toggle", name = L.MINIMAP_WORLDMAP_COORDS, desc = L.MINIMAP_WORLDMAP_COORDS_DESC },
+	{ key = "wholeCoords", type = "toggle", name = L.MINIMAP_WHOLE_COORDS, desc = L.MINIMAP_WHOLE_COORDS_DESC, new = true },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
 	{ key = "zoomReset", type = "toggle", name = L.MINIMAP_ZOOM_RESET, desc = L.MINIMAP_ZOOM_RESET_DESC },

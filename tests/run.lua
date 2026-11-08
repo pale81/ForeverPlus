@@ -3361,4 +3361,15 @@ end)()
 		ItemTextGetCreator, GetMaterialTextColors = unpack(saved, 1, 8)
 	print("readable OK")
 end)()
+;(function()
+	-- Coordinates with one decimal place or, with the option, whole numbers
+	local M = ns:GetModule("Minimap")
+	local saved = M.db.wholeCoords
+	M.db.wholeCoords = false
+	assert(M.Format(45.34, 61.75) == "45.3, 61.8", M.Format(45.34, 61.75))
+	M.db.wholeCoords = true
+	assert(M.Format(45.34, 61.75) == "45, 62", M.Format(45.34, 61.75))
+	M.db.wholeCoords = saved
+	print("coordinates OK")
+end)()
 dofile("bundled.lua")

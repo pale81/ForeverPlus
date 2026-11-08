@@ -15,7 +15,6 @@ local Dialog = ns:NewModule("Dialog", {
 		enabled = false,
 		style = "PLAYER",
 		plates = true,
-		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the text appears
 		trainer = true,        -- the trainer's list in the bubble too
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
 		merchantHide = false,  -- hide wares that cannot be used or are known already
@@ -79,101 +78,6 @@ local function Palette()
 end
 
 ---------------------------------------------------------------------------
--- Text that appears letter by letter, like a story being read aloud: the whole text is laid out at once
--- (so the bubble does not change size) and an alpha gradient uncovers it from the front.
----------------------------------------------------------------------------
-local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
-local REVEAL_SOFT = 4                              -- letters of the soft edge
-local reveal = { list = {}, index = 1, position = 0, active = false }
-
-local function FinishReveal()
-	Trace("Lesen beendet (aktiv %s, %d Absätze)", tostring(reveal.active), #reveal.list)
-	for _, fontString in ipairs(reveal.list) do
-		fontString:SetAlpha(1)
-		fontString:SetAlphaGradient(100000, 1)
-	end
-	reveal.active = false
-	wipe(reveal.list)
-	if bubble then
-		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
-	end
-end
-
-local function RevealStep(_, elapsed)
-	local speed = REVEAL_SPEEDS[Dialog.db.textSpeed]
-	local fontString = reveal.list[reveal.index]
-	if not speed or not fontString then
-		FinishReveal()
-		return
-	end
-	if reveal.position == 0 and reveal.index == 1 then
-		Trace("Lesen läuft (erstes Bild)")
-	end
-	reveal.position = reveal.position + elapsed * speed
-	local length = reveal.lengths[reveal.index]
-	fontString:SetAlphaGradient(reveal.position, REVEAL_SOFT)
-	fontString:SetAlpha(1) -- only after the gradient is set: no frame with the whole text
-	if reveal.position >= length + REVEAL_SOFT then
-		fontString:SetAlphaGradient(100000, 1)
-		reveal.index = reveal.index + 1
-		reveal.position = 0
-		local nextOne = reveal.list[reveal.index]
-		if nextOne then
-			nextOne:SetAlphaGradient(0, REVEAL_SOFT)
-		else
-			FinishReveal()
-		end
-	end
-end
-
--- The state of the reveal on the font strings again (after the step was drawn anew): read paragraphs stay
--- whole, the one being read keeps its place, the rest is hidden.
-local function ApplyReveal()
-	for index, fontString in ipairs(reveal.list) do
-		if index < reveal.index then
-			fontString:SetAlphaGradient(100000, 1)
-			fontString:SetAlpha(1)
-		elseif index == reveal.index then
-			fontString:SetAlphaGradient(reveal.position, REVEAL_SOFT)
-			fontString:SetAlpha(1)
-		else
-			fontString:SetAlpha(0)
-			fontString:SetAlphaGradient(0, REVEAL_SOFT)
-		end
-	end
-end
-
--- texts: the font strings of the paragraphs, in reading order. Each view is revealed once.
-local function StartReveal(view, texts)
-	-- The same step drawn again while it is being read (a list refreshed itself, rewards arrived): the reading goes
-	-- on where it was instead of showing the whole text for a moment.
-	Trace("Lesen: %s, %d Absätze, gelesen %s, aktiv %s", view.kind or "?", #texts, tostring(view.revealed), tostring(reveal.active))
-	if view.revealed and reveal.active and #texts == #reveal.list then
-		for index, fontString in ipairs(texts) do
-			reveal.list[index] = fontString
-		end
-		ApplyReveal()
-		return
-	end
-	if reveal.active then
-		FinishReveal()
-	end
-	if view.revealed or not REVEAL_SPEEDS[Dialog.db.textSpeed] or #texts == 0 then
-		return
-	end
-	view.revealed = true
-	reveal.active, reveal.index, reveal.position = true, 1, 0
-	reveal.lengths = {}
-	for index, fontString in ipairs(texts) do
-		reveal.list[index] = fontString
-		reveal.lengths[index] = strlenutf8 and strlenutf8(fontString:GetText() or "") or #(fontString:GetText() or "")
-		fontString:SetAlpha(0)
-		fontString:SetAlphaGradient(0, REVEAL_SOFT)
-	end
-	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
-end
-
----------------------------------------------------------------------------
 -- The bubble
 ---------------------------------------------------------------------------
 -- Digits typed one after the other make one number (1 then 4 within half a second is 14). The row is taken at once
@@ -209,9 +113,6 @@ local function CreateBubble()
 	frame:EnableMouse(true)
 	frame:SetScript("OnMouseDown", function()
 		Trace("Klick in die Blase")
-		if reveal.active then
-			FinishReveal()
-		end
 	end)
 	frame:EnableMouseWheel(true)
 	frame:SetScript("OnMouseWheel", function(_, delta)
@@ -669,7 +570,6 @@ local function RenderView(view)
 		end
 	end
 	local y = 0
-	local paragraphs = {}
 	wipe(frame.rowActions)
 	wipe(frame.numberIndex)
 	frame.maxRowNumber = 0
@@ -696,7 +596,7 @@ local function RenderView(view)
 		if block.title then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
 		elseif block.text then
-			paragraphs[#paragraphs + 1] = AddText(block.text, block.dim and palette.dim or palette.text)
+			AddText(block.text, block.dim and palette.dim or palette.text)
 		elseif block.rows then
 			for _, info in ipairs(block.rows) do
 				used.row = used.row + 1
@@ -892,7 +792,6 @@ local function RenderView(view)
 	end
 	frame:SetHeight(math.max(y, 20))
 	frame.lastUsed = used
-	StartReveal(view, paragraphs)
 end
 
 -- An error halfway left the bubble on screen with all its content hidden (empty until closed by hand): Blizzard's
@@ -1169,9 +1068,6 @@ local function Hide()
 	RestorePlate()
 	if bubble then
 		bubble:Hide()
-		if reveal.active then
-			FinishReveal()
-		end
 	end
 	current = nil
 	npcGuid = nil
@@ -1261,12 +1157,6 @@ function Dialog.Pending()
 	pendingToken = pendingToken + 1
 	local token = pendingToken
 	Trace("Wahl getroffen: alter Schritt ausgeblendet")
-	-- A reveal in progress stops (it would show its text again with every picture).
-	if reveal.active then
-		reveal.active = false
-		wipe(reveal.list)
-		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
-	end
 	for _, pool in pairs(bubble.pools) do
 		for _, object in pairs(pool) do
 			object:SetAlpha(0)
@@ -1732,7 +1622,7 @@ function Dialog.TrainerView()
 		end
 	end
 	return {
-		name = NpcName(), blocks = blocks, revealed = true,
+		name = NpcName(), blocks = blocks,
 		tools = #locked > 0 and { locked = Dialog.showLocked } or {},
 		buttons = {
 			{ text = GOODBYE or CLOSE, action = Dialog.CloseCurrent },
@@ -2100,7 +1990,7 @@ function Dialog.MerchantView()
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
 	-- "Goodbye" at the lower left (the first button), like at every other step.
 	table.insert(buttons, 1, { text = GOODBYE or CLOSE, action = Dialog.CloseCurrent })
-	return { name = NpcName(), blocks = blocks, buttons = buttons, revealed = true, filter = not buyback, tools = available }
+	return { name = NpcName(), blocks = blocks, buttons = buttons, filter = not buyback, tools = available }
 end
 
 ---------------------------------------------------------------------------
@@ -2248,6 +2138,8 @@ function Dialog:OnInitialize()
 		table.insert(ns.db.bubbleTrace, line)
 	end
 	trace = ns.db.bubbleTrace
+	-- The letter-by-letter text is gone (the whole text showed for a moment first): its setting goes too.
+	self.db.textSpeed = nil
 	if self.db.onByDefault == nil then
 		self.db.onByDefault = true
 		self.db.enabled = true
@@ -2337,9 +2229,6 @@ Dialog.options = {
 	} },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
-	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
-		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
-	}, new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
 	{ key = "merchantHide", type = "toggle", name = L.DIALOG_MERCHANT_HIDE, desc = L.DIALOG_MERCHANT_HIDE_DESC, parent = "merchant", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },

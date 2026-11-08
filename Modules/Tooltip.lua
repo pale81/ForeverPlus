@@ -386,10 +386,17 @@ end
 
 local sinceMaskUpdate = 0
 
--- The game fades an object's tooltip out slowly after the cursor left the object (it stays shown meanwhile):
--- the name goes as soon as the fading starts, measured against the opacity the tooltip had when it came.
-function Tooltip.ObjectFading(tooltip, startAlpha)
-	return ns.Number(tooltip:GetAlpha(), 1) < ns.Number(startAlpha, 1) - 0.01
+-- Whether the name of an object stays: shortly after the tooltip data came (the tooltip may not show yet, the
+-- name vanished then at once), and while the tooltip shows without fading. The game fades an object's tooltip out
+-- slowly after the cursor left the object (it stays shown meanwhile): the name goes as soon as the opacity falls
+-- below the highest one seen (a tooltip taken over while still fading starts low and comes back up).
+local OBJECT_GRACE = 0.25
+function Tooltip.ObjectNameStays(shown, alpha, peak, age)
+	peak = math.max(peak or 0, alpha)
+	if age < OBJECT_GRACE then
+		return true, peak
+	end
+	return shown and alpha >= peak - 0.01, peak
 end
 
 -- Runs while a mouseover unit exists; the text hides over other frames.
@@ -398,8 +405,12 @@ local function UpdateHover(frame, elapsed)
 	if frame.object and UnitExists("mouseover") then
 		frame.object = false
 	end
-	if not (frame.object and GameTooltip:IsShown() and not Tooltip.ObjectFading(GameTooltip, frame.objectAlpha)
-		or UnitExists("mouseover")) then
+	local objectStays = false
+	if frame.object then
+		objectStays, frame.objectAlpha = Tooltip.ObjectNameStays(GameTooltip:IsShown(), ns.Number(GameTooltip:GetAlpha(), 1),
+			frame.objectAlpha, GetTime() - (frame.objectSince or 0))
+	end
+	if not (objectStays or UnitExists("mouseover")) then
 		frame:Hide()
 		return
 	end
@@ -488,6 +499,7 @@ local function OnObjectTooltip(tooltip)
 	local frame = GetHover()
 	frame.object = true
 	frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)
+	frame.objectSince = GetTime()
 	MoveToCorner(tooltip)
 	LayoutObject(frame, name, r or 1, g or 1, b or 1)
 	frame:Show()

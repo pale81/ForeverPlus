@@ -1262,6 +1262,7 @@ L.EDITLAYOUT_DESC = "Shows the text of the layout, selected. Then: Ctrl+C, open 
 L.EDITLAYOUT_HINT = "Ctrl+C copies the text (it is selected). Then Edit Mode, layout menu, Import, paste with Ctrl+V, give a name, confirm."
 
 L.READABLE_TITLE = "Readables"
+L.READABLE_TRACE = "Course of books and plaques (the last %d steps, time in seconds):"
 L.READABLE_ENABLE = "Books, letters and tablets in their own look"
 L.READABLE_ENABLE_DESC = "Shows readable texts in the middle of the screen on their material instead of the game's window: a book (several pages) lies open with two pages, a single sheet on old parchment, stone tablets, marble, bronze and silver plaques with engraved letters. Turn pages with the arrows or a click on the left or right book page, the mouse wheel scrolls, right-click, Esc or the cross closes."
 L.READABLE_PAGE = "– %d –"

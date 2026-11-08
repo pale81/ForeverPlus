@@ -1944,6 +1944,26 @@ end)()
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
 	assert(rows and #rows == 2 and rows[1].text:find("100c") and rows[2].text:find("200c"), "two wares with prices")
 	assert(view.buttons[2].enabled == false, "nothing selected: no purchase")
+	-- The whole list is drawn and scrolls in the bubble (no pages of 14): every ware, the list marked to scroll.
+	local many = GetMerchantNumItems
+	GetMerchantNumItems = function() return 40 end
+	local long = dialog.MerchantView()
+	for _, block in ipairs(long.blocks) do if block.rows then assert(#block.rows == 40 and block.scroll, "all 40 wares, scrolling") end end
+	local wasOn, wasMerchant = dialog.db.enabled, dialog.db.merchant
+	dialog.db.enabled, dialog.db.merchant, dialog.reported = true, true, nil
+	dialog:OnConversation("MERCHANT_SHOW")
+	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
+	local drawn
+	for line = math.max(1, #ns.db.bubbleTrace - 15), #ns.db.bubbleTrace do
+		assert(not ns.db.bubbleTrace[line]:find("Fehler beim Zeichnen"), ns.db.bubbleTrace[line])
+		drawn = drawn or ns.db.bubbleTrace[line]:find("Gezeichnet: Höhe %d+, %d+ Texte, 40 Zeilen")
+	end
+	assert(drawn and not dialog.reported, "the long list draws: " .. table.concat(ns.db.bubbleTrace, "\n", math.max(1, #ns.db.bubbleTrace - 15)))
+	GetMerchantNumItems = many
+	assert(dialog.ListOffset(30, nil, nil, 150) == 30, "stays where it was scrolled")
+	assert(dialog.ListOffset(30, 10, 16, 150) == 10, "lit row above: up to it")
+	assert(dialog.ListOffset(0, 200, 16, 150) == 66, "lit row below: just into view")
+	assert(dialog.ListOffset(30, 60, 16, 150) == 30, "lit row in view: no move")
 	-- A ware in the basket: Space and the number keys never buy (they are jump and action bar); the button does,
 	-- and the basket is empty afterwards.
 	rows[1].action("LeftButton")
@@ -3384,6 +3404,8 @@ end)()
 	assert(spread.left.page == 1 and spread.right.page == 2 and spread.right.text == "Seite 2", "opens on pages 1 and 2")
 	assert(scale == 0.001 and window.alpha == 0, "Blizzard's window collapsed while the book shows")
 	assert(not R.CanTurn(false) and R.CanTurn(true), "only forward from the first spread")
+	local traced = table.concat(ns.db.readableTrace or {}, "\n")
+	assert(traced:find("Seite 1 %(BOOK, Parchment%): Text, 7 Zeichen") and traced:find("Seite 2 %(BOOK"), "pages in the trace: " .. traced)
 	R.Turn(true)
 	assert(R.spread.left.page == 3 and R.spread.right.page == 4, "forward: pages 3 and 4")
 	R.Turn(true)

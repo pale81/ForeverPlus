@@ -1261,6 +1261,7 @@ L.EDITLAYOUT_DESC = "Zeigt den Text des Layouts markiert. Dann: Strg+C, im Bearb
 L.EDITLAYOUT_HINT = "Strg+C kopiert den Text (er ist markiert). Dann Bearbeitungsmodus, Layout-Menü, „Importieren“, Strg+V einfügen, Namen geben, bestätigen."
 
 L.READABLE_TITLE = "Lesbares"
+L.READABLE_TRACE = "Verlauf von Büchern und Tafeln (die letzten %d Schritte, Zeit in Sekunden):"
 L.READABLE_ENABLE = "Bücher, Briefe und Tafeln eigens gestaltet"
 L.READABLE_ENABLE_DESC = "Zeigt lesbare Texte statt im Fenster des Spiels in der Mitte des Bildschirms auf ihrem Material: ein Buch (mehrere Seiten) liegt aufgeschlagen mit zwei Seiten da, ein einzelnes Blatt auf altem Pergament, Steintafeln, Marmor, Bronze- und Silberplaketten mit eingravierter Schrift. Blättern mit den Pfeilen oder einem Klick auf die linke bzw. rechte Buchseite, Mausrad scrollt, Rechtsklick, Esc oder das Kreuz schließt."
 L.READABLE_PAGE = "– %d –"

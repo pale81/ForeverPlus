@@ -22,6 +22,9 @@ local Buffs = ns:NewModule("Buffs", {
 })
 
 local MAX_BUTTONS = 8
+-- A key (Key Bindings → AddOns) presses the first button: the first missing buff, the target's first.
+local BINDING = "CLICK ForeverPlusBuffButton1:LeftButton"
+_G["BINDING_NAME_" .. BINDING] = L.BUFFS_BINDING
 local SPACING = 4
 local UPDATE_DELAY = 0.1
 
@@ -611,8 +614,15 @@ local function Update()
 			end
 		end
 	end
+	-- The key shows on the first button.
+	local key = GetBindingKey(BINDING)
+	if buttons[1] and buttons[1].HotKey then
+		buttons[1].HotKey:SetText(key and GetBindingText(key, true) or "")
+	end
 	for index = count + 1, #buttons do
 		local button = buttons[index]
+		-- Nothing to cast: the key does nothing (it would cast the last buff shown).
+		button:SetAttribute("type", nil)
 		button:Hide()
 		button.Alert.ProcStartAnim:Stop()
 		button.Alert:Hide()
@@ -669,6 +679,8 @@ local function CreateBar()
 	]=])
 	RegisterStateDriver(wheelHandler, "combat", "[combat] 1; 0")
 
+	CreateButton(1) -- the key binding needs the button from the start
+
 	placeholder = bar:CreateTexture(nil, "ARTWORK")
 	placeholder:SetAllPoints()
 	placeholder:SetTexture(134400) -- question mark icon
@@ -685,6 +697,7 @@ local function CreateBar()
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("SPELLS_CHANGED")
+	events:RegisterEvent("UPDATE_BINDINGS")
 	events:RegisterEvent("PLAYER_UNGHOST")
 	events:RegisterEvent("PLAYER_ALIVE")
 	events:RegisterEvent("PLAYER_UPDATE_RESTING")

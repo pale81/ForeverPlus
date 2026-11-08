@@ -2539,6 +2539,8 @@ end)()
 	UnitIsDeadOrGhost, UnitName = function() return false end, function(unit) return unit == "target" and "Brann" or "Ich" end
 	setuv(evaluate, "FindAura", function(_, unit) if unit == "target" then return nil end return 0 end)
 	assert(uv(update, "bar"), "bar built at login")
+	assert(rawget(_G, "ForeverPlusBuffButton1") and _G["BINDING_NAME_CLICK ForeverPlusBuffButton1:LeftButton"] == ns.L.BUFFS_BINDING,
+		"first button exists for the key binding")
 	update()
 	local first = uv(update, "buttons")[1]
 	assert(first and first.shown and first.targetName == "Brann", "button buffs the target, named below")

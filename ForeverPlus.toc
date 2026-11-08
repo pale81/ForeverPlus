@@ -36,6 +36,7 @@ Data\Places.lua
 Data\PlaceInfo.lua
 Data\EditModeLayouts.lua
 Data\Transports.lua
+Data\TransportPaths.lua
 Data\Library.lua
 Data\Radar.lua
 Data\RadarEG.lua
@@ -44,6 +45,7 @@ Data\QuestsEG.lua
 Data\Points.lua
 Data\FontFamilies.lua
 Data\Inns.lua
+Data\WeaponMasters.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua

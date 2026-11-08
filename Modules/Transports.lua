@@ -1,4 +1,5 @@
--- Zeppelin and boat rides: the client offers no list of transports, so rides
+-- Zeppelin and boat rides: the stops come from the game data (Data/TransportPaths.lua, world positions put on
+-- the map at run time), the travel times from recordings: the client offers no list of rides, so rides
 -- are recorded (a player who moves on the map without moving himself is on
 -- one). The docks and destinations found this way appear as symbols on the
 -- world map. Recordings stay in the saved settings of the player; /fp daten
@@ -159,8 +160,9 @@ function Transports.BuildDocks(rides)
 	end
 	for _, ride in ipairs(rides) do
 		local fromMap, fromX, fromY, toMap, toX, toY, seconds = unpack(ride, 1, 7)
+		-- seconds: nil for a route known from the game data without a recorded ride
 		if type(fromMap) == "number" and type(toMap) == "number" and type(fromX) == "number" and type(toX) == "number"
-			and type(fromY) == "number" and type(toY) == "number" and type(seconds) == "number" then
+			and type(fromY) == "number" and type(toY) == "number" and (seconds == nil or type(seconds) == "number") then
 			local from, to = Dock(fromMap, fromX, fromY), Dock(toMap, toX, toY)
 			if from ~= to then
 				local route
@@ -173,15 +175,49 @@ function Transports.BuildDocks(rides)
 					route = { to = to, seconds = {} }
 					from.routes[#from.routes + 1] = route
 				end
-				route.seconds[#route.seconds + 1] = seconds
+				if seconds then
+					route.seconds[#route.seconds + 1] = seconds
+				end
 			end
 		end
 	end
 	return docks
 end
 
+-- The paths of the game data as rides without a time: each stop to the next, the last back to the first.
+-- toMap(continent, x, y) gives map ID and position (0–1) of a world position, or nil.
+function Transports.PathRides(paths, toMap)
+	local rides = {}
+	for _, stops in ipairs(paths or {}) do
+		local placed = {}
+		for index, stop in ipairs(stops) do
+			local mapID, x, y = toMap(stop[1], stop[2], stop[3])
+			placed[index] = mapID and { mapID, x, y } or false
+		end
+		for index, from in ipairs(placed) do
+			local to = placed[index % #placed + 1]
+			if from and to and #placed > 1 then
+				rides[#rides + 1] = { from[1], from[2], from[3], to[1], to[2], to[3] }
+			end
+		end
+	end
+	return rides
+end
+
+local function WorldToMap(continent, x, y)
+	local ok, mapID, position = pcall(C_Map.GetMapPosFromWorldPos, continent, CreateVector2D(x, y))
+	if not ok or not position then
+		return nil
+	end
+	local px, py = position:GetXY()
+	mapID, px, py = ns.Number(mapID), ns.Number(px), ns.Number(py)
+	if mapID and px and py then
+		return mapID, px, py
+	end
+end
+
 local function AllRides()
-	local list = {}
+	local list = Transports.PathRides(ns.TransportPaths, WorldToMap)
 	for _, ride in ipairs(ns.TransportRoutes or {}) do
 		list[#list + 1] = ride
 	end
@@ -217,8 +253,12 @@ local function DockTooltip(tooltip, symbol)
 	local dock = symbol.data
 	tooltip:AddLine(L.TRANSPORTS_DOCK, 1, 1, 1)
 	for _, route in ipairs(dock.routes) do
-		tooltip:AddDoubleLine(L.TRANSPORTS_TO:format(MapName(route.to.mapID), #route.seconds),
-			FormatTime(Median(route.seconds)), 0.8, 0.8, 0.8, 1, 1, 1)
+		if #route.seconds > 0 then
+			tooltip:AddDoubleLine(L.TRANSPORTS_TO:format(MapName(route.to.mapID), #route.seconds),
+				FormatTime(Median(route.seconds)), 0.8, 0.8, 0.8, 1, 1, 1)
+		else
+			tooltip:AddLine(L.TRANSPORTS_TO_KNOWN:format(MapName(route.to.mapID)), 0.8, 0.8, 0.8)
+		end
 	end
 	if #dock.routes == 0 then
 		tooltip:AddLine(L.TRANSPORTS_ARRIVAL, 0.6, 0.6, 0.6)

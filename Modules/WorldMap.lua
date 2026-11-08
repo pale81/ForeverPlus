@@ -17,6 +17,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		entrances = true,
 		flightPoints = true,
 		inns = true,
+		weaponMasters = true,
 		places = true,
 		placeInfo = true,
 		areaInfo = true,
@@ -238,7 +239,7 @@ function WorldMap:Apply()
 		Draw()
 	end
 	local db = self.db
-	if (db.entrances or db.flightPoints or db.inns or db.places or db.questStarts) and WorldMapFrame then
+	if (db.entrances or db.flightPoints or db.inns or db.weaponMasters or db.places or db.questStarts) and WorldMapFrame then
 		ns.MapSymbols.Setup()
 	end
 	ns.MapSymbols.Refresh()
@@ -263,6 +264,7 @@ ns.AddMapFilterEntry(function(root)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_ENTRANCES, "WorldMap", "entrances", L.WORLDMAP_ENTRANCES_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_FLIGHTS, "WorldMap", "flightPoints", L.WORLDMAP_FLIGHTS_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_INNS, "WorldMap", "inns", L.WORLDMAP_INNS_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_WEAPONS, "WorldMap", "weaponMasters", L.WORLDMAP_WEAPONS_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACES, "WorldMap", "places", L.WORLDMAP_PLACES_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACE_INFO, "WorldMap", "placeInfo", L.WORLDMAP_PLACE_INFO_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_AREA_INFO, "WorldMap", "areaInfo", L.WORLDMAP_AREA_INFO_DESC)
@@ -336,6 +338,7 @@ WorldMap.options = {
 	{ key = "entrances", type = "toggle", name = L.WORLDMAP_ENTRANCES, desc = L.WORLDMAP_ENTRANCES_DESC },
 	{ key = "flightPoints", type = "toggle", name = L.WORLDMAP_FLIGHTS, desc = L.WORLDMAP_FLIGHTS_DESC },
 	{ key = "inns", type = "toggle", name = L.WORLDMAP_INNS, desc = L.WORLDMAP_INNS_DESC },
+	{ key = "weaponMasters", type = "toggle", name = L.WORLDMAP_WEAPONS, desc = L.WORLDMAP_WEAPONS_DESC, new = true },
 	{ key = "places", type = "toggle", name = L.WORLDMAP_PLACES, desc = L.WORLDMAP_PLACES_DESC },
 	{ key = "placeInfo", type = "toggle", name = L.WORLDMAP_PLACE_INFO, desc = L.WORLDMAP_PLACE_INFO_DESC, parent = "places", new = true },
 	{ key = "areaInfo", type = "toggle", name = L.WORLDMAP_AREA_INFO, desc = L.WORLDMAP_AREA_INFO_DESC, parent = "placeInfo", new = true },

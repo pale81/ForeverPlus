@@ -2746,6 +2746,14 @@ end)()
 		{ 1411, 0.50, 0.50, 1437, 0.3, 0.3, 120 }, { "x" } })
 	assert(#docks[1411] == 1 and #docks[1411][1].routes == 2, "one dock, two destinations")
 	assert(#docks[1411][1].routes[1].seconds == 2, "the same route twice")
+	-- the stops of the game data: a loop of three stops gives three routes, a stop off every map is left out
+	local placed = { [5] = { 1437, 0.1, 0.6 }, [6] = { 1424, 0.5, 0.5 }, [7] = { 1439, 0.36, 0.45 } }
+	local pathRides = T.PathRides({ { { 0, 5, 0 }, { 0, 6, 0 }, { 1, 7, 0 } }, { { 0, 5, 0 }, { 9, 9, 0 } } },
+		function(_, x) local p = placed[x]; if p then return p[1], p[2], p[3] end end)
+	assert(#pathRides == 3 and pathRides[3][1] == 1439 and pathRides[3][4] == 1437 and pathRides[1][7] == nil, "path loop")
+	docks = T.BuildDocks(pathRides)
+	assert(#docks[1437] == 1 and #docks[1437][1].routes == 1 and #docks[1437][1].routes[1].seconds == 0, "route without time")
+	assert(ns.TransportPaths and #ns.TransportPaths >= 10, "shipped paths")
 	local text = T.ExportText({ { 1411, 0.5, 0.5, 1420, 0.6, 0.4, 240 } })
 	assert(text:find("{ 1411, 0.5000, 0.5000, 1420, 0.6000, 0.4000, 240 },", 1, true), "export line")
 	print("transports OK")
@@ -3413,5 +3421,19 @@ end)()
 	assert(text:sub(1, D.RevealCut(text, 16)) == "Seid gegrüßt,", text:sub(1, D.RevealCut(text, 16)))
 	assert(D.RevealCut(text, 99) == #text, "all said")
 	print("speech OK")
+end)()
+;(function()
+	-- Weapon masters: own faction on its city map, masters standing together share a symbol
+	local Symbols = ns.MapSymbols
+	local orgrimmar = Symbols.WeaponMasterGroups(1454, "H")
+	assert(#orgrimmar == 1 and #orgrimmar[1].masters == 2, "Hanashi and Sayoc together")
+	assert(#Symbols.WeaponMasterGroups(1454, "A") == 0, "not for the other faction")
+	assert(#Symbols.WeaponMasterGroups(1453, "A") == 1, "Woo Ping in Stormwind")
+	for _, master in ipairs(ns.WeaponMasters) do
+		for _, skill in ipairs(master[6]) do
+			assert(ns.WeaponSkillClasses[skill] and ns.L["WEAPON_" .. skill], "known skill " .. skill)
+		end
+	end
+	print("weapon masters OK")
 end)()
 dofile("bundled.lua")

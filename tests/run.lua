@@ -731,13 +731,19 @@ do
 	GameTooltip.IsForbidden = function() return false end
 	objectCall(GameTooltip)
 	UnitExists = function() return true end
-	-- the name goes when the game starts fading the object's tooltip out
-	local alpha = 1
-	local tip = { GetAlpha = function() return alpha end }
-	assert(not Tip.ObjectFading(tip, 1), "full tooltip: name stays")
-	alpha = 0.7
-	assert(Tip.ObjectFading(tip, 1), "fading tooltip: name goes")
-	assert(not Tip.ObjectFading(tip, 0.7), "tooltip shown at lower opacity: name stays")
+	-- the name stays while the tooltip comes and shows, and goes when the game starts fading it out
+	local stays, peak = Tip.ObjectNameStays(false, 0, nil, 0.05)
+	assert(stays, "tooltip not shown yet right after its data: name stays")
+	stays, peak = Tip.ObjectNameStays(true, 1, peak, 0.5)
+	assert(stays and peak == 1, "full tooltip: name stays")
+	stays = Tip.ObjectNameStays(true, 0.7, peak, 0.8)
+	assert(not stays, "fading tooltip: name goes")
+	stays = Tip.ObjectNameStays(false, 1, 1, 0.5)
+	assert(not stays, "tooltip gone: name goes")
+	stays, peak = Tip.ObjectNameStays(true, 0.3, 0.3, 0.3)
+	assert(stays and peak == 0.3, "taken over while fading: stays")
+	stays, peak = Tip.ObjectNameStays(true, 1, peak, 0.4)
+	assert(stays and peak == 1, "comes back up: stays")
 end
 print("hover OK")
 -- Rank up: rank 2 replaced by rank 3, rank 1 kept

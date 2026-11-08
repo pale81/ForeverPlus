@@ -990,6 +990,29 @@ local function HidePlate(plate)
 	end
 end
 
+-- One screen value for the trace: the number, or why there is none (pcall failed, missing, secret value).
+function Dialog.Measure(ok, value)
+	if not ok then
+		return "Fehler"
+	elseif value == nil then
+		return "fehlt"
+	elseif issecretvalue and issecretvalue(value) then
+		return "geheim"
+	elseif type(value) ~= "number" then
+		return type(value)
+	end
+	return ("%d"):format(value)
+end
+
+-- Where a frame is on the screen, for the trace.
+local function Where(frame)
+	local function Edge(method)
+		return Dialog.Measure(pcall(frame[method], frame))
+	end
+	return ("oben %s, unten %s, links %s, sichtbar %s"):format(Edge("GetTop"), Edge("GetBottom"), Edge("GetLeft"),
+		Dialog.Measure(pcall(function() return frame:IsVisible() and 1 or 0 end)))
+end
+
 -- `exclude`: a plate that is going away (NAME_PLATE_UNIT_REMOVED); it still names the NPC at that moment
 -- but is given to another unit next (the bubble then jumped onto the player or another unit).
 local function Place(exclude)
@@ -1004,14 +1027,16 @@ local function Place(exclude)
 	Dialog.anchorPlate = nameplate
 	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
 		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
-	if nameplate then
-		local ok, top, bottom = pcall(function()
-			return nameplate:GetTop(), nameplate:GetBottom()
-		end)
-		local function Pixel(value)
-			return ok and ns.Number(value) and ("%d"):format(value) or "?"
+	-- Where the bubble really stands, once the game has laid it out (the last placing only).
+	Dialog.placeCount = (Dialog.placeCount or 0) + 1
+	local count = Dialog.placeCount
+	C_Timer.After(0.1, function()
+		if count == Dialog.placeCount and bubble:IsShown() then
+			Trace("Blase steht: %s", Where(bubble))
 		end
-		Trace("Plakette: oben %s, unten %s, Bildschirm %d", Pixel(top), Pixel(bottom), ns.Number(UIParent:GetHeight(), 0))
+	end)
+	if nameplate then
+		Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
 		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
 		if Dialog.db.hidePlate then
 			HidePlate(nameplate)

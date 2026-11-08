@@ -2029,7 +2029,7 @@ end)()
 	local dialog = ns:GetModule("Dialog")
 	local place = uv(uv(dialog.GoBack, "Show"), "Place")
 	local clamped
-	local bubble = { ClearAllPoints = function() end, SetPoint = function() end,
+	local bubble = { ClearAllPoints = function() end, SetPoint = function() end, IsShown = function() return false end,
 		SetClampedToScreen = function(_, on) clamped = on end }
 	local savedBubble = uv(place, "bubble")
 	local savedFind = uv(place, "NpcNameplate")
@@ -2569,6 +2569,13 @@ end)()
 	ns:GetModule("Dialog").PrintTrace()
 	assert(shown and shown[1] == "Trace", "bubble trace in window")
 	assert(type(ns.db.bubbleTrace) == "table", "bubble trace kept in the saved variables")
+	-- screen values in the trace say why there is no number
+	local measure = ns:GetModule("Dialog").Measure
+	local savedSecret = issecretvalue
+	issecretvalue = function(value) return value == "secret" end
+	assert(measure(true, 412.6) == "412" and measure(true, nil) == "fehlt" and measure(false, "boom") == "Fehler"
+		and measure(true, "secret") == "geheim", "measured values")
+	issecretvalue = savedSecret
 	items.trace, ns.ShowEditWindow = savedTrace, saved
 	print("trace window OK")
 end)()

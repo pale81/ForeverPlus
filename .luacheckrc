@@ -321,6 +321,7 @@ read_globals = {
 	"floor",
 	"hooksecurefunc",
 	"issecretvalue",
+	"GetCameraZoom",
 	"CloseItemText",
 	"GetMaterialTextColors",
 	"ITEM_TEXT_FONTS",

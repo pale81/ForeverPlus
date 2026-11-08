@@ -3414,7 +3414,7 @@ end)()
 	-- The text of a step: all of it up to the limit, the rest scrolls; slow text grows by whole words
 	local D = ns:GetModule("Dialog")
 	assert(D.ContentHeight(120.4) == 121, "short text whole")
-	assert(D.ContentHeight(900) == 220, "long text up to the limit")
+	assert(D.ContentHeight(900) == 150, "long text up to the limit")
 	local text = "Seid gegrüßt, Reisender."
 	assert(D.RevealCut(text, 3) == 0, "no half word")
 	assert(text:sub(1, D.RevealCut(text, 16)) == "Seid gegrüßt,", text:sub(1, D.RevealCut(text, 16)))

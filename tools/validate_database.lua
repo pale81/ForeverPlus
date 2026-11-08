@@ -13,7 +13,7 @@ assert(data.meta.trust == (withItems and "AHledger item catalog; " or "") .. "MI
 assert(type(data.meta.license) == "string" and data.meta.license:find("Everything Quests MIT", 1, true)
 	and (not withItems or data.meta.license:find("AHledger API terms", 1, true)), "data permission metadata is missing")
 assert(type(data.meta.apiResponseSha256) == "table", "API response hashes are missing")
-assert(data.meta.questSourceCommit == "bb29c7326185377d05381a0a7c6817e4d3f1e883", "quest source is not the reviewed commit")
+assert(data.meta.questSourceCommit == "fe5fe092b3fe53bf31d43b82d185a396ab5cb21c", "quest source is not the reviewed commit")
 assert(type(data.meta.questSourceSha256) == "table", "quest source hashes are missing")
 
 local entities = assert(data.entities)

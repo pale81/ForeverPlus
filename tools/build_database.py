@@ -27,7 +27,7 @@ CLASSES = (
     "armor", "weapon", "consumable", "container", "quest", "key",
     "miscellaneous", "projectile", "trade-goods", "recipe", "reagent", "quiver",
 )
-EVERYTHING_QUESTS_COMMIT = "bb29c7326185377d05381a0a7c6817e4d3f1e883"
+EVERYTHING_QUESTS_COMMIT = "fe5fe092b3fe53bf31d43b82d185a396ab5cb21c"
 EVERYTHING_QUEST_FILES = ("QuestCoords_Forever.lua", "QuestTurnIn_Forever.lua", "QuestAvailable_Forever.lua")
 ITEM_CLASSES = {
     "consumable": 0, "container": 1, "weapon": 2, "armor": 4,
@@ -227,7 +227,7 @@ def lua(value) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--client-build", default="1.60.1.70291")
+    parser.add_argument("--client-build", default="1.60.1.70862")
     parser.add_argument("--items", action="store_true", help="also fetch the AHledger item catalog")
     args = parser.parse_args()
 

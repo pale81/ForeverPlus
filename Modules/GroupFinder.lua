@@ -8,6 +8,7 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 	order = 5.25,
 	defaults = {
 		composition = true,
+		questButton = true, -- a small button at group, elite and dungeon quests: lists the player for it
 		tank5 = 1, healer5 = 1, dps5 = 3,
 		tank10 = 2, healer10 = 2, dps10 = 6,
 	},
@@ -147,16 +148,305 @@ local function RefreshAll()
 	end
 end
 
+---------------------------------------------------------------------------
+-- Group quests: a small button at elite, group and dungeon quests (tracker and quest log) lists the player
+-- in the group finder for the place of the quest, with the roles chosen there last. The place is found by
+-- name: the dungeon (all its wings: "Scarlet Monastery" lists Graveyard, Library, Armory and Cathedral) or,
+-- for an elite quest outside, its zone under "Quests & Zones".
+---------------------------------------------------------------------------
+local DUNGEON_CATEGORY, RAID_CATEGORY, QUEST_CATEGORY = 2, 114, 116
+local CATEGORIES = { dungeon = { DUNGEON_CATEGORY, RAID_CATEGORY }, raid = { RAID_CATEGORY, DUNGEON_CATEGORY },
+	elite = { QUEST_CATEGORY, DUNGEON_CATEGORY } }
+local DUNGEON_TAGS = { [81] = true, [85] = true }
+local RAID_TAGS = { [62] = true, [88] = true, [89] = true }
+local GROUP_TAG = 1
+
+-- What kind of group a quest wants (nil: none). tag: C_QuestLog.GetQuestTagInfo; isDungeon: from the quest data.
+function GroupFinder.QuestKind(tag, suggestedGroup, isDungeon)
+	local tagID = tag and tag.tagID
+	if RAID_TAGS[tagID] then
+		return "raid"
+	elseif isDungeon or DUNGEON_TAGS[tagID] then
+		return "dungeon"
+	elseif tagID == GROUP_TAG or (tag and tag.isElite) or (suggestedGroup or 0) > 1 then
+		return "elite"
+	end
+end
+
+local function Contains(list, value)
+	for _, item in ipairs(list) do
+		if item == value then
+			return true
+		end
+	end
+	return false
+end
+
+local function Normal(text)
+	return type(text) == "string" and text:lower():gsub("^%s+", ""):gsub("%s+$", "") or nil
+end
+
+-- The activities for a quest: names are the places it may belong to (quest log header, area of the quest),
+-- activities { id, fullName, shortName, categoryID }. An exact name first; else every activity whose name begins
+-- with the place and goes on with a dash, bracket or colon (the wings of one dungeon).
+function GroupFinder.MatchActivities(names, activities, kind)
+	for _, categoryID in ipairs(CATEGORIES[kind] or {}) do
+		for _, exact in ipairs({ true, false }) do
+			local found = {}
+			for _, name in ipairs(names) do
+				local place = Normal(name)
+				if place and place ~= "" then
+					for _, activity in ipairs(activities) do
+						if activity.categoryID == categoryID then
+							local full, short = Normal(activity.fullName), Normal(activity.shortName)
+							local hit
+							if exact then
+								hit = full == place or short == place
+							else
+								local rest = full and full:sub(1, #place) == place and full:sub(#place + 1) or nil
+								hit = rest and rest:find("^%s*[%-%(:]") ~= nil
+							end
+							if hit and not Contains(found, activity.id) then
+								found[#found + 1] = activity.id
+							end
+						end
+					end
+				end
+			end
+			if #found > 0 then
+				return found
+			end
+		end
+	end
+	return {}
+end
+
+-- A listing that runs already keeps its activities; the new ones are added.
+function GroupFinder.MergeActivities(old, new)
+	local merged = {}
+	for _, list in ipairs({ old or {}, new }) do
+		for _, id in ipairs(list) do
+			if not Contains(merged, id) then
+				merged[#merged + 1] = id
+			end
+		end
+	end
+	return merged
+end
+
+local activityList -- all activities of the client, read once
+
+local function Activities()
+	if activityList and #activityList > 0 then
+		return activityList
+	end
+	activityList = {}
+	if not (C_LFGList and C_LFGList.GetAvailableCategories) then
+		return activityList
+	end
+	for _, categoryID in ipairs(C_LFGList.GetAvailableCategories() or {}) do
+		for _, id in ipairs(C_LFGList.GetAvailableActivities(categoryID) or {}) do
+			local info = C_LFGList.GetActivityInfoTable(id)
+			if info then
+				activityList[#activityList + 1] = { id = id, fullName = info.fullName, shortName = info.shortName,
+					categoryID = info.categoryID or categoryID }
+			end
+		end
+	end
+	return activityList
+end
+
+-- The quest log header above each quest (the zone or dungeon it is sorted under) and its group size.
+local function LogFacts()
+	local facts, header = {}, nil
+	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
+		local info = C_QuestLog.GetInfo(index)
+		if info and info.isHeader then
+			header = info.title
+		elseif info and info.questID then
+			facts[info.questID] = { header = header, suggestedGroup = info.suggestedGroup }
+		end
+	end
+	return facts
+end
+
+-- The activities for a quest and its kind (nil when it wants no group or no activity fits).
+local function QuestActivities(questID, facts)
+	local fact = facts[questID] or {}
+	local qdb = ns.QuestieDB
+	local tag = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
+	local kind = GroupFinder.QuestKind(tag, fact.suggestedGroup, qdb and qdb.IsDungeonQuest and qdb.IsDungeonQuest(questID))
+	if not kind then
+		return nil
+	end
+	local names = { fact.header }
+	local lib = qdb and qdb.Get and qdb.Get()
+	local area = lib and lib.Quest.Exists(questID) and lib.Quest.Get(questID, "zoneOrSort")
+	if type(area) == "number" and area > 0 and C_Map.GetAreaInfo then
+		names[#names + 1] = C_Map.GetAreaInfo(area)
+	end
+	local ids = GroupFinder.MatchActivities(names, Activities(), kind)
+	return #ids > 0 and ids or nil, kind
+end
+
+local function ActivityNames(ids)
+	local names = {}
+	for _, id in ipairs(ids) do
+		local info = C_LFGList.GetActivityInfoTable(id)
+		names[#names + 1] = info and info.fullName or tostring(id)
+	end
+	return table.concat(names, ", ")
+end
+
+local function RoleText()
+	local roles = C_LFGListRoles and C_LFGListRoles.GetRoles and C_LFGListRoles.GetRoles()
+	local names = {}
+	if roles and roles.tank then names[#names + 1] = TANK end
+	if roles and roles.healer then names[#names + 1] = HEALER end
+	if roles and roles.dps then names[#names + 1] = DAMAGER end
+	return #names > 0 and table.concat(names, ", ") or nil
+end
+
+-- The click: lists the player (or the group they lead) for the quest's place.
+function GroupFinder.SignUp(questID)
+	local ids = QuestActivities(questID, LogFacts())
+	local title = C_QuestLog.GetTitleForQuestID(questID) or tostring(questID)
+	if not ids then
+		ns.Print(L.GROUPQUEST_NONE:format(title))
+		return
+	end
+	if IsInGroup() and not UnitIsGroupLeader("player") then
+		ns.Print(L.GROUPQUEST_LEADER)
+		return
+	end
+	local roles = RoleText()
+	if not IsInGroup() and not roles then
+		ns.Print(L.GROUPQUEST_NO_ROLE)
+		return
+	end
+	local ok
+	if C_LFGList.HasActiveEntryInfo() then
+		local entry = C_LFGList.GetActiveEntryInfo() or {}
+		ids = GroupFinder.MergeActivities(entry.activityIDs, ids)
+		ok = C_LFGList.UpdateListing({ activityIDs = ids, newPlayerFriendly = entry.newPlayerFriendly or false,
+			voiceMode = entry.voiceMode, generalPlaystyle = entry.generalPlaystyle })
+	else
+		ok = C_LFGList.CreateListing({ activityIDs = ids })
+	end
+	if ok then
+		ns.Print(L.GROUPQUEST_LISTED:format(ActivityNames(ids), roles or GROUP))
+	else
+		ns.Print(L.GROUPQUEST_FAILED:format(ActivityNames(ids)))
+	end
+end
+
+-- /fp gruppenquests: every group quest in the log with the activities found for it, and how many the client has.
+function GroupFinder.PrintQuests()
+	local facts, lines = LogFacts(), {}
+	lines[#lines + 1] = L.GROUPQUEST_COUNT:format(#Activities(), RoleText() or NONE)
+	for questID, fact in pairs(facts) do
+		local ids, kind = QuestActivities(questID, facts)
+		if kind then
+			lines[#lines + 1] = ("%s [%d] %s, %s: %s"):format(C_QuestLog.GetTitleForQuestID(questID) or "?", questID, kind,
+				tostring(fact.header), ids and ActivityNames(ids) or "-")
+		end
+	end
+	ns.ShowTrace(L.GROUPQUEST_TITLE, lines)
+end
+
+local questButtons = {} -- parent frame (tracker block, quest log title) -> our button
+
+local function QuestButton(parent)
+	local button = questButtons[parent]
+	if button then
+		return button
+	end
+	button = CreateFrame("Button", nil, parent)
+	button:SetSize(16, 16)
+	button:SetFrameLevel(parent:GetFrameLevel() + 5)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	if C_Texture.GetAtlasInfo("groupfinder-eye-single") then
+		icon:SetAtlas("groupfinder-eye-single")
+	else
+		icon:SetTexture([[Interface\Icons\INV_Misc_GroupNeedMore]])
+	end
+	button:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
+	button:SetScript("OnClick", function(self)
+		GroupFinder.SignUp(self.questID)
+	end)
+	button:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.GROUPQUEST_TIP_TITLE)
+		GameTooltip_AddNormalLine(GameTooltip, ActivityNames(self.activities or {}))
+		GameTooltip_AddHighlightLine(GameTooltip, L.GROUPQUEST_TIP_ROLES:format(RoleText() or NONE))
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", GameTooltip_Hide)
+	questButtons[parent] = button
+	return button
+end
+
+-- Shows or hides the button on a parent for a quest; anchor: where it sits on the parent.
+local function ShowQuestButton(parent, questID, facts, point, x, y)
+	local ids = GroupFinder.db.questButton and questID and QuestActivities(questID, facts)
+	local button = questButtons[parent]
+	if not ids then
+		if button then
+			button:Hide()
+		end
+		return
+	end
+	button = QuestButton(parent)
+	button.questID, button.activities = questID, ids
+	button:ClearAllPoints()
+	button:SetPoint(point, parent, point, x, y)
+	button:Show()
+end
+
+local function UpdateTracker()
+	if not (QuestObjectiveTracker and QuestObjectiveTracker.EnumerateActiveBlocks) then
+		return
+	end
+	local facts = LogFacts()
+	QuestObjectiveTracker:EnumerateActiveBlocks(function(block)
+		ShowQuestButton(block, block.poiQuestID or block.id, facts, "TOPRIGHT", 0, 0)
+	end)
+end
+
+local function UpdateLog()
+	local pool = QuestScrollFrame and QuestScrollFrame.titleFramePool
+	if not pool then
+		return
+	end
+	local facts = LogFacts()
+	for title in pool:EnumerateActive() do
+		ShowQuestButton(title, title.questID, facts, "RIGHT", -22, 0)
+	end
+end
+
 function GroupFinder:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_GroupFinder_VanillaStyle", function()
 		if LFGBrowseSearchEntry_Update then
 			hooksecurefunc("LFGBrowseSearchEntry_Update", UpdateEntry)
 		end
 	end)
+	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
+		if QuestObjectiveTracker and QuestObjectiveTracker.Update then
+			hooksecurefunc(QuestObjectiveTracker, "Update", ns.Measured("GroupFinder: quest buttons (tracker)", UpdateTracker))
+		end
+	end)
+	if QuestLogQuests_Update then
+		hooksecurefunc("QuestLogQuests_Update", ns.Measured("GroupFinder: quest buttons (log)", UpdateLog))
+	end
 end
 
-function GroupFinder:OnOptionChanged()
+function GroupFinder:OnOptionChanged(key)
 	RefreshAll()
+	if key == "questButton" then
+		UpdateTracker()
+		UpdateLog()
+	end
 end
 
 local function Count(key, name, max)
@@ -165,6 +455,7 @@ end
 
 GroupFinder.options = {
 	{ key = "composition", type = "toggle", name = L.GROUPFINDER_COMPOSITION, desc = L.GROUPFINDER_COMPOSITION_DESC },
+	{ key = "questButton", type = "toggle", name = L.GROUPQUEST_OPTION, desc = L.GROUPQUEST_OPTION_DESC, new = true },
 	{ type = "header", name = L.GROUPFINDER_FIVE },
 	Count("tank5", TANK, 5), Count("healer5", HEALER, 5), Count("dps5", DAMAGER, 5),
 	{ type = "header", name = L.GROUPFINDER_TEN },

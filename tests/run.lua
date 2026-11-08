@@ -113,6 +113,7 @@ MinimapCluster.DielFrame = NewFrame("Frame")
 ScriptErrorsFrame.seen = {}
 GameTooltip.StatusBar = NewFrame("StatusBar")
 QuestObjectiveTracker.Header = { Text = NewFrame("FS") }
+QuestScrollFrame = { titleFramePool = { EnumerateActive = function() return function() end end } } -- empty quest log (the mock iterates forever)
 ObjectiveTrackerFrame.Header = { Text = NewFrame("FS") }
 MainActionBar.EndCaps = { LeftEndCap = NewFrame("F"), RightEndCap = NewFrame("F") }
 MainActionBar.EndCaps.LeftEndCap.Texture = NewFrame("T"); MainActionBar.EndCaps.RightEndCap.Texture = NewFrame("T")
@@ -3506,5 +3507,32 @@ end)()
 	assert(value == "0", "restored by the last one")
 	GetCVar, SetCVar = getCVar, setCVar
 	print("opening OK")
+end)()
+;(function()
+	-- Group quests: the kind of group, the group finder activities found by name, a listing that grows
+	local G = ns:GetModule("GroupFinder")
+	assert(G.QuestKind({ tagID = 81 }) == "dungeon" and G.QuestKind(nil, 0, true) == "dungeon", "dungeon by tag or data")
+	assert(G.QuestKind({ tagID = 62 }) == "raid" and G.QuestKind({ tagID = 1 }) == "elite", "raid, group")
+	assert(G.QuestKind(nil, 3) == "elite" and G.QuestKind({ tagID = 0, isElite = true }) == "elite", "suggested group, elite")
+	assert(G.QuestKind(nil, 0, false) == nil and G.QuestKind({ tagID = 0 }, 1) == nil, "a quest for one: no button")
+	local activities = {
+		{ id = 799, fullName = "Die Todesminen", shortName = "Todesminen", categoryID = 2 },
+		{ id = 805, fullName = "Scharlachrotes Kloster - Friedhof", shortName = "Friedhof", categoryID = 2 },
+		{ id = 829, fullName = "Scharlachrotes Kloster - Bibliothek", shortName = "Bibliothek", categoryID = 2 },
+		{ id = 813, fullName = "Düsterbruch (Ost)", shortName = "Düsterbruch (Ost)", categoryID = 2 },
+		{ id = 814, fullName = "Düsterbruch (West)", shortName = "Düsterbruch (West)", categoryID = 2 },
+		{ id = 854, fullName = "Westfall", shortName = "Westfall", categoryID = 116 },
+		{ id = 855, fullName = "Dämmerwald", shortName = "Dämmerwald", categoryID = 116 },
+	}
+	local function ids(t) return table.concat(t, ",") end
+	assert(ids(G.MatchActivities({ "Die Todesminen" }, activities, "dungeon")) == "799", "exact dungeon")
+	assert(ids(G.MatchActivities({ "Scharlachrotes Kloster" }, activities, "dungeon")) == "805,829", "all wings")
+	assert(ids(G.MatchActivities({ "Düsterbruch" }, activities, "dungeon")) == "813,814", "bracketed wings")
+	assert(ids(G.MatchActivities({ "Westfall" }, activities, "elite")) == "854", "elite quest: its zone")
+	assert(ids(G.MatchActivities({ "Die Todesminen" }, activities, "elite")) == "799", "elite quest in a dungeon")
+	assert(#G.MatchActivities({ "Westfal" }, activities, "elite") == 0, "no half names")
+	assert(#G.MatchActivities({ "Rotkammgebirge" }, activities, "elite") == 0, "nothing fits: no button")
+	assert(ids(G.MergeActivities({ 854, 799 }, { 799, 805 })) == "854,799,805", "listing keeps its activities")
+	print("group quests OK")
 end)()
 dofile("bundled.lua")

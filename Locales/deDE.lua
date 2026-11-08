@@ -1238,5 +1238,7 @@ L.EDITLAYOUT_HINT = "Strg+C kopiert den Text (er ist markiert). Dann Bearbeitung
 
 L.READABLE_TITLE = "Lesbares"
 L.READABLE_ENABLE = "Bücher, Briefe und Tafeln eigens gestaltet"
-L.READABLE_ENABLE_DESC = "Zeigt lesbare Texte statt im Fenster des Spiels in der Mitte des Bildschirms auf ihrem Material: ein Buch (mehrere Seiten) als Buchseite, ein einzelnes Blatt auf Pergament, Steintafeln, Bronze- und Silberplaketten auf ihrer Platte. Blättern mit den Pfeilen unten, Mausrad scrollt, Esc oder das Kreuz schließt."
-L.READABLE_PAGE = "Seite %d"
+L.READABLE_ENABLE_DESC = "Zeigt lesbare Texte statt im Fenster des Spiels in der Mitte des Bildschirms auf ihrem Material: ein Buch (mehrere Seiten) liegt aufgeschlagen mit zwei Seiten da, ein einzelnes Blatt auf altem Pergament, Steintafeln, Marmor, Bronze- und Silberplaketten mit eingravierter Schrift. Blättern mit den Pfeilen oder einem Klick auf die linke bzw. rechte Buchseite, Mausrad scrollt, Rechtsklick, Esc oder das Kreuz schließt."
+L.READABLE_PAGE = "– %d –"
+L.READABLE_DIM = "Bildschirm abdunkeln"
+L.READABLE_DIM_DESC = "Dunkelt die Spielwelt um den Text leicht ab, zum Rand hin stärker, damit er besser zur Geltung kommt. Klicks gehen weiter ins Spiel."

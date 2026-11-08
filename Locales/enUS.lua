@@ -1239,5 +1239,7 @@ L.EDITLAYOUT_HINT = "Ctrl+C copies the text (it is selected). Then Edit Mode, la
 
 L.READABLE_TITLE = "Readables"
 L.READABLE_ENABLE = "Books, letters and tablets in their own look"
-L.READABLE_ENABLE_DESC = "Shows readable texts in the middle of the screen on their material instead of the game's window: a book (several pages) as a book page, a single sheet on parchment, stone tablets, bronze and silver plaques on their plate. Turn pages with the arrows at the bottom, the mouse wheel scrolls, Esc or the cross closes."
-L.READABLE_PAGE = "Page %d"
+L.READABLE_ENABLE_DESC = "Shows readable texts in the middle of the screen on their material instead of the game's window: a book (several pages) lies open with two pages, a single sheet on old parchment, stone tablets, marble, bronze and silver plaques with engraved letters. Turn pages with the arrows or a click on the left or right book page, the mouse wheel scrolls, right-click, Esc or the cross closes."
+L.READABLE_PAGE = "– %d –"
+L.READABLE_DIM = "Darken the screen"
+L.READABLE_DIM_DESC = "Darkens the game world around the text a little, more towards the edges, so the text stands out. Clicks still go to the game."

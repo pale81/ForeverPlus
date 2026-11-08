@@ -124,7 +124,7 @@ local function Hide()
 		current = nil
 	end
 	lastText = nil
-	ns.ShowFriendlyPlates(false)
+	ns.ShowFriendlyPlates(false, "speech")
 end
 
 local function Show(text)
@@ -139,7 +139,7 @@ local function Show(text)
 		bubble = FallbackBubble()
 		-- No plate to hang on: the NPC's plate is switched on for the talk; the bubble
 		-- moves there as soon as it exists.
-		ns.ShowFriendlyPlates(true)
+		ns.ShowFriendlyPlates(true, "speech")
 	end
 	if current then
 		current:Hide()

@@ -84,7 +84,13 @@ end
 -- (a whole word wraps the same as in the whole text), the whole text is never shown first.
 ---------------------------------------------------------------------------
 local CONTENT_MAX = 150
-local OPEN_DELAY = 0.15 -- seconds the bubble waits before it shows when a talk begins
+-- When a talk begins the NPC's plate grows into its size for about a quarter second (scale 0.5 to 0.95) and the
+-- bubble hanging on it moved with it: the bubble stays invisible until the plate's scale has been still for
+-- OPEN_QUIET seconds, at least OPEN_DELAY and at most OPEN_MAX seconds.
+local OPEN_DELAY = 0.15
+local OPEN_QUIET = 0.05
+local OPEN_MAX = 0.5
+local OPEN_STEP = 0.002 -- smaller changes of the scale per picture do not count as moving
 local SCROLL_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
 	QUEST_COMPLETE = true }
 local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
@@ -1125,6 +1131,57 @@ function Dialog.WatchOpening()
 	end)
 end
 
+-- Whether the bubble may show: elapsed seconds since the talk began, quiet seconds since the plate's scale last moved.
+function Dialog.OpenReady(elapsed, quiet)
+	return elapsed >= OPEN_MAX or (elapsed >= OPEN_DELAY and quiet >= OPEN_QUIET)
+end
+
+-- Whether the plate's scale moved between two pictures (nil: no plate or not readable).
+function Dialog.ScaleMoved(before, now)
+	if before == nil or now == nil then
+		return before ~= now
+	end
+	return math.abs(now - before) > OPEN_STEP
+end
+
+local settler
+
+function Dialog.ShowWhenSettled()
+	settler = settler or CreateFrame("Frame")
+	local started = GetTime()
+	local moved, lastScale = started
+	local function Scale()
+		local plate = Dialog.anchorPlate
+		if not plate then
+			return nil
+		end
+		local ok, scale = pcall(plate.GetScale, plate)
+		return ok and ns.Number(scale, nil) or nil
+	end
+	lastScale = Scale()
+	ns.SetUpdate(settler, "Dialog: opening", function()
+		if not bubble:IsShown() then
+			ns.SetUpdate(settler, "Dialog: opening", nil)
+			return
+		end
+		local now, scale = GetTime(), Scale()
+		if Dialog.ScaleMoved(lastScale, scale) then
+			moved = now
+		end
+		lastScale = scale
+		if not Dialog.OpenReady(now - started, now - moved) then
+			return
+		end
+		ns.SetUpdate(settler, "Dialog: opening", nil)
+		Trace("Öffnen +%.2f: Blase zeigt sich", now - started)
+		if ns.db.fadeIn == false then
+			bubble:SetAlpha(1)
+		else
+			bubble.Fade:Play()
+		end
+	end)
+end
+
 function Dialog.Measure(ok, value)
 	if not ok then
 		return "Fehler"
@@ -1183,7 +1240,7 @@ local function Place(exclude)
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
 		if Dialog.db.plates then
-			ns.ShowFriendlyPlates(true)
+			ns.ShowFriendlyPlates(true, "dialog")
 		end
 	end
 end
@@ -1311,7 +1368,7 @@ local function Hide()
 	npcGuid = nil
 	wipe(history)
 	CollapseAll(false)
-	ns.ShowFriendlyPlates(false)
+	ns.ShowFriendlyPlates(false, "dialog")
 end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
@@ -1328,7 +1385,7 @@ local function UseBlizzard()
 	current = nil
 	npcGuid = nil
 	CollapseAll(false)
-	ns.ShowFriendlyPlates(false)
+	ns.ShowFriendlyPlates(false, "dialog")
 end
 
 RenderFailed = function(err)
@@ -1499,22 +1556,13 @@ local function Show(view, fromBack)
 	Place()
 	local opening = not bubble:IsShown()
 	bubble:Show()
-	-- The NPC's plate settles in the first pictures after the talk begins (it comes or moves, the bubble hangs on
+	-- The NPC's plate settles in the first pictures after the talk begins (it comes and grows, the bubble hangs on
 	-- it and jerked): the bubble stays invisible that long and fades in afterwards.
 	if opening then
 		Dialog.WatchOpening()
 		bubble.Fade:Stop()
 		bubble:SetAlpha(0)
-		C_Timer.After(OPEN_DELAY, function()
-			if not bubble:IsShown() then
-				return
-			end
-			if ns.db.fadeIn == false then
-				bubble:SetAlpha(1)
-			else
-				bubble.Fade:Play()
-			end
-		end)
+		Dialog.ShowWhenSettled()
 	end
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.

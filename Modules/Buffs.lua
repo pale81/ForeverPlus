@@ -30,27 +30,29 @@ local UPDATE_DELAY = 0.1
 -- weapon: Enum.WeaponSlot checked for a temporary enchant instead of an aura.
 -- items: { [label] = { itemIDs high to low rank } } for rogue poisons.
 -- others: can be cast on other players too (the button buffs a friendly target that lacks it first).
+-- forMana: only for players with mana; forClasses: only for these classes (thorns: who takes the hits).
+-- blessings: the paladin's blessings, chosen per target (see BLESSING_ORDER).
 local REMINDERS = {
 	MAGE = {
-		{ key = "intellect", auras = { 1459, 23028 }, cast = { 1459, 23028 }, others = true },
+		{ key = "intellect", auras = { 1459, 23028 }, cast = { 1459, 23028 }, others = true, forMana = true },
 		{ key = "armor", auras = { 6117, 7302, 168 }, cast = { 6117, 7302, 168 } },
 	},
 	PRIEST = {
 		{ key = "fortitude", auras = { 1243, 21562 }, cast = { 1243, 21562 }, others = true },
 		{ key = "innerFire", auras = { 588 }, cast = { 588 } },
-		{ key = "spirit", auras = { 14752, 27681 }, cast = { 14752, 27681 }, others = true },
+		{ key = "spirit", auras = { 14752, 27681 }, cast = { 14752, 27681 }, others = true, forMana = true },
 		{ key = "shadowform", auras = { 15473 }, cast = { 15473 } },
 		{ key = "shadowProtection", auras = { 976, 27683 }, cast = { 976, 27683 }, default = false, others = true },
 	},
 	DRUID = {
 		{ key = "wild", auras = { 1126, 21849 }, cast = { 1126, 21849 }, others = true },
-		{ key = "thorns", auras = { 467 }, cast = { 467 }, others = true },
+		{ key = "thorns", auras = { 467 }, cast = { 467 }, others = true, forClasses = { WARRIOR = true, PALADIN = true, DRUID = true } },
 		{ key = "clarity", auras = { 16864 }, cast = { 16864 } },
 		{ key = "trackHumanoids", tracking = true, auras = { 5225 }, cast = { 5225 }, default = false },
 	},
 	PALADIN = {
 		{ key = "blessing", auras = { 19740, 19742, 20217, 1038, 19977, 20911, 25782, 25894, 25898, 25895, 25890, 25899 },
-			cast = { 19740, 19742, 20217, 1038, 19977, 20911 }, others = true },
+			cast = { 19740, 19742, 20217, 1038, 19977, 20911 }, others = true, blessings = true },
 		{ key = "aura", auras = { 465, 7294, 19746, 19876, 19888, 19891, 20218 },
 			cast = { 465, 7294, 19746, 20218, 19876, 19888, 19891 } },
 		{ key = "righteousFury", auras = { 25780 }, cast = { 25780 }, default = false },
@@ -265,7 +267,7 @@ local function LayoutButtons()
 end
 
 -- unit: who the spell goes to ("player" or "target").
-local function SetupButton(button, reminder, unit)
+local function SetupButton(button, reminder, unit, chosen)
 	button.spellID, button.itemID, button.targetName = nil, nil, nil
 	button.Who:SetText("")
 	if reminder.items then
@@ -280,7 +282,7 @@ local function SetupButton(button, reminder, unit)
 		button.icon:SetTexture(C_Item.GetItemIconByID(itemID))
 		button.itemID = itemID
 	else
-		local spellID = PickSpell(reminder)
+		local spellID = chosen or PickSpell(reminder)
 		if not spellID then
 			return false
 		end
@@ -359,6 +361,90 @@ local function Evaluate(reminder, threshold)
 	return true, nil, remaining ~= nil
 end
 
+-- Paladin blessings by kind: the normal and the greater one count the same. Each paladin gives a target one
+-- blessing; two paladins give two different kinds. Order per class of the target (classic guides): Kings for
+-- everyone first, then what the class gets from it: Might only adds melee attack power (not for hunters and
+-- casters), Wisdom only helps who has mana, Salvation not for warriors (they may tank). Sanctuary is left out
+-- (tanks only, cannot be told).
+local BLESSING_KINDS = {
+	kings = { 20217, 25898 }, might = { 19740, 25782 }, wisdom = { 19742, 25894 }, salvation = { 1038, 25895 },
+	light = { 19977, 25890 }, sanctuary = { 20911, 25899 },
+}
+local BLESSING_ORDER = {
+	WARRIOR = { "kings", "might", "light" },
+	ROGUE = { "kings", "might", "salvation", "light" },
+	HUNTER = { "kings", "wisdom", "salvation", "light" },
+	MAGE = { "kings", "wisdom", "salvation", "light" },
+	PRIEST = { "kings", "wisdom", "salvation", "light" },
+	WARLOCK = { "kings", "wisdom", "salvation", "light" },
+	PALADIN = { "kings", "wisdom", "might", "light" },
+	SHAMAN = { "kings", "wisdom", "might", "light" },
+	DRUID = { "kings", "wisdom", "might", "light" },
+}
+local MANA_CLASSES = { MAGE = true, PRIEST = true, WARLOCK = true, PALADIN = true, SHAMAN = true, DRUID = true,
+	HUNTER = true }
+local NO_MANA_CLASSES = { WARRIOR = true, ROGUE = true }
+
+-- Whether a player of this class has mana (another class: what the game says, usesMana).
+function Buffs.HasMana(class, usesMana)
+	if MANA_CLASSES[class] then
+		return true
+	elseif NO_MANA_CLASSES[class] then
+		return false
+	end
+	return usesMana and true or false
+end
+
+-- Which blessing a target gets: class and mana of the target, known (kind -> true), onTarget (kind -> { remaining,
+-- mine }). A blessing of one's own on it is only renewed when it runs out within the threshold; else the first
+-- kind of the class's order that is known and not on the target yet. Returns the kind and whether it renews.
+function Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
+	for kind, aura in pairs(onTarget) do
+		if aura.mine then
+			if aura.remaining ~= 0 and aura.remaining <= threshold then
+				return kind, true
+			end
+			return nil, false, aura.remaining ~= 0 and aura.remaining - threshold or nil
+		end
+	end
+	local order = BLESSING_ORDER[class]
+		or (Buffs.HasMana(class, usesMana) and { "kings", "wisdom", "light" } or { "kings", "might", "light" })
+	for _, kind in ipairs(order) do
+		if known[kind] and not onTarget[kind] then
+			return kind, false
+		end
+	end
+end
+
+-- The blessings on the target: kind -> { remaining (0 = no end), mine }.
+local function TargetBlessings()
+	local found = {}
+	for kind, spellIDs in pairs(BLESSING_KINDS) do
+		for _, spellID in ipairs(spellIDs) do
+			local name = SpellName(spellID)
+			local aura = name and C_UnitAuras.GetAuraDataBySpellName("target", name, "HELPFUL")
+			if aura then
+				local expires = aura.expirationTime
+				local remaining = (issecretvalue and issecretvalue(expires) or not expires or expires == 0) and 0
+					or expires - GetTime()
+				local source = aura.sourceUnit
+				local mine = not (issecretvalue and issecretvalue(source)) and source == "player"
+				if not found[kind] or mine then
+					found[kind] = { remaining = remaining, mine = mine }
+				end
+			end
+		end
+	end
+	return found
+end
+
+local function TargetClass()
+	local _, class = UnitClass("target")
+	local mana = UnitPowerMax("target", 0) -- 0: mana
+	return not (issecretvalue and issecretvalue(class)) and class or nil,
+		ns.Number(mana, 0) > 0
+end
+
 -- A friendly, living player other than oneself in the target, who could get a buff.
 local function FriendlyTarget()
 	local function Yes(value)
@@ -372,6 +458,26 @@ end
 -- A buff for others that the friendly target lacks (or that runs out within the threshold): shown, whether it is
 -- only expiring, seconds until it should be checked again.
 local function EvaluateTarget(reminder, threshold)
+	local class, usesMana = TargetClass()
+	if (reminder.forMana and not Buffs.HasMana(class, usesMana))
+		or (reminder.forClasses and not reminder.forClasses[class]) then
+		return false
+	end
+	if reminder.blessings then
+		local known = {}
+		for kind, spellIDs in pairs(BLESSING_KINDS) do
+			known[kind] = IsKnown(spellIDs[1]) or nil
+		end
+		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, TargetBlessings(), threshold)
+		if not kind then
+			return false, false, recheck
+		end
+		local blessing = BLESSING_KINDS[kind][1]
+		if LacksPower(blessing) then
+			return false
+		end
+		return true, renew, nil, blessing
+	end
 	local spellID = PickSpell(reminder)
 	if not spellID then
 		return false
@@ -386,7 +492,7 @@ local function EvaluateTarget(reminder, threshold)
 	if LacksPower(spellID) then
 		return false
 	end
-	return true, remaining ~= nil
+	return true, remaining ~= nil, nil, spellID
 end
 Buffs.EvaluateTarget = EvaluateTarget
 
@@ -431,9 +537,9 @@ local function Update()
 					missing, recheck, expiring, noPower = Evaluate(reminder, threshold)
 				end
 				waitingForPower = waitingForPower or noPower
-				local targetMissing, targetExpiring, targetRecheck
+				local targetMissing, targetExpiring, targetRecheck, targetSpell
 				if target and reminder.others then
-					targetMissing, targetExpiring, targetRecheck = EvaluateTarget(reminder, threshold)
+					targetMissing, targetExpiring, targetRecheck, targetSpell = EvaluateTarget(reminder, threshold)
 					if targetRecheck then
 						nextCheck = nextCheck and min(nextCheck, targetRecheck) or targetRecheck
 					end
@@ -444,7 +550,7 @@ local function Update()
 						expiring = targetExpiring
 					end
 					local button = buttons[count + 1] or CreateButton(count + 1)
-					if SetupButton(button, reminder, unit) then
+					if SetupButton(button, reminder, unit, unit == "target" and targetSpell or nil) then
 						count = count + 1
 						-- Buffs about to expire are shown faded, missing ones fully.
 						button:SetAlpha(expiring and Buffs.db.expiringAlpha or 1)

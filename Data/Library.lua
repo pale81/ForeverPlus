@@ -1,5 +1,5 @@
 -- Library books (Friend of the Library): the 40 book items of the client data
--- (build 1.60.1.70291) and where to find them. Positions are in percent of the
+-- (build 1.60.1.70862, unchanged since 70291) and where to find them. Positions are in percent of the
 -- zone map, taken from published guides where two sources agree or only one
 -- names a position; books without a position (conflicting sources, dungeon) get
 -- one from a player's own find (Modules/Library.lua, /fp bücher export).

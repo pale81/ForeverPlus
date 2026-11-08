@@ -72,4 +72,4 @@ The validator checks sorted unique IDs, row shapes, counts, source metadata, res
 
 ## Area texts
 
-`ns.AreaInfo` in `Data/PlaceInfo.lua` is keyed by area IDs of the AreaTable (wago.tools/db2, build 1.60.1.70291, checked against the same CSV as `tools/places.py` uses: AreaPOI, AreaTable, UiMapAssignment; regenerating `Data/Places.lua` from them gives the same 59 places). Texts are the authors' own, from general knowledge, unchecked against a source.
+`ns.AreaInfo` in `Data/PlaceInfo.lua` is keyed by area IDs of the AreaTable (wago.tools/db2, build 1.60.1.70862, checked against the same CSV as `tools/places.py` uses: AreaPOI, AreaTable, UiMapAssignment; regenerating `Data/Places.lua` from them gives the same 59 places; no area of 70291 was removed or renamed in 70862). Texts are the authors' own, from general knowledge, unchecked against a source.

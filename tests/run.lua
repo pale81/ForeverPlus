@@ -2511,6 +2511,26 @@ end)()
 	assert(onUnit == "target" and missing and expiring, "target's buff runs out: shown faded")
 	setuv(evaluate, "FindAura", function() return 0 end)
 	assert(not buffs.EvaluateTarget(reminder, 60), "target has it: no button")
+	-- Blessings per target: Might not for priests and hunters, Wisdom not for warriors, no second blessing of a
+	-- kind, nothing while one's own is on the target
+	local all = { kings = true, might = true, wisdom = true, salvation = true, light = true }
+	local function pick(class, known, on)
+		return (buffs.ChooseBlessing(class, false, known or all, on or {}, 60))
+	end
+	assert(pick("PRIEST", { might = true, wisdom = true }) == "wisdom", "priest: Wisdom, never Might")
+	assert(pick("PRIEST", { might = true }) == nil, "priest: no Might at all")
+	assert(pick("WARRIOR", { might = true, wisdom = true }) == "might", "warrior: Might")
+	assert(pick("WARRIOR", { wisdom = true }) == nil, "warrior: no Wisdom")
+	assert(pick("HUNTER", { might = true, wisdom = true }) == "wisdom", "hunter: Might adds no ranged power")
+	assert(pick("ROGUE") == "kings", "Kings first")
+	assert(pick("ROGUE", nil, { kings = { remaining = 200 } }) == "might", "Kings from another paladin: Might")
+	assert(pick("MAGE", nil, { kings = { remaining = 200 }, wisdom = { remaining = 200 } }) == "salvation", "next free kind")
+	assert(pick("MAGE", nil, { might = { remaining = 200, mine = true } }) == nil, "own blessing on it: nothing")
+	local kind, renew = buffs.ChooseBlessing("MAGE", false, all, { light = { remaining = 30, mine = true } }, 60)
+	assert(kind == "light" and renew, "own blessing runs out: renewed, same kind")
+	assert(pick("DEATHKNIGHT", { might = true, wisdom = true }) == "might"
+		and buffs.ChooseBlessing("DEATHKNIGHT", true, { might = true, wisdom = true }, {}, 60) == "wisdom", "other class: by mana")
+	assert(not buffs.HasMana("WARRIOR", true) and buffs.HasMana("HUNTER", false), "mana by class")
 	-- The whole bar: a friendly player in the target lacks Intellect, the player has it
 	local saved = { UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName }
 	UnitExists, UnitIsPlayer = function() return true end, function() return true end

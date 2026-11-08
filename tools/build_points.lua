@@ -84,7 +84,7 @@ end
 ---------------------------------------------------------------------------
 -- AllTheThings: flight paths and instances
 ---------------------------------------------------------------------------
-local flights, instances = {}, {}
+local flights, instances, instanceIDs = {}, {}, {}
 local function Walk(node)
 	if type(node) ~= "table" or type(node.t) ~= "table" then
 		return
@@ -92,8 +92,9 @@ local function Walk(node)
 	local t = node.t
 	if node.kind == "CreateFlightPath" and type(t.coords) == "table" then
 		flights[node.id] = t
-	elseif node.kind == "CreateInstance" and t["zone-text-areaID"] then
+	elseif node.kind == "CreateInstance" and (t["zone-text-areaID"] or t.zoneTextAreaID) then
 		instances[#instances + 1] = t
+		instanceIDs[t] = node.id
 	end
 	for _, child in ipairs(loader.children(node)) do
 		Walk(child)
@@ -189,7 +190,11 @@ for _, row in ipairs(Csv(mapCsv)) do
 end
 local fromAtt = 0
 for _, t in ipairs(instances) do
-	local instance = areas[t["zone-text-areaID"]]
+	local instance = areas[t["zone-text-areaID"] or t.zoneTextAreaID] -- renamed in AllTheThings in November 2026
+	-- Some new Forever instances name an outdoor area (continent, not instance map); ATT keys them by the instance map.
+	if not (instance and wanted[instance]) and wanted[instanceIDs[t]] then
+		instance = instanceIDs[t]
+	end
 	local map = type(t.coords) == "table" and next(t.coords)
 	local point = map and t.coords[map][1]
 	if instance and wanted[instance] and not entrances[instance] and point and type(point[1]) == "number" and type(point[2]) == "number" then

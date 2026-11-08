@@ -28,7 +28,7 @@
     {
       "id": "everything-quests-mit-waypoints",
       "repository": "https://github.com/wheelbarrel00/EverythingQuests",
-      "commit": "bb29c7326185377d05381a0a7c6817e4d3f1e883",
+      "commit": "fe5fe092b3fe53bf31d43b82d185a396ab5cb21c",
       "files": [
         "Data/QuestCoords_Forever.lua",
         "Data/QuestTurnIn_Forever.lua",

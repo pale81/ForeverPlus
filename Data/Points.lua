@@ -6,7 +6,7 @@
 local _, ns = ...
 
 ns.Points = {
-	build = "1.60.1.70291",
+	build = "1.60.1.70862",
 	flights = {
 		[2] = { "Stormwind, Elwynn", 1453, 71, 72.5, "A", "Dungar Longdrink", "Gryphon Master", 352 },
 		[4] = { "Sentinel Hill, Westfall", 1436, 56.6, 52.6, "A", "Thor", "Gryphon Master", 523 },
@@ -100,6 +100,7 @@ ns.Points = {
 		[469] = { "Blackwing Lair", "w", 0, -7663.41, -1218.67 },
 		[509] = { "Ruins of Ahn'Qiraj", "w", 1, -8114.46, 1526.37 },
 		[531] = { "Ahn'Qiraj Temple", "w", 1, -8111.72, 1526.79 },
+		[2998] = { "Excavation Site: Wetlands", "m", 1437, 48.1, 56.4 },
 		[2999] = { "Ruins of Lordaeron", "m", 1420, 50, 50 },
 		[3065] = { "The Hall of Thanes", "m", 1455, 50, 50 },
 	},

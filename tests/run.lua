@@ -3333,4 +3333,32 @@ end)()
 	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_worldMap ~= nil, "radar entry switches on")
 	print("map filter menu OK")
 end)()
+;(function()
+	-- Readables: the material decides the look, the page shows and Blizzard's window gives back its room
+	local R = ns:GetModule("Readable")
+	assert(R.Look(nil, 1, false) == "PAGE", "a single sheet on parchment")
+	assert(R.Look("Parchment", 1, true) == "BOOK" and R.Look("Parchment", 2, false) == "BOOK", "several pages: a book")
+	assert(R.Look("ParchmentLarge", 1, false) == "BOOK", "the large parchment is a book")
+	local look, material = R.Look("Stone", 1, false)
+	assert(look == "MATERIAL" and material == "Stone", "stone on its plate")
+	local saved = { ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem,
+		ItemTextGetText, ItemTextGetCreator, GetMaterialTextColors }
+	local window = NewFrame("Frame", "ItemTextFrame")
+	local scale = 1
+	window.SetScale = function(_, value) scale = value end
+	window.GetScale = function() return scale end
+	ItemTextFrame = window
+	ItemTextGetPage, ItemTextHasNextPage = function() return 1 end, function() return true end
+	ItemTextGetMaterial, ItemTextGetItem = function() return "Parchment" end, function() return "Ein Buch" end
+	ItemTextGetText, ItemTextGetCreator = function() return "<HTML><BODY><P>Text</P></BODY></HTML>" end, function() return nil end
+	GetMaterialTextColors = function() return { 0.2, 0.1, 0 }, { 0, 0, 0 } end
+	R.db.enabled = true
+	R.Show()
+	assert(scale == 0.001 and window.alpha == 0, "Blizzard's window collapsed while the page shows")
+	R.Hide()
+	assert(scale == 1 and window.alpha == 1, "window given back on closing")
+	ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem, ItemTextGetText,
+		ItemTextGetCreator, GetMaterialTextColors = unpack(saved, 1, 8)
+	print("readable OK")
+end)()
 dofile("bundled.lua")

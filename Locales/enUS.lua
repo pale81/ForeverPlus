@@ -1234,3 +1234,8 @@ L.DATA_NEXT = "Next: text"
 L.DATA_BACK_TO_LINK = "Back to the link"
 L.EDITLAYOUT_DESC = "Shows the text of the layout, selected. Then: Ctrl+C, open the layout menu in Edit Mode, choose Import, paste with Ctrl+V, give it a name and confirm."
 L.EDITLAYOUT_HINT = "Ctrl+C copies the text (it is selected). Then Edit Mode, layout menu, Import, paste with Ctrl+V, give a name, confirm."
+
+L.READABLE_TITLE = "Readables"
+L.READABLE_ENABLE = "Books, letters and tablets in their own look"
+L.READABLE_ENABLE_DESC = "Shows readable texts in the middle of the screen on their material instead of the game's window: a book (several pages) as a book page, a single sheet on parchment, stone tablets, bronze and silver plaques on their plate. Turn pages with the arrows at the bottom, the mouse wheel scrolls, Esc or the cross closes."
+L.READABLE_PAGE = "Page %d"

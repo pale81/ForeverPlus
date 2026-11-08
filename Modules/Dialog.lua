@@ -24,7 +24,7 @@ local Dialog = ns:NewModule("Dialog", {
 	},
 })
 
-local WIDTH = 340
+local WIDTH = 300
 local INSET = 16 -- the border art of the bubble lies this far around the content
 local ROW_GAP, BLOCK_GAP = 3, 8
 local ITEM_SIZE = 34
@@ -83,7 +83,7 @@ end
 -- the buttons stay below. Slow text appears word by word: the string only ever holds the words already said
 -- (a whole word wraps the same as in the whole text), the whole text is never shown first.
 ---------------------------------------------------------------------------
-local CONTENT_MAX = 220
+local CONTENT_MAX = 150
 local OPEN_DELAY = 0.15 -- seconds the bubble waits before it shows when a talk begins
 local SCROLL_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
 	QUEST_COMPLETE = true }
@@ -209,6 +209,64 @@ function Dialog.TypeNumber(frame, digit)
 	end
 end
 
+-- The bubble of the conversation: our own rounded shape with a curved tail (Media/Bubble, tools/build_bubble.py,
+-- drawn at twice the size): nine pieces, corners 24 points, the shape edge 6 points inside the art (shadow room).
+local BUBBLE_ART = [[Interface\AddOns\ForeverPlus\Media\Bubble\]]
+local CORNER, SHADOW_ROOM = 24, 6
+
+function Dialog.CreateBubbleShape(frame)
+	local art = CreateFrame("Frame", nil, frame)
+	art:SetPoint("TOPLEFT", -INSET - SHADOW_ROOM, INSET + SHADOW_ROOM)
+	art:SetPoint("BOTTOMRIGHT", INSET + SHADOW_ROOM, -INSET - SHADOW_ROOM)
+	art:SetFrameLevel(math.max(frame:GetFrameLevel() - 1, 0))
+	local edge = 48 / 128 -- texture share of a corner
+	local pieces = {
+		{ "TOPLEFT", "TOPLEFT", 0, edge, 0, edge }, { "TOPRIGHT", "TOPRIGHT", 1 - edge, 1, 0, edge },
+		{ "BOTTOMLEFT", "BOTTOMLEFT", 0, edge, 1 - edge, 1 }, { "BOTTOMRIGHT", "BOTTOMRIGHT", 1 - edge, 1, 1 - edge, 1 },
+	}
+	local corners = {}
+	for index, piece in ipairs(pieces) do
+		local texture = art:CreateTexture(nil, "BACKGROUND")
+		texture:SetTexture(BUBBLE_ART .. "bubble")
+		texture:SetTexCoord(piece[3], piece[4], piece[5], piece[6])
+		texture:SetSize(CORNER, CORNER)
+		texture:SetPoint(piece[1], art, piece[2])
+		corners[index] = texture
+	end
+	local function Between(from, to, left, right, top, bottom)
+		local texture = art:CreateTexture(nil, "BACKGROUND")
+		texture:SetTexture(BUBBLE_ART .. "bubble")
+		texture:SetTexCoord(left, right, top, bottom)
+		texture:SetPoint("TOPLEFT", from, "TOPRIGHT")
+		texture:SetPoint("BOTTOMRIGHT", to, "BOTTOMLEFT")
+		return texture
+	end
+	-- top and bottom edges between the corners, left and right edges, the middle
+	Between(corners[1], corners[2], edge, 1 - edge, 0, edge)
+	Between(corners[3], corners[4], edge, 1 - edge, 1 - edge, 1)
+	local left = art:CreateTexture(nil, "BACKGROUND")
+	left:SetTexture(BUBBLE_ART .. "bubble")
+	left:SetTexCoord(0, edge, edge, 1 - edge)
+	left:SetPoint("TOPLEFT", corners[1], "BOTTOMLEFT")
+	left:SetPoint("BOTTOMRIGHT", corners[3], "TOPRIGHT")
+	local right = art:CreateTexture(nil, "BACKGROUND")
+	right:SetTexture(BUBBLE_ART .. "bubble")
+	right:SetTexCoord(1 - edge, 1, edge, 1 - edge)
+	right:SetPoint("TOPLEFT", corners[2], "BOTTOMLEFT")
+	right:SetPoint("BOTTOMRIGHT", corners[4], "TOPRIGHT")
+	local middle = art:CreateTexture(nil, "BACKGROUND")
+	middle:SetTexture(BUBBLE_ART .. "bubble")
+	middle:SetTexCoord(edge, 1 - edge, edge, 1 - edge)
+	middle:SetPoint("TOPLEFT", corners[1], "BOTTOMRIGHT")
+	middle:SetPoint("BOTTOMRIGHT", corners[4], "TOPLEFT")
+	-- The tail: its top 5 points lie on the bubble and cover the rim there.
+	local tail = art:CreateTexture(nil, "BORDER")
+	tail:SetTexture(BUBBLE_ART .. "tail")
+	tail:SetSize(32, 32)
+	tail:SetPoint("TOPLEFT", frame, "BOTTOM", -44, -INSET + 5)
+	return art, tail
+end
+
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
@@ -239,7 +297,7 @@ local function CreateBubble()
 	frame.Dark:SetVertexColor(0.08, 0.08, 0.1, 0.94)
 	frame.DarkBorder = ns.CreatePixelBorder(frame, frame.Dark, 1, "BORDER")
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
-	frame.Art, frame.Tail = ns.CreateBubbleArt(frame, INSET, -10, ns.PANEL_BORDER)
+	frame.Art, frame.Tail = Dialog.CreateBubbleShape(frame)
 	frame.hasArt = frame.Art ~= nil
 	frame.hasTail = frame.Tail ~= nil
 	frame.Abandon = CreateFrame("Button", nil, frame)
@@ -1033,6 +1091,40 @@ local function HidePlate(plate)
 end
 
 -- One screen value for the trace: the number, or why there is none (pcall failed, missing, secret value).
+-- For 1.5 seconds after a talk begins, every change of what could move the bubble goes into the trace (the plate's
+-- position itself cannot be read): scale and alpha of the plate it hangs on, target, camera, facing of the player.
+local OPEN_WATCH = 1.5
+local watcher
+
+function Dialog.WatchOpening()
+	watcher = watcher or CreateFrame("Frame")
+	local started, last = GetTime(), {}
+	local function Read(key, fn)
+		local value = Dialog.Measure(pcall(fn))
+		if value ~= last[key] then
+			Trace("Öffnen +%.2f: %s %s", GetTime() - started, key, value)
+			last[key] = value
+		end
+	end
+	ns.SetUpdate(watcher, "Dialog: opening watch", function()
+		if GetTime() - started > OPEN_WATCH then
+			ns.SetUpdate(watcher, "Dialog: opening watch", nil)
+			return
+		end
+		local plate = Dialog.anchorPlate
+		Read("Plakette", function() return plate and 1 or 0 end)
+		if plate then
+			Read("Plakettengröße", function() return plate:GetScale() * 100 end)
+			Read("Plakettenrahmen", function() return plate.UnitFrame and plate.UnitFrame:GetScale() * 100 end)
+			Read("Plakette sichtbar", function() return plate:IsVisible() and 1 or 0 end)
+		end
+		Read("Ziel ist NPC", function() return UnitIsUnit("target", "npc") and 1 or 0 end)
+		Read("Kamera", function() return GetCameraZoom() * 10 end)
+		Read("Blickrichtung", function() return GetPlayerFacing() * 100 end)
+		Read("Blase", function() return bubble:GetHeight() end)
+	end)
+end
+
 function Dialog.Measure(ok, value)
 	if not ok then
 		return "Fehler"
@@ -1079,7 +1171,8 @@ local function Place(exclude)
 	end)
 	if nameplate then
 		Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
-		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 6)
+		-- The tail (27 points below the shape) ends at the lower edge of the plate, over the head.
+		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 24)
 		if Dialog.db.hidePlate then
 			HidePlate(nameplate)
 		else
@@ -1409,6 +1502,7 @@ local function Show(view, fromBack)
 	-- The NPC's plate settles in the first pictures after the talk begins (it comes or moves, the bubble hangs on
 	-- it and jerked): the bubble stays invisible that long and fades in afterwards.
 	if opening then
+		Dialog.WatchOpening()
 		bubble.Fade:Stop()
 		bubble:SetAlpha(0)
 		C_Timer.After(OPEN_DELAY, function()

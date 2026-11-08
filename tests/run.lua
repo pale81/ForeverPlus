@@ -3441,4 +3441,26 @@ end)()
 	end
 	print("weapon masters OK")
 end)()
+;(function()
+	-- Opening: the bubble shows once the NPC's plate has stopped growing; the plates stay on while anyone needs them
+	local D = ns:GetModule("Dialog")
+	assert(not D.OpenReady(0.1, 0.1), "not before the shortest wait")
+	assert(not D.OpenReady(0.2, 0.01), "not while the plate grows")
+	assert(D.OpenReady(0.2, 0.06), "once the plate is still")
+	assert(D.OpenReady(0.5, 0), "at the latest")
+	assert(D.ScaleMoved(0.89, 0.90) and not D.ScaleMoved(0.95, 0.951), "small steps do not count")
+	assert(D.ScaleMoved(nil, 0.5) and not D.ScaleMoved(nil, nil), "a plate that comes moves")
+	local getCVar, setCVar, value = GetCVar, SetCVar, "0"
+	GetCVar = function() return value end
+	SetCVar = function(_, v) value = v end
+	ns.ShowFriendlyPlates(true, "dialog")
+	ns.ShowFriendlyPlates(true, "speech")
+	assert(value == "1", "plates on")
+	ns.ShowFriendlyPlates(false, "speech")
+	assert(value == "1", "the gossip ends, the conversation goes on: plates stay")
+	ns.ShowFriendlyPlates(false, "dialog")
+	assert(value == "0", "restored by the last one")
+	GetCVar, SetCVar = getCVar, setCVar
+	print("opening OK")
+end)()
 dofile("bundled.lua")

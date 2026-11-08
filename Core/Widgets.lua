@@ -640,9 +640,14 @@ end
 ---------------------------------------------------------------------------
 local PLATES_CVAR = "nameplateShowFriendlyNpcs"
 local platesRestore -- nil: untouched; false: was on already; string: previous value
+local platesOwners = {} -- who needs the plates now ("dialog", "speech"): the last one to let go restores
 
-function ns.ShowFriendlyPlates(on)
+-- owner: one switch per user of the plates; the speech bubble ending with the gossip must not take the plates
+-- away from the conversation bubble that goes on (the plate went and came again, the bubble jumped).
+function ns.ShowFriendlyPlates(on, owner)
+	owner = owner or "?"
 	if on then
+		platesOwners[owner] = true
 		if platesRestore == nil and not InCombatLockdown() then
 			local current = GetCVar(PLATES_CVAR)
 			if current == "1" then
@@ -652,7 +657,13 @@ function ns.ShowFriendlyPlates(on)
 				SetCVar(PLATES_CVAR, "1")
 			end
 		end
-	elseif platesRestore ~= nil then
+		return
+	end
+	platesOwners[owner] = nil
+	if next(platesOwners) ~= nil then
+		return
+	end
+	if platesRestore ~= nil then
 		local restore = platesRestore
 		platesRestore = nil
 		if restore then

@@ -731,6 +731,13 @@ do
 	GameTooltip.IsForbidden = function() return false end
 	objectCall(GameTooltip)
 	UnitExists = function() return true end
+	-- the name goes when the game starts fading the object's tooltip out
+	local alpha = 1
+	local tip = { GetAlpha = function() return alpha end }
+	assert(not Tip.ObjectFading(tip, 1), "full tooltip: name stays")
+	alpha = 0.7
+	assert(Tip.ObjectFading(tip, 1), "fading tooltip: name goes")
+	assert(not Tip.ObjectFading(tip, 0.7), "tooltip shown at lower opacity: name stays")
 end
 print("hover OK")
 -- Rank up: rank 2 replaced by rank 3, rank 1 kept

@@ -386,13 +386,20 @@ end
 
 local sinceMaskUpdate = 0
 
+-- The game fades an object's tooltip out slowly after the cursor left the object (it stays shown meanwhile):
+-- the name goes as soon as the fading starts, measured against the opacity the tooltip had when it came.
+function Tooltip.ObjectFading(tooltip, startAlpha)
+	return ns.Number(tooltip:GetAlpha(), 1) < ns.Number(startAlpha, 1) - 0.01
+end
+
 -- Runs while a mouseover unit exists; the text hides over other frames.
 local function UpdateHover(frame, elapsed)
 	-- An object (sign, mailbox, node) has no unit: the text stays while its tooltip does.
 	if frame.object and UnitExists("mouseover") then
 		frame.object = false
 	end
-	if not (frame.object and GameTooltip:IsShown() or UnitExists("mouseover")) then
+	if not (frame.object and GameTooltip:IsShown() and not Tooltip.ObjectFading(GameTooltip, frame.objectAlpha)
+		or UnitExists("mouseover")) then
 		frame:Hide()
 		return
 	end
@@ -480,6 +487,7 @@ local function OnObjectTooltip(tooltip)
 	local r, g, b = first:GetTextColor()
 	local frame = GetHover()
 	frame.object = true
+	frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)
 	MoveToCorner(tooltip)
 	LayoutObject(frame, name, r or 1, g or 1, b or 1)
 	frame:Show()

@@ -20,6 +20,7 @@ local Dialog = ns:NewModule("Dialog", {
 		merchantHide = false,  -- hide wares that cannot be used or are known already
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
+		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
 	},
 })
 
@@ -78,6 +79,105 @@ local function Palette()
 end
 
 ---------------------------------------------------------------------------
+-- The NPC's words: at most five lines or the first paragraph (the shorter) are visible, the rest scrolls.
+-- Slow text appears word by word: the string only ever holds the words already said (a whole word wraps the
+-- same as in the whole text), the whole text is never shown first.
+---------------------------------------------------------------------------
+local SPEECH_LINES = 5
+local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
+local reveal = { active = false }
+
+-- Visible height of the words: the whole text, but no more than five lines or the first paragraph.
+-- full, first: heights of the whole text and of its first paragraph; one, two: heights of one and two lines.
+function Dialog.SpeechHeight(full, first, one, two)
+	local lines = one + (SPEECH_LINES - 1) * math.max(two - one, 0)
+	return math.ceil(math.min(full, first or full, lines))
+end
+
+-- The first paragraph: up to the first empty line.
+function Dialog.FirstParagraph(text)
+	return text:match("^(.-%S)%s*\n%s*\n") or text
+end
+
+-- How much of the text is said after `position` letters: up to the last whole word.
+function Dialog.RevealCut(text, position)
+	if position >= #text then
+		return #text
+	end
+	local cut = 0
+	for index in text:gmatch("()%s") do
+		if index > position + 1 then
+			break
+		end
+		cut = index - 1
+	end
+	return cut
+end
+
+-- Scrolls the words: by the mouse wheel (delta) or to a height (follows the slow text).
+function Dialog.ScrollSpeech(speech, delta, to)
+	local range = math.max(0, (speech.full or 0) - (speech.visible or 0))
+	local offset = to or ns.Number(speech:GetVerticalScroll(), 0) - (delta or 0) * 28
+	offset = math.max(0, math.min(range, offset))
+	speech:SetVerticalScroll(offset)
+	speech.More:SetShown(offset < range - 1)
+end
+
+local function FinishReveal()
+	if not reveal.active then
+		return
+	end
+	Trace("Lesen beendet")
+	reveal.active = false
+	if reveal.speech then
+		reveal.speech.Text:SetText(reveal.text)
+	end
+	if bubble then
+		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
+	end
+end
+
+local function RevealStep(_, elapsed)
+	local speed = REVEAL_SPEEDS[Dialog.db.textSpeed]
+	local speech = reveal.speech
+	if not speed or not speech or not speech:IsShown() then
+		FinishReveal()
+		return
+	end
+	reveal.position = reveal.position + elapsed * speed
+	local cut = Dialog.RevealCut(reveal.text, reveal.position)
+	if cut ~= reveal.cut then
+		reveal.cut = cut
+		speech.Text:SetText(reveal.text:sub(1, cut))
+		-- The view follows the words being said.
+		Dialog.ScrollSpeech(speech, nil, ns.Number(speech.Text:GetStringHeight(), 0) - speech.visible)
+	end
+	if cut >= #reveal.text then
+		FinishReveal()
+	end
+end
+
+-- The words of a step, slowly once per step. The same step drawn again (the game often sends its event twice,
+-- each builds a new view) goes on where it was, or stays whole once said.
+local function StartReveal(view, speech, text)
+	local key = (view.kind or "?") .. "\0" .. text
+	if reveal.active and reveal.key == key then
+		reveal.speech = speech
+		speech.Text:SetText(text:sub(1, reveal.cut or 0))
+		Trace("Lesen geht weiter")
+		return
+	end
+	FinishReveal()
+	if reveal.key == key or not REVEAL_SPEEDS[Dialog.db.textSpeed] or text == "" then
+		return
+	end
+	reveal.active, reveal.key, reveal.speech, reveal.text, reveal.position, reveal.cut = true, key, speech, text, 0, 0
+	speech.Text:SetText("")
+	Trace("Lesen beginnt (%d Zeichen)", #text)
+	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
+end
+
+---------------------------------------------------------------------------
 -- The bubble
 ---------------------------------------------------------------------------
 -- Digits typed one after the other make one number (1 then 4 within half a second is 14). The row is taken at once
@@ -113,6 +213,7 @@ local function CreateBubble()
 	frame:EnableMouse(true)
 	frame:SetScript("OnMouseDown", function()
 		Trace("Klick in die Blase")
+		FinishReveal()
 	end)
 	frame:EnableMouseWheel(true)
 	frame:SetScript("OnMouseWheel", function(_, delta)
@@ -120,6 +221,12 @@ local function CreateBubble()
 			Dialog.MerchantScroll(delta)
 		elseif current and current.view.kind == "TRAINER_SHOW" then
 			Dialog.TrainerScroll(delta)
+		else
+			local speech = frame.pools.speech[1]
+			if speech and speech:IsShown() then
+				FinishReveal()
+				Dialog.ScrollSpeech(speech, delta)
+			end
 		end
 	end)
 	frame:SetWidth(WIDTH)
@@ -225,7 +332,7 @@ local function CreateBubble()
 			self:SetPropagateKeyboardInput(true)
 		end
 	end)
-	frame.pools = { text = {}, row = {}, item = {}, button = {} }
+	frame.pools = { text = {}, row = {}, item = {}, button = {}, speech = {} }
 	-- Merchant list: a small grey book icon of the game (round, like the buttons at the minimap) at the lower right
 	-- corner, mirror image of the x at the top right (same size, same distance); a small red x over it while
 	-- unusable and known wares are hidden.
@@ -373,6 +480,24 @@ local function CreateText(frame)
 	text:SetJustifyV("TOP")
 	text:SetNonSpaceWrap(true)
 	return text
+end
+
+-- The NPC's words in a clipped, scrollable area; an arrow at the lower right shows there is more.
+local function CreateSpeech(frame)
+	local speech = CreateFrame("ScrollFrame", nil, frame)
+	local child = CreateFrame("Frame", nil, speech)
+	child:SetSize(WIDTH, 1)
+	speech:SetScrollChild(child)
+	speech.child = child
+	speech.Text = CreateText(child)
+	speech.Text:SetPoint("TOPLEFT")
+	speech.Text:SetWidth(WIDTH)
+	speech.More = speech:CreateTexture(nil, "OVERLAY")
+	speech.More:SetTexture([[Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up]])
+	speech.More:SetSize(16, 16)
+	speech.More:SetPoint("BOTTOMRIGHT", speech, "BOTTOMRIGHT", 0, 0)
+	speech.More:SetAlpha(0.8)
+	return speech
 end
 
 local function CreateRow(frame)
@@ -561,7 +686,7 @@ local function RenderView(view)
 	if frame.Tail then
 		frame.Tail:SetShown(usePlayer)
 	end
-	local used = { text = 0, row = 0, item = 0, button = 0 }
+	local used = { text = 0, row = 0, item = 0, button = 0, speech = 0 }
 	local bestChoice, bestChecked -- most valuable quest choice, looked up once per display
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do
@@ -588,6 +713,32 @@ local function RenderView(view)
 		y = y + fs:GetStringHeight() + BLOCK_GAP
 		return fs
 	end
+	-- The NPC's words: the full text is set only to measure it (same picture, never drawn), see StartReveal.
+	local function AddSpeech(text, color)
+		used.speech = used.speech + 1
+		local speech = Pooled(frame, "speech", used.speech, CreateSpeech)
+		local fs = speech.Text
+		fs:SetFontObject(TextFont())
+		fs:SetTextColor(unpack(color))
+		fs:SetAlphaGradient(100000, 1)
+		local function Height(value)
+			fs:SetText(value)
+			return ns.Number(fs:GetStringHeight(), 0)
+		end
+		local first = Dialog.FirstParagraph(text)
+		local full = Height(text)
+		speech.full = full
+		speech.visible = Dialog.SpeechHeight(full, first ~= text and Height(first) or nil, Height("X"), Height("X\nX"))
+		fs:SetText(text)
+		speech.child:SetHeight(math.max(full, 1))
+		speech:ClearAllPoints()
+		speech:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
+		speech:SetSize(WIDTH, math.max(speech.visible, 1))
+		speech:Show()
+		Dialog.ScrollSpeech(speech, nil, 0)
+		StartReveal(view, speech, text)
+		y = y + speech.visible + BLOCK_GAP
+	end
 
 	if view.name and view.name ~= "" then
 		AddText(view.name, palette.name)
@@ -595,6 +746,8 @@ local function RenderView(view)
 	for _, block in ipairs(view.blocks) do
 		if block.title then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
+		elseif block.text and block.speech then
+			AddSpeech(block.text, palette.text)
 		elseif block.text then
 			AddText(block.text, block.dim and palette.dim or palette.text)
 		elseif block.rows then
@@ -1069,6 +1222,8 @@ local function Hide()
 	if bubble then
 		bubble:Hide()
 	end
+	FinishReveal()
+	reveal.key = nil -- a new talk says its words again
 	current = nil
 	npcGuid = nil
 	wipe(history)
@@ -1085,6 +1240,8 @@ local function UseBlizzard()
 	if bubble then
 		bubble:Hide()
 	end
+	FinishReveal()
+	reveal.key = nil -- a new talk says its words again
 	current = nil
 	npcGuid = nil
 	CollapseAll(false)
@@ -1157,6 +1314,7 @@ function Dialog.Pending()
 	pendingToken = pendingToken + 1
 	local token = pendingToken
 	Trace("Wahl getroffen: alter Schritt ausgeblendet")
+	FinishReveal()
 	for _, pool in pairs(bubble.pools) do
 		for _, object in pairs(pool) do
 			object:SetAlpha(0)
@@ -1321,7 +1479,7 @@ function Dialog.GossipView()
 	local blocks, rows = {}, {}
 	local text = Readable(C_GossipInfo.GetText())
 	if text and text ~= "" then
-		blocks[#blocks + 1] = { text = text }
+		blocks[#blocks + 1] = { text = text, speech = true }
 	end
 	for _, info in ipairs(C_GossipInfo.GetActiveQuests() or {}) do
 		rows[#rows + 1] = {
@@ -1371,7 +1529,7 @@ function Dialog.GreetingView()
 	local blocks, rows = {}, {}
 	local text = Readable(GetGreetingText())
 	if text and text ~= "" then
-		blocks[#blocks + 1] = { text = text }
+		blocks[#blocks + 1] = { text = text, speech = true }
 	end
 	for i = 1, GetNumActiveQuests() do
 		local title, isComplete = GetActiveTitle(i)
@@ -1444,7 +1602,7 @@ local function AddRewards(blocks, withChoice)
 end
 
 function Dialog.DetailView()
-	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetQuestText()) or "" } }
+	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetQuestText()) or "", speech = true } }
 	local objective = Readable(GetObjectiveText())
 	if objective and objective ~= "" then
 		blocks[#blocks + 1] = { text = objective }
@@ -1464,7 +1622,7 @@ function Dialog.DetailView()
 end
 
 function Dialog.ProgressView()
-	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetProgressText()) or "" } }
+	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetProgressText()) or "", speech = true } }
 	local required = GetNumQuestItems() or 0
 	if required > 0 then
 		blocks[#blocks + 1] = { header = L.DIALOG_REQUIRED, items = ItemInfos("required", required) }
@@ -1487,7 +1645,7 @@ function Dialog.ProgressView()
 end
 
 function Dialog.RewardView()
-	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetRewardText()) or "" } }
+	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetRewardText()) or "", speech = true } }
 	AddRewards(blocks, true)
 	local choices = GetNumQuestChoices() or 0
 	local view
@@ -2138,8 +2296,6 @@ function Dialog:OnInitialize()
 		table.insert(ns.db.bubbleTrace, line)
 	end
 	trace = ns.db.bubbleTrace
-	-- The letter-by-letter text is gone (the whole text showed for a moment first): its setting goes too.
-	self.db.textSpeed = nil
 	if self.db.onByDefault == nil then
 		self.db.onByDefault = true
 		self.db.enabled = true
@@ -2227,6 +2383,9 @@ Dialog.options = {
 	{ key = "style", type = "dropdown", name = L.DIALOG_STYLE, desc = L.DIALOG_STYLE_DESC, parent = "enabled", values = {
 		{ "PLAYER", L.DIALOG_STYLE_PLAYER }, { "DARK", L.DIALOG_STYLE_DARK },
 	} },
+	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
+		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
+	}, new = true },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },

@@ -1233,3 +1233,8 @@ L.DATA_NEXT = "Weiter: Text"
 L.DATA_BACK_TO_LINK = "Zurück zum Link"
 L.EDITLAYOUT_DESC = "Zeigt den Text des Layouts markiert. Dann: Strg+C, im Bearbeitungsmodus das Layout-Menü öffnen, „Importieren“ wählen, mit Strg+V einfügen, einen Namen geben und bestätigen."
 L.EDITLAYOUT_HINT = "Strg+C kopiert den Text (er ist markiert). Dann Bearbeitungsmodus, Layout-Menü, „Importieren“, Strg+V einfügen, Namen geben, bestätigen."
+
+L.READABLE_TITLE = "Lesbares"
+L.READABLE_ENABLE = "Bücher, Briefe und Tafeln eigens gestaltet"
+L.READABLE_ENABLE_DESC = "Zeigt lesbare Texte statt im Fenster des Spiels in der Mitte des Bildschirms auf ihrem Material: ein Buch (mehrere Seiten) als Buchseite, ein einzelnes Blatt auf Pergament, Steintafeln, Bronze- und Silberplaketten auf ihrer Platte. Blättern mit den Pfeilen unten, Mausrad scrollt, Esc oder das Kreuz schließt."
+L.READABLE_PAGE = "Seite %d"

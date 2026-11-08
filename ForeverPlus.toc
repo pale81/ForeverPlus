@@ -71,6 +71,7 @@ Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\SpeechBubbles.lua
 Modules\Dialog.lua
+Modules\Readable.lua
 Modules\RepFlash.lua
 Modules\CombatText.lua
 Modules\Trivial.lua

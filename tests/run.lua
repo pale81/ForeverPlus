@@ -3334,31 +3334,59 @@ end)()
 	print("map filter menu OK")
 end)()
 ;(function()
-	-- Readables: the material decides the look, the page shows and Blizzard's window gives back its room
+	-- Readables: the material decides the look, a book shows two pages, Blizzard's window gives back its room
 	local R = ns:GetModule("Readable")
-	assert(R.Look(nil, 1, false) == "PAGE", "a single sheet on parchment")
+	assert(R.Look(nil, 1, false) == "SHEET", "a single sheet on parchment")
 	assert(R.Look("Parchment", 1, true) == "BOOK" and R.Look("Parchment", 2, false) == "BOOK", "several pages: a book")
 	assert(R.Look("ParchmentLarge", 1, false) == "BOOK", "the large parchment is a book")
-	local look, material = R.Look("Stone", 1, false)
-	assert(look == "MATERIAL" and material == "Stone", "stone on its plate")
+	local look, material = R.Look("Stone", 1, true)
+	assert(look == "SHEET" and material == "Stone", "stone stays a plate, also with several pages")
+	assert(select(2, R.Look("Valentine", 1, false)) == "Parchment", "unknown material on parchment")
+	-- a book of five pages, as the game hands them out one at a time
 	local saved = { ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem,
-		ItemTextGetText, ItemTextGetCreator, GetMaterialTextColors }
+		ItemTextGetText, ItemTextGetCreator, ItemTextNextPage, ItemTextPrevPage, C_Timer.After }
+	local current, last = 1, 5
+	local function Ready()
+		R.Show()
+	end
+	ItemTextGetPage, ItemTextHasNextPage = function() return current end, function() return current < last end
+	ItemTextGetMaterial, ItemTextGetItem = function() return "Parchment" end, function() return "Ein Buch" end
+	ItemTextGetText, ItemTextGetCreator = function() return "Seite " .. current end, function() return nil end
+	local asked = 0
+	ItemTextNextPage = function() asked = asked + 1; current = current + 1; Ready() end
+	ItemTextPrevPage = function() asked = asked + 1; current = current - 1; Ready() end
+	C_Timer.After = function() end
 	local window = NewFrame("Frame", "ItemTextFrame")
 	local scale = 1
 	window.SetScale = function(_, value) scale = value end
 	window.GetScale = function() return scale end
 	ItemTextFrame = window
-	ItemTextGetPage, ItemTextHasNextPage = function() return 1 end, function() return true end
-	ItemTextGetMaterial, ItemTextGetItem = function() return "Parchment" end, function() return "Ein Buch" end
-	ItemTextGetText, ItemTextGetCreator = function() return "<HTML><BODY><P>Text</P></BODY></HTML>" end, function() return nil end
-	GetMaterialTextColors = function() return { 0.2, 0.1, 0 }, { 0, 0, 0 } end
 	R.db.enabled = true
-	R.Show()
-	assert(scale == 0.001 and window.alpha == 0, "Blizzard's window collapsed while the page shows")
+	R.ResetSpread()
+	Ready()
+	local spread = R.spread
+	assert(spread.left.page == 1 and spread.right.page == 2 and spread.right.text == "Seite 2", "opens on pages 1 and 2")
+	assert(scale == 0.001 and window.alpha == 0, "Blizzard's window collapsed while the book shows")
+	assert(not R.CanTurn(false) and R.CanTurn(true), "only forward from the first spread")
+	R.Turn(true)
+	assert(R.spread.left.page == 3 and R.spread.right.page == 4, "forward: pages 3 and 4")
+	R.Turn(true)
+	assert(R.spread.left.page == 5 and not R.spread.right and not R.CanTurn(true), "last page alone on the left")
+	asked = 0
+	R.Turn(false)
+	assert(R.spread.left.page == 3 and R.spread.right.page == 4 and asked == 3, "back: two pages down, then the right one")
 	R.Hide()
-	assert(scale == 1 and window.alpha == 1, "window given back on closing")
+	assert(scale == 1 and window.alpha == 1 and not R.spread.left, "window given back on closing")
+	-- a stone plate with two pages turns one page at a time
+	ItemTextGetMaterial = function() return "Stone" end
+	current, last = 1, 2
+	Ready()
+	assert(not R.spread.left, "no spread for a plate")
+	R.Turn(true)
+	assert(current == 2, "plate turned to page 2")
+	R.Hide()
 	ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem, ItemTextGetText,
-		ItemTextGetCreator, GetMaterialTextColors = unpack(saved, 1, 8)
+		ItemTextGetCreator, ItemTextNextPage, ItemTextPrevPage, C_Timer.After = unpack(saved, 1, 10)
 	print("readable OK")
 end)()
 ;(function()

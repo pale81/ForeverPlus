@@ -3409,13 +3409,10 @@ end)()
 	print("coordinates OK")
 end)()
 ;(function()
-	-- The NPC's words: five lines or the first paragraph are visible; slow text grows by whole words
+	-- The text of a step: all of it up to the limit, the rest scrolls; slow text grows by whole words
 	local D = ns:GetModule("Dialog")
-	assert(D.SpeechHeight(200, nil, 14, 30) == 78, "five lines of 16 (first one 14)")
-	assert(D.SpeechHeight(200, 46, 14, 30) == 46, "first paragraph shorter than five lines")
-	assert(D.SpeechHeight(30, nil, 14, 30) == 30, "short text whole")
-	assert(D.FirstParagraph("Seid gegrüßt.\n\nDie Wölfe kommen.") == "Seid gegrüßt.", "first paragraph")
-	assert(D.FirstParagraph("Ein Satz.") == "Ein Satz.", "one paragraph")
+	assert(D.ContentHeight(120.4) == 121, "short text whole")
+	assert(D.ContentHeight(900) == 220, "long text up to the limit")
 	local text = "Seid gegrüßt, Reisender."
 	assert(D.RevealCut(text, 3) == 0, "no half word")
 	assert(text:sub(1, D.RevealCut(text, 16)) == "Seid gegrüßt,", text:sub(1, D.RevealCut(text, 16)))

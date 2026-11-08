@@ -79,24 +79,20 @@ local function Palette()
 end
 
 ---------------------------------------------------------------------------
--- The NPC's words: at most five lines or the first paragraph (the shorter) are visible, the rest scrolls.
--- Slow text appears word by word: the string only ever holds the words already said (a whole word wraps the
--- same as in the whole text), the whole text is never shown first.
+-- The text of a conversation step (name, words, objectives, rewards) scrolls when it is taller than CONTENT_MAX;
+-- the buttons stay below. Slow text appears word by word: the string only ever holds the words already said
+-- (a whole word wraps the same as in the whole text), the whole text is never shown first.
 ---------------------------------------------------------------------------
-local SPEECH_LINES = 5
+local CONTENT_MAX = 220
+local OPEN_DELAY = 0.15 -- seconds the bubble waits before it shows when a talk begins
+local SCROLL_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
+	QUEST_COMPLETE = true }
 local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
 local reveal = { active = false }
 
--- Visible height of the words: the whole text, but no more than five lines or the first paragraph.
--- full, first: heights of the whole text and of its first paragraph; one, two: heights of one and two lines.
-function Dialog.SpeechHeight(full, first, one, two)
-	local lines = one + (SPEECH_LINES - 1) * math.max(two - one, 0)
-	return math.ceil(math.min(full, first or full, lines))
-end
-
--- The first paragraph: up to the first empty line.
-function Dialog.FirstParagraph(text)
-	return text:match("^(.-%S)%s*\n%s*\n") or text
+-- Visible height of the text of a step: all of it up to CONTENT_MAX.
+function Dialog.ContentHeight(full)
+	return math.ceil(math.min(full, CONTENT_MAX))
 end
 
 -- How much of the text is said after `position` letters: up to the last whole word.
@@ -114,13 +110,17 @@ function Dialog.RevealCut(text, position)
 	return cut
 end
 
--- Scrolls the words: by the mouse wheel (delta) or to a height (follows the slow text).
-function Dialog.ScrollSpeech(speech, delta, to)
-	local range = math.max(0, (speech.full or 0) - (speech.visible or 0))
-	local offset = to or ns.Number(speech:GetVerticalScroll(), 0) - (delta or 0) * 28
+-- Scrolls the text of the step: by the mouse wheel (delta) or to an offset (follows the slow text).
+function Dialog.ScrollContent(delta, to)
+	local scroll = bubble and bubble.Scroll
+	if not scroll or not scroll:IsShown() then
+		return
+	end
+	local range = math.max(0, (scroll.full or 0) - (scroll.visible or 0))
+	local offset = to or ns.Number(scroll:GetVerticalScroll(), 0) - (delta or 0) * 28
 	offset = math.max(0, math.min(range, offset))
-	speech:SetVerticalScroll(offset)
-	speech.More:SetShown(offset < range - 1)
+	scroll:SetVerticalScroll(offset)
+	scroll.More:SetShown(offset < range - 1)
 end
 
 local function FinishReveal()
@@ -129,8 +129,8 @@ local function FinishReveal()
 	end
 	Trace("Lesen beendet")
 	reveal.active = false
-	if reveal.speech then
-		reveal.speech.Text:SetText(reveal.text)
+	if reveal.fs then
+		reveal.fs:SetText(reveal.text)
 	end
 	if bubble then
 		ns.SetUpdate(bubble, "Dialog: text reveal", nil)
@@ -139,8 +139,8 @@ end
 
 local function RevealStep(_, elapsed)
 	local speed = REVEAL_SPEEDS[Dialog.db.textSpeed]
-	local speech = reveal.speech
-	if not speed or not speech or not speech:IsShown() then
+	local fs = reveal.fs
+	if not speed or not fs or not fs:IsShown() then
 		FinishReveal()
 		return
 	end
@@ -148,9 +148,10 @@ local function RevealStep(_, elapsed)
 	local cut = Dialog.RevealCut(reveal.text, reveal.position)
 	if cut ~= reveal.cut then
 		reveal.cut = cut
-		speech.Text:SetText(reveal.text:sub(1, cut))
+		fs:SetText(reveal.text:sub(1, cut))
 		-- The view follows the words being said.
-		Dialog.ScrollSpeech(speech, nil, ns.Number(speech.Text:GetStringHeight(), 0) - speech.visible)
+		local scroll = bubble.Scroll
+		Dialog.ScrollContent(nil, reveal.top + ns.Number(fs:GetStringHeight(), 0) - (scroll.visible or 0))
 	end
 	if cut >= #reveal.text then
 		FinishReveal()
@@ -158,12 +159,12 @@ local function RevealStep(_, elapsed)
 end
 
 -- The words of a step, slowly once per step. The same step drawn again (the game often sends its event twice,
--- each builds a new view) goes on where it was, or stays whole once said.
-local function StartReveal(view, speech, text)
+-- each builds a new view) goes on where it was, or stays whole once said. top: where the words start.
+local function StartReveal(view, fs, text, top)
 	local key = (view.kind or "?") .. "\0" .. text
 	if reveal.active and reveal.key == key then
-		reveal.speech = speech
-		speech.Text:SetText(text:sub(1, reveal.cut or 0))
+		reveal.fs, reveal.top = fs, top
+		fs:SetText(text:sub(1, reveal.cut or 0))
 		Trace("Lesen geht weiter")
 		return
 	end
@@ -171,8 +172,9 @@ local function StartReveal(view, speech, text)
 	if reveal.key == key or not REVEAL_SPEEDS[Dialog.db.textSpeed] or text == "" then
 		return
 	end
-	reveal.active, reveal.key, reveal.speech, reveal.text, reveal.position, reveal.cut = true, key, speech, text, 0, 0
-	speech.Text:SetText("")
+	reveal.active, reveal.key, reveal.fs, reveal.top, reveal.text, reveal.position, reveal.cut =
+		true, key, fs, top, text, 0, 0
+	fs:SetText("")
 	Trace("Lesen beginnt (%d Zeichen)", #text)
 	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
 end
@@ -221,17 +223,14 @@ local function CreateBubble()
 			Dialog.MerchantScroll(delta)
 		elseif current and current.view.kind == "TRAINER_SHOW" then
 			Dialog.TrainerScroll(delta)
-		else
-			local speech = frame.pools.speech[1]
-			if speech and speech:IsShown() then
-				FinishReveal()
-				Dialog.ScrollSpeech(speech, delta)
-			end
+		elseif frame.Scroll:IsShown() then
+			FinishReveal()
+			Dialog.ScrollContent(delta)
 		end
 	end)
 	frame:SetWidth(WIDTH)
 	frame:Hide()
-	ns.FadeIn(frame, 0.25)
+	frame.Fade = ns.FadeIn(frame, 0.25)
 	-- Dark variant: one plain pane.
 	frame.Dark = frame:CreateTexture(nil, "BACKGROUND")
 	frame.Dark:SetPoint("TOPLEFT", -INSET / 2, INSET / 2)
@@ -332,7 +331,18 @@ local function CreateBubble()
 			self:SetPropagateKeyboardInput(true)
 		end
 	end)
-	frame.pools = { text = {}, row = {}, item = {}, button = {}, speech = {} }
+	frame.pools = { text = {}, row = {}, item = {}, button = {} }
+	-- The text of a conversation step in a clipped area; an arrow at its lower right shows there is more.
+	frame.Scroll = CreateFrame("ScrollFrame", nil, frame)
+	frame.Content = CreateFrame("Frame", nil, frame.Scroll)
+	frame.Content:SetSize(WIDTH, 1)
+	frame.Scroll:SetScrollChild(frame.Content)
+	frame.Scroll:Hide()
+	frame.Scroll.More = frame.Scroll:CreateTexture(nil, "OVERLAY")
+	frame.Scroll.More:SetTexture([[Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up]])
+	frame.Scroll.More:SetSize(16, 16)
+	frame.Scroll.More:SetPoint("BOTTOMRIGHT", frame.Scroll, "BOTTOMRIGHT", 0, 0)
+	frame.Scroll.More:SetAlpha(0.8)
 	-- Merchant list: a small grey book icon of the game (round, like the buttons at the minimap) at the lower right
 	-- corner, mirror image of the x at the top right (same size, same distance); a small red x over it while
 	-- unusable and known wares are hidden.
@@ -480,24 +490,6 @@ local function CreateText(frame)
 	text:SetJustifyV("TOP")
 	text:SetNonSpaceWrap(true)
 	return text
-end
-
--- The NPC's words in a clipped, scrollable area; an arrow at the lower right shows there is more.
-local function CreateSpeech(frame)
-	local speech = CreateFrame("ScrollFrame", nil, frame)
-	local child = CreateFrame("Frame", nil, speech)
-	child:SetSize(WIDTH, 1)
-	speech:SetScrollChild(child)
-	speech.child = child
-	speech.Text = CreateText(child)
-	speech.Text:SetPoint("TOPLEFT")
-	speech.Text:SetWidth(WIDTH)
-	speech.More = speech:CreateTexture(nil, "OVERLAY")
-	speech.More:SetTexture([[Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up]])
-	speech.More:SetSize(16, 16)
-	speech.More:SetPoint("BOTTOMRIGHT", speech, "BOTTOMRIGHT", 0, 0)
-	speech.More:SetAlpha(0.8)
-	return speech
 end
 
 local function CreateRow(frame)
@@ -686,7 +678,10 @@ local function RenderView(view)
 	if frame.Tail then
 		frame.Tail:SetShown(usePlayer)
 	end
-	local used = { text = 0, row = 0, item = 0, button = 0, speech = 0 }
+	local used = { text = 0, row = 0, item = 0, button = 0 }
+	-- A conversation step puts its text into the scrolling area, lists of merchant and trainer page themselves.
+	local scrolling = SCROLL_KINDS[view.kind] and true or false
+	local host = scrolling and frame.Content or frame
 	local bestChoice, bestChecked -- most valuable quest choice, looked up once per display
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do
@@ -701,9 +696,10 @@ local function RenderView(view)
 	local function AddText(text, color, font)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
+		fs:SetParent(host)
 		fs:SetFontObject(font or TextFont())
 		fs:ClearAllPoints()
-		fs:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
+		fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
 		fs:SetWidth(WIDTH)
 		fs:SetTextColor(unpack(color))
 		fs:SetText(text)
@@ -713,31 +709,10 @@ local function RenderView(view)
 		y = y + fs:GetStringHeight() + BLOCK_GAP
 		return fs
 	end
-	-- The NPC's words: the full text is set only to measure it (same picture, never drawn), see StartReveal.
+	-- The NPC's words: laid out whole (the height counts), then emptied for the slow text in the same picture.
 	local function AddSpeech(text, color)
-		used.speech = used.speech + 1
-		local speech = Pooled(frame, "speech", used.speech, CreateSpeech)
-		local fs = speech.Text
-		fs:SetFontObject(TextFont())
-		fs:SetTextColor(unpack(color))
-		fs:SetAlphaGradient(100000, 1)
-		local function Height(value)
-			fs:SetText(value)
-			return ns.Number(fs:GetStringHeight(), 0)
-		end
-		local first = Dialog.FirstParagraph(text)
-		local full = Height(text)
-		speech.full = full
-		speech.visible = Dialog.SpeechHeight(full, first ~= text and Height(first) or nil, Height("X"), Height("X\nX"))
-		fs:SetText(text)
-		speech.child:SetHeight(math.max(full, 1))
-		speech:ClearAllPoints()
-		speech:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
-		speech:SetSize(WIDTH, math.max(speech.visible, 1))
-		speech:Show()
-		Dialog.ScrollSpeech(speech, nil, 0)
-		StartReveal(view, speech, text)
-		y = y + speech.visible + BLOCK_GAP
+		local top = y
+		StartReveal(view, AddText(text, color), text, top)
 	end
 
 	if view.name and view.name ~= "" then
@@ -754,8 +729,9 @@ local function RenderView(view)
 			for _, info in ipairs(block.rows) do
 				used.row = used.row + 1
 				local row = Pooled(frame, "row", used.row, CreateRow)
+				row:SetParent(host)
 				row:ClearAllPoints()
-				row:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -y)
+				row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
 				row:SetWidth(WIDTH)
 				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
 				row.Arrow:SetShown(info.upgrade and true or false)
@@ -833,8 +809,9 @@ local function RenderView(view)
 			for _, info in ipairs(block.items) do
 				used.item = used.item + 1
 				local item = Pooled(frame, "item", used.item, CreateItem)
+				item:SetParent(host)
 				item:ClearAllPoints()
-				item:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
+				item:SetPoint("TOPLEFT", host, "TOPLEFT", x, -y)
 				item.Icon:SetTexture(info.icon)
 				item.Count:SetText((info.count or 1) > 1 and info.count or "")
 				local r, g, b
@@ -891,6 +868,19 @@ local function RenderView(view)
 		Render(view)
 		frame.reclamped = nil
 		return
+	end
+	-- The text above the buttons: as tall as it is, up to CONTENT_MAX, the rest scrolls.
+	frame.Scroll:SetShown(scrolling)
+	if scrolling then
+		local full = math.max(y, 1)
+		local visible = Dialog.ContentHeight(full)
+		frame.Content:SetHeight(full)
+		frame.Scroll:ClearAllPoints()
+		frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+		frame.Scroll:SetSize(WIDTH, visible)
+		frame.Scroll.full, frame.Scroll.visible = full, visible
+		Dialog.ScrollContent(nil, 0)
+		y = visible
 	end
 	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
 	local buttons = {}
@@ -1414,7 +1404,24 @@ local function Show(view, fromBack)
 	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
 	KeepOnScreen(Dialog.db.onScreen)
 	Place()
+	local opening = not bubble:IsShown()
 	bubble:Show()
+	-- The NPC's plate settles in the first pictures after the talk begins (it comes or moves, the bubble hangs on
+	-- it and jerked): the bubble stays invisible that long and fades in afterwards.
+	if opening then
+		bubble.Fade:Stop()
+		bubble:SetAlpha(0)
+		C_Timer.After(OPEN_DELAY, function()
+			if not bubble:IsShown() then
+				return
+			end
+			if ns.db.fadeIn == false then
+				bubble:SetAlpha(1)
+			else
+				bubble.Fade:Play()
+			end
+		end)
+	end
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
 	C_Timer.After(0, function()

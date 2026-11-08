@@ -281,7 +281,9 @@ function Dialog.CreateBubbleShape(frame)
 	local tail = art:CreateTexture(nil, "BORDER")
 	tail:SetTexture(BUBBLE_ART .. "tail")
 	tail:SetSize(32, 32)
-	tail:SetPoint("TOPLEFT", frame, "BOTTOM", -44, -INSET + 5)
+	-- The tip (4 points from the left of the art) right over the NPC's head, the middle of the bubble; the start
+	-- of the tail lies a little right of the middle (it stood 27 points left, the tip 40).
+	tail:SetPoint("TOPLEFT", frame, "BOTTOM", -4, -INSET + 5)
 	return art, tail
 end
 

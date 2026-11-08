@@ -48,7 +48,10 @@ local STYLES = {
 	Silver = { art = "metal", tint = { 0.84, 0.86, 0.90 }, text = { 0.13, 0.14, 0.17 }, title = { 0.10, 0.11, 0.14 },
 		shadow = { 1, 1, 1, 0.5 }, divider = { 0.18, 0.19, 0.22, 0.7 } },
 }
-local FONTS = { P = "QuestFont_Large", H1 = "Fancy32Font", H2 = "Fancy24Font", H3 = "Fancy22Font" }
+-- false: the text without tags (most books are plain text, not HTML); it had no font of its own and looked odd or
+-- was not drawn at all.
+local FONTS = { [false] = "QuestFont_Large", P = "QuestFont_Large", H1 = "Fancy32Font", H2 = "Fancy24Font",
+	H3 = "Fancy22Font" }
 local WHEEL_STEP = 40
 
 -- What the text is printed on: an open book (several pages, or the game's large parchment) or a single plate
@@ -304,17 +307,64 @@ end
 -- Fonts and colours of one page's text, engraved on stone and metal (light lower edge).
 local function StyleText(text, style)
 	for tag, font in pairs(FONTS) do
+		-- SimpleHTML takes the type of text first; without it, the setting is the one for untagged text.
+		local function Set(method, ...)
+			if tag then
+				text[method](text, tag, ...)
+			else
+				text[method](text, ...)
+			end
+		end
 		local object = _G[font]
 		if object then
-			text:SetFontObject(tag, object)
+			Set("SetFontObject", object)
 		end
-		local color = tag == "P" and style.text or style.title
-		text:SetTextColor(tag, color[1], color[2], color[3])
+		local color = (tag == "P" or not tag) and style.text or style.title
+		Set("SetTextColor", color[1], color[2], color[3])
 		local shadow = style.shadow or { 0, 0, 0, 0 }
-		text:SetShadowColor(tag, shadow[1], shadow[2], shadow[3], shadow[4])
-		text:SetShadowOffset(tag, 1, -1)
+		Set("SetShadowColor", shadow[1], shadow[2], shadow[3], shadow[4])
+		Set("SetShadowOffset", 1, -1)
 	end
 	text:SetSpacing("P", 3)
+	text:SetSpacing(3)
+end
+
+-- The last steps of drawing a page (/fp buch verlauf, kept after /rl): to see why a text looks odd or goes away.
+local function Trace(text, ...)
+	if type(ns.db.readableTrace) ~= "table" then
+		ns.db.readableTrace = {}
+	end
+	local trace = ns.db.readableTrace
+	if #trace >= 60 then
+		table.remove(trace, 1)
+	end
+	trace[#trace + 1] = ("%.2f %s"):format(ns.Number(GetTime(), 0) % 1000, text:format(...))
+end
+
+function Readable.PrintTrace()
+	local trace = type(ns.db.readableTrace) == "table" and ns.db.readableTrace or {}
+	ns.ShowTrace(L.READABLE_TRACE:format(#trace), trace)
+end
+
+-- One measured value for the trace: the number, or why there is none.
+local function Value(fn)
+	local ok, value = pcall(fn)
+	if not ok then
+		return "Fehler"
+	end
+	value = ns.Number(value, nil)
+	return value and ("%d"):format(value) or "fehlt"
+end
+
+local function WatchPage(holder, label)
+	for _, delay in ipairs({ 0.1, 0.5, 2 }) do
+		C_Timer.After(delay, function()
+			Trace("%s +%.1f: sichtbar %s, Deckkraft %s, Höhe %s, Inhalt %s", label, delay,
+				tostring(holder:IsVisible()), Value(function() return holder:GetEffectiveAlpha() * 100 end),
+				Value(function() return holder.Text:GetHeight() end),
+				Value(function() return holder.Text:GetContentHeight() end))
+		end)
+	end
 end
 
 -- The text keeps the height of its page (it vanished when it was set to a height measured before the text was
@@ -325,14 +375,21 @@ function Readable.TextHeight(page, content)
 end
 
 local function SetPageText(holder, text, width, height)
+	text = text or ""
 	holder.Text:SetWidth(width)
 	holder.Text:SetHeight(height)
-	holder.Text:SetText(text or "")
+	holder.Text:SetText(text)
 	holder.Scroll:SetVerticalScroll(0)
 	holder.Fade:Play()
 	C_Timer.After(0, function()
 		if holder.Text.GetContentHeight then
-			holder.Text:SetHeight(Readable.TextHeight(height, holder.Text:GetContentHeight()))
+			local wanted = Readable.TextHeight(height, holder.Text:GetContentHeight())
+			if wanted ~= height then
+				-- A SimpleHTML lays its text out when the text is set, not when its size changes: set again.
+				holder.Text:SetHeight(wanted)
+				holder.Text:SetText(text)
+				Trace("Seite länger als Platz: Höhe %d statt %d", wanted, height)
+			end
 		end
 	end)
 end
@@ -389,6 +446,15 @@ local function Draw(look, material, pages)
 			holder:SetPoint("BOTTOMRIGHT", -area[3], area[4])
 			holder.Scroll:SetAllPoints()
 			StyleText(holder.Text, style)
+			local font = _G[FONTS[false]]
+			local file, size, flags
+			if font then
+				file, size, flags = font:GetFont()
+			end
+			Trace("Seite %d (%s, %s): %s, %d Zeichen, Schrift %s %s %s", page.page, look, tostring(material),
+				(page.text or ""):find("^%s*<[Hh][Tt][Mm][Ll]") and "HTML" or "Text", #(page.text or ""),
+				tostring(file), Value(function() return size end), tostring(flags))
+			WatchPage(holder, ("Seite %d"):format(page.page))
 			SetPageText(holder, WithCreator(page.text), geometry.width - area[1] - area[3],
 				math.max(1, geometry.height - top - area[4]))
 			local several = look == "BOOK" or page.hasNext or page.page > 1

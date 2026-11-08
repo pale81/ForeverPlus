@@ -129,6 +129,18 @@ function Dialog.ScrollContent(delta, to)
 	scroll.More:SetShown(offset < range - 1)
 end
 
+-- Where a scrolled list stands: where it was, moved just enough to show the row lit with the keys (top, height).
+function Dialog.ListOffset(offset, top, height, visible)
+	if top and height and visible then
+		if top < offset then
+			return top
+		elseif top + height > offset + visible then
+			return top + height - visible
+		end
+	end
+	return offset
+end
+
 local function FinishReveal()
 	if not reveal.active then
 		return
@@ -283,9 +295,7 @@ local function CreateBubble()
 	end)
 	frame:EnableMouseWheel(true)
 	frame:SetScript("OnMouseWheel", function(_, delta)
-		if current and current.view.kind == "MERCHANT_SHOW" then
-			Dialog.MerchantScroll(delta)
-		elseif current and current.view.kind == "TRAINER_SHOW" then
+		if current and current.view.kind == "TRAINER_SHOW" then
 			Dialog.TrainerScroll(delta)
 		elseif frame.Scroll:IsShown() then
 			FinishReveal()
@@ -606,10 +616,10 @@ local function CreateRow(frame)
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	row:EnableMouseWheel(true)
 	row:SetScript("OnMouseWheel", function(_, delta)
-		if bubble and current and current.view.kind == "MERCHANT_SHOW" then
-			Dialog.MerchantScroll(delta)
-		elseif bubble and current and current.view.kind == "TRAINER_SHOW" then
+		if bubble and current and current.view.kind == "TRAINER_SHOW" then
 			Dialog.TrainerScroll(delta)
+		elseif bubble and current and current.view.kind == "MERCHANT_SHOW" then
+			Dialog.ScrollContent(delta)
 		end
 	end)
 	-- The chosen text is a little fuller: warm copies of it one pixel around it (eight directions), very faint, under
@@ -754,6 +764,7 @@ local function RenderView(view)
 		end
 	end
 	local y = 0
+	local listScroll, selectedTop, selectedHeight = false, nil, nil
 	wipe(frame.rowActions)
 	wipe(frame.numberIndex)
 	frame.maxRowNumber = 0
@@ -790,6 +801,12 @@ local function RenderView(view)
 		elseif block.text then
 			AddText(block.text, block.dim and palette.dim or palette.text)
 		elseif block.rows then
+			-- A long list (merchant) scrolls on its own, the text above and the money below stay.
+			local listTop = y
+			if block.scroll and not scrolling then
+				listScroll = true
+				host, y = frame.Content, 0
+			end
 			for _, info in ipairs(block.rows) do
 				used.row = used.row + 1
 				local row = Pooled(frame, "row", used.row, CreateRow)
@@ -860,9 +877,22 @@ local function RenderView(view)
 
 				local height = math.max(row.Text:GetStringHeight(), 16)
 				row:SetHeight(height)
+				if emphasised then
+					selectedTop, selectedHeight = y, height
+				end
 				row.action, row.tooltip = info.action, info.tooltip
 				row:Show()
 				y = y + height + ROW_GAP
+			end
+			if host == frame.Content and not scrolling then
+				local full = math.max(y - ROW_GAP, 1)
+				local visible = Dialog.ContentHeight(full)
+				frame.Content:SetHeight(full)
+				frame.Scroll:ClearAllPoints()
+				frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -listTop)
+				frame.Scroll:SetSize(WIDTH, visible)
+				frame.Scroll.full, frame.Scroll.visible = full, visible
+				host, y = frame, listTop + visible + ROW_GAP
 			end
 			y = y + BLOCK_GAP - ROW_GAP
 		elseif block.items then
@@ -934,7 +964,14 @@ local function RenderView(view)
 		return
 	end
 	-- The text above the buttons: as tall as it is, up to CONTENT_MAX, the rest scrolls.
-	frame.Scroll:SetShown(scrolling)
+	frame.Scroll:SetShown(scrolling or listScroll)
+	if listScroll then
+		-- A list drawn again (a click, new stock) stays where it was scrolled; the row lit with the keys is shown.
+		local offset = Dialog.ListOffset(view.scrollReset and 0 or ns.Number(frame.Scroll:GetVerticalScroll(), 0),
+			frame.cursorMoved and selectedTop, selectedHeight, frame.Scroll.visible)
+		view.scrollReset = nil
+		Dialog.ScrollContent(nil, offset)
+	end
 	if scrolling then
 		local full = math.max(y, 1)
 		local visible = Dialog.ContentHeight(full)
@@ -1979,8 +2016,8 @@ end
 -- Merchant: the wares as a list (scrolled with the mouse wheel); a click selects, "Buy" buys one.
 -- Hides what cannot be used and what is known already when wanted; buy-back is a list of its own.
 ---------------------------------------------------------------------------
-local MERCHANT_ROWS = 14
-local merchantPicked, merchantOffset, merchantMode, merchantSaying = {}, 0, "wares", nil
+local merchantPicked, merchantMode, merchantSaying = {}, "wares", nil
+local merchantScrollReset = false -- the next drawing starts at the top of the list (new merchant, other list)
 local repairSeen -- the last repair cost seen at this merchant (Dialog.repairDone: the player repaired since)
 local REPAIR_GRACE = 2
 local merchantQty = {} -- ware index -> how many "Buy" takes of it (counted with the mouse wheel over the row)
@@ -2086,20 +2123,11 @@ local function RefreshMerchant()
 	Dialog:OnConversation("MERCHANT_UPDATE")
 end
 
-function Dialog.MerchantScroll(delta)
-	if merchantMode ~= "wares" then
-		return
-	end
-	merchantOffset = math.max(0, merchantOffset - delta * 3)
-	RefreshMerchant()
-end
-
 function Dialog.MerchantView()
 	local money = GetMoney()
 	local buyback = merchantMode == "buyback"
 	local entries = buyback and BuybackEntries() or MerchantEntries()
 	local total = #entries
-	merchantOffset = math.max(0, math.min(merchantOffset, math.max(0, total - MERCHANT_ROWS)))
 	-- Several wares can be chosen: a click on a row picks it or puts it back.
 	local byIndex = {}
 	for _, entry in ipairs(entries) do
@@ -2132,7 +2160,7 @@ function Dialog.MerchantView()
 	local rows = {}
 	-- All rows leave room for the arrow when the option for upgrade arrows is on (so the texts stay aligned).
 	local arrowSlot = not buyback and ns.IsRewardUpgrade ~= nil and ns:GetModule("Items").db.rewardUpgrade
-	for position = merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS) do
+	for position = 1, total do
 		local entry = entries[position]
 		local index, info = entry.index, entry.info
 		local isPicked = merchantPicked[index] and true or false
@@ -2208,10 +2236,7 @@ function Dialog.MerchantView()
 	if merchantSaying and not buyback then
 		blocks[#blocks + 1] = { text = merchantSaying, dim = true }
 	end
-	blocks[#blocks + 1] = #rows == 0 and { text = L.DIALOG_MERCHANT_NONE, dim = true } or { rows = rows }
-	if total > MERCHANT_ROWS then
-		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_RANGE:format(merchantOffset + 1, math.min(total, merchantOffset + MERCHANT_ROWS), total), dim = true }
-	end
+	blocks[#blocks + 1] = #rows == 0 and { text = L.DIALOG_MERCHANT_NONE, dim = true } or { rows = rows, scroll = true }
 	local moneyText = L.DIALOG_MONEY:format(GetMoneyString(money, true))
 	if #picks > 0 then
 		local pieces = 0
@@ -2255,14 +2280,14 @@ function Dialog.MerchantView()
 	}
 	if buyback then
 		buttons[#buttons + 1] = { text = L.DIALOG_WARES, action = function()
-			merchantMode, merchantOffset = "wares", 0
+			merchantMode, merchantScrollReset = "wares", true
 			wipe(merchantPicked)
 			RefreshMerchant()
 		end }
 	else
 		if GetNumBuybackItems and GetNumBuybackItems() > 0 then
 			buttons[#buttons + 1] = { text = L.DIALOG_BUYBACK, action = function()
-				merchantMode, merchantOffset = "buyback", 0
+				merchantMode, merchantScrollReset = "buyback", true
 				wipe(merchantPicked)
 				RefreshMerchant()
 			end }
@@ -2297,7 +2322,10 @@ function Dialog.MerchantView()
 	-- Lists refresh often: their text does not appear letter by letter (only the first page of the merchant).
 	-- "Goodbye" at the lower left (the first button), like at every other step.
 	table.insert(buttons, 1, { text = GOODBYE or CLOSE, action = Dialog.CloseCurrent })
-	return { name = NpcName(), blocks = blocks, buttons = buttons, filter = not buyback, tools = available }
+	local scrollReset = merchantScrollReset
+	merchantScrollReset = false
+	return { name = NpcName(), blocks = blocks, buttons = buttons, filter = not buyback, tools = available,
+		scrollReset = scrollReset }
 end
 
 ---------------------------------------------------------------------------
@@ -2362,7 +2390,7 @@ function Dialog:OnConversation(event)
 			repairSeen, Dialog.repairDone = nil, nil
 			wipe(merchantPicked)
 			wipe(merchantQty)
-			merchantOffset, merchantSaying = 0, PickSaying()
+			merchantScrollReset, merchantSaying = true, PickSaying()
 			merchantMode = "wares"
 			wipe(knownWares)
 		end

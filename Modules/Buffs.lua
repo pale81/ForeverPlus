@@ -110,6 +110,33 @@ local buttons = {}
 local updatePending, thresholdTimer
 
 ---------------------------------------------------------------------------
+-- Trace (/fp buff verlauf, kept after /rl): what the target button chose, what was clicked and what the game
+-- cast, to find why a button showed one blessing and cast another.
+---------------------------------------------------------------------------
+local function Trace(text, ...)
+	if type(ns.db.buffTrace) ~= "table" then
+		ns.db.buffTrace = {}
+	end
+	local trace = ns.db.buffTrace
+	if #trace >= 60 then
+		table.remove(trace, 1)
+	end
+	trace[#trace + 1] = ("%.2f %s"):format(ns.Number(GetTime(), 0) % 1000, text:format(...))
+end
+
+function Buffs.PrintTrace()
+	local trace = type(ns.db.buffTrace) == "table" and ns.db.buffTrace or {}
+	ns.ShowTrace(L.BUFFS_TRACE:format(#trace), trace)
+end
+
+local function Plain(value)
+	if issecretvalue and issecretvalue(value) then
+		return "geheim"
+	end
+	return tostring(value)
+end
+
+---------------------------------------------------------------------------
 -- Spell / item helpers
 ---------------------------------------------------------------------------
 local function SpellName(spellID)
@@ -226,6 +253,12 @@ local function CreateButton(index)
 	-- Act on press so the mouse wheel binding (which has no release) works too.
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:SetAttribute("useOnKeyDown", true)
+	button:HookScript("PreClick", function(self, mouseButton, down)
+		local unit = self:GetAttribute("unit")
+		Trace("Klick (%s, %s): Symbol %s, Zauber %s, auf %s (%s)", tostring(mouseButton), down and "unten" or "oben",
+			Plain(self.spellID and SpellName(self.spellID)), Plain(self:GetAttribute("spell")), tostring(unit),
+			Plain(unit and UnitName(unit)))
+	end)
 	button:HookScript("PostClick", function(self)
 		self:SetChecked(false)
 	end)
@@ -468,7 +501,19 @@ local function EvaluateTarget(reminder, threshold)
 		for kind, spellIDs in pairs(BLESSING_KINDS) do
 			known[kind] = IsKnown(spellIDs[1]) or nil
 		end
-		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, TargetBlessings(), threshold)
+		local onTarget = TargetBlessings()
+		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
+		local seen = {}
+		for name, aura in pairs(onTarget) do
+			seen[#seen + 1] = ("%s(%s, %d s)"):format(name, aura.mine and "eigen" or "fremd", aura.remaining)
+		end
+		local key = ("%s|%s|%s|%s"):format(Plain(UnitName("target")), tostring(class), table.concat(seen, " "), tostring(kind))
+		if key ~= Buffs.lastBlessingTrace then
+			Buffs.lastBlessingTrace = key
+			Trace("Ziel %s (%s, Mana %s): Segen darauf %s; Wahl %s = %s", Plain(UnitName("target")), tostring(class),
+				tostring(usesMana), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
+				Plain(kind and SpellName(BLESSING_KINDS[kind][1])))
+		end
 		if not kind then
 			return false, false, recheck
 		end
@@ -653,6 +698,14 @@ local function CreateBar()
 		events:RegisterEvent("BAG_UPDATE_DELAYED")
 	end
 	events:SetScript("OnEvent", RequestUpdate)
+	-- What the game really cast (for the trace).
+	local casts = CreateFrame("Frame")
+	casts:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+	casts:SetScript("OnEvent", ns.Measured("Buffs: cast trace", function(_, _, _, target, _, spellID)
+		if bar and bar:IsShown() and buttons[1] and buttons[1]:IsShown() then
+			Trace("Gewirkt: %s [%s] auf %s", Plain(spellID and SpellName(spellID)), Plain(spellID), Plain(target))
+		end
+	end))
 end
 
 function Buffs:OnInitialize()

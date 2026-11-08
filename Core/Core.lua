@@ -706,6 +706,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("DataCapture").Command(msg)
 	elseif msg == "ziele verlauf" or msg == "objectives trace" then
 		ns:GetModule("Observations").PrintTrace()
+	elseif msg == "buff verlauf" or msg == "buff trace" then
+		ns:GetModule("Buffs").PrintTrace()
 	elseif msg == "gruppenquests" or msg == "group quests" then
 		ns:GetModule("GroupFinder").PrintQuests()
 	elseif msg == "buch verlauf" or msg == "book trace" then

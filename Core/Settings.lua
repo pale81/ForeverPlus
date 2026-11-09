@@ -273,8 +273,9 @@ local PAGES = {
 	{ group = 3, title = L.ITEMS_TITLE,
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",
 			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "junkList") },
-		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu") },
-		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "upgradeScore", "upgradePopup") },
+		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu", "moneyPickup", "fullSound", "fullSoundChoice") },
+		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "rewardUpgrade", "scoreSpec", "upgradeScore",
+			"upgradePopup", "upgradeCelebrate", "upgradeMarkOld", "upgradeStyle") },
 		{ "Durability" },
 		{ "Items", header = L.ITEMS_LOOT, keys = Keys("fastLoot", "destroyPrompt", "autoBind", "autoEquipBind", "deleteText", "rollCounts") },
 		{ "Auction", header = L.AUCTION_TITLE },
@@ -292,7 +293,7 @@ local PAGES = {
 		{ "Chat", header = L.CHAT_TITLE, keys = Keys("tabFade") },
 	},
 	{ group = 1, title = L.PAGE_BARS,
-		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames") },
+		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames", "autoPlace") },
 		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft", "buffExceptions") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
@@ -323,7 +324,7 @@ local PAGES = {
 	},
 	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
 	{ group = 1, title = L.VISUALS_TITLE, new = true,
-		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame") },
+		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame", "bagActionFrame") },
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
@@ -331,6 +332,7 @@ local PAGES = {
 	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
 	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },
 }
+ns.SettingsPages = PAGES -- read by the tests: every option must appear on a page
 
 -- The pages by sense (what is shown, the world, the character), each group alphabetical.
 table.sort(PAGES, function(a, b)

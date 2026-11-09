@@ -77,7 +77,7 @@ local scanPending, initialized = false, false
 
 -- A line to the group chat (party, raid or instance group); nothing outside a group.
 local function ShareLine(text)
-	if (issecretvalue and issecretvalue(text)) or type(text) ~= "string" or text == "" then
+	if ns.Secret(text) or type(text) ~= "string" or text == "" then
 		return
 	end
 	local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or (IsInGroup() and "PARTY")
@@ -153,9 +153,7 @@ end
 local QUEST_ICON = [[Interface\GossipFrame\AvailableQuestIcon]]
 local markers = {} -- nameplate -> marker frame
 
-local function Secret(value)
-	return issecretvalue and issecretvalue(value)
-end
+local Secret = ns.Secret
 
 -- The quest lines in the tooltip of the unit: "open" when one objective is not done (or has no count), "done" when
 -- all of them are done (8/8), nil without quest lines; and the first open count, e.g. "3/8".
@@ -433,7 +431,7 @@ function Quests:UpdateItemTicker()
 		if not itemButton then
 			CreateItemButton()
 		end
-		itemTicker = itemTicker or C_Timer.NewTicker(ITEM_INTERVAL, UpdateItemButton)
+		itemTicker = itemTicker or ns.NewTicker("Quests: UpdateItemButton", ITEM_INTERVAL, UpdateItemButton)
 		UpdateItemButton()
 	else
 		if itemTicker then
@@ -758,7 +756,7 @@ local function VerifyOrder(sorted, retried)
 	if not retried and not SameOrder(current, sorted) and SameOrder(current, sorted, true) then
 		addsOnTop = not addsOnTop
 		WriteWatches(current, sorted)
-		C_Timer.After(VERIFY_DELAY, function()
+		ns.After("Quests: VerifyOrder (timer)", VERIFY_DELAY, function()
 			VerifyOrder(sorted, true)
 		end)
 	end
@@ -785,7 +783,7 @@ function SortTracker()
 		return
 	end
 	WriteWatches(current, desired)
-	C_Timer.After(VERIFY_DELAY, function()
+	ns.After("Quests: SortTracker (timer)", VERIFY_DELAY, function()
 		VerifyOrder(desired)
 	end)
 end
@@ -862,7 +860,7 @@ function Quests:UpdateTrackerSort(switched)
 		sortTicker = nil
 	end
 	if mode == "distance" then
-		sortTicker = C_Timer.NewTicker(DISTANCE_INTERVAL, QueueSort)
+		sortTicker = ns.NewTicker("Quests: QueueSort", DISTANCE_INTERVAL, QueueSort)
 	end
 	local now = IsManaging()
 	if now then
@@ -1040,7 +1038,7 @@ end
 
 local function MarkText(fontString)
 	local text = fontString:GetText()
-	if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and not text:find(FOREVER_ICON, 1, true) then
+	if type(text) == "string" and not ns.Secret(text) and not text:find(FOREVER_ICON, 1, true) then
 		fontString:SetText(FOREVER_ICON .. text)
 	end
 end
@@ -1049,7 +1047,7 @@ end
 -- colouring (difficulty, highlight) cannot override it.
 local function ColorText(fontString)
 	local text = fontString:GetText()
-	if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text ~= "" and text:sub(1, #FOREVER_CODE) ~= FOREVER_CODE then
+	if type(text) == "string" and not ns.Secret(text) and text ~= "" and text:sub(1, #FOREVER_CODE) ~= FOREVER_CODE then
 		fontString:SetText(FOREVER_CODE .. text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r")
 	end
 end
@@ -1265,7 +1263,7 @@ function Quests:OnLogin()
 	end)
 	-- QuestieDB quest chains for pre-quests of instance quests, built in the
 	-- background a little after login.
-	C_Timer.After(5, function()
+	ns.After("Quests: OnLogin (timer)", 5, function()
 		if self.db.instanceTab and self.db.instancePreQuests then
 			ns.QuestieDB.BuildChains(QueueSort)
 		end

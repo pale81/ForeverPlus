@@ -25,7 +25,7 @@ local INLINE_QUALITY = { NONE = false, UNCOMMON = 2, RARE = 3, EPIC = 4 }
 local LINK_PREFIX = "addon:ForeverPlus:loot:"
 
 local function Accessible(value)
-	if value == nil or (issecretvalue and issecretvalue(value)) then
+	if value == nil or ns.Secret(value) then
 		return nil
 	end
 	return value
@@ -244,7 +244,7 @@ local function Touch()
 	if flushTimer then
 		flushTimer:Cancel()
 	end
-	flushTimer = C_Timer.NewTimer(Loot.db.delay, Flush)
+	flushTimer = ns.NewTimer("Loot: Flush", Loot.db.delay, Flush)
 end
 
 function Loot:CHAT_MSG_LOOT(_, text)
@@ -312,7 +312,7 @@ end
 -- would have shown them.
 ---------------------------------------------------------------------------
 local function LootFilter(chatFrame, _, text)
-	if type(text) == "string" and ParseItem(text) then
+	if type(text) == "string" and Accessible(text) and ParseItem(text) then
 		frames.LOOT[chatFrame] = true
 		stats.hidden = stats.hidden + 1
 		return true
@@ -321,15 +321,14 @@ local function LootFilter(chatFrame, _, text)
 end
 
 local function MoneyFilter(chatFrame, _, text)
-	if type(text) == "string" and ParseMoney(text) then
+	if type(text) == "string" and Accessible(text) and ParseMoney(text) then
 		frames.MONEY[chatFrame] = true
 		return true
 	end
 	return false
 end
 
-local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
-local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+local AddFilter, RemoveFilter = ns.AddChatFilter, ns.RemoveChatFilter
 
 ---------------------------------------------------------------------------
 -- Details window

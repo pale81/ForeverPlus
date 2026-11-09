@@ -68,7 +68,7 @@ local function React(name)
 	reactionToken = reactionToken + 1
 	local token = reactionToken
 	Update()
-	C_Timer.After(REACTION_SECONDS[name] or 3, function()
+	ns.After("Companion: React (timer)", REACTION_SECONDS[name] or 3, function()
 		if token == reactionToken then
 			reaction = nil
 			Update()

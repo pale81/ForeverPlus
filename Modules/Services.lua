@@ -221,7 +221,7 @@ local function DepositReagents()
 		return
 	end
 	run = { steps = 0, moved = 0, skip = {} }
-	run.ticker = C_Timer.NewTicker(STEP_INTERVAL, Step)
+	run.ticker = ns.NewTicker("Services: Step", STEP_INTERVAL, Step)
 end
 
 local function CreateDepositButton()

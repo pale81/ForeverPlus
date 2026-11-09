@@ -231,7 +231,7 @@ local function QueueRefresh(delay)
 		return
 	end
 	refreshQueued = true
-	C_Timer.After(delay, function()
+	ns.After("Auction: QueueRefresh (timer)", delay, function()
 		refreshQueued = false
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
 		local itemList = browseFrame and browseFrame.ItemList
@@ -364,7 +364,7 @@ local function PageFilter(browseFrame)
 			-- the spinner must not turn for ever (a slow server, a search with few hits)
 			filter.timerStarted = true
 			local searchId = filter.searchId
-			C_Timer.After(FILTER_AUTO_SECONDS, function()
+			ns.After("Auction: PageFilter (timer)", FILTER_AUTO_SECONDS, function()
 				if searchId == filter.searchId and not filter.capped and Auction.db.vendorBuyFilter then
 					filter.capped = true
 					QueueRefresh(0)
@@ -627,7 +627,7 @@ local function PriceStore()
 end
 
 local function Plain(value)
-	return not (issecretvalue and issecretvalue(value)) and value or nil
+	return not ns.Secret(value) and value or nil
 end
 
 local function OnBrowseResults()

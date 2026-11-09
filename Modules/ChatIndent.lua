@@ -117,7 +117,7 @@ end
 -- The message with line breaks and blanks in front of the continuation lines; nil when it fits or
 -- cannot be wrapped.
 function Indent.Wrap(frame, message)
-	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) or not message:find(" ", 1, true) then
+	if type(message) ~= "string" or ns.Secret(message) or not message:find(" ", 1, true) then
 		return nil
 	end
 	local width = ns.Number(frame:GetWidth(), 0)
@@ -178,7 +178,7 @@ local function Remember(wrapped, original)
 end
 
 local function OnAddMessage(frame, message)
-	if not Indent.db.enabled or type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+	if not Indent.db.enabled or type(message) ~= "string" or ns.Secret(message) then
 		return
 	end
 	local wrapped = Indent.Wrap(frame, message)
@@ -187,7 +187,7 @@ local function OnAddMessage(frame, message)
 	end
 	Remember(wrapped, message)
 	frame:TransformMessages(function(text)
-		return not (issecretvalue and issecretvalue(text)) and text == message
+		return not ns.Secret(text) and text == message
 	end, function(_, ...)
 		return wrapped, ...
 	end)
@@ -196,7 +196,7 @@ end
 -- Wraps the lines again (after a resize) or gives them back unwrapped (rewrap false).
 local function Redo(frame, rewrap)
 	frame:TransformMessages(function(text)
-		return not (issecretvalue and issecretvalue(text)) and originals[text] ~= nil
+		return not ns.Secret(text) and originals[text] ~= nil
 	end, function(text, ...)
 		local original = originals[text]
 		local wrapped = rewrap and Indent.Wrap(frame, original)
@@ -215,7 +215,7 @@ local function OnSizeChanged(frame)
 		return
 	end
 	pending[frame] = true
-	C_Timer.After(0.4, function()
+	ns.After("ChatIndent: OnSizeChanged (timer)", 0.4, function()
 		pending[frame] = nil
 		if Indent.db.enabled then
 			Redo(frame, true)

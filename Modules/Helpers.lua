@@ -354,7 +354,7 @@ local function CreateFishButton()
 	fishButton:SetAttribute("type", "spell")
 	fishButton:SetAttribute("useOnKeyDown", true)
 	fishButton:HookScript("PostClick", function()
-		C_Timer.After(0, ClearFishBinding)
+		ns.After("Helpers: ClearFishBinding", 0, ClearFishBinding)
 	end)
 end
 
@@ -391,14 +391,14 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 		return
 	end
 	-- After the release has been handled by the game.
-	C_Timer.After(0, function()
+	ns.After("Helpers: GLOBAL_MOUSE_UP (timer)", 0, function()
 		if InCombatLockdown() then
 			return
 		end
 		fishButton:SetAttribute("spell", spellID)
 		SetOverrideBindingClick(fishButton, true, "BUTTON2", "ForeverPlusFishButton", "LeftButton")
 		bindingSet = true
-		C_Timer.After(DOUBLE_CLICK, ClearFishBinding)
+		ns.After("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
 	end)
 end
 

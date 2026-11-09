@@ -68,7 +68,7 @@ local function WindowState(window)
 end
 
 local function Readable(value)
-	if value == nil or (issecretvalue and issecretvalue(value)) then
+	if value == nil or ns.Secret(value) then
 		return nil
 	end
 	return value
@@ -223,7 +223,7 @@ function Dialog.TypeNumber(frame, digit)
 	if tonumber(frame.typed) * 10 > frame.maxRowNumber or #frame.typed >= 3 then
 		Take()
 	else
-		C_Timer.After(TYPE_WAIT, Take)
+		ns.After("Dialog: Take", TYPE_WAIT, Take)
 	end
 end
 
@@ -340,7 +340,7 @@ local function CreateBubble()
 			self.armed = true
 			self.Icon:SetVertexColor(1, 0.4, 0.4)
 			GameTooltip:Hide()
-			C_Timer.After(3, function()
+			ns.After("Dialog: CreateBubble (timer)", 3, function()
 				self.armed = false
 			end)
 			return
@@ -1073,7 +1073,7 @@ local function NpcNameplate()
 	end
 	local function Matches(token)
 		local guid = UnitGUID(token)
-		return guid and not (issecretvalue and issecretvalue(guid)) and guid == npcGuid
+		return guid and not ns.Secret(guid) and guid == npcGuid
 	end
 	if npcGuid then
 		-- The unit of a plate: unitToken in this client (Blizzard_NamePlateBase), namePlateUnitToken in older ones.
@@ -1226,7 +1226,7 @@ function Dialog.Measure(ok, value)
 		return "Fehler"
 	elseif value == nil then
 		return "fehlt"
-	elseif issecretvalue and issecretvalue(value) then
+	elseif ns.Secret(value) then
 		return "geheim"
 	elseif type(value) ~= "number" then
 		return type(value)
@@ -1260,7 +1260,7 @@ local function Place(exclude)
 	-- Where the bubble really stands, once the game has laid it out (the last placing only).
 	Dialog.placeCount = (Dialog.placeCount or 0) + 1
 	local count = Dialog.placeCount
-	C_Timer.After(0.1, function()
+	ns.After("Dialog: Place (timer)", 0.1, function()
 		if count == Dialog.placeCount and bubble:IsShown() then
 			Trace("Blase steht: %s", Where(bubble))
 		end
@@ -1521,7 +1521,7 @@ function Dialog.Pending()
 			object:SetAlpha(0)
 		end
 	end
-	C_Timer.After(PENDING_WAIT, function()
+	ns.After("Dialog: Pending (timer)", PENDING_WAIT, function()
 		if token ~= pendingToken then
 			return
 		end
@@ -1603,7 +1603,7 @@ local function Show(view, fromBack)
 	local talkUnit = not current and TalkUnit()
 	if talkUnit then
 		local guid = UnitGUID(talkUnit)
-		npcGuid = guid and not (issecretvalue and issecretvalue(guid)) and guid or nil
+		npcGuid = guid and not ns.Secret(guid) and guid or nil
 	end
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	current = { view = view }
@@ -1627,7 +1627,7 @@ local function Show(view, fromBack)
 	end
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
-	C_Timer.After(0, function()
+	ns.After("Dialog: Show (timer)", 0, function()
 		if current and bubble:IsShown() then
 			CollapseAll(true)
 		end
@@ -1665,7 +1665,7 @@ end
 -- the bubble closes.
 local function HideIfWindowsGone()
 	local token = showToken
-	C_Timer.After(0.3, function()
+	ns.After("Dialog: HideIfWindowsGone (timer)", 0.3, function()
 		if token == showToken and current and bubble and bubble:IsShown() and PENDING_KINDS[current.view.kind]
 			and not ConversationWindowShown() then
 			Hide()
@@ -1890,7 +1890,7 @@ local function TrainerServices()
 	local available, locked = {}, {}
 	for index = 1, GetNumTrainerServices() or 0 do
 		local name, kind, icon, level, subText = GetTrainerServiceInfo(index)
-		if name and not (issecretvalue and issecretvalue(name)) then
+		if name and not ns.Secret(name) then
 			local cost = GetTrainerServiceCost(index) or 0
 			local entry = { index = index, name = name, icon = icon, level = level, subText = subText, cost = cost }
 			if kind == "available" then
@@ -2060,7 +2060,7 @@ local function IsKnownWare(index)
 			local data = C_TooltipInfo and C_TooltipInfo.GetMerchantItem and C_TooltipInfo.GetMerchantItem(index)
 			for _, line in ipairs(data and data.lines or {}) do
 				local text = line.leftText
-				if type(text) == "string" and not (issecretvalue and issecretvalue(text)) and text == ITEM_SPELL_KNOWN then
+				if type(text) == "string" and not ns.Secret(text) and text == ITEM_SPELL_KNOWN then
 					known = true
 					break
 				end
@@ -2246,7 +2246,7 @@ function Dialog.MerchantView()
 					for line = 1, tooltip:NumLines() do
 						local left = _G[tooltip:GetName() .. "TextLeft" .. line]
 						local text = left and left:GetText()
-						if type(text) == "string" and not (issecretvalue and issecretvalue(text))
+						if type(text) == "string" and not ns.Secret(text)
 							and ((stackHint and text == stackHint) or text:lower():find("umschalt", 1, true) or text:lower():find("shift", 1, true)) then
 							left:SetText(hint)
 						end
@@ -2463,7 +2463,7 @@ function Dialog:Apply()
 	-- Once more a picture later, when Blizzard's handler has filled the plate.
 	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
 		Dialog.OnPlateAdded()
-		C_Timer.After(0, Dialog.OnPlateAdded)
+		ns.After("Dialog: OnPlateAdded", 0, Dialog.OnPlateAdded)
 	end)
 	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, function(_, _, unit)
 		Dialog.OnPlateRemoved(unit)
@@ -2473,7 +2473,7 @@ function Dialog:Apply()
 	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "TRAINER_CLOSED", "MERCHANT_CLOSED" }) do
 		self:ToggleEvent(event, on, function()
 			local token = showToken
-			C_Timer.After(0.15, function()
+			ns.After("Dialog: Apply (timer)", 0.15, function()
 				if token == showToken then
 					Hide()
 				end

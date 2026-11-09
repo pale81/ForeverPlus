@@ -24,11 +24,8 @@ local MAX_ENTRIES = 3000  -- per table
 -- Helpers
 ---------------------------------------------------------------------------
 local function NpcID(guid)
-	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) then
-		return
-	end
-	local kind, _, _, _, _, id = strsplit("-", guid)
-	return (kind == "Creature" or kind == "Vehicle") and tonumber(id) or nil
+	local kind, id = ns.GuidParts(guid)
+	return (kind == "Creature" or kind == "Vehicle") and id or nil
 end
 Observations.NpcID = NpcID
 
@@ -94,7 +91,7 @@ function Observations.RecordNpc(npcID, kind, quests)
 	end
 	if not entry.name then
 		local name = UnitName("npc")
-		if type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
+		if type(name) == "string" and not ns.Secret(name) then
 			entry.name = name
 		end
 	end

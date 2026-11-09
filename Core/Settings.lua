@@ -530,11 +530,11 @@ local function HookBadges()
 		-- is opened, closed or scrolled; no event is relied on).
 		local ticker
 		SettingsPanel:HookScript("OnShow", function()
-			C_Timer.After(0, RefreshBadges)
+			ns.After("Settings: RefreshBadges", 0, RefreshBadges)
 			if ticker then
 				ticker:Cancel()
 			end
-			ticker = C_Timer.NewTicker(0.5, RefreshBadges)
+			ticker = ns.NewTicker("Settings: RefreshBadges", 0.5, RefreshBadges)
 		end)
 		SettingsPanel:HookScript("OnHide", function()
 			if ticker then
@@ -551,7 +551,7 @@ local function HookBadges()
 	end
 	if GameMenuFrame and type(GameMenuFrame.HookScript) == "function" then
 		GameMenuFrame:HookScript("OnShow", function()
-			C_Timer.After(0, RefreshBadges)
+			ns.After("Settings: RefreshBadges", 0, RefreshBadges)
 		end)
 	end
 end

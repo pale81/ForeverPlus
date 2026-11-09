@@ -75,7 +75,7 @@ end
 local function LastMessageSize(frame)
 	local count = frame.GetNumMessages and ns.Number(frame:GetNumMessages(), 0) or 0
 	local text = count > 0 and frame.GetMessageInfo and frame:GetMessageInfo(count)
-	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
+	if type(text) ~= "string" or ns.Secret(text) then
 		return 1, LineHeight(frame)
 	end
 	local file, size, flags = frame:GetFont()
@@ -295,7 +295,7 @@ function Minimize:Apply()
 	end
 	if self.db.enabled or self.db.fade then
 		lastMouse, lastMessage = GetTime(), GetTime()
-		ticker = C_Timer.NewTicker(CHECK, Check)
+		ticker = ns.NewTicker("ChatMinimize: Check", CHECK, Check)
 		self:RegisterEvent("PLAYER_LOGOUT", Restore)
 		self:RegisterEvent("PLAYER_LEAVING_WORLD", Restore)
 	else

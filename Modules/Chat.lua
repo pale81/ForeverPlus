@@ -349,7 +349,7 @@ local historyHooked = {}
 local historyPos = {}
 
 local function RecordSent(_, text)
-	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) or text == "" then
+	if type(text) ~= "string" or ns.Secret(text) or text == "" then
 		return
 	end
 	local list = Chat.cdb.sentHistory
@@ -413,7 +413,7 @@ local restoring = false
 local LOG_SLACK = 50
 
 local function LogLine(chatFrame, text, r, g, b)
-	if restoring or not Chat.db.chatLog or (issecretvalue and (issecretvalue(text) or issecretvalue(r)))
+	if restoring or not Chat.db.chatLog or ns.Secret(text) or ns.Secret(r)
 		or type(text) ~= "string" or text == "" then
 		return
 	end
@@ -487,7 +487,7 @@ function Chat:CopyChat(chatFrame)
 	local lines = {}
 	for index = math.max(1, count - COPY_LINES + 1), count do
 		local text = chatFrame:GetMessageInfo(index)
-		if type(text) == "string" and not (issecretvalue and issecretvalue(text)) then
+		if type(text) == "string" and not ns.Secret(text) then
 			lines[#lines + 1] = PlainText(text)
 		end
 	end
@@ -574,8 +574,7 @@ end
 -- Message filters run through Blizzard's filter registry, which calls them
 -- with securecallfunction and skips messages that addons cannot read.
 ---------------------------------------------------------------------------
-local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
-local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+local AddFilter, RemoveFilter = ns.AddChatFilter, ns.RemoveChatFilter
 
 local function SetFilter(events, enabled, filter)
 	for _, event in ipairs(events) do
@@ -705,7 +704,7 @@ local function CombineMode(kind)
 end
 
 local function RepeatFilter(chatFrame, event, text, ...)
-	if (issecretvalue and issecretvalue(text)) or type(text) ~= "string" then
+	if ns.Secret(text) or type(text) ~= "string" then
 		return false
 	end
 	local lineID = select(10, ...)
@@ -754,7 +753,7 @@ local function RepeatFilter(chatFrame, event, text, ...)
 				if entry.timer then
 					entry.timer:Cancel()
 				end
-				entry.timer = C_Timer.NewTimer(Chat.db.repeatDelay, function()
+				entry.timer = ns.NewTimer("Chat: RepeatFilter (timer)", Chat.db.repeatDelay, function()
 					FlushRepeat(key)
 				end)
 				return true
@@ -926,7 +925,7 @@ local function IsOwnMessage(sender)
 end
 
 local function OnChatMessage(_, _, text, sender)
-	if #keywordList == 0 or type(text) ~= "string" or (issecretvalue and (issecretvalue(text) or issecretvalue(sender))) then
+	if #keywordList == 0 or type(text) ~= "string" or ns.Secret(text) or ns.Secret(sender) then
 		return
 	end
 	if IsOwnMessage(sender) or not ContainsKeyword(text) then
@@ -940,7 +939,8 @@ local function OnChatMessage(_, _, text, sender)
 end
 
 local function HighlightFilter(_, _, text, sender, ...)
-	if #keywordList == 0 or type(text) ~= "string" or IsOwnMessage(sender) or not ContainsKeyword(text) then
+	if #keywordList == 0 or type(text) ~= "string" or ns.Secret(text) or ns.Secret(sender) or IsOwnMessage(sender)
+		or not ContainsKeyword(text) then
 		return false
 	end
 	return false, MapPlainText(text, HighlightPart), sender, ...
@@ -984,7 +984,8 @@ local function ShortName(baseName)
 end
 
 local function ChannelFilter(_, _, a1, a2, a3, a4, a5, a6, a7, a8, a9, ...)
-	if type(a4) ~= "string" or type(a8) ~= "number" or type(a9) ~= "string" or a9 == "" or a4:find("^Community:") then
+	if type(a4) ~= "string" or type(a8) ~= "number" or type(a9) ~= "string" or ns.Secret(a4) or ns.Secret(a8) or ns.Secret(a9)
+		or a9 == "" or a4:find("^Community:") then
 		return false
 	end
 	local short = ("%d. %s"):format(a8, ShortName(a9))
@@ -1001,7 +1002,7 @@ end
 -- Pointing at a shortened channel name shows the whole name.
 local channelTipOwner
 local function OnChannelLinkEnter(_, chatFrame, link)
-	if not Chat.db.channelShort or type(link) ~= "string" or (issecretvalue and issecretvalue(link)) then
+	if not Chat.db.channelShort or type(link) ~= "string" or ns.Secret(link) then
 		return
 	end
 	local number = tonumber(link:match("^channel:channel:(%d+)$"))

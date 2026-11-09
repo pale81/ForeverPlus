@@ -70,7 +70,7 @@ end
 -- otherwise QuestieDB's name.
 function QDB.QuestName(lib, questID)
 	local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
-	if type(title) == "string" and not (issecretvalue and issecretvalue(title)) and title ~= "" then
+	if type(title) == "string" and not ns.Secret(title) and title ~= "" then
 		return title
 	end
 	return lib and lib.Quest.Get(questID, "name")

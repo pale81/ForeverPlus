@@ -211,7 +211,7 @@ function Library:OnLogin()
 	end)
 	self:Apply()
 	-- Item data may not be loaded yet at login.
-	C_Timer.After(5, Scan)
+	ns.After("Library: Scan", 5, Scan)
 end
 
 function Library:OnOptionChanged()

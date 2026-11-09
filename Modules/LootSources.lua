@@ -26,11 +26,7 @@ local MIN_WINDOWS = 2      -- sources with fewer windows are not shown as a shar
 -- "npc:<id>" or "object:<id>" of a loot source GUID; containers (item GUIDs
 -- carry no item ID) and everything else are left out.
 function LootSources.SourceKey(guid)
-	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) then
-		return
-	end
-	local kind, _, _, _, _, id = strsplit("-", guid)
-	id = tonumber(id)
+	local kind, id = ns.GuidParts(guid)
 	if not id then
 		return
 	elseif kind == "Creature" then
@@ -41,7 +37,7 @@ function LootSources.SourceKey(guid)
 end
 
 local function ItemID(link)
-	if type(link) ~= "string" or (issecretvalue and issecretvalue(link)) then
+	if type(link) ~= "string" or ns.Secret(link) then
 		return
 	end
 	return tonumber(link:match("item:(%d+)"))
@@ -117,7 +113,7 @@ local function LearnName(unit)
 		return
 	end
 	local name = UnitName(unit)
-	if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) or name == "" then
+	if type(name) ~= "string" or ns.Secret(name) or name == "" then
 		return
 	end
 	if LootSources.nameCount < MAX_NAMES and (known or ns.db.lootSources[key]) then
@@ -147,9 +143,10 @@ local function OnLootOpened()
 	end
 	local name
 	for _, unit in ipairs({ "target", "mouseover" }) do
-		if not name and UnitGUID(unit) == guid then
+		local unitGuid = UnitGUID(unit)
+		if not name and not ns.Secret(unitGuid) and unitGuid == guid then
 			name = UnitName(unit)
-			if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) then
+			if type(name) ~= "string" or ns.Secret(name) then
 				name = nil
 			end
 		end

@@ -193,7 +193,7 @@ end
 -- The slots have no place yet while the window opens: try again a few times.
 local function PlaceFigureLater(tries)
 	if not PlaceFigure() and tries > 0 then
-		C_Timer.After(0.1, function()
+		ns.After("Durability: PlaceFigureLater (timer)", 0.1, function()
 			PlaceFigureLater(tries - 1)
 		end)
 	end

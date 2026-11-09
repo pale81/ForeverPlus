@@ -775,7 +775,7 @@ function ns.SizeActionFrame(owner, style)
 	local width, height = art.icon:GetSize()
 	-- During some layout passes the client reports protected sizes; keep the
 	-- previous sizing then (the mask is only attached once it has a size).
-	if issecretvalue and (issecretvalue(width) or issecretvalue(height)) or not width or width <= 0 then
+	if ns.Secret(width) or ns.Secret(height) or not width or width <= 0 then
 		return
 	end
 	art.mask:SetSize(width * MaskRatio(), height * MaskRatio())

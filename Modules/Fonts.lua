@@ -241,7 +241,7 @@ function Fonts.InspectLines(frames)
 					return
 				end
 				local text = region:GetText()
-				if not text or (issecretvalue and issecretvalue(text)) or text == "" then
+				if not text or ns.Secret(text) or text == "" then
 					return
 				end
 				local object = region:GetFontObject()
@@ -304,7 +304,7 @@ function Fonts:QueueApply()
 		return
 	end
 	applyPending = true
-	C_Timer.After(0.2, function()
+	ns.After("Fonts: QueueApply (timer)", 0.2, function()
 		applyPending = false
 		self:ApplyAll()
 	end)

@@ -159,7 +159,7 @@ local function PositionCampfires()
 end
 
 function MinimapCoords:UNIT_SPELLCAST_SUCCEEDED(_, unit, _, spellID)
-	if type(spellID) ~= "number" or issecretvalue(spellID) then
+	if type(spellID) ~= "number" or ns.Secret(spellID) then
 		return
 	end
 	local duration = CAMPFIRE_SPELLS[spellID]
@@ -201,7 +201,7 @@ end
 
 local function StartTicker()
 	if not ticker then
-		ticker = C_Timer.NewTicker(UPDATE_INTERVAL, Update)
+		ticker = ns.NewTicker("Minimap: Update", UPDATE_INTERVAL, Update)
 	end
 end
 
@@ -462,7 +462,7 @@ local function OnZoomChanged()
 		zoomTimer = nil
 	end
 	if zoom > zoomRest then
-		zoomTimer = C_Timer.NewTimer(MinimapCoords.db.zoomDelay, ZoomBack)
+		zoomTimer = ns.NewTimer("Minimap: ZoomBack", MinimapCoords.db.zoomDelay, ZoomBack)
 	else
 		zoomRest = zoom
 	end

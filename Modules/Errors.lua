@@ -61,7 +61,7 @@ local function Safe(text)
 	if text == nil then
 		return ""
 	end
-	if issecretvalue and issecretvalue(text) then
+	if ns.Secret(text) then
 		return L.ERRORS_SECRET
 	end
 	return tostring(text)
@@ -74,7 +74,7 @@ end
 -- the popup is disabled; we only follow its data.
 local function OnScriptError(frame, message, _, stack)
 	local key = ("%s\n%s"):format(message, stack or "")
-	local index = (issecretvalue and issecretvalue(key)) and frame:GetCount() or frame.seen[key] or frame:GetCount()
+	local index = ns.Secret(key) and frame:GetCount() or frame.seen[key] or frame:GetCount()
 	local data = frame:GetErrorData(index)
 	if not data then
 		return

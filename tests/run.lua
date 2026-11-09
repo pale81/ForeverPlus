@@ -832,6 +832,26 @@ assert(lootFilter(fakeFrame, "CHAT_MSG_LOOT", "Helaku erhält Beute: x.") == fal
 lootMod:CHAT_MSG_LOOT("CHAT_MSG_LOOT", msg)
 lootMod:CHAT_MSG_LOOT("CHAT_MSG_LOOT", "Ihr erhaltet Beute: " .. link .. ".")
 assert(moneyFilter(fakeFrame, "CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer") == true)
+-- Chat filters leave protected text alone (patterns and comparisons on it are errors in the game)
+;(function()
+	local savedSecret = issecretvalue
+	local secret = {}
+	issecretvalue = function(value) return secret[value] == true end
+	secret[msg] = true
+	assert(lootFilter(fakeFrame, "CHAT_MSG_LOOT", msg) == false, "loot filter: protected text stays")
+	secret["Ihr plündert 5 Kupfer"] = true
+	assert(moneyFilter(fakeFrame, "CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer") == false, "money filter: protected text stays")
+	secret["it is it"] = true
+	assert(select("#", highlight(nil, "CHAT_MSG_SAY", "it is it", "Other")) == 1, "highlight: protected text unchanged")
+	secret["it is it"] = nil
+	secret["Geheim"] = true
+	assert(select("#", highlight(nil, "CHAT_MSG_SAY", "it is it", "Geheim")) == 1, "highlight: protected sender")
+	secret["Handel"] = true
+	assert(select("#", cf(nil, "CHAT_MSG_CHANNEL", "hi", "X", "", "2. Handel - Stadt", "", "", 2, 2, "Handel")) == 1,
+		"channel filter: protected name unchanged")
+	issecretvalue = savedSecret
+	print("chat filters with protected text OK")
+end)()
 lootMod:CHAT_MSG_MONEY("CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer")
 uv(lootMod.Update, "Flush")()
 for _, t in ipairs(out) do print("  ", t) end
@@ -3678,5 +3698,58 @@ end)()
 	assert(table.concat(names, ",") == "Geselle+,Grobes Schleifmittel,Experte", table.concat(names, ","))
 	assert(#P.Upcoming(nil, {}, 0, 1) == 0, "no list")
 	print("profession plan OK")
+end)()
+;(function()
+	-- Core helpers
+	local savedSecret = issecretvalue
+	issecretvalue = function(value) return value == "geheim" end
+	assert(ns.Secret("geheim") == true and ns.Secret("offen") == false and ns.Secret(nil) == false, "Secret")
+	local kind, id = ns.GuidParts("Creature-0-1-2-3-1689-0000")
+	assert(kind == "Creature" and id == 1689, "GuidParts")
+	assert(ns.GuidParts("geheim") == nil and ns.GuidParts(nil) == nil and ns.GuidParts(5) == nil, "GuidParts: nothing usable")
+	issecretvalue = savedSecret
+	assert(ns.LowerCommand("BÜCHER Ärger ÖL") == "bücher ärger öl", "commands with capital umlauts")
+	-- A listener registering another one for the same event while it runs: no error, the new one hears the next event
+	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
+	local a, b, heard = {}, {}, 0
+	for i = 1, 20 do
+		ns:RegisterEvent("FP_TEST_EVENT", { name = "filler" .. i }, function() end)
+	end
+	ns:RegisterEvent("FP_TEST_EVENT", a, function()
+		ns:RegisterEvent("FP_TEST_EVENT", b, function() heard = heard + 1 end)
+	end)
+	onEvent(nil, "FP_TEST_EVENT")
+	local first = heard
+	onEvent(nil, "FP_TEST_EVENT")
+	assert(first <= 1 and heard == first + 1, "listener added during an event")
+	-- Timers run through the measurement
+	local savedAfter, savedTimer, savedTicker = C_Timer.After, C_Timer.NewTimer, C_Timer.NewTicker
+	C_Timer.After = function(_, fn) fn() end
+	C_Timer.NewTimer = function(_, fn) fn() return {} end
+	C_Timer.NewTicker = function(_, fn, n) fn("ticker") return { n = n } end
+	ns.SetMeasuring(true)
+	local ran, got = 0, nil
+	ns.After("Test: after", 1, function() ran = ran + 1 end)
+	ns.NewTimer("Test: timer", 1, function() ran = ran + 1 end)
+	local ticker = ns.NewTicker("Test: ticker", 1, function(t) got = t end, 3)
+	assert(ran == 2 and got == "ticker" and ticker.n == 3, "timers call through")
+	assert(ns.timings["Test: after"].count == 1 and ns.timings["Test: timer"].count == 1 and ns.timings["Test: ticker"].count == 1,
+		"timers are measured")
+	local spikeFrame = uv(ns.SetMeasuring, "spikeFrame")
+	assert(spikeFrame.shown == true or spikeFrame:IsShown() == true, "spike counter runs while measuring")
+	ns.SetMeasuring(false)
+	assert(not ns.measuring and spikeFrame:IsShown() ~= true, "spike counter rests")
+	C_Timer.After, C_Timer.NewTimer, C_Timer.NewTicker = savedAfter, savedTimer, savedTicker
+	-- No timer bypasses the measurement
+	for line in io.lines(root .. "/ForeverPlus.toc") do
+		if not line:match("^##") and line:match("%.lua$") and not line:match("Core.Core%.lua$") then
+			local path = line:gsub("\\", "/")
+			local text = io.open(root .. "/" .. path):read("*a")
+			for call in text:gmatch("C_Timer%.%a+%([^\n]*") do
+				assert(call:find("ns.Measured", 1, true) or call:find("CheckRange", 1, true), path .. ": timer outside the measurement: " .. call)
+			end
+		end
+	end
+	print("core helpers OK")
 end)()
 dofile("bundled.lua")

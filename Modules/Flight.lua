@@ -255,7 +255,7 @@ function Flight:PLAYER_CONTROL_LOST()
 	if not pending or not self.db.enabled then
 		return
 	end
-	C_Timer.After(0.5, function()
+	ns.After("Flight: PLAYER_CONTROL_LOST (timer)", 0.5, function()
 		if not pending or not UnitOnTaxi("player") then
 			return
 		end

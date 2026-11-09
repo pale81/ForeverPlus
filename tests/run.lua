@@ -1936,6 +1936,15 @@ end)()
 	print("trainer view OK")
 end)()
 ;(function()
+	-- Recipe radar: ticked-off or bagged recipes count as collected; a right click ticks off all a vendor shows.
+	local radar = ns:GetModule("RecipeRadar")
+	assert(radar.IsCollected(5, { [5] = true }, 0) and radar.IsCollected(6, {}, 1) and not radar.IsCollected(7, {}, 0), "collected by mark or by count")
+	local marked = {}
+	radar.MarkCollected({ recipes = { { 11, "ok" }, { 12, "low" } } }, marked)
+	assert(marked[11] and marked[12], "right click marks every recipe of the vendor")
+	print("radar collected OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools
@@ -2475,6 +2484,8 @@ end)()
 	-- Recipe vendors: round icons with their own click (waypoint).
 	local radar = ns:GetModule("RecipeRadar")
 	radar.db.worldMap = true
+	local itemCount = C_Item.GetItemCount
+	C_Item.GetItemCount = function() return 0 end -- earlier tests leave a count; a recipe in the bags counts as collected
 	local getVendors
 	for _, source in ipairs(uv(uv(S.Count, "Collect"), "sources")) do
 		local ok, found = pcall(uv, source, "GetVendors")
@@ -2488,6 +2499,7 @@ end)()
 	for _, symbol in ipairs(active()) do if symbol.kind == "radar" then radarSymbol = symbol end end
 	print("  radar symbols on map", vendorMap, S.Count(vendorMap).radar)
 	assert(radarSymbol and radarSymbol.round and radarSymbol.click and radarSymbol.mapID == vendorMap, "radar symbol")
+	C_Item.GetItemCount = itemCount
 	radar.db.worldMap = false
 	print("world map symbols OK")
 end)()

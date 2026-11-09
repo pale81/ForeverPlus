@@ -672,6 +672,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Chat"):CopyChat()
 	elseif msg == "hilfe" or msg == "help" or msg == "?" then
 		ns.PrintAlways(ns.L.SLASH_HELP)
+	elseif msg:find("^radar zur") or msg == "radar reset" then
+		ns:GetModule("RecipeRadar").ResetCollected()
 	elseif msg == "radar" then
 		ns:GetModule("RecipeRadar"):PrintStatus()
 	elseif msg == "diagnose" or msg == "diagnosis" then

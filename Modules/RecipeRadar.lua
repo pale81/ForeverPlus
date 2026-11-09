@@ -18,6 +18,10 @@ local Radar = ns:NewModule("RecipeRadar", {
 		showLowSkill = true,
 		tooltipSources = true,
 		waypointMessage = true,
+		bagsCollected = true, -- a recipe in the bags or the bank counts as collected
+	},
+	charDefaults = {
+		collected = {}, -- itemID -> true: ticked off with a right click on the vendor's symbol
 	},
 })
 
@@ -284,10 +288,19 @@ local function ScanRecipe(itemID)
 	return status
 end
 
--- Returns "ok" (learnable now), "low" (skill too low) or nil (irrelevant / known).
+-- Collected like the library books: ticked off by hand, or (option) lying in the bags or the bank.
+function Radar.IsCollected(itemID, marked, count)
+	return (marked and marked[itemID]) and true or (count or 0) > 0
+end
+
+-- Returns "ok" (learnable now), "low" (skill too low) or nil (irrelevant / known / collected).
 local function RecipeStatus(itemID)
 	local recipe = recipes[itemID]
 	if not recipe or not skills[recipe.skill] then
+		return nil
+	end
+	local count = Radar.db.bagsCollected and ns.Number(C_Item.GetItemCount(itemID, true), 0) or 0
+	if Radar.IsCollected(itemID, Radar.cdb.collected, count) then
 		return nil
 	end
 	local status = statusCache[itemID]
@@ -343,6 +356,19 @@ local function FillVendorTooltip(tooltip, entry)
 		tooltip:AddLine(name, color.r, color.g, color.b)
 	end
 	GameTooltip_AddInstructionLine(tooltip, L.RADAR_CLICK_WAYPOINT)
+	GameTooltip_AddInstructionLine(tooltip, L.RADAR_MARK)
+end
+
+-- Right click on a vendor's symbol: the recipes it shows count as collected (this character).
+function Radar.MarkCollected(entry, marked)
+	for _, recipe in ipairs(entry.recipes) do
+		marked[recipe[1]] = true
+	end
+end
+
+local function MarkAndRefresh(entry)
+	Radar.MarkCollected(entry, Radar.cdb.collected)
+	Radar:RequestRefresh()
 end
 
 local function ShowVendorTooltip(owner, entry)
@@ -433,6 +459,8 @@ end
 local function WorldMapClick(symbol, button)
 	if button == "LeftButton" then
 		SetWaypoint(symbol.mapID, symbol.data.vendor)
+	elseif button == "RightButton" then
+		MarkAndRefresh(symbol.data)
 	end
 end
 
@@ -478,8 +506,13 @@ local function CreateMinimapPin(index)
 		ShowVendorTooltip(self, self.entry)
 	end)
 	pin:SetScript("OnLeave", GameTooltip_Hide)
-	pin:SetScript("OnClick", function(self)
-		SetWaypoint(currentMapID, self.entry.vendor)
+	pin:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	pin:SetScript("OnClick", function(self, button)
+		if button == "RightButton" then
+			MarkAndRefresh(self.entry)
+		else
+			SetWaypoint(currentMapID, self.entry.vendor)
+		end
 	end)
 	minimapPins[index] = pin
 	return pin
@@ -623,6 +656,8 @@ function Radar:Apply()
 	for event, handler in pairs(events) do
 		self:ToggleEvent(event, enabled, handler)
 	end
+	-- A recipe bought or put away: its vendor may drop off the map (refresh at most every 0.5 s).
+	self:ToggleEvent("BAG_UPDATE_DELAYED", enabled and self.db.bagsCollected, Radar.RequestRefresh)
 	if enabled then
 		UpdateSkills() -- a skill event before the registration above is lost
 	end
@@ -756,6 +791,13 @@ function Radar:PrintStatus()
 	ns.PrintAlways(L.RADAR_STATUS_OPTIONS, db.enabled and YES or NO, db.worldMap and YES or NO, db.minimap and YES or NO, db.showLowSkill and YES or NO)
 end
 
+-- /fp radar zurück: what was ticked off shows again.
+function Radar.ResetCollected()
+	wipe(Radar.cdb.collected)
+	ns.PrintAlways(L.RADAR_RESET)
+	Radar:RequestRefresh()
+end
+
 function Radar:OnOptionChanged()
 	if started then
 		self:Apply()
@@ -770,4 +812,5 @@ Radar.options = {
 	{ key = "showLowSkill", type = "toggle", name = L.RADAR_LOW_SKILL, desc = L.RADAR_LOW_SKILL_DESC, parent = "enabled" },
 	{ key = "tooltipSources", type = "toggle", name = L.RADAR_TOOLTIP, desc = L.RADAR_TOOLTIP_DESC, parent = "enabled" },
 	{ key = "waypointMessage", type = "toggle", name = L.RADAR_WAYPOINT_MESSAGE, desc = L.MESSAGE_DESC, parent = "enabled" },
+	{ key = "bagsCollected", type = "toggle", name = L.RADAR_BAGS_COLLECTED, desc = L.RADAR_BAGS_COLLECTED_DESC, parent = "enabled", new = true },
 }

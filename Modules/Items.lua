@@ -42,6 +42,7 @@ local Items = ns:NewModule("Items", {
 	charDefaults = {
 		junk = {},
 		keep = {},
+		scoreSpec = 0, -- talent tree whose weights the rating uses: 0 = the one with the most points
 	},
 })
 
@@ -255,7 +256,29 @@ local function TalentTree()
 			best, bestPoints = indexOf[info.traitNodeGroupID], spent
 		end
 	end
-	return best, best and trees[best].displayName
+	return best, best and trees[best].displayName, trees
+end
+
+-- The tree chosen in the options when this class has it, else the automatic one.
+function Items.PickTree(choice, auto, count)
+	if choice and choice >= 1 and choice <= count then
+		return choice
+	end
+	return auto
+end
+
+-- Choices for the rating: automatic, then the talent trees of the class (names from the talent data when known).
+local function ScoreSpecValues()
+	local values = { { 0, L.ITEMS_SCORE_SPEC_AUTO } }
+	local classWeights = WEIGHTS[playerClass]
+	if classWeights and classWeights[1] then
+		local _, _, trees = TalentTree()
+		for index = 1, #classWeights do
+			local tree = trees and trees[index]
+			values[#values + 1] = { index, tree and tree.displayName or L.ITEMS_SCORE_SPEC_TREE:format(index) }
+		end
+	end
+	return values
 end
 
 -- Hybrids hit with their weapon while levelling in every talent tree: below
@@ -271,9 +294,14 @@ local function GetWeights()
 	local classWeights = WEIGHTS[playerClass] or MELEE
 	weightsName = nil
 	if classWeights[1] then
-		local index, name = TalentTree()
+		local index, name, trees = TalentTree()
 		if not index then
 			index = DEFAULT_SPEC[playerClass] or 1
+		end
+		local chosen = Items.PickTree(Items.cdb and Items.cdb.scoreSpec, index, #classWeights)
+		if chosen ~= index then
+			index = chosen
+			name = trees and trees[index] and trees[index].displayName or L.ITEMS_SCORE_SPEC_TREE:format(index)
 		end
 		weightsName = name
 		classWeights = classWeights[index] or classWeights[1]
@@ -2352,6 +2380,12 @@ function Items:OnInitialize()
 	self.db.messages = nil
 	-- Marked junk is no longer moved after a sort (the option is gone).
 	self.db.sortMarkedJunk = nil
+	-- The choice of the rating belongs to the character.
+	for _, opt in ipairs(Items.options) do
+		if opt.key == "scoreSpec" then
+			opt.db = self.cdb
+		end
+	end
 end
 
 function Items:OnLogin()
@@ -2373,6 +2407,8 @@ end
 function Items:OnOptionChanged(key)
 	if key == "sortSkip" then
 		UpdateSortOverlay()
+	elseif key == "scoreSpec" then
+		QueueWeighRefresh()
 	end
 	-- A character list starts as a copy of the account list.
 	if key == "junkPerCharacter" and self.db.junkPerCharacter
@@ -2428,6 +2464,8 @@ Items.options = {
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },
 	{ key = "rewardUpgrade", type = "toggle", name = L.ITEMS_REWARD_UPGRADE, desc = L.ITEMS_REWARD_UPGRADE_DESC, new = true },
+	{ key = "scoreSpec", type = "dropdown", name = L.ITEMS_SCORE_SPEC, desc = L.ITEMS_SCORE_SPEC_DESC, default = 0,
+		values = ScoreSpecValues, new = true },
 	{ key = "upgradeScore", type = "toggle", name = L.ITEMS_SCORE, desc = L.ITEMS_SCORE_DESC },
 	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
 	{ key = "upgradeCelebrate", type = "toggle", name = L.ITEMS_UPGRADE_CELEBRATE, desc = L.ITEMS_UPGRADE_CELEBRATE_DESC, parent = "upgradePopup", new = true },

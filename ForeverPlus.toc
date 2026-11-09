@@ -83,6 +83,7 @@ Modules\Durability.lua
 Data\TalentPresets.lua
 Modules\TalentSummary.lua
 Modules\Talents.lua
+Modules\ProfessionPlan.lua
 Modules\Visuals.lua
 Modules\XPBar.lua
 Modules\MeterReset.lua

@@ -16,6 +16,10 @@ local Auction = ns:NewModule("Auction", {
 		vendorMinMargin = 10,
 		duration24 = true,
 		startTab = "buy",
+		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
+	},
+	charDefaults = {
+		crafted = {}, -- itemID -> true: made by a recipe this character knows (read when a profession is opened)
 	},
 })
 
@@ -585,10 +589,141 @@ function Auction:ApplyDuration()
 end
 
 ---------------------------------------------------------------------------
+-- Auction prices: the lowest buyout seen per item (per unit for stacks), with the time it was seen, kept for
+-- the whole account. A new visit replaces what an older one found; within one visit the lowest price counts.
+-- Shown in the tooltip of the items a recipe of this character makes, next to the merchant's price.
+---------------------------------------------------------------------------
+local VISIT = 1800 -- seconds within which prices count as one look at the auction house
+
+-- store: itemID -> { price, time }. Returns whether the entry changed.
+function Auction.RecordPrice(store, itemID, price, now)
+	if not itemID or type(price) ~= "number" or price <= 0 then
+		return false
+	end
+	local entry = store[itemID]
+	if entry and now - entry[2] < VISIT and entry[1] <= price then
+		return false
+	end
+	store[itemID] = { price, now }
+	return true
+end
+
+-- How old a price is, in words.
+function Auction.PriceAge(seconds)
+	seconds = math.max(0, seconds)
+	if seconds < 3600 then
+		return L.AUCTION_AGE_NOW
+	elseif seconds < 86400 then
+		return L.AUCTION_AGE_HOURS:format(math.floor(seconds / 3600))
+	end
+	return L.AUCTION_AGE_DAYS:format(math.floor(seconds / 86400))
+end
+
+local function PriceStore()
+	if type(ns.db.auctionPrices) ~= "table" then
+		ns.db.auctionPrices = {}
+	end
+	return ns.db.auctionPrices
+end
+
+local function Plain(value)
+	return not (issecretvalue and issecretvalue(value)) and value or nil
+end
+
+local function OnBrowseResults()
+	local store, now = PriceStore(), time()
+	for _, result in ipairs(C_AuctionHouse.GetBrowseResults() or {}) do
+		local key = result.itemKey
+		Auction.RecordPrice(store, key and Plain(key.itemID), Plain(result.minPrice), now)
+	end
+end
+
+local function OnCommodityResults(_, _, itemID)
+	local info = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1)
+	Auction.RecordPrice(PriceStore(), itemID, info and Plain(info.unitPrice), time())
+end
+
+local function OnItemResults(_, _, itemKey)
+	if not itemKey then
+		return
+	end
+	local lowest
+	for index = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) or 0 do
+		local info = C_AuctionHouse.GetItemSearchResultInfo(itemKey, index)
+		local buyout = info and Plain(info.buyoutAmount)
+		if buyout and buyout > 0 then
+			local unit = math.floor(buyout / math.max(1, info.quantity or 1))
+			lowest = lowest and math.min(lowest, unit) or unit
+		end
+	end
+	Auction.RecordPrice(PriceStore(), Plain(itemKey.itemID), lowest, time())
+end
+
+-- What the recipes of this character make (a profession window lists them while it is open).
+local lastCraftedRead = {} -- profession -> time of the last read (the list updates with every craft)
+
+local function ReadCrafted()
+	if not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then
+		return
+	end
+	local profession = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+	local key = profession and Plain(profession.professionID) or "?"
+	if lastCraftedRead[key] and GetTime() - lastCraftedRead[key] < 300 then
+		return
+	end
+	lastCraftedRead[key] = GetTime()
+	local ids = C_TradeSkillUI.GetAllRecipeIDs() or {}
+	local crafted = Auction.cdb.crafted
+	ns.RunSliced("Auction: crafted items", #ids, function(index)
+		local recipeID = ids[index]
+		local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
+		if info and info.learned then
+			local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
+			local itemID = schematic and schematic.outputItemID
+			if itemID then
+				crafted[itemID] = true
+			end
+		end
+	end)
+end
+
+-- The tooltip line: merchant price and the last known auction price (or that none is known).
+function Auction.CraftPriceText(vendor, entry, now)
+	local parts = {}
+	if vendor and vendor > 0 then
+		parts[#parts + 1] = L.AUCTION_CRAFT_VENDOR:format(GetMoneyString(vendor, true))
+	end
+	if entry then
+		parts[#parts + 1] = L.AUCTION_CRAFT_AUCTION:format(GetMoneyString(entry[1], true), Auction.PriceAge(now - entry[2]))
+	else
+		parts[#parts + 1] = L.AUCTION_CRAFT_UNKNOWN
+	end
+	return table.concat(parts, "  ")
+end
+
+local function OnCraftTooltip(tooltip, data)
+	if tooltip:IsForbidden() or not Auction.db.craftPrices then
+		return
+	end
+	local itemID = data and Plain(data.id)
+	if not itemID or not Auction.cdb.crafted[itemID] then
+		return
+	end
+	tooltip:AddLine(Auction.CraftPriceText(VendorPrice(itemID), PriceStore()[itemID], time()), 1, 0.82, 0)
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
 	self:ApplyDuration()
+	-- Auction prices are noted on every look (also with the tooltip line switched off: they are there when it is on).
+	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnBrowseResults))
+	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", ns.Measured("Auction: note prices", OnBrowseResults))
+	self:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnCommodityResults))
+	self:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnItemResults))
+	self:RegisterEvent("TRADE_SKILL_LIST_UPDATE", ns.Measured("Auction: crafted items", ReadCrafted))
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Auction: craft prices", OnCraftTooltip))
 	-- The filter's switch in Blizzard's search filter menu.
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_AUCTION_HOUSE_SEARCH_FILTER", function(_, rootDescription)
@@ -635,6 +770,7 @@ Auction.options = {
 	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
 	{ key = "vendorMinMargin", type = "slider", name = L.AUCTION_VENDOR_MIN_MARGIN, desc = L.AUCTION_VENDOR_MIN_MARGIN_DESC, parent = "vendorBuyFilter",
 		min = 0, max = 90, step = 1, format = function(v) return ("%d%%"):format(v) end },
+	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {
 		{ "buy", L.AUCTION_TAB_BUY },

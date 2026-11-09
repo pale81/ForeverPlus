@@ -93,7 +93,7 @@ local frame
 local pool, active = {}, {}
 
 local function Secret(value)
-	return issecretvalue and issecretvalue(value)
+	return ns.Secret(value)
 end
 
 local function CreateAnchors()

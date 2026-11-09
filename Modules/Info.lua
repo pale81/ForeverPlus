@@ -88,7 +88,7 @@ local function LevelTimeKnown(level, seconds)
 	levelTextAt = GetTime()
 	if not ShowLevelLine() then
 		-- The message may come a little later (or not exist in this client): the line goes to the chat then.
-		C_Timer.After(8, function()
+		ns.After("Info: LevelTimeKnown (timer)", 8, function()
 			if levelText and levelTextAt and GetTime() - levelTextAt >= 8 and not (levelLine and levelLine:IsShown()) then
 				ns.Print(levelText)
 			end
@@ -112,7 +112,7 @@ function Info:TIME_PLAYED_MSG(_, total, levelTime)
 		entry.levelStart, entry.levelStartLevel = start, UnitLevel("player")
 	end
 	-- The chat frames receive the event before this handler; unmute afterwards.
-	C_Timer.After(0, UnmuteChat)
+	ns.After("Info: UnmuteChat", 0, UnmuteChat)
 end
 
 -- Asks the server once per session without the chat message.
@@ -125,7 +125,7 @@ local function RequestPlayedSilently()
 		end
 	end
 	RequestTimePlayed()
-	C_Timer.After(PLAYED_TIMEOUT, function()
+	ns.After("Info: RequestPlayedSilently (timer)", PLAYED_TIMEOUT, function()
 		UnmuteChat()
 		-- The server sometimes ignores the first request right after login.
 		if not playedReceived and not Info.retried then
@@ -436,7 +436,7 @@ function Info:UpdatePerformance()
 		perfFrame = perfFrame or CreatePerfFrame()
 		self:UpdateFont()
 		perfFrame:Show()
-		perfTicker = perfTicker or C_Timer.NewTicker(PERF_INTERVAL, UpdatePerformance)
+		perfTicker = perfTicker or ns.NewTicker("Info: UpdatePerformance", PERF_INTERVAL, UpdatePerformance)
 		UpdatePerformance()
 	elseif perfFrame then
 		SetupProfilerSampler(false)
@@ -460,13 +460,13 @@ function Info:OnLogin()
 			levelPending = { level = level, at = GetTime() }
 			levelText = nil
 			-- A moment later, so the server has counted the new level.
-			C_Timer.After(1, RequestPlayedSilently)
+			ns.After("Info: RequestPlayedSilently", 1, RequestPlayedSilently)
 		end
 	end)
 	if EventToastManagerFrame and EventToastManagerFrame.DisplayToast then
 		hooksecurefunc(EventToastManagerFrame, "DisplayToast", ns.Measured("Info: level time", ShowLevelLine))
 	end
-	C_Timer.After(3, RequestPlayedSilently)
+	ns.After("Info: RequestPlayedSilently", 3, RequestPlayedSilently)
 	ns.OnAddOnLoaded("Blizzard_TimeManager", function()
 		if TimeManagerClockButton_UpdateTooltip then
 			hooksecurefunc("TimeManagerClockButton_UpdateTooltip", AddPlayedLines)

@@ -359,7 +359,7 @@ end
 
 local function WatchPage(holder, label)
 	for _, delay in ipairs({ 0.1, 0.5, 2 }) do
-		C_Timer.After(delay, function()
+		ns.After("Readable: WatchPage (timer)", delay, function()
 			Trace("%s +%.1f: sichtbar %s, Deckkraft %s, Höhe %s, Inhalt %s", label, delay,
 				tostring(holder:IsVisible()), Value(function() return holder:GetEffectiveAlpha() * 100 end),
 				Value(function() return holder.Text:GetHeight() end),
@@ -382,7 +382,7 @@ local function SetPageText(holder, text, width, height)
 	holder.Text:SetText(text)
 	holder.Scroll:SetVerticalScroll(0)
 	holder.Fade:Play()
-	C_Timer.After(0, function()
+	ns.After("Readable: SetPageText (timer)", 0, function()
 		if holder.Text.GetContentHeight then
 			local wanted = Readable.TextHeight(height, holder.Text:GetContentHeight())
 			if wanted ~= height then
@@ -508,7 +508,7 @@ function Readable.Show()
 			-- The right page usually follows at once: one picture with both pages, the left one alone only
 			-- when the right one does not come.
 			local left = spread.left
-			C_Timer.After(0.4, function()
+			ns.After("Readable: Show (timer)", 0.4, function()
 				if spread == Readable.spread and spread.fetching and spread.left == left then
 					Draw(look, material, { left })
 					Collapse()

@@ -231,7 +231,7 @@ function WorldMap:Apply()
 			hooksecurefunc(pin, "RefreshOverlays", ns.Measured("WorldMap: overlays", Draw))
 			-- A change of the options while the map was closed drew nothing: draw when it opens.
 			WorldMapFrame:HookScript("OnShow", function()
-				C_Timer.After(0, Draw)
+				ns.After("WorldMap: Draw", 0, Draw)
 			end)
 		end
 	end

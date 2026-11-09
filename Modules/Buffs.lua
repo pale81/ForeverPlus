@@ -136,7 +136,7 @@ function Buffs.PrintTrace()
 end
 
 local function Plain(value)
-	if issecretvalue and issecretvalue(value) then
+	if ns.Secret(value) then
 		return "geheim"
 	end
 	return tostring(value)
@@ -163,10 +163,10 @@ local function FindAura(spellIDs, unit)
 		local name = SpellName(spellID)
 		local aura = name and C_UnitAuras.GetAuraDataBySpellName(unit or "player", name, "HELPFUL")
 		-- Another player's buff whose time cannot be read counts as there (no button for a buff they have).
-		if aura and unit and unit ~= "player" and issecretvalue and issecretvalue(aura.expirationTime) then
+		if aura and unit and unit ~= "player" and ns.Secret(aura.expirationTime) then
 			return 0
 		end
-		if aura and not (issecretvalue and issecretvalue(aura.expirationTime)) then
+		if aura and not ns.Secret(aura.expirationTime) then
 			if aura.expirationTime == 0 then
 				return 0
 			end
@@ -334,7 +334,7 @@ local function SetupButton(button, reminder, unit, chosen)
 		button.spellID = spellID
 		if unit == "target" then
 			local name = UnitName("target")
-			button.targetName = type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name or "?"
+			button.targetName = type(name) == "string" and not ns.Secret(name) and name or "?"
 			button.Who:SetText(button.targetName)
 		end
 	end
@@ -355,7 +355,7 @@ end
 -- Not enough mana, rage or energy for the spell right now.
 local function LacksPower(spellID)
 	local _, noPower = C_Spell.IsSpellUsable(spellID)
-	if issecretvalue and issecretvalue(noPower) then
+	if ns.Secret(noPower) then
 		return false
 	end
 	return noPower and true or false
@@ -464,10 +464,10 @@ local function TargetBlessings()
 			local aura = name and C_UnitAuras.GetAuraDataBySpellName("target", name, "HELPFUL")
 			if aura then
 				local expires = aura.expirationTime
-				local remaining = (issecretvalue and issecretvalue(expires) or not expires or expires == 0) and 0
+				local remaining = (ns.Secret(expires) or not expires or expires == 0) and 0
 					or expires - GetTime()
 				local source = aura.sourceUnit
-				local mine = not (issecretvalue and issecretvalue(source)) and source == "player"
+				local mine = not ns.Secret(source) and source == "player"
 				if not found[kind] or mine then
 					found[kind] = { remaining = remaining, mine = mine }
 				end
@@ -480,14 +480,14 @@ end
 local function TargetClass()
 	local _, class = UnitClass("target")
 	local mana = UnitPowerMax("target", 0) -- 0: mana
-	return not (issecretvalue and issecretvalue(class)) and class or nil,
+	return not ns.Secret(class) and class or nil,
 		ns.Number(mana, 0) > 0
 end
 
 -- A friendly, living player other than oneself in the target, who could get a buff.
 local function FriendlyTarget()
 	local function Yes(value)
-		return value and not (issecretvalue and issecretvalue(value)) and true or false
+		return value and not ns.Secret(value) and true or false
 	end
 	return Yes(UnitExists("target")) and Yes(UnitIsPlayer("target")) and not Yes(UnitIsUnit("target", "player"))
 		and Yes(UnitCanAssist("player", "target")) and not Yes(UnitIsDeadOrGhost("target"))
@@ -550,7 +550,7 @@ Buffs.EvaluateTarget = EvaluateTarget
 -- The game's answer to "is the target within reach of this spell": false (or 0 in older clients) means out of
 -- reach; nil (no range, unknown) and a secret value count as within reach, the reminder then stays.
 function Buffs.OutOfRange(value)
-	if issecretvalue and issecretvalue(value) then
+	if ns.Secret(value) then
 		return false
 	end
 	return value == false or value == 0
@@ -594,18 +594,33 @@ function Buffs.BuffUnit(selfMissing, targetMissing)
 	end
 end
 
+-- Hides the buttons from index `first` on. Nothing to cast: the key does nothing (it would cast the last buff shown).
+local function HideButtons(first)
+	for index = first, #buttons do
+		local button = buttons[index]
+		button:SetAttribute("type", nil)
+		button:Hide()
+		button.Alert.ProcStartAnim:Stop()
+		button.Alert:Hide()
+	end
+end
+
 local function Update()
 	updatePending = false
 	if InCombatLockdown() or not bar then
 		return
 	end
-	-- Secret auras read as missing: no reminders where addons cannot see the auras.
-	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
-		return
-	end
 	if thresholdTimer then
 		thresholdTimer:Cancel()
 		thresholdTimer = nil
+	end
+	-- Secret auras read as missing: no reminders where addons cannot see the auras. What was shown before goes
+	-- (it would stay clickable with a state that is no longer checked).
+	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() == true then
+		HideButtons(1)
+		ClearOverrideBindings(wheelHandler)
+		WatchRange(nil)
+		return
 	end
 
 	local count = 0
@@ -672,14 +687,7 @@ local function Update()
 	if buttons[1] and buttons[1].HotKey then
 		buttons[1].HotKey:SetText(key and GetBindingText(key, true) or "")
 	end
-	for index = count + 1, #buttons do
-		local button = buttons[index]
-		-- Nothing to cast: the key does nothing (it would cast the last buff shown).
-		button:SetAttribute("type", nil)
-		button:Hide()
-		button.Alert.ProcStartAnim:Stop()
-		button.Alert:Hide()
-	end
+	HideButtons(count + 1)
 	LayoutButtons()
 	placeholder:SetShown(ns:IsEditModeActive() and count == 0)
 
@@ -699,7 +707,7 @@ local function Update()
 	end
 
 	if nextCheck then
-		thresholdTimer = C_Timer.NewTimer(nextCheck + 0.5, function()
+		thresholdTimer = ns.NewTimer("Buffs: Update", nextCheck + 0.5, function()
 			thresholdTimer = nil
 			Update()
 		end)
@@ -709,7 +717,7 @@ end
 function RequestUpdate()
 	if not updatePending then
 		updatePending = true
-		C_Timer.After(UPDATE_DELAY, Update)
+		ns.After("Buffs: Update", UPDATE_DELAY, Update)
 	end
 end
 
@@ -763,7 +771,17 @@ local function CreateBar()
 	if playerClass == "ROGUE" then
 		events:RegisterEvent("BAG_UPDATE_DELAYED")
 	end
-	events:SetScript("OnEvent", RequestUpdate)
+	-- The bar is hidden in combat and nothing is rebuilt then: aura changes (many in a fight) are not listened to.
+	events:RegisterEvent("PLAYER_REGEN_DISABLED")
+	events:SetScript("OnEvent", function(self, event)
+		if event == "PLAYER_REGEN_DISABLED" then
+			self:UnregisterEvent("UNIT_AURA")
+			return
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			self:RegisterUnitEvent("UNIT_AURA", "player", "target")
+		end
+		RequestUpdate()
+	end)
 	-- What the game really cast (for the trace).
 	local casts = CreateFrame("Frame")
 	casts:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")

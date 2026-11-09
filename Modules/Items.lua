@@ -521,7 +521,7 @@ local rewardRetries = {}
 -- True if the item (a link) beats what is worn, false if not or if it is no equipment, nil while its
 -- data loads (onLoaded is called again a little later, at most three times per item).
 function ns.IsRewardUpgrade(link, onLoaded)
-	if not Items.db or not Items.db.rewardUpgrade or type(link) ~= "string" or (issecretvalue and issecretvalue(link))
+	if not Items.db or not Items.db.rewardUpgrade or type(link) ~= "string" or ns.Secret(link)
 		or not C_Item.IsEquippableItem(link) then
 		return false
 	end
@@ -530,7 +530,7 @@ function ns.IsRewardUpgrade(link, onLoaded)
 		local tries = rewardRetries[link] or 0
 		if onLoaded and tries < 3 then
 			rewardRetries[link] = tries + 1
-			C_Timer.After(1, onLoaded)
+			ns.After("Items: onLoaded", 1, onLoaded)
 		end
 		return nil
 	end
@@ -543,7 +543,7 @@ local function AddScoreLine(tooltip)
 		return
 	end
 	local _, link = tooltip:GetItem()
-	if not link or (issecretvalue and issecretvalue(link)) or not C_Item.IsEquippableItem(link) then
+	if not link or ns.Secret(link) or not C_Item.IsEquippableItem(link) then
 		return
 	end
 	local score, equippedScore = CompareScores(link)
@@ -847,7 +847,7 @@ local function Celebrate(frame)
 	-- The window ends at its normal size whatever the animation did (it stayed small at times).
 	frame.popupToken = ns.Number(frame.popupToken, 0) + 1
 	local token = frame.popupToken
-	C_Timer.After(0.5, function()
+	ns.After("Items: Celebrate (timer)", 0.5, function()
 		if frame.popupToken == token then
 			frame.Popup:Stop()
 		end
@@ -986,7 +986,7 @@ local function UpdateContainerFrame(frame)
 	weighActive = false
 	if weighDeferred then
 		weighDeferred = false
-		C_Timer.After(0.05, function()
+		ns.After("Items: UpdateContainerFrame (timer)", 0.05, function()
 			UpdateContainerFrame(frame)
 		end)
 	end
@@ -1008,7 +1008,7 @@ local function QueueWeighRefresh()
 		return
 	end
 	weighRefreshQueued = true
-	C_Timer.After(0.5, function()
+	ns.After("Items: QueueWeighRefresh (timer)", 0.5, function()
 		weighRefreshQueued = false
 		weights = nil
 		ClearWeighCaches()
@@ -1229,7 +1229,7 @@ local function MenuItems(sections, owner, menuKey)
 		if menu then
 			menu:Hide()
 		end
-		C_Timer.After(0, function()
+		ns.After("Items: onClick (timer)", 0, function()
 			Items:ShowJunkMenu(owner)
 		end)
 	end }
@@ -1294,7 +1294,7 @@ local function PostUpdateItems(frame)
 	weighActive = false
 	if weighDeferred then
 		weighDeferred = false
-		C_Timer.After(0.05, function()
+		ns.After("Items: PostUpdateItems (timer)", 0.05, function()
 			UpdateContainerFrame(frame)
 		end)
 	end
@@ -1375,7 +1375,7 @@ local function MoneyClick(moneyFrame, afterBlizzard)
 		ns.Print(L.ITEMS_MONEY_ERROR, tostring(err))
 	end
 	-- If the window did not come up, the own one does.
-	C_Timer.After(0.3, function()
+	ns.After("Items: MoneyClick (timer)", 0.3, function()
 		if not (StaticPopup_Visible and StaticPopup_Visible("PICKUP_MONEY")) then
 			AskMoney()
 		end
@@ -1547,7 +1547,7 @@ local function StartSelling()
 	soldValue = 0
 	SellBatch()
 	if soldValue then
-		sellTicker = C_Timer.NewTicker(SELL_INTERVAL, SellBatch)
+		sellTicker = ns.NewTicker("Items: SellBatch", SELL_INTERVAL, SellBatch)
 	end
 end
 
@@ -1730,7 +1730,7 @@ local function WatchSort()
 	sorting = true
 	local waited = 0
 	ResetSettle()
-	C_Timer.NewTicker(SORT_CHECK, function(ticker)
+	ns.NewTicker("Items: WatchSort (timer)", SORT_CHECK, function(ticker)
 		waited = waited + SORT_CHECK
 		if LayoutSettled() or waited >= SORT_MAX then
 			Items.Trace("Sortieren beendet nach %.1f s (%s)", waited, waited >= SORT_MAX and "Zeitgrenze" or "Belegung ruhig")
@@ -1834,7 +1834,7 @@ end
 local function QueueSort()
 	if Items.db.autoSort and not sortQueued then
 		sortQueued = true
-		C_Timer.After(0, SortOnOpen)
+		ns.After("Items: SortOnOpen", 0, SortOnOpen)
 	end
 end
 
@@ -2144,7 +2144,7 @@ function Items:UpdateFullSound()
 		state.frame = CreateFrame("Frame")
 		state.frame:SetScript("OnEvent", ns.Measured("Items: bags full", function(_, event, _, message)
 			if event == "UI_ERROR_MESSAGE" then
-				if not (issecretvalue and issecretvalue(message)) and message == ERR_INV_FULL then
+				if not ns.Secret(message) and message == ERR_INV_FULL then
 					Items.PlayFullSound()
 				end
 			else
@@ -2165,7 +2165,7 @@ function Items:UpdateFullSound()
 end
 
 function Items:UI_ERROR_MESSAGE(_, _, message)
-	if issecretvalue and issecretvalue(message) then
+	if ns.Secret(message) then
 		return
 	end
 	if message == ERR_INV_FULL then
@@ -2177,7 +2177,7 @@ end
 -- Bind on pickup: confirm automatically (loot window and group rolls)
 ---------------------------------------------------------------------------
 local function HidePopup(which)
-	C_Timer.After(0, function()
+	ns.After("Items: HidePopup (timer)", 0, function()
 		StaticPopup_Hide(which)
 	end)
 end
@@ -2234,7 +2234,7 @@ local rollLabels = {} -- button -> font string
 local rollHooked = {}
 
 local function ItemIDOfLink(link)
-	return link and not (issecretvalue and issecretvalue(link)) and C_Item.GetItemInfoInstant(link)
+	return link and not ns.Secret(link) and C_Item.GetItemInfoInstant(link)
 end
 
 local function ShowRollNames(button)
@@ -2289,7 +2289,7 @@ function Items:LOOT_HISTORY_UPDATE_DROP(_, encounterID, lootListKey)
 				if button then
 					local names = {}
 					for _, roll in ipairs(info.rollInfos or {}) do
-						if states[roll.state] and not (issecretvalue and issecretvalue(roll.playerName)) then
+						if states[roll.state] and not ns.Secret(roll.playerName) then
 							local color = C_ClassColor.GetClassColor(roll.playerClass)
 							names[#names + 1] = color and color:WrapTextInColorCode(roll.playerName) or roll.playerName
 						end

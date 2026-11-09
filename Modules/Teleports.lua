@@ -35,7 +35,7 @@ local ENTRIES = {
 }
 
 local function Accessible(value)
-	if value == nil or (issecretvalue and issecretvalue(value)) then
+	if value == nil or ns.Secret(value) then
 		return nil
 	end
 	return value
@@ -312,7 +312,7 @@ function Teleports.Command(msg)
 	local trigger = Teleports.trigger
 	if trigger then
 		trigger.Debug:Show()
-		C_Timer.After(5, function()
+		ns.After("Teleports: Command (timer)", 5, function()
 			trigger.Debug:Hide()
 		end)
 	end

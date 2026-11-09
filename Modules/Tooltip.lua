@@ -94,7 +94,7 @@ local function AppendToSellLine(tooltip, suffix)
 	for i = tooltip:NumLines(), 1, -1 do
 		local line = _G[name .. "TextLeft" .. i]
 		local text = line and line:GetText()
-		if text and not (issecretvalue and issecretvalue(text)) and text:find(SELL_PREFIX, 1, true) == 1 then
+		if text and not ns.Secret(text) and text:find(SELL_PREFIX, 1, true) == 1 then
 			if not text:find(suffix, 1, true) then
 				line:SetText(text .. " " .. suffix)
 			end
@@ -257,7 +257,7 @@ end
 local hover
 
 local function Secret(value)
-	return issecretvalue and issecretvalue(value)
+	return ns.Secret(value)
 end
 
 -- Only for units in the 3D world (or their nameplates), not unit frames.

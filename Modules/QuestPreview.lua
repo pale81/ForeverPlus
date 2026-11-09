@@ -28,7 +28,7 @@ local markTextures, markUsed = {}, 0
 local spawnCache = { Npc = {}, Object = {} }
 
 local function Text(value)
-	if type(value) == "string" and not (issecretvalue and issecretvalue(value)) and value ~= "" then
+	if type(value) == "string" and not ns.Secret(value) and value ~= "" then
 		return value
 	end
 end

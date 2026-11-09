@@ -450,7 +450,7 @@ function Mover:MODIFIER_STATE_CHANGED(_, key, down)
 	if down == 1 then
 		if not ticker then
 			UpdateCatcherTarget()
-			ticker = C_Timer.NewTicker(0.1, UpdateCatcherTarget)
+			ticker = ns.NewTicker("Mover: UpdateCatcherTarget", 0.1, UpdateCatcherTarget)
 		end
 	else
 		StopCatcher()

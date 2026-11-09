@@ -611,7 +611,7 @@ end
 function Radar:RequestRefresh()
 	if not refreshPending then
 		refreshPending = true
-		C_Timer.After(0.5, Refresh)
+		ns.After("RecipeRadar: Refresh", 0.5, Refresh)
 	end
 end
 
@@ -692,7 +692,7 @@ local function Start()
 	UpdateSkills()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", ns.MapSymbols.Setup)
 	-- Index after the login burst; it only runs while the radar is enabled.
-	C_Timer.After(5, function()
+	ns.After("RecipeRadar: Start (timer)", 5, function()
 		Radar:Apply()
 	end)
 	return true
@@ -734,7 +734,7 @@ function Radar:OnLogin()
 	Start()
 	-- QuestieDB may still be loading at login: add it a little later.
 	if not DB then
-		C_Timer.After(10, function()
+		ns.After("RecipeRadar: OnLogin (timer)", 10, function()
 			DB = FindQuestieDB()
 			if DB and indexReady then
 				BuildQuestieIndex(Refresh)

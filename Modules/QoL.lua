@@ -510,7 +510,7 @@ function QoL:UpdateRankUp()
 	local db = self.db
 	self:ToggleEvent("LEARNED_SPELL_IN_SKILL_LINE", db.rankUp or db.autoPlace, function(_, _, spellID, _, isGuildPerk)
 		-- A short delay lets the spell book know the new rank first (and the game push the spell itself).
-		C_Timer.After(0.5, function()
+		ns.After("QoL: UpdateRankUp (timer)", 0.5, function()
 			ns.RunOutOfCombat(function()
 				if db.rankUp then
 					RankUp(spellID)
@@ -557,7 +557,7 @@ function QoL:OnLogin()
 	end
 	self:RegisterEvent("ADDON_LOADED", ScanMinimapButtons)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
-		C_Timer.After(2, ScanMinimapButtons)
+		ns.After("QoL: ScanMinimapButtons", 2, ScanMinimapButtons)
 	end)
 
 	self:UpdateActionText()

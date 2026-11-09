@@ -89,6 +89,34 @@ function ns.Number(value, fallback)
 	return value
 end
 
+-- Whether the client hands out a protected value (no comparing, no arithmetic, no patterns on it).
+function ns.Secret(value)
+	return issecretvalue and issecretvalue(value) or false
+end
+
+-- The parts of a creature or object GUID: kind ("Creature", "GameObject", "Vehicle", ...) and the numeric id.
+function ns.GuidParts(guid)
+	if type(guid) ~= "string" or ns.Secret(guid) then
+		return
+	end
+	local kind, _, _, _, _, id = strsplit("-", guid)
+	return kind, tonumber(id)
+end
+
+-- Chat filters: Blizzard moved the functions into ChatFrameUtil.
+function ns.AddChatFilter(event, filter)
+	(ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter)(event, filter)
+end
+
+function ns.RemoveChatFilter(event, filter)
+	(ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter)(event, filter)
+end
+
+-- A typed command in lower case; string.lower leaves the German capitals with umlaut as they are.
+function ns.LowerCommand(text)
+	return (text:lower():gsub("Ä", "ä"):gsub("Ö", "ö"):gsub("Ü", "ü"))
+end
+
 -- What modules record for later updates (rides, book finds, innkeepers, loot):
 -- ns.AddDataSection(text, clear) with text() returning the lines to export or
 -- nil, and clear() removing the recording. /fp daten export and löschen use them.
@@ -225,6 +253,15 @@ function ns:RegisterEvent(event, owner, fn)
 		set = {}
 		listeners[event] = set
 		eventFrame:RegisterEvent(event)
+	elseif set[owner] == nil then
+		-- A new listener goes into a copy: the event may be running through the old table right now, and a new
+		-- key during a traversal is undefined in Lua.
+		local copy = {}
+		for key, value in pairs(set) do
+			copy[key] = value
+		end
+		set = copy
+		listeners[event] = set
 	end
 	set[owner] = fn
 end
@@ -287,10 +324,8 @@ end
 -- Runs while measuring: the previous frame's total against what was measured in it.
 local spikeFrame = CreateFrame("Frame")
 local lastMeasured, lastTop = 0, nil
+spikeFrame:Hide()
 spikeFrame:SetScript("OnUpdate", function()
-	if not ns.measuring then
-		return
-	end
 	local profiler = C_AddOnProfiler
 	if profiler and profiler.IsEnabled() then
 		local total = profiler.GetAddOnMetric(addonName, Enum.AddOnProfilerMetric.LastTime) or 0
@@ -305,6 +340,17 @@ spikeFrame:SetScript("OnUpdate", function()
 	lastMeasured, lastTop = frameMeasured, frameTop
 	frameMeasured, frameTop, frameTopTime = 0, nil, 0
 end)
+
+-- Switches measuring on (earlier values are cleared) or off; the spike counter only runs meanwhile.
+function ns.SetMeasuring(on)
+	ns.measuring = on and true or false
+	if on then
+		wipe(ns.timings)
+		ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
+		frameMeasured, frameTop, frameTopTime = 0, nil, 0
+	end
+	spikeFrame:SetShown(ns.measuring)
+end
 
 local function OwnerName(owner)
 	return type(owner) == "table" and owner.name or tostring(owner)
@@ -351,6 +397,19 @@ function ns.Measured(name, fn)
 	end
 end
 
+-- Timers that show up in the measurement: like C_Timer.After, NewTimer and NewTicker, with the name first.
+function ns.After(name, delay, fn)
+	C_Timer.After(delay, ns.Measured(name, fn))
+end
+
+function ns.NewTimer(name, delay, fn)
+	return C_Timer.NewTimer(delay, ns.Measured(name, fn))
+end
+
+function ns.NewTicker(name, delay, fn, iterations)
+	return C_Timer.NewTicker(delay, ns.Measured(name, fn), iterations)
+end
+
 -- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
 -- frame (default 0.25, below the 1 ms the game's addon profiler counts as
 -- slow), then onDone. Used for large one-time scans.
@@ -386,12 +445,10 @@ function ns.StartTimedMeasure(seconds, onDone)
 	if ns.measureTimer then
 		return
 	end
-	wipe(ns.timings)
-	ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
-	ns.measuring = true
+	ns.SetMeasuring(true)
 	ns.measureUntil = GetTime() + seconds
 	ns.measureTimer = C_Timer.NewTimer(seconds, function()
-		ns.measuring = false
+		ns.SetMeasuring(false)
 		ns.measureTimer, ns.measureUntil = nil, nil
 		ns.PrintTimings()
 		if onDone then
@@ -415,6 +472,8 @@ function ns.TopTimings(count)
 	return list
 end
 
+local TIMING_COLORS = { green = "|cff00ff00", orange = "|cffff8800", red = "|cffff0000" }
+
 function ns.PrintTimings()
 	local list = ns.TopTimings(12)
 	ns.PrintAlways(ns.L.TIMINGS_HEADER)
@@ -423,10 +482,9 @@ function ns.PrintTimings()
 	end
 	for i = 1, #list do
 		local item = list[i]
-		-- Same colours as the CPU list of the performance display: green below
-		-- 0.5 ms, orange up to 2 ms, red from 2 ms.
+		-- Same limits as the rows of the performance display (Info.PeakLevel).
 		local max = item.entry.max
-		local color = max >= 2 and "|cffff0000" or max >= 0.5 and "|cffff8800" or "|cff00ff00"
+		local color = TIMING_COLORS[ns:GetModule("Info").PeakLevel(max)]
 		ns.PrintAlways(color .. ns.L.TIMINGS_LINE .. "|r", item.name, max, item.entry.slow, item.entry.count)
 	end
 	local total, longest, longestName = 0, 0, nil
@@ -636,7 +694,7 @@ function ns.StartWheelCheck()
 	wheelCheckFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
 	wheelCheckFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 	ns.PrintAlways(ns.L.WHEEL_CHECK_START:format(WHEEL_CHECK_SECONDS))
-	C_Timer.After(WHEEL_CHECK_SECONDS, function()
+	ns.After("Core: wheel check end", WHEEL_CHECK_SECONDS, function()
 		if wheelCheckUntil and not WheelChecking() then
 			wheelCheckUntil = nil
 			wheelCheckFrame:UnregisterAllEvents()
@@ -651,17 +709,20 @@ end
 SLASH_FOREVERPLUS1 = "/fp"
 SLASH_FOREVERPLUS2 = "/foreverplus"
 SlashCmdList.FOREVERPLUS = function(msg)
-	msg = strtrim(msg or ""):lower()
+	msg = ns.LowerCommand(strtrim(msg or ""))
 	if msg == "errors" or msg == "fehler" then
 		local errors = ns:GetModule("Errors")
 		if errors then
 			errors:ShowMenu()
 		end
 	elseif msg == "messen" or msg == "profile" then
-		ns.measuring = not ns.measuring
+		-- A timed measurement (30 s from the performance display) ends here too, so its result does not come twice.
+		if ns.measureTimer then
+			ns.measureTimer:Cancel()
+			ns.measureTimer, ns.measureUntil = nil, nil
+		end
+		ns.SetMeasuring(not ns.measuring)
 		if ns.measuring then
-			wipe(ns.timings)
-			ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
 			ns.PrintAlways(ns.L.TIMINGS_ON)
 		else
 			ns.PrintTimings()

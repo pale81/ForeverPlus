@@ -95,7 +95,7 @@ local function SetText(bubble, text)
 end
 
 local function Readable(text)
-	return type(text) == "string" and text ~= "" and not (issecretvalue and issecretvalue(text)) and text or nil
+	return type(text) == "string" and text ~= "" and not ns.Secret(text) and text or nil
 end
 
 local function GossipText()

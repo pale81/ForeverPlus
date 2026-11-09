@@ -16,7 +16,7 @@ local MAX_QUESTS, MAX_SNAPSHOTS = 200, 20
 ns.SUBMIT_URL = "https://github.com/pale81/ForeverPlus/issues/new?template=data.yml"
 
 local function IsVisibleString(value)
-	return type(value) == "string" and value ~= "" and not (issecretvalue and issecretvalue(value))
+	return type(value) == "string" and value ~= "" and not ns.Secret(value)
 end
 
 local function Timestamp()
@@ -103,7 +103,7 @@ function Capture.OnEvent(_, event, questID)
 	elseif event == "QUEST_LOG_UPDATE" and not Capture.logPending then
 		-- The event comes in bursts: one snapshot after they settle.
 		Capture.logPending = true
-		C_Timer.After(2, function()
+		ns.After("DataCapture: OnEvent (timer)", 2, function()
 			Capture.logPending = false
 			Capture.SnapshotLog(event)
 		end)

@@ -701,7 +701,7 @@ local function AddPlanTooltip(button)
 		GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
 		-- Plain lines: appended tooltip data would pile up with every change of the plan.
 		local ok, description = pcall(C_Traits.GetTraitDescription, entryID, planned)
-		if ok and type(description) == "string" and not (issecretvalue and issecretvalue(description)) then
+		if ok and type(description) == "string" and not ns.Secret(description) then
 			GameTooltip_AddHighlightLine(GameTooltip, description, true)
 		end
 	end
@@ -903,7 +903,7 @@ local function QueuePlanUpdate()
 	planStamp = planStamp + 1
 	if not updatePending then
 		updatePending = true
-		C_Timer.After(0, function()
+		ns.After("Talents: QueuePlanUpdate (timer)", 0, function()
 			updatePending = false
 			UpdatePlan()
 		end)
@@ -1178,7 +1178,7 @@ local function ShowPlanSummary(owner)
 		if rank > 0 and entryID then
 			talents, points = talents + 1, points + rank
 			local ok, description = pcall(C_Traits.GetTraitDescription, entryID, rank)
-			if ok and type(description) == "string" and not (issecretvalue and issecretvalue(description)) then
+			if ok and type(description) == "string" and not ns.Secret(description) then
 				descriptions[#descriptions + 1] = description
 			end
 		end
@@ -1335,7 +1335,7 @@ local glowPending = false
 local function QueueGlowUpdate()
 	if not glowPending then
 		glowPending = true
-		C_Timer.After(1, function()
+		ns.After("Talents: QueueGlowUpdate (timer)", 1, function()
 			glowPending = false
 			UpdateSpellsGlow()
 			UpdateBookButton()
@@ -1360,7 +1360,7 @@ function Talents:OnLogin()
 	end)
 	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
 	self:RegisterEvent("TRAINER_SHOW", function()
-		C_Timer.After(0.3, function()
+		ns.After("Talents: OnLogin (timer)", 0.3, function()
 			ScanTrainer()
 			QueueGlowUpdate()
 		end)
@@ -1432,7 +1432,7 @@ end
 function Talents.QueueUnspent()
 	if not Talents.unspentPending then
 		Talents.unspentPending = true
-		C_Timer.After(0.5, function()
+		ns.After("Talents: QueueUnspent (timer)", 0.5, function()
 			Talents.unspentPending = false
 			Talents.UpdateUnspent()
 		end)

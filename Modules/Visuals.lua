@@ -241,7 +241,7 @@ local function FrameQuestRewards()
 			local quality
 			if button.objectType == "item" and (button.type == "choice" or button.type == "reward") then
 				local link = (QuestInfoFrame.questLog and GetQuestLogItemLink or GetQuestItemLink)(button.type, button:GetID())
-				quality = link and not (issecretvalue and issecretvalue(link)) and select(3, C_Item.GetItemInfo(link))
+				quality = link and not ns.Secret(link) and select(3, C_Item.GetItemInfo(link))
 			end
 			local r, g, b
 			if quality and quality >= 1 then
@@ -548,7 +548,7 @@ end
 local function QueueCasts()
 	if not castsPending then
 		castsPending = true
-		C_Timer.After(CASTS_DELAY, UpdateAllCasts)
+		ns.After("Visuals: UpdateAllCasts", CASTS_DELAY, UpdateAllCasts)
 	end
 end
 
@@ -559,7 +559,7 @@ local function UpdateCastWatch()
 		castWatcher = CreateFrame("Frame")
 		castWatcher:SetScript("OnEvent", function(_, event, _, powerType)
 			-- Only mana decides how many casts are left.
-			if event == "UNIT_POWER_UPDATE" and (issecretvalue(powerType) or powerType ~= "MANA") then
+			if event == "UNIT_POWER_UPDATE" and (ns.Secret(powerType) or powerType ~= "MANA") then
 				return
 			end
 			if event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" then
@@ -604,7 +604,7 @@ local function ForgetRemovedAuras(updateInfo)
 		end
 		local changed = false
 		for _, id in ipairs(updateInfo.removedAuraInstanceIDs or {}) do
-			if issecretvalue and issecretvalue(id) then
+			if ns.Secret(id) then
 				return "all"
 			end
 			local name = auraIDs[id]
@@ -648,10 +648,10 @@ local function UpdateActiveAuras()
 			break
 		end
 		local name = aura.name
-		if name and not (issecretvalue and issecretvalue(name)) then
+		if name and not ns.Secret(name) then
 			names[name] = true
 			local id = aura.auraInstanceID
-			if id and not (issecretvalue and issecretvalue(id)) then
+			if id and not ns.Secret(id) then
 				ids[id] = name
 			end
 		end
@@ -684,7 +684,7 @@ local auraUpdatePending = false
 local function QueueAuraUpdate()
 	if not auraUpdatePending then
 		auraUpdatePending = true
-		C_Timer.After(0, function()
+		ns.After("Visuals: QueueAuraUpdate (timer)", 0, function()
 			auraUpdatePending = false
 			UpdateActiveAuras()
 		end)

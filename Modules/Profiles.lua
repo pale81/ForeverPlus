@@ -336,7 +336,7 @@ function Profiles.ShowList(owner)
 end
 
 function Profiles:OnLogin()
-	C_Timer.After(15, AutoBackup)
+	ns.After("Profiles: AutoBackup", 15, AutoBackup)
 end
 
 Profiles.options = {

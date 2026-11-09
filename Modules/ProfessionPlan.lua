@@ -19,7 +19,7 @@ local ProfessionPlan = ns:NewModule("ProfessionPlan", {
 local TRAINER_FILTERS = { "available", "unavailable", "used" }
 
 local function Plain(value)
-	return not (issecretvalue and issecretvalue(value)) and value or nil
+	return not ns.Secret(value) and value or nil
 end
 
 -- Reads the whole list of a profession trainer (all filters on for the moment), per profession.
@@ -171,7 +171,7 @@ end
 
 function ProfessionPlan:OnLogin()
 	self:RegisterEvent("TRAINER_SHOW", function()
-		C_Timer.After(0.3, ScanTrainer)
+		ns.After("ProfessionPlan: ScanTrainer", 0.3, ScanTrainer)
 	end)
 	self:RegisterEvent("TRADE_SKILL_LIST_UPDATE", ns.Measured("ProfessionPlan: list", UpdateList))
 	self:RegisterEvent("TRADE_SKILL_CLOSE", ns.Measured("ProfessionPlan: list", UpdateList))

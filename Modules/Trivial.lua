@@ -90,7 +90,7 @@ local function IsTrivial(text)
 end
 
 local function Filter(_, _, text)
-	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then
+	if type(text) ~= "string" or ns.Secret(text) then
 		return false
 	end
 	if IsTrivial(text) then
@@ -100,8 +100,7 @@ local function Filter(_, _, text)
 	return false
 end
 
-local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
-local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+local AddFilter, RemoveFilter = ns.AddChatFilter, ns.RemoveChatFilter
 
 function Trivial:Apply()
 	-- Filtered only while at least one kind is on.

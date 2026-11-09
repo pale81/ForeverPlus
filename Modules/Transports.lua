@@ -312,7 +312,7 @@ local ticker
 
 function Transports:Apply()
 	if self.db.record and not ticker then
-		ticker = C_Timer.NewTicker(SAMPLE_INTERVAL, Sample)
+		ticker = ns.NewTicker("Transports: Sample", SAMPLE_INTERVAL, Sample)
 	elseif not self.db.record and ticker then
 		ticker:Cancel()
 		ticker, state = nil, {}

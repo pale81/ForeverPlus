@@ -247,7 +247,7 @@ function RepFlash:Add(name, amount, kind)
 end
 
 local function OnReputation(_, _, message)
-	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+	if type(message) ~= "string" or ns.Secret(message) then
 		return
 	end
 	local name, amount = ns.ParseReputationMessage(message)
@@ -283,12 +283,12 @@ end
 -- Experience by its chat line ("... you gain 55 experience"), in case the event of the experience points does not
 -- come in this client: only if no flash was shown for it in the last moment.
 local function OnExperienceChat(_, _, message)
-	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+	if type(message) ~= "string" or ns.Secret(message) then
 		return
 	end
 	local amount = tonumber(message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("(%d+)"))
 	if amount and amount > 0 then
-		C_Timer.After(0.4, function()
+		ns.After("RepFlash: OnExperienceChat (timer)", 0.4, function()
 			if GetTime() - lastXPFlash > 1 then
 				lastXPFlash = GetTime()
 				RepFlash:Add(L.REPFLASH_XP, amount, "xp")
@@ -301,7 +301,7 @@ end
 local honorPatterns = {}
 
 local function OnHonor(_, _, message)
-	if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then
+	if type(message) ~= "string" or ns.Secret(message) then
 		return
 	end
 	for _, entry in ipairs(honorPatterns) do
@@ -345,15 +345,14 @@ local CHAT_EVENTS = {
 
 -- Filter: hides a line when its kind flashes.
 local function HideFilter(_, event, message)
-	if issecretvalue and issecretvalue(message) then
+	if ns.Secret(message) then
 		return false
 	end
 	local db = RepFlash.db
 	return db.hideChat and db[CHAT_EVENTS[event]] and true or false
 end
 
-local AddFilter = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
-local RemoveFilter = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+local AddFilter, RemoveFilter = ns.AddChatFilter, ns.RemoveChatFilter
 
 -- The settings of the game's world text (all floating numbers). Earlier versions set three of them to 0 while the
 -- experience display was on; the invisible font replaces that. They go back to the game's defaults once (and with /fp welttext).

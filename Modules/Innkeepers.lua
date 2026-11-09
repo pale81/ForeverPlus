@@ -17,11 +17,8 @@ local Innkeepers = ns:NewModule("Innkeepers", {
 
 -- NPC ID of a creature GUID ("Creature-0-realm-instance-zone-npcID-spawn").
 function Innkeepers.NpcID(guid)
-	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) then
-		return
-	end
-	local kind, _, _, _, _, id = strsplit("-", guid)
-	return kind == "Creature" and tonumber(id) or nil
+	local kind, id = ns.GuidParts(guid)
+	return kind == "Creature" and id or nil
 end
 
 local function PlayerPosition()
@@ -54,7 +51,7 @@ local function Record()
 		return
 	end
 	local name = UnitName("npc")
-	ns.db.innkeepers[id] = { type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name or "?",
+	ns.db.innkeepers[id] = { type(name) == "string" and not ns.Secret(name) and name or "?",
 		mapID, tonumber(("%.1f"):format(x)), tonumber(("%.1f"):format(y)), team }
 	ns.MapSymbols.Refresh()
 end

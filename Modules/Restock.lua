@@ -366,14 +366,14 @@ local function Start()
 		return
 	end
 	run = { steps = 0, moved = {}, stored = {}, skip = {} }
-	run.ticker = C_Timer.NewTicker(STEP_INTERVAL, Step)
+	run.ticker = ns.NewTicker("Restock: Step", STEP_INTERVAL, Step)
 end
 
 local guildQueued = false
 local function QueueGuild()
 	if not guildQueued then
 		guildQueued = true
-		C_Timer.After(GUILD_DELAY, function()
+		ns.After("Restock: QueueGuild (timer)", GUILD_DELAY, function()
 			guildQueued = false
 			if atGuild then
 				Start()

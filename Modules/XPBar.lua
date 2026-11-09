@@ -127,7 +127,7 @@ end
 local function QueueScan()
 	if not scanPending then
 		scanPending = true
-		C_Timer.After(SCAN_DELAY, ScanQuestXP)
+		ns.After("XPBar: ScanQuestXP", SCAN_DELAY, ScanQuestXP)
 	end
 end
 
@@ -187,7 +187,7 @@ local function ShimmerPulse(bar, seconds)
 		return
 	end
 	GetShimmer(tick):Show()
-	C_Timer.After(seconds, function()
+	ns.After("XPBar: ShimmerPulse (timer)", seconds, function()
 		if shimmers[tick] and not bar:IsMouseOver() then
 			shimmers[tick]:Hide()
 		end
@@ -242,7 +242,7 @@ function XPBar:OnLogin()
 	-- After the bars had their first update: a glint on the rested pin.
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, _, isInitialLogin, isReloadingUi)
 		if isInitialLogin or isReloadingUi then
-			C_Timer.After(2, function()
+			ns.After("XPBar: OnLogin (timer)", 2, function()
 				for bar in pairs(expBars) do
 					ShimmerPulse(bar, 3)
 				end

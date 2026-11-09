@@ -20,7 +20,7 @@ local SOURCE_COLOR = "|cff99ccff%s|r"
 local QUEST_COLOR = "|cffffd100%s|r"
 
 local function Secret(value)
-	return issecretvalue and issecretvalue(value)
+	return ns.Secret(value)
 end
 
 -- An entity table of QuestieDB (Item, Npc, Object) with the functions used here.
@@ -210,12 +210,9 @@ local function IsAvailable(lib, questID)
 end
 
 local function NpcID(guid)
-	if type(guid) ~= "string" or Secret(guid) then
-		return nil
-	end
-	local unitType, _, _, _, _, npcID = strsplit("-", guid)
+	local unitType, npcID = ns.GuidParts(guid)
 	if unitType == "Creature" or unitType == "Vehicle" then
-		return tonumber(npcID)
+		return npcID
 	end
 end
 

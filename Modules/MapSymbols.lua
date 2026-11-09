@@ -33,7 +33,7 @@ local continents = {} -- uiMapID -> continent (instance map) ID or false
 local positions = {}  -- uiMapID -> { [place] = { x, y } or false }
 
 local function Text(value)
-	if type(value) == "string" and not (issecretvalue and issecretvalue(value)) and value ~= "" then
+	if type(value) == "string" and not ns.Secret(value) and value ~= "" then
 		return value
 	end
 end
@@ -818,7 +818,7 @@ local function AreaText(name)
 		for _, source in ipairs({ ns.PlaceInfo or {}, ns.AreaInfo or {} }) do
 			for id, info in pairs(source) do
 				local areaName = C_Map.GetAreaInfo(id)
-				if type(areaName) == "string" and areaName ~= "" and not (issecretvalue and issecretvalue(areaName)) then
+				if type(areaName) == "string" and areaName ~= "" and not ns.Secret(areaName) then
 					areaTexts[areaName] = info
 				end
 			end
@@ -836,7 +836,7 @@ local function UpdateAreaText(label)
 	end
 	label.fpName = name
 	local text
-	if type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
+	if type(name) == "string" and not ns.Secret(name) then
 		text = AreaText((name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s*%(%d+%-?%d*%)$", "")))
 	end
 	label.fpInfo:SetText(text or "")
@@ -894,7 +894,7 @@ function Symbols.Setup()
 			return
 		end
 		queued = true
-		C_Timer.After(0.4, function()
+		ns.After("MapSymbols: Setup (timer)", 0.4, function()
 			queued = false
 			if WorldMapFrame:IsShown() then
 				Symbols.Refresh()

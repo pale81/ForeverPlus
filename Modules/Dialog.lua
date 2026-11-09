@@ -459,14 +459,14 @@ local function CreateBubble()
 		ns.SetRoundGreyIcon(tool, texture)
 		tool:SetScript("OnEnter", function(self)
 			self.hover = true
-			self.Icon:SetAlpha(1)
+			Dialog.ToolLook(self, key)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			onTip(GameTooltip)
 			GameTooltip:Show()
 		end)
 		tool:SetScript("OnLeave", function(self)
 			self.hover = nil
-			self.Icon:SetAlpha(self.enabledLook and 0.6 or 0.3)
+			Dialog.ToolLook(self, key)
 			GameTooltip_Hide()
 		end)
 		tool:SetScript("OnClick", function(self)
@@ -1454,6 +1454,21 @@ function Dialog.ToolClickable(key, state)
 	return state and true or key == "locked"
 end
 
+-- Alpha and colour of a symbol: dull grey, brighter under the mouse; a dim symbol that cannot be used fainter still.
+-- The switch for wares not yet learnable is never faint: grey while off, in colour while on.
+function Dialog.ToolAppearance(key, state, hover)
+	if key == "locked" then
+		return (hover or state) and 1 or 0.6, not state
+	end
+	return hover and 1 or (state and 0.6 or 0.3), true
+end
+
+function Dialog.ToolLook(tool, key)
+	local alpha, grey = Dialog.ToolAppearance(key, tool.enabledLook, tool.hover)
+	tool.Icon:SetAlpha(alpha)
+	tool.Icon:SetDesaturated(grey)
+end
+
 -- Repair, sell junk and restock symbols beside the book: only those the merchant offers, packed to the left.
 function Dialog.UpdateTools(view)
 	local frame = bubble
@@ -1462,7 +1477,8 @@ function Dialog.UpdateTools(view)
 	end
 	-- Worked out once per view (MerchantView), not again here: the bags are not scanned twice.
 	local available = view and ((view.kind == "MERCHANT_SHOW" and view.filter) or view.kind == "TRAINER_SHOW") and view.tools or {}
-	local x = 2 - 18
+	-- Right at the edge where no book stands (trainer), else beside it.
+	local x = (view and view.kind == "MERCHANT_SHOW" and view.filter) and 2 - 18 or 2
 	for _, key in ipairs({ "locked", "repair", "sell", "restock" }) do
 		local tool = frame.Tools[key]
 		local state = available[key]
@@ -1471,7 +1487,7 @@ function Dialog.UpdateTools(view)
 			tool.enabledLook = state
 			tool:ClearAllPoints()
 			tool:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", x, -2)
-			tool.Icon:SetAlpha(tool.hover and 1 or (state and 0.6 or 0.3))
+			Dialog.ToolLook(tool, key)
 			x = x - 18
 		end
 	end

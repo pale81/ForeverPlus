@@ -3557,4 +3557,23 @@ end)()
 	assert(ids(G.MergeActivities({ 854, 799 }, { 799, 805 })) == "854,799,805", "listing keeps its activities")
 	print("group quests OK")
 end)()
+;(function()
+	-- Auction prices: the newest look counts, within one look the lowest; the tooltip line for what one can make
+	local A = ns:GetModule("Auction")
+	local store = {}
+	assert(A.RecordPrice(store, 2840, 500, 1000) and store[2840][1] == 500, "first price noted")
+	assert(A.RecordPrice(store, 2840, 450, 1100) and store[2840][1] == 450, "lower in the same look")
+	assert(not A.RecordPrice(store, 2840, 600, 1200) and store[2840][1] == 450, "higher in the same look: kept")
+	assert(A.RecordPrice(store, 2840, 800, 1000 + 86400) and store[2840][1] == 800, "a later look replaces it")
+	assert(not A.RecordPrice(store, 2840, 0, 1) and not A.RecordPrice(store, nil, 5, 1), "no price, no item")
+	assert(A.PriceAge(60) == ns.L.AUCTION_AGE_NOW and A.PriceAge(7200) == ns.L.AUCTION_AGE_HOURS:format(2)
+		and A.PriceAge(3 * 86400 + 5) == ns.L.AUCTION_AGE_DAYS:format(3), "age in words")
+	local money = GetMoneyString
+	GetMoneyString = function(copper) return copper .. "c" end
+	local line = A.CraftPriceText(25, { 450, 1000 }, 1000 + 2 * 86400)
+	assert(line:find("25c", 1, true) and line:find("450c", 1, true) and line:find(ns.L.AUCTION_AGE_DAYS:format(2), 1, true), line)
+	assert(A.CraftPriceText(nil, nil, 0) == ns.L.AUCTION_CRAFT_UNKNOWN, "nothing known")
+	GetMoneyString = money
+	print("craft prices OK")
+end)()
 dofile("bundled.lua")

@@ -1027,10 +1027,13 @@ local function RefreshBagFrames()
 		frames[#frames + 1] = frame
 	end
 	for _, frame in ipairs(frames) do
-		if frame and frame.EnumerateValidItems then
+		-- A closed bag reports its size but has no buttons yet (the combined bag before the first opening).
+		if frame and frame.EnumerateValidItems and frame:IsShown() then
 			for _, button in frame:EnumerateValidItems() do
-				local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
-				UpdateGlow(button, info and info.quality, true)
+				if button then
+					local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
+					UpdateGlow(button, info and info.quality, true)
+				end
 			end
 		end
 	end

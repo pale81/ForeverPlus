@@ -18,7 +18,10 @@ local Info = ns:NewModule("Info", {
 local PERF_INTERVAL = 1
 local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
-local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame: green below 0.5, orange 0.5-2, red from 2
+local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame on average (total line): green below 0.5, orange 0.5-2, red from 2
+-- Rows of the table (highest value, frames over 1 ms): red only for a real spike or many slow frames, orange between.
+local PEAK_ORANGE, PEAK_RED = 1.5, 5
+local SLOW_ORANGE, SLOW_RED = 10, 100
 
 local _, playerClass = UnitClass("player")
 local playerName, playerRealm = UnitName("player"), GetRealmName()
@@ -258,6 +261,23 @@ local function CpuColor(ms)
 	return RED_FONT_COLOR
 end
 
+-- "green", "orange" or "red" for a row of the table.
+function Info.PeakLevel(peak, slow)
+	slow = slow or 0
+	if peak >= PEAK_RED or slow >= SLOW_RED then
+		return "red"
+	elseif peak >= PEAK_ORANGE or slow >= SLOW_ORANGE then
+		return "orange"
+	end
+	return "green"
+end
+
+local LEVEL_COLORS = { green = GREEN_FONT_COLOR, orange = ORANGE_FONT_COLOR, red = RED_FONT_COLOR }
+
+local function PeakColor(peak, slow)
+	return LEVEL_COLORS[Info.PeakLevel(peak, slow)]
+end
+
 local function StripColors(text)
 	return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
@@ -282,7 +302,7 @@ local function AddMeasureLines()
 		GameTooltip_AddHighlightLine(GameTooltip, L.TIMINGS_EMPTY)
 	end
 	for _, item in ipairs(list) do
-		local color = CpuColor(item.entry.max)
+		local color = PeakColor(item.entry.max)
 		GameTooltip:AddDoubleLine(item.name, ("%.1f ms (%d)"):format(item.entry.max, item.entry.count), 1, 1, 1, color.r, color.g, color.b)
 	end
 end
@@ -332,7 +352,7 @@ local function ShowCpuTooltip(owner)
 	local total = 0
 	for _, addon in ipairs(list) do
 		total = total + addon.ms
-		local color = CpuColor(addon.peak)
+		local color = PeakColor(addon.peak, addon.slow)
 		local own = addon.title == "ForeverPlus"
 		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,

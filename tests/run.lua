@@ -1959,6 +1959,12 @@ end)()
 	print("cpu colours OK")
 end)()
 ;(function()
+	-- Rating: a chosen talent tree wins over the automatic one, if the class has it.
+	local items = ns:GetModule("Items")
+	assert(items.PickTree(0, 2, 3) == 2 and items.PickTree(3, 2, 3) == 3 and items.PickTree(3, 1, 1) == 1 and items.PickTree(nil, 1, 3) == 1, "chosen or automatic tree")
+	print("score tree OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

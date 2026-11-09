@@ -1925,6 +1925,7 @@ end)()
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
 	assert(rows and #rows == 2 and rows[1].action and not rows[2].action and rows[2].dim, "available first, locked dimmed, used left out")
 	dialog.showLocked = false
+	assert(dialog.ToolClickable("locked", false) and dialog.ToolClickable("repair", true) and not dialog.ToolClickable("repair", false), "the switch for locked wares can be clicked while off, a dim repair cannot")
 	assert(view.buttons[2].enabled == false and view.buttons[3].enabled == true, "train needs a selection, train all is possible (button 1 says goodbye)")
 	print("trainer view OK")
 end)()

@@ -470,7 +470,7 @@ local function CreateBubble()
 			GameTooltip_Hide()
 		end)
 		tool:SetScript("OnClick", function(self)
-			if self.enabledLook then
+			if Dialog.ToolClickable(key, self.enabledLook) then
 				onClick()
 			end
 		end)
@@ -1446,6 +1446,12 @@ function Dialog.UpdateFilter()
 	local on = Dialog.db.merchantHide
 	filter.Icon:SetAlpha(filter.hover and 1 or 0.6)
 	filter.Cross:SetShown(on and true or false)
+end
+
+-- A dim symbol cannot be used (repair without the money), except the switch for wares not yet learnable: there dim
+-- only means "off", and the click switches it on.
+function Dialog.ToolClickable(key, state)
+	return state and true or key == "locked"
 end
 
 -- Repair, sell junk and restock symbols beside the book: only those the merchant offers, packed to the left.

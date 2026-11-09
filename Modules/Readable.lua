@@ -48,9 +48,9 @@ local STYLES = {
 	Silver = { art = "metal", tint = { 0.84, 0.86, 0.90 }, text = { 0.13, 0.14, 0.17 }, title = { 0.10, 0.11, 0.14 },
 		shadow = { 1, 1, 1, 0.5 }, divider = { 0.18, 0.19, 0.22, 0.7 } },
 }
--- false: the text without tags (most books are plain text, not HTML); it had no font of its own and looked odd or
--- was not drawn at all.
-local FONTS = { [false] = "QuestFont_Large", P = "QuestFont_Large", H1 = "Fancy32Font", H2 = "Fancy24Font",
+-- Text without tags (most books) has no font of its own in a SimpleHTML made in Lua and looked odd or was not drawn:
+-- it is set as a paragraph (Readable.AsHTML), so the font of P applies. The game takes no font without a tag.
+local FONTS = { P = "QuestFont_Large", H1 = "Fancy32Font", H2 = "Fancy24Font",
 	H3 = "Fancy22Font" }
 local WHEEL_STEP = 40
 
@@ -307,26 +307,27 @@ end
 -- Fonts and colours of one page's text, engraved on stone and metal (light lower edge).
 local function StyleText(text, style)
 	for tag, font in pairs(FONTS) do
-		-- SimpleHTML takes the type of text first; without it, the setting is the one for untagged text.
-		local function Set(method, ...)
-			if tag then
-				text[method](text, tag, ...)
-			else
-				text[method](text, ...)
-			end
-		end
 		local object = _G[font]
 		if object then
-			Set("SetFontObject", object)
+			text:SetFontObject(tag, object)
 		end
-		local color = (tag == "P" or not tag) and style.text or style.title
-		Set("SetTextColor", color[1], color[2], color[3])
+		local color = tag == "P" and style.text or style.title
+		text:SetTextColor(tag, color[1], color[2], color[3])
 		local shadow = style.shadow or { 0, 0, 0, 0 }
-		Set("SetShadowColor", shadow[1], shadow[2], shadow[3], shadow[4])
-		Set("SetShadowOffset", 1, -1)
+		text:SetShadowColor(tag, shadow[1], shadow[2], shadow[3], shadow[4])
+		text:SetShadowOffset(tag, 1, -1)
 	end
 	text:SetSpacing("P", 3)
-	text:SetSpacing(3)
+end
+
+-- Plain text as one HTML paragraph (line breaks kept, &, < and > escaped); HTML stays as it is.
+function Readable.AsHTML(text)
+	text = text or ""
+	if text:find("^%s*<[Hh][Tt][Mm][Ll]") then
+		return text
+	end
+	text = text:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub("\r?\n", "<br/>")
+	return "<html><body><p>" .. text .. "</p></body></html>"
 end
 
 -- The last steps of drawing a page (/fp buch verlauf, kept after /rl): to see why a text looks odd or goes away.
@@ -375,7 +376,7 @@ function Readable.TextHeight(page, content)
 end
 
 local function SetPageText(holder, text, width, height)
-	text = text or ""
+	text = Readable.AsHTML(text)
 	holder.Text:SetWidth(width)
 	holder.Text:SetHeight(height)
 	holder.Text:SetText(text)
@@ -446,7 +447,7 @@ local function Draw(look, material, pages)
 			holder:SetPoint("BOTTOMRIGHT", -area[3], area[4])
 			holder.Scroll:SetAllPoints()
 			StyleText(holder.Text, style)
-			local font = _G[FONTS[false]]
+			local font = _G[FONTS.P]
 			local file, size, flags
 			if font then
 				file, size, flags = font:GetFont()

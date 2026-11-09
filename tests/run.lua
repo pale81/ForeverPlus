@@ -1965,6 +1965,13 @@ end)()
 	print("score tree OK")
 end)()
 ;(function()
+	-- Books: plain text becomes one paragraph (the game takes fonts only per tag), HTML stays.
+	local R = ns:GetModule("Readable")
+	assert(R.AsHTML("a < b & c\nd") == "<html><body><p>a &lt; b &amp; c<br/>d</p></body></html>", R.AsHTML("a < b & c\nd"))
+	assert(R.AsHTML(" <HTML><body>x</body></HTML>") == " <HTML><body>x</body></HTML>", "HTML unchanged")
+	print("readable plain text OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

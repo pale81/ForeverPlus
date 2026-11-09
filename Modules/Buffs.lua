@@ -517,7 +517,7 @@ local function EvaluateTarget(reminder, threshold)
 		if key ~= Buffs.lastBlessingTrace then
 			Buffs.lastBlessingTrace = key
 			Trace("Ziel %s (%s, Mana %s): Segen darauf %s; Wahl %s = %s", Plain(UnitName("target")), tostring(class),
-				tostring(usesMana), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
+				tostring(Buffs.HasMana(class, usesMana)), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
 				Plain(kind and SpellName(BLESSING_KINDS[kind][1])))
 		end
 		if not kind then

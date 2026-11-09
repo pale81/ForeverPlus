@@ -3576,4 +3576,21 @@ end)()
 	GetMoneyString = money
 	print("craft prices OK")
 end)()
+;(function()
+	-- Upcoming recipes: what is not known yet, by skill, learnable now when skill and level allow it
+	local P = ns:GetModule("ProfessionPlan")
+	local list = {
+		{ name = "Grobes Schleifmittel", skill = 75 },
+		{ name = "Bronzestab", skill = 50, known = true },
+		{ name = "Kupferkettenhose", skill = 1 },
+		{ name = "Geselle", skill = 50, level = 10 },
+		{ name = "Experte", skill = 125, level = 20 },
+	}
+	local rows = P.Upcoming(list, { ["Kupferkettenhose"] = true }, 60, 12)
+	local names = {}
+	for _, row in ipairs(rows) do names[#names + 1] = row.entry.name .. (row.now and "+" or "") end
+	assert(table.concat(names, ",") == "Geselle+,Grobes Schleifmittel,Experte", table.concat(names, ","))
+	assert(#P.Upcoming(nil, {}, 0, 1) == 0, "no list")
+	print("profession plan OK")
+end)()
 dofile("bundled.lua")

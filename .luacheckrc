@@ -59,7 +59,7 @@ read_globals = {
 	"ProfessionsBookFrame",
 	"UnitHealthPercent",
 	"IsInInstance",
-	"UnitHealthMax", "UnitIsPlayer", "GetBindingKey", "GetBindingText", "UnitPowerMax", "C_LFGListRoles", "UnitIsGroupLeader", "GROUP", "UnitCanAssist", "UnitIsConnected", "UnitCanAttack", "GameTooltipTextLeft1",
+	"UnitHealthMax", "UnitIsPlayer", "GetTrainerServiceSkillReq", "GetTrainerServiceLevelReq", "ProfessionsFrame", "GetBindingKey", "GetBindingText", "UnitPowerMax", "C_LFGListRoles", "UnitIsGroupLeader", "GROUP", "UnitCanAssist", "UnitIsConnected", "UnitCanAttack", "GameTooltipTextLeft1",
 	"strsplit",
 	"SELL_PRICE",
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",

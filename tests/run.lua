@@ -1945,6 +1945,13 @@ end)()
 	print("radar collected OK")
 end)()
 ;(function()
+	-- Buff reminder for the target: only within reach (false or 0 from the game); unknown or secret keeps it.
+	local buffs = ns:GetModule("Buffs")
+	assert(buffs.OutOfRange(false) and buffs.OutOfRange(0), "out of reach")
+	assert(not buffs.OutOfRange(true) and not buffs.OutOfRange(1) and not buffs.OutOfRange(nil), "within reach or unknown")
+	print("buff range OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

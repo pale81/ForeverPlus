@@ -17,6 +17,7 @@ local Buffs = ns:NewModule("Buffs", {
 		expiringAlpha = 0.3,
 		wheelCast = false,
 		targetBuffs = true, -- buffs that can be given to others: also for a friendly player in the target
+		targetRange = true, -- the target's reminder only while the target is within reach of the buff
 		classes = {},
 	},
 })
@@ -111,6 +112,8 @@ local classDB
 local bar, placeholder, wheelHandler, events
 local buttons = {}
 local updatePending, thresholdTimer
+local RequestUpdate
+local rangeTicker, rangeSpell, rangeOut -- watches the target's distance while it lacks a buff
 
 ---------------------------------------------------------------------------
 -- Trace (/fp buff verlauf, kept after /rl): what the target button chose, what was clicked and what the game
@@ -544,6 +547,44 @@ local function EvaluateTarget(reminder, threshold)
 end
 Buffs.EvaluateTarget = EvaluateTarget
 
+-- The game's answer to "is the target within reach of this spell": false (or 0 in older clients) means out of
+-- reach; nil (no range, unknown) and a secret value count as within reach, the reminder then stays.
+function Buffs.OutOfRange(value)
+	if issecretvalue and issecretvalue(value) then
+		return false
+	end
+	return value == false or value == 0
+end
+
+local function TargetOutOfRange(spellID)
+	return Buffs.OutOfRange(C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(spellID, "target"))
+end
+
+-- No event tells of a change in distance: while the target lacks a buff, a look every half second; the
+-- reminder is rebuilt only when the target comes into or leaves reach.
+local CheckRange
+CheckRange = ns.Measured("Buffs: target range", function()
+	rangeTicker = nil
+	if not rangeSpell then
+		return
+	end
+	if TargetOutOfRange(rangeSpell) ~= rangeOut then
+		rangeOut = not rangeOut
+		RequestUpdate()
+	end
+	rangeTicker = C_Timer.NewTimer(0.5, CheckRange)
+end)
+
+local function WatchRange(spellID, out)
+	rangeSpell, rangeOut = spellID, out
+	if spellID and not rangeTicker then
+		rangeTicker = C_Timer.NewTimer(0.5, CheckRange)
+	elseif not spellID and rangeTicker then
+		rangeTicker:Cancel()
+		rangeTicker = nil
+	end
+end
+
 -- Who one button buffs: the target first (the player's own buff follows once the target has it), else the player.
 function Buffs.BuffUnit(selfMissing, targetMissing)
 	if targetMissing then
@@ -569,6 +610,7 @@ local function Update()
 
 	local count = 0
 	local nextCheck, waitingForPower
+	local watchSpell, watchOut
 	-- In rest areas (inns, cities) only when wanted; never during a flight.
 	local resting = IsResting() and not Buffs.db.restingZones
 	local flying = UnitOnTaxi("player") or IsFlying()
@@ -590,6 +632,16 @@ local function Update()
 					targetMissing, targetExpiring, targetRecheck, targetSpell = EvaluateTarget(reminder, threshold)
 					if targetRecheck then
 						nextCheck = nextCheck and min(nextCheck, targetRecheck) or targetRecheck
+					end
+					-- Out of reach: no reminder for the target (the own one still shows).
+					if targetMissing and targetSpell and Buffs.db.targetRange then
+						local out = TargetOutOfRange(targetSpell)
+						if not watchSpell then
+							watchSpell, watchOut = targetSpell, out
+						end
+						if out then
+							targetMissing = false
+						end
 					end
 				end
 				local unit = Buffs.BuffUnit(missing, targetMissing)
@@ -614,6 +666,7 @@ local function Update()
 			end
 		end
 	end
+	WatchRange(watchSpell, watchOut)
 	-- The key shows on the first button.
 	local key = GetBindingKey(BINDING)
 	if buttons[1] and buttons[1].HotKey then
@@ -653,7 +706,7 @@ local function Update()
 	end
 end
 
-local function RequestUpdate()
+function RequestUpdate()
 	if not updatePending then
 		updatePending = true
 		C_Timer.After(UPDATE_DELAY, Update)
@@ -791,6 +844,8 @@ function Buffs:options()
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
 		{ key = "targetBuffs", type = "toggle", name = L.BUFFS_TARGET, desc = L.BUFFS_TARGET_DESC, parent = "enabled",
 			new = true },
+		{ key = "targetRange", type = "toggle", name = L.BUFFS_TARGET_RANGE, desc = L.BUFFS_TARGET_RANGE_DESC,
+			parent = "targetBuffs", new = true },
 		{ key = "restingZones", type = "toggle", name = L.BUFFS_RESTING, desc = L.BUFFS_RESTING_DESC, parent = "enabled" },
 		{ key = "skipFishing", type = "toggle", name = L.BUFFS_SKIP_FISHING, desc = L.BUFFS_SKIP_FISHING_DESC, parent = "enabled" },
 		{ key = "threshold", type = "slider", name = L.BUFFS_THRESHOLD, desc = L.BUFFS_THRESHOLD_DESC, parent = "enabled",

@@ -1972,6 +1972,36 @@ end)()
 	print("readable plain text OK")
 end)()
 ;(function()
+	-- Settings: a module listed with chosen keys shows only those; every option with a key must be on some page.
+	local listed, keyed = {}, {}
+	for _, page in ipairs(ns.SettingsPages) do
+		for _, entry in ipairs(page) do
+			local name = entry[1]
+			if entry.keys then
+				keyed[name] = keyed[name] or {}
+				for key in pairs(entry.keys) do keyed[name][key] = true end
+			else
+				listed[name] = true
+			end
+		end
+	end
+	local missing = {}
+	for name, keys in pairs(keyed) do
+		if not listed[name] then
+			local module = ns:GetModule(name)
+			local options = type(module.options) == "function" and module:options() or module.options or {}
+			for _, opt in ipairs(options) do
+				if opt.key and opt.type ~= "header" and opt.type ~= "button" and not keys[opt.key] then
+					missing[#missing + 1] = name .. "." .. opt.key
+				end
+			end
+		end
+	end
+	table.sort(missing)
+	assert(#missing == 0, "options on no settings page: " .. table.concat(missing, ", "))
+	print("settings pages OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

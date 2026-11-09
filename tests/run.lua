@@ -2002,6 +2002,16 @@ end)()
 	print("settings pages OK")
 end)()
 ;(function()
+	-- Switching the thin line on grey items with the combined bag never opened: size without buttons.
+	local saved = ContainerFrameCombinedBags
+	local function Empty(_, index) index = index + 1 if index <= 2 then return index, nil end end
+	ContainerFrameCombinedBags = { IsShown = function() return true end, EnumerateValidItems = function(self) return Empty, self, 0 end }
+	local ok, err = pcall(ns:GetModule("Visuals").OnOptionChanged, ns:GetModule("Visuals"), "bagActionFrame")
+	ContainerFrameCombinedBags = saved
+	assert(ok, err)
+	print("bag frame refresh OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

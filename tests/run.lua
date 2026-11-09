@@ -1952,6 +1952,13 @@ end)()
 	print("buff range OK")
 end)()
 ;(function()
+	-- Performance table: red only from 5 ms or 100 frames over 1 ms, orange from 1.5 ms or 10 frames.
+	local info = ns:GetModule("Info")
+	assert(info.PeakLevel(0.8, 3) == "green" and info.PeakLevel(2, 3) == "orange" and info.PeakLevel(0.8, 20) == "orange", "orange between")
+	assert(info.PeakLevel(5.2, 0) == "red" and info.PeakLevel(1, 150) == "red" and info.PeakLevel(3) == "orange", "red only for real spikes")
+	print("cpu colours OK")
+end)()
+;(function()
 	-- Merchant in the bubble: rows with prices, Buy needs a selection that can be paid; keys: Tab moves the light.
 	local dialog = ns:GetModule("Dialog")
 	local tools = ns.MerchantTools

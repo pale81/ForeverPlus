@@ -212,23 +212,6 @@ local function AddScrollBar(frame, scroll)
 	ScrollUtil.RegisterScrollBoxWithScrollBar(scroll:GetScrollBox(), scrollBar)
 end
 
--- Read-only scrolling text.
-function ns.ShowTextWindow(key, title, text)
-	local frame = windows[key]
-	if not frame then
-		frame = CreateWindow(key, 420, 480)
-		frame.Scroll = CreateFrame("Frame", nil, frame, "ForeverPlusScrollingFontTemplate")
-		frame.Scroll:SetPoint("TOPLEFT", PADDING + 4, -40)
-		frame.Scroll:SetPoint("BOTTOMRIGHT", -30, PADDING + 4)
-		ns.AddPanelInset(frame, frame.Scroll)
-		AddScrollBar(frame, frame.Scroll)
-	end
-	frame.TitleText:SetText(title)
-	frame.Scroll:SetText(text)
-	frame:Show()
-	return frame
-end
-
 -- Text input; onAccept(text) is called by the button. The text starts
 -- selected, so Ctrl+C copies it right away. extras: more buttons left of the main one, { { text, onClick(text) } }.
 -- A trace (/fp taschen verlauf, /fp blase verlauf) in a window to copy, like /fp diagnose.

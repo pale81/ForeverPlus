@@ -1480,8 +1480,7 @@ end
 -- A choice that asks the server for the next step (gossip option, quest, accept, continue): until the next step
 -- arrives the old one must not stay on screen. It did, in full (also the text just read), and was then replaced by
 -- the new text, which came in slowly: the text seemed to appear whole, vanish and come again.
-local PENDING_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
-	QUEST_COMPLETE = true }
+local PENDING_KINDS = SCROLL_KINDS -- the same steps: those of a conversation
 local PENDING_WAIT = 1.5 -- seconds after which a step that did not change comes back
 -- A step reached with "back" is not the one the game is at: its choices often get no answer (the bubble stayed
 -- empty for PENDING_WAIT and the old step came again without a word). It comes back sooner.
@@ -1552,14 +1551,6 @@ function Dialog.CloseCurrent()
 	elseif kind == "TRAINER_SHOW" and CloseTrainer then
 		CloseTrainer()
 	end
-end
-
--- Lights the option Space takes.
-function Dialog.ShowSelection()
-	if not bubble then
-		return
-	end
-	Dialog.Rerender()
 end
 
 local function Show(view, fromBack)

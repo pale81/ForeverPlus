@@ -22,7 +22,6 @@ local Items = ns:NewModule("Items", {
 		moneyPickup = true,
 		upgradeScore = false,
 		upgradePopup = true,
-		upgradeStyle = "FOREVER",
 		upgradeCelebrate = true,
 		upgradeMarkOld = false,
 		fastLoot = true,
@@ -367,18 +366,40 @@ local function IsRed(color)
 	return color and color.r > 0.99 and color.g < 0.2 and color.b < 0.2
 end
 
--- Red lines in the item tooltip mean the player cannot use it (class, armor type, level).
-local function CanUse(bag, slot)
-	local data = C_TooltipInfo.GetBagItem(bag, slot)
-	if not data or not data.lines then
-		return false
+-- Red lines in the item tooltip mean the player cannot use it (class, armor type, level): "ok", "level" when the
+-- only red line is the level the item needs (usable later), "no" otherwise.
+function Items.UseBlock(lines, levelPattern)
+	if not lines then
+		return "no"
 	end
-	for _, line in ipairs(data.lines) do
+	local level = false
+	for _, line in ipairs(lines) do
 		if IsRed(line.leftColor) or IsRed(line.rightColor) then
-			return false
+			local text = line.leftText
+			if levelPattern and type(text) == "string" and not ns.Secret(text) and text:find(levelPattern) then
+				level = true
+			else
+				return "no"
+			end
 		end
 	end
-	return true
+	return level and "level" or "ok"
+end
+
+local function LevelPattern()
+	if Items.levelPattern == nil then
+		Items.levelPattern = type(ITEM_MIN_LEVEL) == "string" and ns.FormatToPattern(ITEM_MIN_LEVEL, true).pattern or false
+	end
+	return Items.levelPattern or nil
+end
+
+local function BagUseBlock(bag, slot)
+	local data = C_TooltipInfo.GetBagItem(bag, slot)
+	return Items.UseBlock(data and data.lines, LevelPattern())
+end
+
+local function CanUse(bag, slot)
+	return BagUseBlock(bag, slot) == "ok"
 end
 
 local function IsBestArmorType(classID, subClassID, equipLoc)
@@ -496,7 +517,12 @@ local function IsUpgrade(bag, slot, link)
 	if score == nil then
 		return false
 	end
-	local result = score and score > equippedScore + 0.01 and CanUse(bag, slot) or false
+	-- Better, but the level is still missing: "later" (a grey arrow).
+	local result = false
+	if score and score > equippedScore + 0.01 then
+		local block = BagUseBlock(bag, slot)
+		result = block == "ok" or (block == "level" and "later") or false
+	end
 	upgradeCache[link] = result
 	return result
 end
@@ -583,29 +609,62 @@ end
 
 local ShowNextUpgrade
 
--- Size and opacity of the big sign t seconds into its pop: grows from a quarter to 1.35 (eased out), settles to 1,
--- fades in during the first 0.12 s. Third value true once it is over (size 1, fully visible).
-local POP_GROW, POP_SETTLE, POP_FADE = 0.22, 0.16, 0.12
-function Items.PopScale(t)
-	local alpha = math.min(1, t / POP_FADE)
-	if t < POP_GROW then
-		local p = 1 - (1 - t / POP_GROW) ^ 2
-		return 0.25 + 1.1 * p, alpha, false
-	elseif t < POP_GROW + POP_SETTLE then
-		return 1.35 - 0.35 * (t - POP_GROW) / POP_SETTLE, 1, false
+-- The window looks like the game's loot upgrade toast (its background, the quality border of the item, arrows that
+-- rise over the icon, a glow on the border), with the two buttons below it.
+local TOAST_BORDER = { [0] = "gray", [1] = "white", [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
+
+-- The gain over the worn item in percent (nil for an empty slot) and the title line of the toast.
+function Items.UpgradeGain(score, equippedScore)
+	if equippedScore and equippedScore > 0 then
+		return (score / equippedScore - 1) * 100
 	end
-	return 1, 1, true
+end
+
+local function SetAtlasOr(texture, atlas, fallback)
+	if C_Texture.GetAtlasInfo(atlas) then
+		texture:SetAtlas(atlas, true)
+		return true
+	end
+	if fallback then
+		fallback()
+	end
+	return false
 end
 
 local function CreateUpgradeFrame()
-	local frame = ns.CreatePanel("ForeverPlusUpgradeFrame", { close = true })
-	frame:SetSize(400, 214)
+	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent)
+	frame:SetSize(276, 96)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
-	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_TITLE)
+	frame:SetFrameStrata("DIALOG")
+	frame:SetToplevel(true)
+	frame:SetClampedToScreen(true)
+	frame:RegisterForClicks("RightButtonUp")
+	frame:Hide()
+	-- Escape closes it like the panel before.
+	tinsert(UISpecialFrames, "ForeverPlusUpgradeFrame")
 
-	local icon = CreateFrame("ItemButton", nil, frame)
-	icon:SetPoint("TOPLEFT", ns.PANEL_PADDING + 2, -36)
-	icon:SetScript("OnEnter", function(self)
+	frame.Background = frame:CreateTexture(nil, "BACKGROUND")
+	frame.Background:SetPoint("TOPLEFT")
+	SetAtlasOr(frame.Background, "loottoast-bg-questrewardupgrade", function()
+		frame.Background:SetAllPoints()
+		frame.Background:SetColorTexture(0.08, 0.08, 0.1, 0.92)
+	end)
+
+	frame.Border = frame:CreateTexture(nil, "BORDER", nil, 2)
+	frame.Border:SetPoint("LEFT", frame.Background, "LEFT", 19, -1)
+	frame.Icon = frame:CreateTexture(nil, "BORDER", nil, 1)
+	frame.Icon:SetSize(50, 50)
+	frame.Icon:SetPoint("LEFT", frame, "LEFT", 23, -1)
+	frame.Glow = frame:CreateTexture(nil, "BORDER", nil, 4)
+	frame.Glow:SetPoint("CENTER", frame.Icon, "CENTER")
+	frame.Glow:SetBlendMode("ADD")
+	frame.Glow:SetAlpha(0)
+	SetAtlasOr(frame.Glow, "loottoast-itemborder-glow")
+
+	-- Pointing at the icon shows the item.
+	local hit = CreateFrame("Frame", nil, frame)
+	hit:SetAllPoints(frame.Icon)
+	hit:SetScript("OnEnter", function(self)
 		local entry = upgradeQueue[1]
 		if entry then
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -613,147 +672,89 @@ local function CreateUpgradeFrame()
 			GameTooltip:Show()
 		end
 	end)
-	icon:SetScript("OnLeave", GameTooltip_Hide)
-	frame.Icon = icon
+	hit:SetScript("OnLeave", GameTooltip_Hide)
 
-	local name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, -2)
-	name:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
-	name:SetJustifyH("LEFT")
-	frame.Name = name
+	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 14, 2)
+	frame.Title:SetPoint("RIGHT", -18, 0)
+	frame.Title:SetJustifyH("LEFT")
+	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -3)
+	frame.Name:SetPoint("RIGHT", -18, 0)
+	frame.Name:SetJustifyH("LEFT")
+	frame.Name:SetWordWrap(false)
+	frame.Score = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	frame.Score:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -3)
+	frame.Score:SetPoint("RIGHT", -18, 0)
+	frame.Score:SetJustifyH("LEFT")
+	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	frame.Replaces:SetPoint("TOPLEFT", frame.Score, "BOTTOMLEFT", 0, -2)
+	frame.Replaces:SetPoint("RIGHT", -18, 0)
+	frame.Replaces:SetJustifyH("LEFT")
+	frame.Replaces:SetWordWrap(false)
 
-	local replaces = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
-	replaces:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -4)
-	replaces:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
-	replaces:SetJustifyH("LEFT")
-	replaces:SetTextColor(DISABLED_FONT_COLOR:GetRGB())
-	frame.Replaces = replaces
+	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButtonNoScripts")
+	close:SetSize(20, 20)
+	close:SetPoint("TOPRIGHT", -4, -4)
+	close:SetScript("OnClick", function()
+		frame:Hide()
+	end)
 
-	local score = frame:CreateFontString(nil, "ARTWORK", "GameTooltipText")
-	score:SetPoint("BOTTOMLEFT", ns.PANEL_PADDING + 2, ns.PANEL_PADDING + 34)
-	score:SetPoint("RIGHT", -ns.PANEL_PADDING, 0)
-	score:SetJustifyH("LEFT")
-	frame.Score = score
-
-	-- "Forever" look: the gain as a big number that pops up, with rising arrows beside it.
-	local big = CreateFrame("Frame", nil, frame)
-	big:SetSize(260, 56)
-	big:SetPoint("TOP", frame, "TOP", 0, -92)
-	big.Text = big:CreateFontString(nil, "OVERLAY")
-	big.Text:SetPoint("CENTER", 12, 0)
-	big.Text:SetJustifyH("CENTER")
-	big.Text:SetShadowOffset(2, -2)
-	big.Text:SetShadowColor(0, 0, 0, 1)
-	big.Arrows = {}
-	for index = 1, 2 do
-		local arrow = big:CreateTexture(nil, "OVERLAY")
-		arrow:SetAtlas("bags-greenarrow", true)
-		arrow:SetScale(2.2)
-		arrow:SetPoint("RIGHT", big.Text, "LEFT", -6 - (index - 1) * 2, 0)
-		big.Arrows[index] = arrow
-	end
-	-- The pop is driven by SetScale, not by a Scale animation: the animation left the sign tiny (and its letters
-	-- garbled) at times, even after Stop(). SetScale ends at an exact size, and the text is drawn at that size.
-	local CENTER_Y = -92 - 28 -- centre of the sign below the top of the window
-	local function SetPop(scale, alpha)
-		big:SetScale(scale)
-		big:ClearAllPoints()
-		big:SetPoint("CENTER", frame, "TOP", 0, CENTER_Y / scale) -- offsets count in the sign's own scale
-		big:SetAlpha(alpha)
-	end
-	function big.FinishPop()
-		big.popTime = nil
-		ns.SetUpdate(big, "Items: upgrade pop", nil)
-		SetPop(1, 1)
-	end
-	function big.PlayPop()
-		big.popTime = 0
-		SetPop(Items.PopScale(0))
-		ns.SetUpdate(big, "Items: upgrade pop", function(_, elapsed)
-			big.popTime = big.popTime + elapsed
-			local scale, alpha, done = Items.PopScale(big.popTime)
-			if done then
-				big.FinishPop()
-			else
-				SetPop(scale, alpha)
-			end
-		end)
-	end
-	-- Hidden halfway (combat, closed): the sign must not wait at a small size for the next time.
-	big:SetScript("OnHide", big.FinishPop)
-	-- The arrows keep lifting a little, so the sign stays alive.
-	local lift = big:CreateAnimationGroup()
-	lift:SetLooping("BOUNCE")
-	for index = 1, 2 do
-		local move = lift:CreateAnimation("Translation")
-		move:SetTarget(big.Arrows[index])
-		move:SetOrder(1)
-		move:SetDuration(0.5)
-		move:SetOffset(0, 5)
-		move:SetSmoothing("IN_OUT")
-	end
-	big.Lift = lift
-	frame.Big = big
-
-	-- Celebration (option): a golden frame that breathes around the window, the window popping up, and sparks that
-	-- fly out from the picture, like a level up.
-	-- On the edge of the window itself (one frame, not a second one around it) in gold.
-	local glow = CreateFrame("Frame", nil, frame)
-	glow:SetAllPoints(frame)
-	glow:SetFrameLevel(frame:GetFrameLevel() + 20)
-	glow:EnableMouse(false)
-	ns.CreatePixelBorder(glow, glow, 2, "OVERLAY", 7):ShowColor(1, 0.82, 0.3, 0.95)
-	glow.Breathe = glow:CreateAnimationGroup()
-	glow.Breathe:SetLooping("BOUNCE")
-	local breathe = glow.Breathe:CreateAnimation("Alpha")
-	breathe:SetFromAlpha(1)
-	breathe:SetToAlpha(0.3)
-	breathe:SetDuration(0.7)
-	breathe:SetSmoothing("IN_OUT")
-	glow:Hide()
-	frame.Glow = glow
-	frame.Popup = frame:CreateAnimationGroup()
-	local up = frame.Popup:CreateAnimation("Scale")
-	up:SetOrder(1)
-	up:SetDuration(0.16)
-	up:SetScaleFrom(0.7, 0.7)
-	up:SetScaleTo(1.06, 1.06)
-	up:SetSmoothing("OUT")
-	local back = frame.Popup:CreateAnimation("Scale")
-	back:SetOrder(2)
-	back:SetDuration(0.12)
-	back:SetScaleFrom(1.06, 1.06)
-	back:SetScaleTo(1, 1)
-	back:SetSmoothing("IN_OUT")
-	frame.Sparks = {}
-	for index = 1, 12 do
-		local spark = frame:CreateTexture(nil, "OVERLAY", nil, 7)
-		spark:SetTexture([[Interface\Cooldown\star4]])
-		spark:SetBlendMode("ADD")
-		spark:SetVertexColor(1, 0.9, 0.5)
-		spark:SetSize(16 + (index % 3) * 6, 16 + (index % 3) * 6)
-		spark:SetPoint("CENTER", icon, "CENTER")
-		spark:SetAlpha(0)
-		local group = spark:CreateAnimationGroup()
-		local angle = (index - 1) / 12 * 2 * math.pi
-		local distance = 70 + (index % 4) * 25
-		local move = group:CreateAnimation("Translation")
-		move:SetOffset(math.cos(angle) * distance, math.sin(angle) * distance * 0.7)
-		move:SetDuration(0.9)
-		move:SetSmoothing("OUT")
-		local show = group:CreateAnimation("Alpha")
-		show:SetOrder(1)
-		show:SetFromAlpha(1)
-		show:SetToAlpha(0)
-		show:SetDuration(0.9)
-		show:SetSmoothing("IN")
-		group:SetToFinalAlpha(true)
-		frame.Sparks[index] = group
+	-- In: fades in while sliding up a little; the arrows rise over the icon one after another, the border glows.
+	frame.In = frame:CreateAnimationGroup()
+	frame.In:SetToFinalAlpha(true)
+	local fade = frame.In:CreateAnimation("Alpha")
+	fade:SetFromAlpha(0)
+	fade:SetToAlpha(1)
+	fade:SetDuration(0.25)
+	local slide = frame.In:CreateAnimation("Translation")
+	slide:SetOffset(0, 12)
+	slide:SetDuration(0.25)
+	slide:SetSmoothing("OUT")
+	frame.Celebrate = frame:CreateAnimationGroup()
+	frame.Celebrate:SetToFinalAlpha(true)
+	local glowIn = frame.Celebrate:CreateAnimation("Alpha")
+	glowIn:SetTarget(frame.Glow)
+	glowIn:SetStartDelay(0.2)
+	glowIn:SetFromAlpha(0)
+	glowIn:SetToAlpha(1)
+	glowIn:SetDuration(0.6)
+	glowIn:SetSmoothing("IN")
+	local glowOut = frame.Celebrate:CreateAnimation("Alpha")
+	glowOut:SetTarget(frame.Glow)
+	glowOut:SetStartDelay(0.9)
+	glowOut:SetFromAlpha(1)
+	glowOut:SetToAlpha(0)
+	glowOut:SetDuration(0.8)
+	frame.Arrows = {}
+	for index, x in ipairs({ 0, 16, -16, 5, -12 }) do
+		local arrow = frame:CreateTexture(nil, "ARTWORK")
+		arrow:SetPoint("CENTER", frame.Icon, "CENTER", x, -8)
+		arrow:SetAlpha(0)
+		frame.Arrows[index] = arrow
+		local delay = 0.4 + (index - 1) * 0.12
+		local show = frame.Celebrate:CreateAnimation("Alpha")
+		show:SetTarget(arrow)
+		show:SetStartDelay(delay)
+		show:SetFromAlpha(0)
+		show:SetToAlpha(1)
+		show:SetDuration(0.2)
+		local hide = frame.Celebrate:CreateAnimation("Alpha")
+		hide:SetTarget(arrow)
+		hide:SetStartDelay(delay + 0.3)
+		hide:SetFromAlpha(1)
+		hide:SetToAlpha(0)
+		hide:SetDuration(0.2)
+		local rise = frame.Celebrate:CreateAnimation("Translation")
+		rise:SetTarget(arrow)
+		rise:SetStartDelay(delay)
+		rise:SetOffset(0, 50)
+		rise:SetDuration(0.5)
 	end
 
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	equip:SetSize(110, 24)
-	equip:SetPoint("BOTTOMRIGHT", -ns.PANEL_PADDING, ns.PANEL_PADDING)
+	equip:SetSize(110, 22)
+	equip:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", -14, 2)
 	equip:SetText(L.ITEMS_UPGRADE_POPUP_EQUIP)
 	equip:SetScript("OnClick", function()
 		local entry = table.remove(upgradeQueue, 1)
@@ -768,18 +769,19 @@ local function CreateUpgradeFrame()
 		end
 		ShowNextUpgrade()
 	end)
-
 	local later = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	later:SetSize(110, 24)
-	later:SetPoint("RIGHT", equip, "LEFT", -8, 0)
+	later:SetSize(110, 22)
+	later:SetPoint("RIGHT", equip, "LEFT", -6, 0)
 	later:SetText(L.ITEMS_UPGRADE_POPUP_LATER)
-	later:SetScript("OnClick", function()
+	local function Later()
 		table.remove(upgradeQueue, 1)
 		ShowNextUpgrade()
-	end)
+	end
+	later:SetScript("OnClick", Later)
+	-- A right click on the toast is "not now".
+	frame:SetScript("OnClick", Later)
 
-	-- Escape closes it; the offers stay declined for this session. Hiding
-	-- for combat keeps them.
+	-- Escape closes it; the offers stay declined for this session. Hiding for combat keeps them.
 	frame:SetScript("OnHide", function(self)
 		if not self.combatHide then
 			wipe(upgradeQueue)
@@ -787,77 +789,6 @@ local function CreateUpgradeFrame()
 		self.combatHide = nil
 	end)
 	return frame
-end
-
--- Retail look: the item icon of the game's loot toast with its border, burst and arrows rising over it.
-local function GetRetailIcon(frame)
-	if frame.RetailIcon == nil then
-		local ok, button = pcall(CreateFrame, "Button", nil, frame, "LootItemExtended")
-		if ok and button and button.Icon and button.animArrows and button.IconAnim then
-			button:ClearAllPoints()
-			button:SetPoint("TOPLEFT", ns.PANEL_PADDING + 2, -36)
-			button:EnableMouse(false)
-			frame.RetailIcon = button
-		else
-			frame.RetailIcon = false
-		end
-	end
-	return frame.RetailIcon or nil
-end
-
-local RETAIL_BORDER = { [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
-
-local function ShowRetailIcon(frame, texture, quality)
-	local retail = Items.db.upgradeStyle == "RETAIL" and GetRetailIcon(frame)
-	if not retail then
-		if frame.RetailIcon then
-			frame.RetailIcon:Hide()
-		end
-		frame.Icon:Show()
-		return false
-	end
-	retail.Icon:SetTexture(texture)
-	local atlas = "loottoast-itemborder-" .. (RETAIL_BORDER[quality or 2] or "gold")
-	if C_Texture.GetAtlasInfo(atlas) then
-		retail.IconBorder:SetAtlas(atlas, true)
-	end
-	frame.Icon:Hide()
-	retail:Show()
-	retail.IconAnim:Stop()
-	retail.IconAnim:Play()
-	retail.animArrows:Stop()
-	retail.animArrows:Play()
-	return true
-end
-
--- Plays (or stops) the celebration of the window.
-local function Celebrate(frame)
-	local on = Items.db.upgradeCelebrate
-	frame.Glow:SetShown(on and true or false)
-	frame.Glow.Breathe:Stop()
-	frame.Popup:Stop()
-	for _, group in ipairs(frame.Sparks) do
-		group:Stop()
-	end
-	if not on then
-		return
-	end
-	frame.Glow.Breathe:Play()
-	frame.Popup:Play()
-	-- The window ends at its normal size whatever the animation did (it stayed small at times).
-	frame.popupToken = ns.Number(frame.popupToken, 0) + 1
-	local token = frame.popupToken
-	ns.After("Items: Celebrate (timer)", 0.5, function()
-		if frame.popupToken == token then
-			frame.Popup:Stop()
-		end
-	end)
-	for _, group in ipairs(frame.Sparks) do
-		group:Play()
-	end
-	if SOUNDKIT and SOUNDKIT.UI_EPICLOOT_TOAST then
-		PlaySound(SOUNDKIT.UI_EPICLOOT_TOAST)
-	end
 end
 
 function ShowNextUpgrade()
@@ -871,33 +802,57 @@ function ShowNextUpgrade()
 	upgradeFrame = upgradeFrame or CreateUpgradeFrame()
 	local frame = upgradeFrame
 	local itemName, _, quality, _, _, _, _, _, _, texture = C_Item.GetItemInfo(entry.link)
-	SetItemButtonTexture(frame.Icon, texture)
-	SetItemButtonQuality(frame.Icon, quality, entry.link)
+	local border = TOAST_BORDER[quality or 2] or "gold"
+	frame.Icon:SetTexture(texture)
+	SetAtlasOr(frame.Border, "loottoast-itemborder-" .. border)
+	for _, arrow in ipairs(frame.Arrows) do
+		SetAtlasOr(arrow, "loottoast-arrow-" .. ((border == "gray" or border == "white") and "green" or border))
+	end
 	local color = quality and ITEM_QUALITY_COLORS[quality]
 	frame.Name:SetText(itemName or entry.link)
 	if color then
 		frame.Name:SetTextColor(color.r, color.g, color.b)
 	end
+	local gain = Items.UpgradeGain(entry.score, entry.equippedScore)
+	frame.Title:SetText(gain and L.ITEMS_UPGRADE_TOAST_TITLE:format(gain) or L.ITEMS_UPGRADE_TOAST_NEW)
+	frame.Score:SetText(gain and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.equippedScore, entry.score, gain)
+		or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score))
 	local equipped = entry.invSlot and GetInventoryItemLink("player", entry.invSlot)
 	local equippedName = equipped and C_Item.GetItemInfo(equipped)
 	frame.Replaces:SetText(equippedName and L.ITEMS_UPGRADE_POPUP_REPLACES:format(equippedName) or L.ITEMS_UPGRADE_POPUP_EMPTY)
-	local gain = entry.equippedScore > 0 and (entry.score / entry.equippedScore - 1) * 100
-	frame.Score:SetText(gain and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.equippedScore, entry.score, gain)
-		or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score))
-	local retail = ShowRetailIcon(frame, texture, quality)
-	local big = frame.Big
-	big.Text:SetFont(ns.GetFontFace(), 44, "THICKOUTLINE")
-	big.Text:SetText(gain and L.ITEMS_UPGRADE_POPUP_GAIN:format(gain) or L.ITEMS_UPGRADE_POPUP_NEW)
-	big.Text:SetTextColor(0.25, 1, 0.3)
-	big:SetShown(not retail)
+	local wasShown = frame:IsShown()
 	frame:Show()
-	Celebrate(frame)
-	if not retail then
-		big.PlayPop()
-		big.Lift:Play()
-	else
-		big.Lift:Stop()
+	if not wasShown then
+		frame.In:Stop()
+		frame.In:Play()
 	end
+	frame.Celebrate:Stop()
+	if Items.db.upgradeCelebrate then
+		frame.Celebrate:Play()
+		if SOUNDKIT and SOUNDKIT.UI_EPICLOOT_TOAST then
+			PlaySound(SOUNDKIT.UI_EPICLOOT_TOAST)
+		end
+	end
+end
+
+-- /fp aufwertung: the toast with the first piece of equipment in the bags, to see how it looks.
+function Items.PreviewUpgrade()
+	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			local link = info and info.hyperlink
+			if link and C_Item.IsEquippableItem(link) then
+				local score, equippedScore = CompareScores(link)
+				if score then
+					table.insert(upgradeQueue, 1, { link = link, score = score, equippedScore = equippedScore, invSlot = TargetSlot(link) })
+					ShowNextUpgrade()
+					return true
+				end
+			end
+		end
+	end
+	ns.PrintAlways(L.ITEMS_UPGRADE_PREVIEW_NONE)
+	return false
 end
 
 local function ItemKey(bag, slot, link)
@@ -971,7 +926,10 @@ local function UpdateButton(button)
 		if Items.db.upgradeArrow and info and info.hyperlink and C_Item.IsEquippableItem(info.hyperlink) then
 			show = IsUpgrade(bag, slot, info.hyperlink)
 		end
-		button.UpgradeIcon:SetShown(show)
+		button.UpgradeIcon:SetShown(show and true or false)
+		-- Usable only at a higher level: the arrow is grey.
+		button.UpgradeIcon:SetDesaturated(show == "later")
+		button.UpgradeIcon:SetAlpha(show == "later" and 0.75 or 1)
 	end
 end
 
@@ -2470,9 +2428,6 @@ Items.options = {
 	{ key = "upgradePopup", type = "toggle", name = L.ITEMS_UPGRADE_POPUP, desc = L.ITEMS_UPGRADE_POPUP_DESC },
 	{ key = "upgradeCelebrate", type = "toggle", name = L.ITEMS_UPGRADE_CELEBRATE, desc = L.ITEMS_UPGRADE_CELEBRATE_DESC, parent = "upgradePopup", new = true },
 	{ key = "upgradeMarkOld", type = "toggle", name = L.ITEMS_UPGRADE_MARK_OLD, desc = L.ITEMS_UPGRADE_MARK_OLD_DESC, parent = "upgradePopup", new = true },
-	{ key = "upgradeStyle", type = "dropdown", name = L.ITEMS_UPGRADE_STYLE, desc = L.ITEMS_UPGRADE_STYLE_DESC, parent = "upgradePopup", values = {
-		{ "FOREVER", L.ITEMS_UPGRADE_STYLE_FOREVER }, { "RETAIL", L.ITEMS_UPGRADE_STYLE_RETAIL },
-	}, new = true },
 	{ type = "header", name = L.ITEMS_LOOT },
 	{ key = "fastLoot", type = "toggle", name = L.ITEMS_FASTLOOT, desc = L.ITEMS_FASTLOOT_DESC },
 	{ key = "destroyPrompt", type = "toggle", name = L.ITEMS_DESTROY, desc = L.ITEMS_DESTROY_DESC },

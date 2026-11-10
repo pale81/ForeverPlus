@@ -761,6 +761,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Fonts").Inspect()
 	elseif msg == "taschen verlauf" or msg == "bags trace" then
 		ns:GetModule("Items").PrintTrace()
+	elseif msg == "aufwertung" or msg == "upgrade" then
+		ns:GetModule("Items").PreviewUpgrade()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
 	elseif msg == "export" then

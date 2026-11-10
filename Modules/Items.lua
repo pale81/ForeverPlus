@@ -327,6 +327,7 @@ local function GetWeights()
 	weights = classWeights
 	return weights, weightsName
 end
+ns.StatWeights = GetWeights -- for the ranking of the attributes in the character window
 
 -- Weighted value of an item; weapon DPS counts per slot (melee/ranged).
 -- Weapon DPS from the tooltip line, for clients whose item stats lack it.

@@ -218,6 +218,8 @@ read_globals = {
 	"Enum",
 	"C_TaxiMap",
 	"Screenshot",
+	"GameFontNormal",
+	"CharacterStatsPaneScrollBox",
 	"GetTaxiMapID",
 	"EventRegistry",
 	"TextSizeManager",

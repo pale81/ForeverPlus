@@ -276,6 +276,7 @@ local PAGES = {
 		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu", "moneyPickup", "fullSound", "fullSoundChoice") },
 		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "rewardUpgrade", "scoreSpec", "upgradeScore",
 			"upgradePopup", "upgradeCelebrate", "upgradeMarkOld", "upgradeStyle") },
+		{ "StatRank", header = L.STATRANK_TITLE },
 		{ "Durability" },
 		{ "Items", header = L.ITEMS_LOOT, keys = Keys("fastLoot", "destroyPrompt", "autoBind", "autoEquipBind", "deleteText", "rollCounts") },
 		{ "Auction", header = L.AUCTION_TITLE },

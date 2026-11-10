@@ -1341,3 +1341,6 @@ L.MOMENTS_SOUND_DESC = "Plays a victory sound at a level-up, in addition to the 
 L.MOMENTS_SOUND_KIT = "Sound"
 L.MOMENTS_SOUND_NAME = "Sound %d"
 L.MOMENTS_SOUND_TEST = "Play the sound"
+L.STATRANK_TITLE = "Attributes by importance"
+L.STATRANK_ENABLE = "Highlight attributes by importance"
+L.STATRANK_ENABLE_DESC = "In the character window the names of the values show how much they matter for your talent tree: the most important ones larger and bright, useful ones as usual, minor ones dull, useless ones grey. Values are compared within a group (base attributes; attack and spell power; hit, crit, dodge …). It uses the weights of the item rating; the talent tree chosen there (\"Rating by talent tree\" under Items) counts here too."

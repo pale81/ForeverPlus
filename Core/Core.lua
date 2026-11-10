@@ -565,12 +565,6 @@ local function InitDatabase()
 	ns.db, ns.cdb = db, cdb
 end
 
--- Resets one module to its defaults (requires a reload to undo hooks cleanly).
-function ns:ResetModule(module)
-	wipe(module.db)
-	CopyDefaults(module.defaults or {}, module.db)
-end
-
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")

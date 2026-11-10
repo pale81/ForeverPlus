@@ -223,6 +223,7 @@ local function ResetFilter()
 end
 
 local refreshQueued = false
+local UpdateFilterStatus -- below, after the paging
 
 -- Redraws Blizzard's list from the view, a moment later so that several
 -- changes (arriving item data, remaining rows) cost one redraw.
@@ -238,6 +239,7 @@ local function QueueRefresh(delay)
 		if Auction.db.vendorBuyFilter and itemList and itemList.RefreshScrollFrame then
 			itemList:RefreshScrollFrame()
 		end
+		UpdateFilterStatus(browseFrame)
 	end)
 end
 
@@ -343,8 +345,44 @@ local function SetFilterProvider(browseFrame, on)
 	end
 end
 
+-- The line under the turning symbol while the filter has no hit yet: how far the search is, so a long search does
+-- not look stuck; after it ended without hits, how much was searched.
+function Auction.FilterStatusText(pages, hits, done)
+	if hits > 0 then
+		return nil
+	elseif done then
+		return L.AUCTION_FILTER_STATUS_DONE:format(pages)
+	end
+	return L.AUCTION_FILTER_STATUS:format(pages, FILTER_AUTO_PAGES, FILTER_AUTO_SECONDS)
+end
+
+function UpdateFilterStatus(browseFrame)
+	local itemList = browseFrame and browseFrame.ItemList
+	if not (itemList and itemList.CreateFontString) then
+		return
+	end
+	local status = itemList.fpFilterStatus
+	if not status then
+		status = itemList:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		status:SetPoint("TOP", itemList.LoadingSpinner or itemList, itemList.LoadingSpinner and "BOTTOM" or "CENTER", 0, -24)
+		status:SetWidth(360)
+		itemList.fpFilterStatus = status
+	end
+	local text = Auction.db.vendorBuyFilter and Auction.FilterStatusText(filter.requests + 1, #filter.list,
+		filter.capped or C_AuctionHouse.HasFullBrowseResults())
+	status:SetText(text or "")
+	status:SetShown(text ~= nil)
+end
+
 -- Asks for the next page when the view is short or scrolled to its end.
+local PageFilterStep
+
 local function PageFilter(browseFrame)
+	PageFilterStep(browseFrame)
+	UpdateFilterStatus(browseFrame)
+end
+
+function PageFilterStep(browseFrame)
 	if not Auction.db.vendorBuyFilter or not browseFrame:IsShown() or C_AuctionHouse.HasFullBrowseResults() then
 		return
 	end
@@ -403,6 +441,8 @@ local function ApplyBuyFilter()
 	end
 	if on then
 		PageFilter(browseFrame)
+	else
+		UpdateFilterStatus(browseFrame)
 	end
 end
 
@@ -701,15 +741,26 @@ function Auction.CraftPriceText(vendor, entry, now)
 	return table.concat(parts, "  ")
 end
 
+-- Whether the price line goes into an item's tooltip: what this character makes (also with no price yet), and
+-- every other item once an auction price of it is known (it is sold at the auction house). With "extra lines
+-- only with Shift" only while Shift is held.
+function Auction.ShowsPriceLine(crafted, known, extraShown)
+	return extraShown and (crafted or known) and true or false
+end
+
 local function OnCraftTooltip(tooltip, data)
 	if tooltip:IsForbidden() or not Auction.db.craftPrices then
 		return
 	end
 	local itemID = data and Plain(data.id)
-	if not itemID or not Auction.cdb.crafted[itemID] then
+	if not itemID then
 		return
 	end
-	tooltip:AddLine(Auction.CraftPriceText(VendorPrice(itemID), PriceStore()[itemID], time()), 1, 0.82, 0)
+	local entry = PriceStore()[itemID]
+	if not Auction.ShowsPriceLine(Auction.cdb.crafted[itemID], entry ~= nil, ns.ExtraInfoShown()) then
+		return
+	end
+	tooltip:AddLine(Auction.CraftPriceText(VendorPrice(itemID), entry, time()), 1, 0.82, 0)
 end
 
 ---------------------------------------------------------------------------

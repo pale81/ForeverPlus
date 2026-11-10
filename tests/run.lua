@@ -3838,6 +3838,12 @@ end)()
 			end
 		end
 	end
+	-- The setup never overwrites existing local rules
+	for line in io.lines(root .. "/tools/setup-local.sh") do
+		if line:find("cp tools/local/rules.md", 1, true) then
+			assert(line:find("[ -e CLAUDE.md ] ||", 1, true), "setup-local.sh: overwrites the local rules: " .. line)
+		end
+	end
 	print("core helpers OK")
 end)()
 ;(function()

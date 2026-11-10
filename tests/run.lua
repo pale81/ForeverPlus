@@ -2497,6 +2497,39 @@ end)()
 	print("moments OK")
 end)()
 ;(function()
+	-- Attributes by importance: compared within their group; the rows of the window are marked and given back
+	local rank = ns:GetModule("StatRank")
+	local melee = rank.Tiers({ STR = 2, AGI = 1.2, STA = 0.3, AP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01 })
+	assert(melee.STRENGTH == 3 and melee.AGILITY == 2 and melee.STAMINA == 1 and melee.INTELLECT == 0 and melee.SPIRIT == 0, "warrior: base attributes")
+	assert(melee.ATTACK_AP == 3 and melee.SPELLPOWER == 0, "attack power, no spell power")
+	assert(melee.HITCHANCE_MELEE == 3 and melee.CRITCHANCE == 3 and melee.HITCHANCE_SPELL == 0 and melee.DODGE == 0, "hit and crit")
+	assert(melee.ARMOR == 1 and melee.DEFENSE == 0 and melee.MANAREGEN == 0, "rows that stand alone")
+	local tank = rank.Tiers({ STR = 1, AGI = 1, STA = 1.5, DEF = 1.5, DODGE = 12, PARRY = 12, BLOCK = 8, HIT = 8, CRIT = 4, ARMOR = 0.1 })
+	assert(tank.STAMINA == 3 and tank.STRENGTH == 2 and tank.DEFENSE == 3 and tank.ARMOR == 3, "tank: stamina, defense, armor")
+	assert(tank.DODGE == 3 and tank.BLOCK == 2 and tank.CRITCHANCE == 1, "tank: avoidance before crit")
+	local healer = rank.Tiers({ INT = 1, SPI = 0.6, STA = 0.3, SP = 0.8, HEAL = 1, SCRIT = 8, MP5 = 2 })
+	assert(healer.INTELLECT == 3 and healer.SPIRIT == 2 and healer.SPELLHEALING == 3 and healer.MANAREGEN == 3 and healer.CRITCHANCE == 3, "healer")
+	local savedWeights, savedFont, savedEnabled = ns.StatWeights, ns.FontObject, rank.db.enabled
+	ns.StatWeights = function() return { STR = 2, AGI = 1.2, STA = 0.3 } end
+	ns.FontObject = function(size) return "Big" .. size end
+	local font, color
+	local row = { Label = { SetFontObject = function(_, given) font = given end, SetTextColor = function(_, r, g, b) color = { r, g, b } end } }
+	rank.db.enabled = true
+	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
+	assert(type(font) == "string" and font:find("^Big") and color[3] < 1 and row.fpRanked, "the most important row: larger and bright")
+	rank.OnRow(nil, row, { name = "INTELLECT", unit = "player" })
+	assert(font == "GameFontNormal" and color[1] == 0.5, "useless: grey, usual size")
+	rank.OnRow(nil, row, { name = "HEALTH", unit = "player" })
+	assert(font == "GameFontNormal" and color[1] ~= 0.5 and not row.fpRanked, "a row without rank gets the game's look back")
+	font = nil
+	rank.OnRow(nil, row, { name = "STRENGTH", unit = "pet" })
+	rank.db.enabled = false
+	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
+	assert(font == nil, "not for the pet, not with the option off")
+	ns.StatWeights, ns.FontObject, rank.db.enabled = savedWeights, savedFont, savedEnabled
+	print("stat rank OK")
+end)()
+;(function()
 	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.
 	local dialog = ns:GetModule("Dialog")
 	local savedCurrent, savedBubble = uv(dialog.Pending, "current"), uv(dialog.Pending, "bubble")

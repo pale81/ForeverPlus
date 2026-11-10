@@ -1340,3 +1340,6 @@ L.MOMENTS_SOUND_DESC = "Spielt beim Stufenaufstieg zusätzlich zum Klang des Spi
 L.MOMENTS_SOUND_KIT = "Klang"
 L.MOMENTS_SOUND_NAME = "Klang %d"
 L.MOMENTS_SOUND_TEST = "Klang anhören"
+L.STATRANK_TITLE = "Attribute nach Wichtigkeit"
+L.STATRANK_ENABLE = "Attribute nach Wichtigkeit hervorheben"
+L.STATRANK_ENABLE_DESC = "Im Charakterfenster zeigen die Namen der Werte, wie wichtig sie für deinen Talentbaum sind: die wichtigsten größer und hell, nützliche normal, nebensächliche matt, nutzlose grau. Verglichen wird je Gruppe (Grundattribute; Angriffs- und Zaubermacht; Treffer, Krit, Ausweichen …). Grundlage sind die Gewichte der Gegenstandswertung; der dort gewählte Talentbaum („Wertung nach Talentbaum“ unter Gegenstände) gilt auch hier."

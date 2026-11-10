@@ -3539,6 +3539,20 @@ end)()
 	assert(select(2, R.Look("Valentine", 1, false)) == "Parchment", "unknown material on parchment")
 	assert(R.TextHeight(400, 0) == 400 and R.TextHeight(400, nil) == 400, "text keeps the page height before layout")
 	assert(R.TextHeight(400, 620) == 630, "longer text grows and scrolls")
+	-- the book font as a copy without outline, every alphabet kept, at the height the game uses now
+	do
+		local savedFamily, made = CreateFontFamily, nil
+		CreateFontFamily = function(name, list) made = list return { name = name } end
+		TestBookFont = { GetFont = function() return "Fonts\\MORPHEUS.ttf", 18, "OUTLINE" end }
+		ns.FontFamilies.families.TestBookFont = { roman = { "Fonts\\MORPHEUS.ttf", 15 }, russian = { "Fonts\\MORPHEUS_CYR.TTF", 15 } }
+		local plain = ns.PlainFont("TestBookFont")
+		assert(plain ~= TestBookFont and made and #made == 2, "a family of its own")
+		for _, member in ipairs(made) do
+			assert(member.flags == "" and member.height == 18, "no outline, current height: " .. member.alphabet)
+		end
+		assert(ns.PlainFont("TestBookFont") == plain, "made once")
+		CreateFontFamily = savedFamily
+	end
 	-- a book of five pages, as the game hands them out one at a time
 	local saved = { ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem,
 		ItemTextGetText, ItemTextGetCreator, ItemTextNextPage, ItemTextPrevPage, C_Timer.After }

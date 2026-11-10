@@ -224,6 +224,11 @@ local function CreateTextPage(parent)
 	alpha:SetFromAlpha(0)
 	alpha:SetToAlpha(1)
 	alpha:SetDuration(0.2)
+	-- The text must end fully visible: in the game it was seen fading in and then gone (opacity 0 after 0.5 s).
+	holder.Fade:SetToFinalAlpha(true)
+	holder.Fade:SetScript("OnFinished", function()
+		holder:SetAlpha(1)
+	end)
 	return holder
 end
 
@@ -304,10 +309,11 @@ local function CreateView()
 	return frame
 end
 
--- Fonts and colours of one page's text, engraved on stone and metal (light lower edge).
+-- Fonts and colours of one page's text, engraved on stone and metal (light lower edge). The fonts are copies
+-- without outline (the appearance option outlines light fonts like the book font, dark ink then looks black).
 local function StyleText(text, style)
 	for tag, font in pairs(FONTS) do
-		local object = _G[font]
+		local object = ns.PlainFont(font)
 		if object then
 			text:SetFontObject(tag, object)
 		end
@@ -360,8 +366,10 @@ end
 local function WatchPage(holder, label)
 	for _, delay in ipairs({ 0.1, 0.5, 2 }) do
 		ns.After("Readable: WatchPage (timer)", delay, function()
-			Trace("%s +%.1f: sichtbar %s, Deckkraft %s, Höhe %s, Inhalt %s", label, delay,
+			Trace("%s +%.1f: sichtbar %s, Deckkraft %s (eigene %s, Buch %s, Text %s), Höhe %s, Inhalt %s", label, delay,
 				tostring(holder:IsVisible()), Value(function() return holder:GetEffectiveAlpha() * 100 end),
+				Value(function() return holder:GetAlpha() * 100 end), Value(function() return view:GetAlpha() * 100 end),
+				Value(function() return holder.Text:GetAlpha() * 100 end),
 				Value(function() return holder.Text:GetHeight() end),
 				Value(function() return holder.Text:GetContentHeight() end))
 		end)
@@ -381,6 +389,8 @@ local function SetPageText(holder, text, width, height)
 	holder.Text:SetHeight(height)
 	holder.Text:SetText(text)
 	holder.Scroll:SetVerticalScroll(0)
+	holder.Text:SetAlpha(1)
+	holder.Fade:Stop()
 	holder.Fade:Play()
 	ns.After("Readable: SetPageText (timer)", 0, function()
 		if holder.Text.GetContentHeight then
@@ -447,7 +457,7 @@ local function Draw(look, material, pages)
 			holder:SetPoint("BOTTOMRIGHT", -area[3], area[4])
 			holder.Scroll:SetAllPoints()
 			StyleText(holder.Text, style)
-			local font = _G[FONTS.P]
+			local font = ns.PlainFont(FONTS.P)
 			local file, size, flags
 			if font then
 				file, size, flags = font:GetFont()
@@ -473,6 +483,7 @@ local function Draw(look, material, pages)
 		frame.Title:ClearAllPoints()
 		frame.Title:SetPoint("TOPLEFT", area[1], -area[2] + 4)
 		frame.Title:SetPoint("TOPRIGHT", frame, "TOPLEFT", geometry.width - area[3], -area[2] + 4)
+		frame.Title:SetFontObject(ns.PlainFont("Fancy24Font") or Fancy24Font)
 		frame.Title:SetText(title)
 		frame.Title:SetTextColor(style.title[1], style.title[2], style.title[3])
 		frame.Title:SetShadowColor(unpack(style.shadow or { 0, 0, 0, 0 }))

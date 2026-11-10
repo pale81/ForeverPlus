@@ -209,6 +209,27 @@ function ns.FontObject(size, flags)
 	return ownFamilies[key] or nil
 end
 
+-- A copy of one of the game's font objects without outline, at its current height, with the files of every
+-- alphabet (dark text on parchment: the outline of the appearance option makes it black blobs). The game's object
+-- itself when no copy can be made.
+local plainFonts = {}
+
+function ns.PlainFont(name)
+	local font = _G[name]
+	if not (font and font.GetFont) then
+		return nil
+	end
+	local _, size = font:GetFont()
+	size = ns.Number(size, 0)
+	local key = ("%s|%.1f"):format(name, size)
+	if plainFonts[key] == nil then
+		local members = ns.FontFamilies and ns.FontFamilies.families[name]
+		local roman = members and members.roman
+		plainFonts[key] = roman and size > 0 and FamilyFor(members, roman[1], size, roman[2], "") or false
+	end
+	return plainFonts[key] or font
+end
+
 function Fonts:ApplyAll()
 	Collect()
 	if IsDefault() and not fontsChanged then

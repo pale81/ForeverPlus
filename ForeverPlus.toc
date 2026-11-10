@@ -68,6 +68,7 @@ Modules\LootSources.lua
 Modules\Observations.lua
 Modules\GroupFinder.lua
 Modules\Flight.lua
+Modules\Waypoint.lua
 Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua

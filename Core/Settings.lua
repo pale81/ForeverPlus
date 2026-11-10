@@ -316,6 +316,7 @@ local PAGES = {
 		{ "Library", header = L.LIBRARY_TITLE },
 		{ "InstanceStats", header = L.INSTSTATS_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
+		{ "Waypoint", header = L.WAYPOINT_TITLE },
 		{ "Innkeepers", header = L.INNS_TITLE },
 		{ "Transports", header = L.TRANSPORTS_TITLE },
 		{ "DataCapture", header = L.DATA_TITLE },

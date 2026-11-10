@@ -136,8 +136,12 @@ end
 -- per skill needed a small heading and the recipes (what can be learned now in green, the rest grey). Each is a
 -- plain element of Blizzard's list (no recipe of the game: a click does not select anything there); dividerHeight
 -- gives its height.
+-- Blizzard sorts the top level of its list by `group` (small numbers), then by the category of an element: ours
+-- have none, so only the divider stands there, behind everything, and carries the rest (see Inject).
+local PLAN_GROUP = 1000
+
 function ProfessionPlan.Elements(profession, list, known, skill, level)
-	local elements = { { isDivider = true, dividerHeight = 30, fpPlan = true } }
+	local elements = { { isDivider = true, dividerHeight = 30, fpPlan = true, group = PLAN_GROUP } }
 	elements[#elements + 1] = { fpPlan = "title", dividerHeight = 22, text = L.PROFPLAN_LIST:format(profession or "") }
 	if not list then
 		elements[#elements + 1] = { fpPlan = "note", dividerHeight = 20, text = L.PROFPLAN_VISIT_TRAINER:format(profession or "?") }
@@ -271,8 +275,12 @@ local function Inject()
 	end
 	local elements = ProfessionPlan.Elements(profession, ProfessionPlan.cdb.trainers[profession], known, skill,
 		ns.Number(UnitLevel("player"), 1))
-	for _, data in ipairs(elements) do
-		injected.nodes[#injected.nodes + 1] = provider:Insert(data)
+	-- Only the divider goes to the top level (sorted by Blizzard on every insert; an element without `group` there
+	-- was an error in its comparison), the others below it, where nothing is sorted.
+	local top = provider:Insert(elements[1])
+	injected.nodes[1] = top
+	for index = 2, #elements do
+		top:Insert(elements[index])
 	end
 end
 ProfessionPlan.Inject = Inject

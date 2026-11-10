@@ -3703,6 +3703,12 @@ end)()
 	local line = A.CraftPriceText(25, { 450, 1000 }, 1000 + 2 * 86400)
 	assert(line:find("25c", 1, true) and line:find("450c", 1, true) and line:find(ns.L.AUCTION_AGE_DAYS:format(2), 1, true), line)
 	assert(A.CraftPriceText(nil, nil, 0) == ns.L.AUCTION_CRAFT_UNKNOWN, "nothing known")
+	assert(A.ShowsPriceLine(true, false, true) and A.ShowsPriceLine(nil, true, true), "crafted, or a known auction price")
+	assert(not A.ShowsPriceLine(nil, false, true), "neither: no line")
+	assert(not A.ShowsPriceLine(true, true, false), "extra lines only with Shift: hidden without")
+	assert(A.FilterStatusText(4, 0, false):find("4", 1, true) and A.FilterStatusText(7, 0, true):find("7", 1, true),
+		"filter status while searching and after")
+	assert(A.FilterStatusText(3, 2, false) == nil, "hits shown: no status line")
 	GetMoneyString = money
 	print("craft prices OK")
 end)()

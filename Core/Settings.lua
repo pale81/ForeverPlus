@@ -320,6 +320,7 @@ local PAGES = {
 		{ "Innkeepers", header = L.INNS_TITLE },
 		{ "Transports", header = L.TRANSPORTS_TITLE },
 		{ "DataCapture", header = L.DATA_TITLE },
+		{ "Moments", header = L.MOMENTS_TITLE },
 		{ "Info", header = L.INFO_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},

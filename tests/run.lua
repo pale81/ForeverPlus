@@ -630,6 +630,32 @@ mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "LeftButton")
 assert(uv(mover.GLOBAL_MOUSE_UP, "moving") == nil, "locked: no move")
 ns.db.lockAll = false
 ns:SetAllLocked(false)
+-- A window: a plain right-click on its free background locks and unlocks, a click on what is in it does not
+do
+	local window = NewFrame("Frame")
+	window.GetName = function() return "CharacterFrame" end
+	local child = NewFrame("Frame")
+	local findTarget = uv(mover.GLOBAL_MOUSE_DOWN, "FindTarget")
+	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", function() return window, "CharacterFrame" end)
+	local savedWheel = uv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel")
+	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", function() end)
+	IsAltKeyDown = function() return false end
+	GetMouseFoci = function() return { window } end
+	ns.db.unlocked["CharacterFrame"] = nil
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == true, "right-click on the background unlocks without Alt")
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == nil, "and locks again")
+	GetMouseFoci = function() return { child } end
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == nil, "a right-click on something in the window stays the game's")
+	IsAltKeyDown = function() return true end
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == true, "with Alt anywhere in the window")
+	ns.db.unlocked["CharacterFrame"] = nil
+	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", findTarget)
+	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", savedWheel)
+end
 ns:ResetFramePositions()
 assert(entry and not ns:HasSavedPosition(entry))
 assert(next(ns.db.unlocked) == nil, "reset locks again")
@@ -2427,6 +2453,48 @@ end)()
 	assert(cleared, "without numbers the waypoint goes")
 	C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print = unpack(saved, 1, 7)
 	print("waypoint OK")
+end)()
+;(function()
+	-- Moments: one picture per boss (two events), a picture and a sound at a level-up, each only with its option
+	local moments = ns:GetModule("Moments")
+	assert(moments.ShotDue(1000) == true and moments.ShotDue(1002) == false and moments.ShotDue(1010) == true, "one picture per boss")
+	local saved = { Screenshot, PlaySound, ns.After, GetTime, moments.db.shotBoss, moments.db.shotLevel, moments.db.levelSound }
+	local shots, sounds, now = 0, 0, 2000
+	Screenshot = function() shots = shots + 1 end
+	-- Other modules listen to a level-up too: only this module's sound is counted.
+	local savedLevelSound = moments.PlayLevelSound
+	local kit
+	SOUNDKIT.UI_RAID_BOSS_DEFEATED = "fanfare"
+	PlaySound = function(given) if given == "fanfare" then kit = given end end
+	moments.PlayLevelSound = function() sounds = sounds + 1 savedLevelSound() end
+	ns.After = function(_, _, fn) fn() end
+	GetTime = function() return now end
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function Fire(event, ...)
+		eventFrame:GetScript("OnEvent")(eventFrame, event, ...)
+	end
+	moments.db.shotBoss, moments.db.shotLevel, moments.db.levelSound = false, false, false
+	moments:Apply()
+	Fire("PLAYER_LEVEL_UP", 20)
+	Fire("BOSS_KILL", 1, "Boss")
+	assert(shots == 0 and sounds == 0, "all off: nothing")
+	moments.db.shotBoss, moments.db.shotLevel, moments.db.levelSound = true, true, true
+	moments:Apply()
+	Fire("ENCOUNTER_END", 1, "Boss", 1, 5, 0)
+	assert(shots == 0, "a wipe is no picture")
+	Fire("ENCOUNTER_END", 1, "Boss", 1, 5, 1)
+	Fire("BOSS_KILL", 1, "Boss")
+	assert(shots == 1, "boss dead: one picture for both events")
+	now = 2100
+	Fire("PLAYER_LEVEL_UP", 21)
+	assert(shots == 2 and sounds == 1, "level-up: picture and fanfare (" .. shots .. ", " .. sounds .. ")")
+	assert(kit == "fanfare" and moments.db.levelSoundKit == "UI_RAID_BOSS_DEFEATED", "the chosen sound of the game")
+	SOUNDKIT.UI_RAID_BOSS_DEFEATED = nil
+	moments.PlayLevelSound = savedLevelSound
+	Screenshot, PlaySound, ns.After, GetTime = saved[1], saved[2], saved[3], saved[4]
+	moments.db.shotBoss, moments.db.shotLevel, moments.db.levelSound = saved[5], saved[6], saved[7]
+	moments:Apply()
+	print("moments OK")
 end)()
 ;(function()
 	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.

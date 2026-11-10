@@ -2229,8 +2229,10 @@ end)()
 	local dialog = ns:GetModule("Dialog")
 	local place = uv(uv(dialog.GoBack, "Show"), "Place")
 	local anchored
+	local alpha = 1
 	local bubble = { ClearAllPoints = function() anchored = nil end, SetPoint = function(_, _, to) anchored = to end,
-		SetClampedToScreen = function() end, IsShown = function() return true end }
+		SetClampedToScreen = function() end, IsShown = function() return true end,
+		SetAlpha = function(_, value) alpha = value end, Fade = { Stop = function() end } }
 	local plateA, plateB = {}, {}
 	local npcPlate = plateA
 	local saved = { uv(place, "bubble"), uv(place, "NpcNameplate"), uv(dialog.OnPlateAdded, "current"), C_NamePlate,
@@ -2245,6 +2247,7 @@ end)()
 	-- removed: the plate still names the NPC at this moment
 	dialog.OnPlateRemoved("nameplate1")
 	assert(anchored == UIParent and dialog.anchorPlate == nil, "off the plate that goes away")
+	assert(alpha == 0 and bubble.lost, "unseen while it waits for the plate: no jump to the top of the screen")
 	-- the frame comes back for the player: not the NPC's plate, the bubble stays where it is
 	npcPlate = nil
 	dialog.OnPlateAdded()
@@ -2253,12 +2256,123 @@ end)()
 	npcPlate = plateB
 	dialog.OnPlateAdded()
 	assert(anchored == plateB, "back on the NPC")
+	assert(alpha == 1 and not bubble.lost, "seen again on the plate")
+	-- every picture: a plate frame given to another unit without an event is left at once
+	npcPlate = nil
+	dialog.WatchPlate()
+	assert(anchored == UIParent and alpha == 0, "the watch takes the bubble off a plate that is no longer the NPC's")
+	-- the plate does not come again: after the wait the bubble shows at the top of the screen
+	local savedTime = GetTime
+	GetTime = function() return savedTime() + 1 end
+	dialog.WatchPlate()
+	GetTime = savedTime
+	assert(alpha == 1 and not bubble.lost and anchored == UIParent, "shown at the top after the wait")
 	setuv(place, "bubble", saved[1])
 	setuv(place, "NpcNameplate", saved[2])
 	setuv(dialog.OnPlateAdded, "current", saved[3])
 	C_NamePlate, dialog.db.plates, dialog.db.hidePlate = saved[4], saved[5], saved[6]
 	dialog.anchorPlate = nil
 	print("dialog plate reuse OK")
+end)()
+;(function()
+	-- A plate frame given to another unit still names the old unit token in its field: only the game's answer counts.
+	local dialog = ns:GetModule("Dialog")
+	local find = uv(uv(uv(dialog.GoBack, "Show"), "Place"), "NpcNameplate")
+	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
+	local stale = { unitToken = "nameplate1", IsForbidden = function() return false end }
+	local right = { IsForbidden = function() return false end }
+	UnitExists = function(token) return token == "nameplate1" or token == "nameplate2" end
+	UnitGUID = function(token) return token == "nameplate2" and "Creature-NPC" or "Creature-Other" end
+	UnitIsUnit = function() return false end
+	C_NamePlate = { GetNamePlates = function() return { stale, right } end,
+		GetNamePlateForUnit = function(token) return token == "nameplate2" and right or token == "nameplate1" and stale or nil end }
+	setuv(find, "npcGuid", "Creature-NPC")
+	assert(find() == right, "the plate the game names for the NPC")
+	UnitGUID = function() return "Creature-Other" end
+	assert(find() == nil, "no plate of another unit")
+	setuv(find, "npcGuid", nil)
+	UnitExists, UnitGUID, C_NamePlate, UnitIsUnit = saved[1], saved[2], saved[3], saved[4]
+	print("dialog plate of the npc OK")
+end)()
+;(function()
+	-- Merchant: wares all hidden by the filter are said to be hidden; special prices show in the basket.
+	local dialog = ns:GetModule("Dialog")
+	local saved = { GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair,
+		GetNumBuybackItems, GetMerchantItemCostInfo, GetMerchantItemCostItem, ns.MerchantTools, dialog.db.merchantHide }
+	ns.MerchantTools = nil
+	GetMerchantNumItems = function() return 2 end
+	local usable = false
+	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Ware" .. i, texture = 1, price = i == 2 and 30 or 0, stackCount = 1,
+		numAvailable = -1, isPurchasable = true, isUsable = usable, hasExtendedCost = true } end }
+	GetMerchantItemLink = function() return nil end
+	GetMoney = function() return 150 end
+	GetMoneyString = function(copper) return tostring(copper) .. "c" end
+	CanMerchantRepair = function() return false end
+	GetNumBuybackItems = function() return 0 end
+	GetMerchantItemCostInfo = function() return 1 end
+	GetMerchantItemCostItem = function(index) return "Ticket", index * 5 end
+	local function Blocks()
+		local view = dialog.MerchantView()
+		local rows, texts = nil, {}
+		for _, block in ipairs(view.blocks) do
+			rows = block.rows or rows
+			texts[#texts + 1] = block.text or block.money
+		end
+		return rows, table.concat(texts, "\n"), view
+	end
+	dialog.db.merchantHide = true
+	local rows, text = Blocks()
+	assert(rows == nil and text:find(ns.L.DIALOG_MERCHANT_HIDDEN:format(2), 1, true), "all hidden: said so")
+	assert(not text:find(ns.L.DIALOG_MERCHANT_NONE, 1, true), "not: nothing to offer")
+	dialog.db.merchantHide = false
+	usable = true
+	rows = Blocks()
+	assert(#rows == 2 and rows[1].reserve == nil, "no free column while nothing is in the basket")
+	local picked = uv(dialog.MerchantView, "merchantPicked")
+	local qty = uv(dialog.MerchantView, "merchantQty")
+	picked[1], qty[1], picked[2], qty[2] = true, 2, true, 1
+	local view
+	rows, text, view = Blocks()
+	assert(rows[1].reserve == 48, "room for the quantity field of a ware in the basket")
+	assert(text:find("20 |TTicket:14:14|t 30c", 1, true), "special prices summed (2 x 5 + 1 x 10) and the money: " .. text)
+	assert(view.buttons[2].enabled == true, "payable")
+	GetMoney = function() return 20 end
+	rows, text, view = Blocks()
+	assert(view.buttons[2].enabled == false, "the money of a ware with a special price counts")
+	picked[1], qty[1], picked[2], qty[2] = nil, nil, nil, nil
+	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair, GetNumBuybackItems,
+		GetMerchantItemCostInfo, GetMerchantItemCostItem, ns.MerchantTools, dialog.db.merchantHide = unpack(saved, 1, 11)
+	print("merchant hidden and special prices OK")
+end)()
+;(function()
+	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.
+	local dialog = ns:GetModule("Dialog")
+	local savedCurrent, savedBubble = uv(dialog.Pending, "current"), uv(dialog.Pending, "bubble")
+	local savedAfter, savedGossip, savedRerender = ns.After, GossipFrame, dialog.Rerender
+	local waited, fire, redrawn
+	ns.After = function(_, delay, fn) waited, fire = delay, fn end
+	dialog.Rerender = function() redrawn = true end
+	GossipFrame = { IsShown = function() return true end }
+	local view = { kind = "GOSSIP_SHOW", stale = true, blocks = {} }
+	setuv(dialog.Pending, "current", { view = view })
+	setuv(dialog.Pending, "bubble", { pools = {}, IsShown = function() return true end })
+	dialog.Pending()
+	assert(waited and waited < 1, "a step from before comes back soon")
+	fire()
+	assert(redrawn and view.blocks[1].text == ns.L.DIALOG_NO_ANSWER, "it says that the choice got no answer")
+	dialog.Pending()
+	fire()
+	assert(#view.blocks == 1, "said once")
+	local live = { kind = "GOSSIP_SHOW", blocks = {} }
+	setuv(dialog.Pending, "current", { view = live })
+	dialog.Pending()
+	assert(waited > 1, "the step the game is at waits as before")
+	fire()
+	assert(#live.blocks == 0, "and gets no note")
+	ns.After, GossipFrame, dialog.Rerender = savedAfter, savedGossip, savedRerender
+	setuv(dialog.Pending, "current", savedCurrent)
+	setuv(dialog.Pending, "bubble", savedBubble)
+	print("dialog choice without answer OK")
 end)()
 ;(function()
 	-- New ability: first free slot of the bars in order; none when all are full

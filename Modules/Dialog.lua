@@ -538,6 +538,10 @@ local function CreateBubble()
 	end)
 	frame.Help:SetScript("OnLeave", GameTooltip_Hide)
 	frame.Help:Hide()
+	frame.PlateWatch = CreateFrame("Frame", nil, frame) -- runs only while the bubble is on show
+	ns.SetUpdate(frame.PlateWatch, "Dialog: plate watch", function()
+		Dialog.WatchPlate()
+	end)
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
 	frame.maxRowNumber = 0
@@ -864,8 +868,8 @@ local function RenderView(view)
 				if info.counter and not row.Qty:HasFocus() then
 					row.Qty:SetText(tostring(info.counter))
 				end
-				-- Lists with a quantity field keep one line and a free column on the right: nothing wraps or shifts.
-				row.Text:SetWordWrap(not info.reserve)
+				-- A row with a quantity field keeps a free column on the right; a long name with its price wraps (in
+				-- one line it was cut off, the price with it).
 				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.97, 0.78 } or (info.dim and palette.dim or palette.row)))
@@ -876,7 +880,6 @@ local function RenderView(view)
 						if file and size then
 							glow:SetFont(file, size * 1.2, "")
 						end
-						glow:SetWordWrap(not info.reserve)
 						-- No colour codes (the glow has its own colour) and no icons (blank spaces of the same size).
 						glow:SetText((label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T[^|]*|t", "|TInterface\\Common\\Spacer:14:14|t")
 							:gsub("|A[^|]*|a", "|TInterface\\Common\\Spacer:14:14|t")))
@@ -1072,50 +1075,44 @@ local function TalkUnit()
 	end
 end
 
+-- The tokens of the plates, made once (the plate is looked for in every picture while a talk is open).
+local PLATE_TOKENS = {}
+for index = 1, 100 do
+	PLATE_TOKENS[index] = "nameplate" .. index
+end
+
+-- The plate of the NPC, asked from the game by unit token every time: the fields of a plate frame (unitToken) are
+-- filled by Blizzard's handler, which may run after ours, and still name the unit before on a frame given to
+-- another unit (the bubble then jumped onto that unit).
 local function NpcNameplate()
-	local unit = TalkUnit()
-	if not unit and not npcGuid then
-		return
-	end
-	local function Matches(token)
-		local guid = UnitGUID(token)
-		return guid and not ns.Secret(guid) and guid == npcGuid
-	end
-	if npcGuid then
-		-- The unit of a plate: unitToken in this client (Blizzard_NamePlateBase), namePlateUnitToken in older ones.
-		-- Only the old name was read, so no plate ever matched and the bubble sat at the top of the screen.
-		for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
-			local token = not plate:IsForbidden() and (plate.unitToken or plate.namePlateUnitToken
-				or (plate.UnitFrame and plate.UnitFrame.unit))
-			if type(token) == "string" and Matches(token) then
-				return plate
+	local function PlateOf(token)
+		if not UnitExists(token) then
+			return nil
+		end
+		if npcGuid then
+			local guid = UnitGUID(token)
+			if not guid or ns.Secret(guid) or guid ~= npcGuid then
+				return nil
 			end
 		end
-		-- The fields of a plate are filled by Blizzard's own handler of NAME_PLATE_UNIT_ADDED, which may run after
-		-- ours: then no field names the NPC yet and the bubble stayed at the top of the screen. The unit tokens of
-		-- the plates themselves are asked instead.
-		for index = 1, 100 do
-			local token = "nameplate" .. index
-			if UnitExists(token) and Matches(token) then
-				local nameplate = C_NamePlate.GetNamePlateForUnit(token)
-				if nameplate and not nameplate:IsForbidden() then
-					return nameplate
-				end
-			end
-		end
-		-- The plate of the talk unit itself, when it is still the same NPC.
-		if unit and Matches(unit) then
-			local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-			if nameplate and not nameplate:IsForbidden() then
-				return nameplate
-			end
-		end
-		return nil
+		local nameplate = C_NamePlate.GetNamePlateForUnit(token)
+		return nameplate and not nameplate:IsForbidden() and nameplate or nil
 	end
-	local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
-	if nameplate and not nameplate:IsForbidden() then
+	if not npcGuid then
+		local unit = TalkUnit()
+		return unit and PlateOf(unit) or nil
+	end
+	local nameplate = PlateOf("npc")
+	if nameplate then
 		return nameplate
 	end
+	for _, token in ipairs(PLATE_TOKENS) do
+		nameplate = PlateOf(token)
+		if nameplate then
+			return nameplate
+		end
+	end
+	return nil
 end
 
 -- The bubble sits on the lower edge of the plate and covers it: the plate is made invisible meanwhile.
@@ -1139,41 +1136,6 @@ local function HidePlate(plate)
 		end
 		plate.UnitFrame:SetAlpha(0)
 	end
-end
-
--- One screen value for the trace: the number, or why there is none (pcall failed, missing, secret value).
--- For 1.5 seconds after a talk begins, every change of what could move the bubble goes into the trace (the plate's
--- position itself cannot be read): scale and alpha of the plate it hangs on, target, camera, facing of the player.
-local OPEN_WATCH = 1.5
-local watcher
-
-function Dialog.WatchOpening()
-	watcher = watcher or CreateFrame("Frame")
-	local started, last = GetTime(), {}
-	local function Read(key, fn)
-		local value = Dialog.Measure(pcall(fn))
-		if value ~= last[key] then
-			Trace("Öffnen +%.2f: %s %s", GetTime() - started, key, value)
-			last[key] = value
-		end
-	end
-	ns.SetUpdate(watcher, "Dialog: opening watch", function()
-		if GetTime() - started > OPEN_WATCH then
-			ns.SetUpdate(watcher, "Dialog: opening watch", nil)
-			return
-		end
-		local plate = Dialog.anchorPlate
-		Read("Plakette", function() return plate and 1 or 0 end)
-		if plate then
-			Read("Plakettengröße", function() return plate:GetScale() * 100 end)
-			Read("Plakettenrahmen", function() return plate.UnitFrame and plate.UnitFrame:GetScale() * 100 end)
-			Read("Plakette sichtbar", function() return plate:IsVisible() and 1 or 0 end)
-		end
-		Read("Ziel ist NPC", function() return UnitIsUnit("target", "npc") and 1 or 0 end)
-		Read("Kamera", function() return GetCameraZoom() * 10 end)
-		Read("Blickrichtung", function() return GetPlayerFacing() * 100 end)
-		Read("Blase", function() return bubble:GetHeight() end)
-	end)
 end
 
 -- Whether the bubble may show: elapsed seconds since the talk began, quiet seconds since the plate's scale last moved.
@@ -1207,6 +1169,7 @@ function Dialog.ShowWhenSettled()
 	ns.SetUpdate(settler, "Dialog: opening", function()
 		if not bubble:IsShown() then
 			ns.SetUpdate(settler, "Dialog: opening", nil)
+			bubble.settling = nil
 			return
 		end
 		local now, scale = GetTime(), Scale()
@@ -1219,6 +1182,10 @@ function Dialog.ShowWhenSettled()
 		end
 		ns.SetUpdate(settler, "Dialog: opening", nil)
 		Trace("Öffnen +%.2f: Blase zeigt sich", now - started)
+		bubble.settling = nil
+		if bubble.lost then
+			return -- the plate went meanwhile: the bubble shows once it is back, or after LOST_WAIT
+		end
 		if ns.db.fadeIn == false then
 			bubble:SetAlpha(1)
 		else
@@ -1227,6 +1194,7 @@ function Dialog.ShowWhenSettled()
 	end)
 end
 
+-- One screen value for the trace: the number, or why there is none (pcall failed, missing, secret value).
 function Dialog.Measure(ok, value)
 	if not ok then
 		return "Fehler"
@@ -1249,20 +1217,25 @@ local function Where(frame)
 		Dialog.Measure(pcall(function() return frame:IsVisible() and 1 or 0 end)))
 end
 
+local LOST_WAIT = 0.4 -- seconds the bubble waits unseen for the plate of the NPC to come again
+
 -- `exclude`: a plate that is going away (NAME_PLATE_UNIT_REMOVED); it still names the NPC at that moment
 -- but is given to another unit next (the bubble then jumped onto the player or another unit).
 local function Place(exclude)
 	bubble:ClearAllPoints()
 	-- The game keeps the whole bubble on the screen (title cut off at the top edge when the NPC's head was near it);
 	-- a setter only, so it also works while the bubble hangs on a plate that cannot be measured.
-	pcall(bubble.SetClampedToScreen, bubble, Dialog.db.onScreen and true or false)
+	local clamped = pcall(bubble.SetClampedToScreen, bubble, Dialog.db.onScreen and true or false)
+	-- The border art, its shadow and the tail lie outside the frame and count too.
+	pcall(bubble.SetClampRectInsets, bubble, -INSET - SHADOW_ROOM, INSET + SHADOW_ROOM, INSET + SHADOW_ROOM, -INSET - 24)
 	local nameplate = NpcNameplate()
 	if nameplate and nameplate == exclude then
 		nameplate = nil
 	end
+	local hadPlate = Dialog.anchorPlate ~= nil
 	Dialog.anchorPlate = nameplate
-	Trace("Platz: %s (NPC bekannt %s, %d Plaketten)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
-		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}))
+	Trace("Platz: %s (NPC bekannt %s, %d Plaketten, im Bild halten %s)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
+		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}), clamped and tostring(Dialog.db.onScreen) or "Fehler")
 	-- Where the bubble really stands, once the game has laid it out (the last placing only).
 	Dialog.placeCount = (Dialog.placeCount or 0) + 1
 	local count = Dialog.placeCount
@@ -1275,6 +1248,12 @@ local function Place(exclude)
 		Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
 		-- The tail (27 points below the shape) ends at the lower edge of the plate, over the head.
 		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 24)
+		if bubble.lost then
+			bubble.lost = nil
+			if not bubble.settling then
+				bubble:SetAlpha(1)
+			end
+		end
 		if Dialog.db.hidePlate then
 			HidePlate(nameplate)
 		else
@@ -1283,6 +1262,13 @@ local function Place(exclude)
 	else
 		RestorePlate()
 		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
+		-- The plate went during the talk (another target was chosen): it usually comes again at once. Until then the
+		-- bubble is invisible instead of jumping to the top of the screen (above the player) and back.
+		if hadPlate and not bubble.lost then
+			bubble.lost = GetTime()
+			bubble.Fade:Stop()
+			bubble:SetAlpha(0)
+		end
 		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
 		if Dialog.db.plates then
 			ns.ShowFriendlyPlates(true, "dialog")
@@ -1371,42 +1357,32 @@ local function HookWindows()
 	HideWindowAtOnce(ClassTrainerFrame, function() return Dialog.db.trainer end)
 end
 
--- The nameplate of the NPC cannot be measured or clamped by an addon (it is a restricted region), but
--- the game keeps plates inside the screen by its own settings: while a bubble is open the upper inset
--- is raised by the height of the bubble, so the plate (and the bubble on it) stays low enough.
-local PLATE_CVARS = { "nameplateOtherTopInset", "nameplateLargeTopInset", "clampTargetNameplateToScreen" }
-local savedPlateCVars
-
-local function KeepOnScreen(on)
-	if on and bubble and not InCombatLockdown() then
-		if not savedPlateCVars then
-			savedPlateCVars = {}
-			for _, name in ipairs(PLATE_CVARS) do
-				savedPlateCVars[name] = GetCVar(name)
-			end
+-- Every picture while the bubble is on show: the plate it hangs on must still be the NPC's (plate frames are given
+-- to other units without a word), and a bubble waiting for its plate shows at the top of the screen after LOST_WAIT.
+function Dialog.WatchPlate()
+	if not current then
+		return
+	end
+	if NpcNameplate() ~= Dialog.anchorPlate then
+		Trace("Plakette des NPCs hat gewechselt")
+		Place()
+	elseif bubble.lost and GetTime() - bubble.lost > LOST_WAIT then
+		Trace("Plakette kam nicht wieder: Blase oben am Bildschirm")
+		bubble.lost = nil
+		if not bubble.settling then
+			bubble:SetAlpha(1)
 		end
-		local fraction = math.min(0.85, (bubble:GetHeight() + INSET * 2 + 22 + 24) / math.max(UIParent:GetHeight(), 1))
-		-- These settings are not mentioned in the interface code of 1.60 any more; the trace says whether they exist.
-		Trace("Plaketten-Rand oben: %s", GetCVar("nameplateOtherTopInset") == nil and "Einstellung fehlt im Spiel"
-			or ("%.2f gesetzt"):format(fraction))
-		SetCVar("nameplateOtherTopInset", fraction)
-		SetCVar("nameplateLargeTopInset", fraction)
-		SetCVar("clampTargetNameplateToScreen", "1")
-	elseif not on and savedPlateCVars and not InCombatLockdown() then
-		for name, value in pairs(savedPlateCVars) do
-			SetCVar(name, value)
-		end
-		savedPlateCVars = nil
 	end
 end
 
 local function Hide()
 	Trace("Blase weg")
-	KeepOnScreen(false)
 	RestorePlate()
 	if bubble then
 		bubble:Hide()
+		bubble.lost, bubble.settling = nil, nil
 	end
+	Dialog.anchorPlate = nil
 	FinishReveal()
 	reveal.key = nil -- a new talk says its words again
 	current = nil
@@ -1419,18 +1395,8 @@ end
 -- Blizzard's window shows instead of the bubble (confirmation needed).
 local function UseBlizzard()
 	Trace("Blizzards Fenster statt Blase")
-	KeepOnScreen(false)
-	RestorePlate()
 	showToken = showToken + 1
-	if bubble then
-		bubble:Hide()
-	end
-	FinishReveal()
-	reveal.key = nil -- a new talk says its words again
-	current = nil
-	npcGuid = nil
-	CollapseAll(false)
-	ns.ShowFriendlyPlates(false, "dialog")
+	Hide()
 end
 
 RenderFailed = function(err)
@@ -1512,6 +1478,9 @@ end
 local PENDING_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
 	QUEST_COMPLETE = true }
 local PENDING_WAIT = 1.5 -- seconds after which a step that did not change comes back
+-- A step reached with "back" is not the one the game is at: its choices often get no answer (the bubble stayed
+-- empty for PENDING_WAIT and the old step came again without a word). It comes back sooner.
+local STALE_WAIT = 0.4
 local pendingToken = 0
 
 function Dialog.Pending()
@@ -1527,7 +1496,8 @@ function Dialog.Pending()
 			object:SetAlpha(0)
 		end
 	end
-	ns.After("Dialog: Pending (timer)", PENDING_WAIT, function()
+	local view = current.view
+	ns.After("Dialog: Pending (timer)", view.stale and STALE_WAIT or PENDING_WAIT, function()
 		if token ~= pendingToken then
 			return
 		end
@@ -1535,6 +1505,11 @@ function Dialog.Pending()
 			-- The conversation ended meanwhile without an event: the empty step must not stay.
 			Hide()
 		else
+			-- A choice on a step reached with "back" that the game did not answer: the step comes again and says why.
+			if view.stale and not view.noAnswer then
+				view.noAnswer = true
+				view.blocks[#view.blocks + 1] = { text = L.DIALOG_NO_ANSWER, dim = true }
+			end
 			Dialog.Rerender()
 		end
 	end)
@@ -1619,16 +1594,15 @@ local function Show(view, fromBack)
 	end
 	local used = bubble.lastUsed
 	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
-	KeepOnScreen(Dialog.db.onScreen)
 	Place()
 	local opening = not bubble:IsShown()
 	bubble:Show()
 	-- The NPC's plate settles in the first pictures after the talk begins (it comes and grows, the bubble hangs on
 	-- it and jerked): the bubble stays invisible that long and fades in afterwards.
 	if opening then
-		Dialog.WatchOpening()
 		bubble.Fade:Stop()
 		bubble:SetAlpha(0)
+		bubble.settling, bubble.lost = true, nil
 		Dialog.ShowWhenSettled()
 	end
 	CollapseAll(true)
@@ -2140,15 +2114,19 @@ local function PickSaying()
 end
 
 local function MerchantEntries()
-	local entries = {}
+	local entries, hidden = {}, 0
 	local hide = Dialog.db.merchantHide
 	for index = 1, GetMerchantNumItems() or 0 do
 		local info = C_MerchantFrame.GetItemInfo(index)
-		if info and info.name and not (hide and (info.isUsable == false or IsKnownWare(index))) then
-			entries[#entries + 1] = { index = index, info = info }
+		if info and info.name then
+			if hide and (info.isUsable == false or IsKnownWare(index)) then
+				hidden = hidden + 1
+			else
+				entries[#entries + 1] = { index = index, info = info }
+			end
 		end
 	end
-	return entries
+	return entries, hidden
 end
 
 local function BuybackEntries()
@@ -2172,7 +2150,12 @@ end
 function Dialog.MerchantView()
 	local money = GetMoney()
 	local buyback = merchantMode == "buyback"
-	local entries = buyback and BuybackEntries() or MerchantEntries()
+	local entries, hidden
+	if buyback then
+		entries, hidden = BuybackEntries(), 0
+	else
+		entries, hidden = MerchantEntries()
+	end
 	local total = #entries
 	-- Several wares can be chosen: a click on a row picks it or puts it back.
 	local byIndex = {}
@@ -2193,16 +2176,30 @@ function Dialog.MerchantView()
 	end
 	local picks, cost, payable = {}, 0, true
 	for index in pairs(merchantPicked) do
-		local info = byIndex[index]
 		picks[#picks + 1] = index
+	end
+	table.sort(picks)
+	-- Special prices (tokens, honor, items) of the basket, summed per kind in the order met; money counts with them.
+	local special, specialOrder = {}, {}
+	for _, index in ipairs(picks) do
+		local info = byIndex[index]
 		local amount = QuantityOf(index)
 		if info.isPurchasable == false or (info.numAvailable or -1) == 0 then
 			payable = false
-		elseif not info.hasExtendedCost then
+		else
 			cost = cost + (info.price or 0) * amount
+			for item = 1, info.hasExtendedCost and GetMerchantItemCostInfo and GetMerchantItemCostInfo(index) or 0 do
+				local texture, value = GetMerchantItemCostItem(index, item)
+				if texture and value and value > 0 then
+					if not special[texture] then
+						special[texture] = 0
+						specialOrder[#specialOrder + 1] = texture
+					end
+					special[texture] = special[texture] + value * amount
+				end
+			end
 		end
 	end
-	table.sort(picks)
 	local rows = {}
 	-- All rows leave room for the arrow when the option for upgrade arrows is on (so the texts stay aligned).
 	local arrowSlot = not buyback and ns.IsRewardUpgrade ~= nil and ns:GetModule("Items").db.rewardUpgrade
@@ -2221,7 +2218,7 @@ function Dialog.MerchantView()
 			dim = info.isPurchasable == false,
 			picked = isPicked, -- in the basket: a tick, a green tint, a glitter frame and the quantity field
 			counter = isPicked and not buyback and QuantityOf(index) or nil,
-			reserve = 48,
+			reserve = isPicked and not buyback and 48 or nil,
 			-- A click chooses this ware alone; on a chosen ware left clicks count up, right clicks down (the last
 			-- one takes it out). Shift + click adds a ware to the choice or takes it out (several wares at once).
 			action = function(mouseButton)
@@ -2282,14 +2279,26 @@ function Dialog.MerchantView()
 	if merchantSaying and not buyback then
 		blocks[#blocks + 1] = { text = merchantSaying, dim = true }
 	end
-	blocks[#blocks + 1] = #rows == 0 and { text = L.DIALOG_MERCHANT_NONE, dim = true } or { rows = rows, scroll = true }
+	if #rows > 0 then
+		blocks[#blocks + 1] = { rows = rows, scroll = true }
+	else
+		-- All wares hidden by the book at the lower right: said so (the list looked empty, as if nothing was sold).
+		blocks[#blocks + 1] = { text = hidden > 0 and L.DIALOG_MERCHANT_HIDDEN:format(hidden) or L.DIALOG_MERCHANT_NONE, dim = true }
+	end
 	local moneyText = L.DIALOG_MONEY:format(GetMoneyString(money, true))
 	if #picks > 0 then
 		local pieces = 0
 		for _, index in ipairs(picks) do
 			pieces = pieces + QuantityOf(index)
 		end
-		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, GetMoneyString(cost, true))
+		local prices = {}
+		for _, texture in ipairs(specialOrder) do
+			prices[#prices + 1] = ("%d |T%s:14:14|t"):format(special[texture], tostring(texture))
+		end
+		if cost > 0 or #prices == 0 then
+			prices[#prices + 1] = GetMoneyString(cost, true)
+		end
+		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, table.concat(prices, " "))
 	end
 	blocks[#blocks + 1] = { money = moneyText }
 	local canBuy = #picks > 0 and payable and cost <= money
@@ -2400,6 +2409,7 @@ end
 function Dialog.GoBack()
 	local previous = table.remove(history)
 	if previous then
+		previous.stale = true
 		Show(previous, true)
 	end
 end

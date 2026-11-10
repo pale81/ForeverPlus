@@ -1582,9 +1582,19 @@ end)()
 	local dura = ns:GetModule("Durability")
 	issecretvalue = function() return false end
 	GetInventoryItemDurability = function(slot) if slot == 1 then return 50, 100 elseif slot == 2 then return 100, 100 end end
+	assert(dura.db.threshold == 60, "threshold default 60 %")
 	assert(dura.Percent(1) == 50, "half")
 	assert(dura.Percent(2) == nil, "full hidden")
 	assert(dura.Percent(3) == nil, "no durability")
+	GetInventoryItemDurability = function(slot) if slot == 1 then return 70, 100 elseif slot == 2 then return 100, 100 end end
+	assert(dura.Percent(1) == nil and not dura.FigureShown(), "70 %: above the threshold, nothing and no figure")
+	dura.db.threshold = 80
+	assert(dura.Percent(1) == 70 and dura.FigureShown(), "below a higher threshold: number and figure")
+	dura.db.threshold = 60
+	dura.db.showFull = true
+	assert(dura.Percent(1) == 70 and dura.Percent(2) == 100 and dura.FigureShown(), "everything with the option")
+	dura.db.showFull = false
+	GetInventoryItemDurability = function(slot) if slot == 1 then return 50, 100 elseif slot == 2 then return 100, 100 end end
 	assert(pcall(dura.Update), "update runs")
 	assert(dura.Raw(2) == 100 and dura.Raw(3) == nil, "raw percent")
 	-- pet food

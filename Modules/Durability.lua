@@ -1,6 +1,7 @@
 -- Durability on the equipment slots of the character window: a small figure
 -- at the bottom of each item, in a colour from green over yellow to red.
--- Items at 100 % show nothing (unless the option to show them is on).
+-- Only items below the threshold (option, 60 %) show a number, and the figure only shows while one piece is below
+-- it (unless the option to show everything is on).
 local _, ns = ...
 local L = ns.L
 
@@ -11,6 +12,7 @@ local Durability = ns:NewModule("Durability", {
 		enabled = true,
 		figure = true,
 		showFull = false,
+		threshold = 60, -- percent: numbers and figure below this
 	},
 })
 
@@ -22,6 +24,7 @@ local SLOT_BUTTONS = {
 }
 
 local texts = {} -- slot button -> text
+local PARTS_SLOTS = {} -- inventory slots of the figure's parts (filled below PARTS)
 
 -- Green at full, yellow at half, red when nearly broken.
 local function Color(fraction)
@@ -52,10 +55,26 @@ function Durability.Raw(slot)
 	return math.max(math.floor(current / maximum * 100 + 0.5), 0)
 end
 
--- The same below 100 (also at 100 with the option), nil for whole items otherwise.
+-- Whether a piece at this percent is shown: below the threshold, or everything with the option.
+function Durability.Shows(percent)
+	local threshold = ns.Number(Durability.db.threshold, 60)
+	return percent ~= nil and (Durability.db.showFull or percent < threshold)
+end
+
+-- The percent of a slot when it is shown, nil otherwise.
 function Durability.Percent(slot)
 	local percent = Durability.Raw(slot)
-	return percent and (percent < 100 or Durability.db.showFull) and percent or nil
+	return Durability.Shows(percent) and percent or nil
+end
+
+-- Whether the figure shows: one piece below the threshold (or everything with the option).
+function Durability.FigureShown()
+	for _, part in ipairs(PARTS_SLOTS) do
+		if Durability.Shows(Durability.Raw(part)) then
+			return true
+		end
+	end
+	return false
 end
 
 local function UpdateSlot(button)
@@ -95,6 +114,9 @@ local PARTS = {
 	{ "OffWeapon", 20, 45, "LEFT", "Wrists", "RIGHT", 0, -6, 0, 0.140625, 0.3203125, 0.6640625, 17 },
 	{ "Ranged", 28, 38, "TOP", "Shield", "BOTTOM", 0, 5, 0.1875, 0.3984375, 0.5546875, 0.84375, 18 },
 }
+for _, part in ipairs(PARTS) do
+	PARTS_SLOTS[#PARTS_SLOTS + 1] = part[13]
+end
 local FIGURE_TEXTURE = [[Interface\Durability\UI-Durability-Icons]]
 local FIGURE_SCALE = 0.55 -- the figure of the repair warning is far bigger than an item slot
 local figure
@@ -203,7 +225,7 @@ local function UpdateFigure()
 	if not figure then
 		return
 	end
-	local show = Durability.db.figure
+	local show = Durability.db.figure and Durability.FigureShown()
 	figure:SetShown(show and PaperDollFrame and PaperDollFrame:IsShown() or false)
 	if not show then
 		return
@@ -278,5 +300,7 @@ Durability.Update = UpdateAll
 Durability.options = {
 	{ key = "enabled", type = "toggle", name = L.DURABILITY_ENABLE, desc = L.DURABILITY_ENABLE_DESC, new = true },
 	{ key = "figure", type = "toggle", name = L.DURABILITY_FIGURE, desc = L.DURABILITY_FIGURE_DESC, new = true },
-	{ key = "showFull", type = "toggle", name = L.DURABILITY_FULL, desc = L.DURABILITY_FULL_DESC, parent = "enabled", new = true },
+	{ key = "threshold", type = "slider", name = L.DURABILITY_THRESHOLD, desc = L.DURABILITY_THRESHOLD_DESC, min = 10, max = 100, step = 5,
+		format = function(v) return ("%d %%"):format(v) end, new = true },
+	{ key = "showFull", type = "toggle", name = L.DURABILITY_FULL, desc = L.DURABILITY_FULL_DESC, new = true },
 }

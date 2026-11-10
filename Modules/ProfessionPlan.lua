@@ -10,6 +10,7 @@ local ProfessionPlan = ns:NewModule("ProfessionPlan", {
 	order = 6.1,
 	defaults = {
 		upcoming = false, -- the list beside the profession window (switched in its filter menu)
+		preview = true,   -- recipes: Ctrl + click tries the product on, green arrow and rating for better equipment
 	},
 	charDefaults = {
 		trainers = {}, -- profession name -> { { name, icon, skill, level, cost, known }, ... }
@@ -20,6 +21,38 @@ local TRAINER_FILTERS = { "available", "unavailable", "used" }
 
 local function Plain(value)
 	return not ns.Secret(value) and value or nil
+end
+
+---------------------------------------------------------------------------
+-- Recipe preview: what a recipe makes can be tried on with Ctrl + click (trainer, profession window, the list of
+-- recipes to come), and better equipment gets the arrow and rating of the bags.
+---------------------------------------------------------------------------
+function ns.RecipePreviewOn()
+	return ProfessionPlan.db and ProfessionPlan.db.preview and true or false
+end
+
+-- An item link usable for the preview, or nil.
+function ns.RecipeLink(link)
+	return type(link) == "string" and not ns.Secret(link) and link:find("item:", 1, true) and link or nil
+end
+
+-- Ctrl + click (the game's "try on" modifier): shows the item in the dressing room. true when it did.
+function ns.TryOnRecipe(link)
+	if not (ns.RecipePreviewOn() and ns.RecipeLink(link) and IsModifiedClick("DRESSUP")) then
+		return false
+	end
+	local dressUp = DressUpItemLink or DressUpLink
+	return dressUp and dressUp(link) and true or (dressUp ~= nil)
+end
+
+-- The arrow in front of a name in a list: green for a better item, grey when only the level is missing.
+function ProfessionPlan.ArrowMarkup(state)
+	if state == true then
+		return "|A:bags-greenarrow:14:14|a "
+	elseif state == "later" then
+		return "|A:bags-greenarrow:14:14:0:0:120:120:120|a "
+	end
+	return ""
 end
 
 -- Reads the whole list of a profession trainer (all filters on for the moment), per profession.
@@ -49,6 +82,7 @@ local function ScanTrainer()
 					level = GetTrainerServiceLevelReq and Plain(GetTrainerServiceLevelReq(index)) or 0,
 					cost = GetTrainerServiceCost and Plain((GetTrainerServiceCost(index))) or 0,
 					known = serviceType == "used" or nil,
+					link = GetTrainerServiceItemLink and ns.RecipeLink(GetTrainerServiceItemLink(index)) or nil,
 				})
 			end
 		end
@@ -114,12 +148,21 @@ local function Items()
 			items[#items + 1] = { text = L.PROFPLAN_SKILL:format(entry.skill or 0) }
 		end
 		local cost = (entry.cost or 0) > 0 and GetMoneyString(entry.cost, true) or nil
+		local arrow = ns.RecipePreviewOn() and entry.link and ns.RecipeUpgradeState
+			and ProfessionPlan.ArrowMarkup(ns.RecipeUpgradeState(entry.link)) or ""
 		items[#items + 1] = {
 			icon = entry.icon or 134400,
-			text = row.now and GREEN_FONT_COLOR:WrapTextInColorCode(entry.name) or entry.name,
+			text = arrow .. (row.now and GREEN_FONT_COLOR:WrapTextInColorCode(entry.name) or entry.name),
 			right = row.now and L.PROFPLAN_NOW or ((entry.level or 0) > level and L.PROFPLAN_LEVEL:format(entry.level) or nil),
-			onClick = function() end,
+			onClick = function()
+				ns.TryOnRecipe(entry.link)
+			end,
 			tooltip = function(tooltip)
+				if entry.link and ns.RecipePreviewOn() then
+					tooltip:SetHyperlink(entry.link)
+					ns.AddRecipeScoreLine(tooltip, entry.link)
+					tooltip:AddLine(" ")
+				end
 				GameTooltip_SetTitle(tooltip, entry.name)
 				GameTooltip_AddNormalLine(tooltip, L.PROFPLAN_SKILL:format(entry.skill or 0))
 				if (entry.level or 0) > 0 then
@@ -169,6 +212,46 @@ local function UpdateList()
 	-- Below the 1-point anchor means beside the window, at its top.
 end
 
+-- The rows of the profession window's recipe list: arrow at the name for better equipment, Ctrl + click tries the
+-- product on (Blizzard's own Ctrl + click only links the recipe).
+local rowArrows = setmetatable({}, { __mode = "k" })
+
+local function RecipeOutputLink(recipeID)
+	local schematic = recipeID and C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
+	local itemID = schematic and Plain(schematic.outputItemID)
+	return itemID and ("item:" .. itemID) or nil
+end
+
+local function OnRecipeRowInit(button, node)
+	local data = node and node.GetData and node:GetData()
+	local recipe = data and data.recipeInfo
+	button.fpPreviewLink = recipe and ns.RecipePreviewOn() and RecipeOutputLink(Plain(recipe.recipeID)) or nil
+	if not rowArrows[button] then
+		local arrow = button:CreateTexture(nil, "OVERLAY")
+		arrow:SetAtlas("bags-greenarrow", true)
+		arrow:SetScale(0.8)
+		arrow:SetPoint("RIGHT", button.Label, "LEFT", -1, 0)
+		rowArrows[button] = arrow
+		button:HookScript("OnMouseUp", function(self, mouseButton)
+			if mouseButton == "LeftButton" then
+				ns.TryOnRecipe(self.fpPreviewLink)
+			end
+		end)
+	end
+	local state = button.fpPreviewLink and ns.RecipeUpgradeState and ns.RecipeUpgradeState(button.fpPreviewLink)
+	local arrow = rowArrows[button]
+	arrow:SetShown(state and true or false)
+	arrow:SetDesaturated(state == "later")
+end
+
+function ProfessionPlan.HookRecipeRows()
+	local mixin = ProfessionsRecipeListRecipeMixin
+	if mixin and mixin.Init and not ProfessionPlan.rowsHooked then
+		ProfessionPlan.rowsHooked = true
+		hooksecurefunc(mixin, "Init", ns.Measured("ProfessionPlan: recipe row", OnRecipeRowInit))
+	end
+end
+
 function ProfessionPlan:OnLogin()
 	self:RegisterEvent("TRAINER_SHOW", function()
 		ns.After("ProfessionPlan: ScanTrainer", 0.3, ScanTrainer)
@@ -183,6 +266,7 @@ function ProfessionPlan:OnLogin()
 		end)
 	end
 	ns.OnAddOnLoaded("Blizzard_Professions", function()
+		ProfessionPlan.HookRecipeRows()
 		if ProfessionsFrame then
 			ProfessionsFrame:HookScript("OnShow", ns.Measured("ProfessionPlan: list", UpdateList))
 			ProfessionsFrame:HookScript("OnHide", ns.Measured("ProfessionPlan: list", UpdateList))
@@ -196,4 +280,5 @@ end
 
 ProfessionPlan.options = {
 	{ key = "upcoming", type = "toggle", name = L.PROFPLAN_FILTER, desc = L.PROFPLAN_FILTER_DESC, new = true },
+	{ key = "preview", type = "toggle", name = L.PROFPLAN_PREVIEW, desc = L.PROFPLAN_PREVIEW_DESC, new = true },
 }

@@ -44,7 +44,7 @@ command -v python3 >/dev/null 2>&1 || brew install python || true
 
 echo "== 3/3 Arbeitsregeln"
 # Arbeitsregeln fuer die lokale Sitzung: bleiben aus dem Repository heraus.
-cp tools/local/rules.md CLAUDE.md
+[ -e CLAUDE.md ] || cp tools/local/rules.md CLAUDE.md
 grep -qx "CLAUDE.md" .git/info/exclude 2>/dev/null || echo "CLAUDE.md" >> .git/info/exclude
 
 echo

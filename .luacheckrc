@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"Fancy24Font",
 	"GetUnitSpeed", "IsFalling", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",
 	"GetServerTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",

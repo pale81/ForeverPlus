@@ -217,6 +217,7 @@ read_globals = {
 	"DressUpFrame",
 	"Enum",
 	"C_TaxiMap",
+	"Screenshot",
 	"GetTaxiMapID",
 	"EventRegistry",
 	"TextSizeManager",

@@ -352,11 +352,10 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 		end
 	end
 	if button == "RightButton" then
-		-- Alt + right-click only; a plain right-click on a window stays Blizzard's.
-		if IsAltKeyDown() then
-			altToggled = true
-			ToggleLock(key)
-		end
+		-- A right-click on the free background of a window locks and unlocks it, like on the displays (they handle
+		-- the plain click themselves); with Alt anywhere in the window. Clicks on what is in a window stay Blizzard's.
+		altToggled = true
+		ToggleLock(key)
 	elseif button == "MiddleButton" and IsAltKeyDown() then
 		-- Alt + middle click: centre on the vertical middle line (only while unlocked).
 		if IsLocked(key) then

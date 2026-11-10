@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "ProfessionsRecipeListRecipeMixin",
 	"ITEM_MIN_LEVEL",
 	"Fancy24Font",
 	"GetUnitSpeed", "IsFalling", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",

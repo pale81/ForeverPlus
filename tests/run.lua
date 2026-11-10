@@ -1945,6 +1945,23 @@ end)()
 	GetMoney = function() return 1000 end
 	GetMoneyString = function(copper) return tostring(copper) .. "c" end
 	UnitLevel = function() return 10 end
+	-- recipes: the product of the first is better equipment (arrow), the second only at a higher level (grey arrow)
+	local savedLink, savedState = GetTrainerServiceItemLink, ns.RecipeUpgradeState
+	GetTrainerServiceItemLink = function(i) return i <= 2 and ("item:" .. (100 + i)) or nil end
+	ns.RecipeUpgradeState = function(link) return link == "item:101" or (link == "item:102" and "later") end
+	dialog.showLocked = true
+	local preview = dialog.TrainerView()
+	local previewRows
+	for _, block in ipairs(preview.blocks) do if block.rows then previewRows = block.rows end end
+	assert(previewRows[1].link == "item:101" and previewRows[1].upgrade == true and previewRows[1].arrowSlot, "recipe row: link and arrow")
+	assert(previewRows[2].upgrade == "later", "only the level missing: grey arrow")
+	ns:GetModule("ProfessionPlan").db.preview = false
+	preview = dialog.TrainerView()
+	for _, block in ipairs(preview.blocks) do if block.rows then previewRows = block.rows end end
+	assert(not previewRows[1].upgrade, "preview switched off: no arrow")
+	ns:GetModule("ProfessionPlan").db.preview = true
+	dialog.showLocked = false
+	GetTrainerServiceItemLink, ns.RecipeUpgradeState = function() return nil end, savedState
 	local view = dialog.TrainerView()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
@@ -1963,6 +1980,19 @@ end)()
 	alpha = dialog.ToolAppearance("repair", false, false)
 	assert(alpha == 0.3, "repair without money stays faint")
 	assert(view.buttons[2].enabled == false and view.buttons[3].enabled == true, "train needs a selection, train all is possible (button 1 says goodbye)")
+	GetTrainerServiceItemLink = savedLink
+	-- arrows in front of names in the list of recipes to come; try on only with the modifier
+	local P = ns:GetModule("ProfessionPlan")
+	assert(P.ArrowMarkup(true):find("bags-greenarrow", 1, true) and P.ArrowMarkup("later"):find(":120:120:120", 1, true)
+		and P.ArrowMarkup(false) == "", "arrow markup")
+	local savedModified, savedDress, tried = IsModifiedClick, DressUpItemLink, nil
+	DressUpItemLink = function(link) tried = link return true end
+	IsModifiedClick = function() return false end
+	assert(not ns.TryOnRecipe("item:101") and tried == nil, "plain click: no try-on")
+	IsModifiedClick = function(kind) return kind == "DRESSUP" end
+	assert(ns.TryOnRecipe("item:101") and tried == "item:101", "Ctrl + click tries the product on")
+	assert(not ns.TryOnRecipe("spell:5"), "no item: nothing")
+	IsModifiedClick, DressUpItemLink = savedModified, savedDress
 	print("trainer view OK")
 end)()
 ;(function()

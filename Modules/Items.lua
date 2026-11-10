@@ -445,6 +445,7 @@ end
 -- Everything that depends on what is worn or on the stat weights.
 local function ClearWeighCaches()
 	wipe(upgradeCache)
+	wipe(Items.recipeCache)
 	wipe(scoreCache)
 	wipe(equippedCache)
 end
@@ -540,6 +541,46 @@ local function CanUseLink(link)
 		end
 	end
 	return true
+end
+
+-- What a recipe makes (an item link) against what is worn, with the rating of the bag arrow: true, "later" (only the
+-- level is missing), false; nil while its data loads.
+Items.recipeCache = {}
+
+function ns.RecipeUpgradeState(link)
+	if not Items.db or not Items.db.upgradeArrow or type(link) ~= "string" or ns.Secret(link)
+		or not C_Item.IsEquippableItem(link) then
+		return false
+	end
+	local cached = Items.recipeCache[link]
+	if cached ~= nil then
+		return cached
+	end
+	local score, equippedScore = CompareScores(link)
+	if score == nil then
+		return nil
+	end
+	local result = false
+	if score and score > equippedScore + 0.01 then
+		local data = C_TooltipInfo.GetHyperlink(link)
+		local block = Items.UseBlock(data and data.lines, LevelPattern())
+		result = block == "ok" or (block == "level" and "later") or false
+	end
+	Items.recipeCache[link] = result
+	return result
+end
+
+-- The rating line of a recipe's product in another tooltip (trainer, list of recipes), as on items.
+function ns.AddRecipeScoreLine(tooltip, link)
+	if not (Items.db and Items.db.upgradeScore) or type(link) ~= "string" or ns.Secret(link)
+		or not C_Item.IsEquippableItem(link) then
+		return
+	end
+	local score, equippedScore = CompareScores(link)
+	if score then
+		local _, treeName = GetWeights()
+		tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+	end
 end
 
 local rewardRetries = {}

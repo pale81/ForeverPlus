@@ -651,6 +651,10 @@ local function CreateRow(frame)
 		GameTooltip_Hide()
 	end)
 	row:SetScript("OnClick", function(button, mouseButton)
+		-- Ctrl + click on what a recipe makes tries it on, as on items elsewhere.
+		if button.link and ns.TryOnRecipe(button.link) then
+			return
+		end
 		-- A click moves the arrow to the row, then does what the row does.
 		if button.number and bubble and bubble.selectedRow ~= button.number then
 			bubble.selectedRow = button.number
@@ -818,6 +822,8 @@ local function RenderView(view)
 				row:SetWidth(WIDTH)
 				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
 				row.Arrow:SetShown(info.upgrade and true or false)
+				row.Arrow:SetDesaturated(info.upgrade == "later")
+				row.link = info.link
 				row.Icon:SetShown(info.icon ~= nil)
 				if info.icon then
 					row.Icon:SetTexture(info.icon)
@@ -1892,7 +1898,8 @@ local function TrainerServices()
 		local name, kind, icon, level, subText = GetTrainerServiceInfo(index)
 		if name and not ns.Secret(name) then
 			local cost = GetTrainerServiceCost(index) or 0
-			local entry = { index = index, name = name, icon = icon, level = level, subText = subText, cost = cost }
+			local entry = { index = index, name = name, icon = icon, level = level, subText = subText, cost = cost,
+				link = GetTrainerServiceItemLink and ns.RecipeLink(GetTrainerServiceItemLink(index)) }
 			if kind == "available" then
 				available[#available + 1] = entry
 			elseif kind == "unavailable" then
@@ -1916,6 +1923,15 @@ end
 
 function Dialog.TrainerView()
 	local available, locked = TrainerServices()
+	-- Products of recipes that beat the worn items get the green arrow (grey when only the level is missing).
+	local previewArrows = false
+	for _, entry in ipairs(available) do
+		previewArrows = previewArrows or entry.link ~= nil
+	end
+	for _, entry in ipairs(locked) do
+		previewArrows = previewArrows or entry.link ~= nil
+	end
+	previewArrows = previewArrows and ns.RecipePreviewOn() and ns.RecipeUpgradeState ~= nil
 	local money = GetMoney()
 	local rows = {}
 	local function AddRow(entry, isAvailable)
@@ -1935,6 +1951,9 @@ function Dialog.TrainerView()
 			text = table.concat(parts, "   "),
 			picked = selected,
 			icon = entry.icon,
+			link = entry.link,
+			arrowSlot = previewArrows,
+			upgrade = previewArrows and entry.link and ns.RecipeUpgradeState(entry.link) or nil,
 			dim = not isAvailable,
 			action = isAvailable and function()
 				trainerSelected = entry.index
@@ -1943,6 +1962,9 @@ function Dialog.TrainerView()
 			tooltip = function(tooltip)
 				if tooltip.SetTrainerService then
 					tooltip:SetTrainerService(entry.index)
+				end
+				if ns.RecipePreviewOn() then
+					ns.AddRecipeScoreLine(tooltip, entry.link)
 				end
 			end,
 		}

@@ -3757,6 +3757,34 @@ end)()
 	for _, row in ipairs(rows) do names[#names + 1] = row.entry.name .. (row.now and "+" or "") end
 	assert(table.concat(names, ",") == "Geselle+,Grobes Schleifmittel,Experte", table.concat(names, ","))
 	assert(#P.Upcoming(nil, {}, 0, 1) == 0, "no list")
+	-- the elements below Blizzard's recipes: divider, title, per skill a heading, the recipes
+	local elements = P.Elements("Schmiedekunst", list, { ["Kupferkettenhose"] = true }, 60, 12)
+	assert(elements[1].isDivider and elements[2].fpPlan == "title", "divider and title first")
+	local kinds = {}
+	for i = 3, #elements do kinds[#kinds + 1] = elements[i].fpPlan .. (elements[i].now and "+" or "") end
+	assert(table.concat(kinds, ",") == "skill,recipe+,skill,recipe,skill,recipe", table.concat(kinds, ","))
+	for _, element in ipairs(elements) do
+		assert(element.dividerHeight and not element.recipeInfo and not element.categoryInfo, "plain elements, no recipe of the game")
+	end
+	assert(P.Elements("Schmiedekunst", nil, {}, 1, 1)[3].fpPlan == "note", "no trainer list yet: a note")
+	-- added to the list Blizzard shows, taken out again when switched off
+	local nodes, removed = {}, 0
+	local provider = { Insert = function(_, data) local node = { data = data } nodes[#nodes + 1] = node return node end,
+		Remove = function() removed = removed + 1 end }
+	local savedFrame, savedTradeSkill = ProfessionsFrame, C_TradeSkillUI
+	ProfessionsFrame = { CraftingPage = { RecipeList = { ScrollBox = { GetDataProvider = function() return provider end },
+		SearchBox = { HasText = function() return false end } } } }
+	C_TradeSkillUI = { GetBaseProfessionInfo = function() return { professionName = "Schmiedekunst", skillLevel = 60 } end,
+		GetAllRecipeIDs = function() return {} end }
+	P.cdb.trainers["Schmiedekunst"] = list
+	P.db.upcoming = true
+	P.Inject()
+	local added = #nodes
+	assert(added >= 8, "elements added: " .. added)
+	P.db.upcoming = false
+	P.Inject()
+	assert(removed == added and #nodes == added, "taken out when switched off")
+	ProfessionsFrame, C_TradeSkillUI = savedFrame, savedTradeSkill
 	print("profession plan OK")
 end)()
 ;(function()

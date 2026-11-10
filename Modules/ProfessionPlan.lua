@@ -1,6 +1,7 @@
 -- Recipes still to come, per profession, like "spells at the trainer": a visit to a profession trainer keeps
--- their whole list (also what needs more skill); the filter menu of the profession window switches a list
--- beside the window on, sorted by the skill needed, with what can be learned now in green.
+-- their whole list (also what needs more skill); the filter menu of the profession window switches them on below
+-- the recipes of the window's own list (as the unlearned recipes of retail), sorted by the skill needed, with what
+-- can be learned now in green.
 -- Recipes that come from drops or merchants are not in a trainer's list and do not appear.
 local _, ns = ...
 local L = ns.L
@@ -131,85 +132,172 @@ local function CurrentProfession()
 	return Plain(info.professionName), ns.Number(info.skillLevel, 0), known
 end
 
-local function Items()
-	local profession, skill, known = CurrentProfession()
-	local list = profession and ProfessionPlan.cdb.trainers[profession]
-	local items = {}
+-- The elements below the recipes of the profession window: a divider like the game's "unlearned" one, a title, then
+-- per skill needed a small heading and the recipes (what can be learned now in green, the rest grey). Each is a
+-- plain element of Blizzard's list (no recipe of the game: a click does not select anything there); dividerHeight
+-- gives its height.
+function ProfessionPlan.Elements(profession, list, known, skill, level)
+	local elements = { { isDivider = true, dividerHeight = 30, fpPlan = true } }
+	elements[#elements + 1] = { fpPlan = "title", dividerHeight = 22, text = L.PROFPLAN_LIST:format(profession or "") }
 	if not list then
-		items[#items + 1] = { text = L.PROFPLAN_VISIT_TRAINER:format(profession or "?"), line = false }
-		return items, profession
+		elements[#elements + 1] = { fpPlan = "note", dividerHeight = 20, text = L.PROFPLAN_VISIT_TRAINER:format(profession or "?") }
+		return elements
 	end
-	local level = UnitLevel("player")
 	local lastSkill
-	for _, row in ipairs(ProfessionPlan.Upcoming(list, known, skill, level)) do
+	local rows = ProfessionPlan.Upcoming(list, known, skill, level)
+	for _, row in ipairs(rows) do
 		local entry = row.entry
 		if entry.skill ~= lastSkill then
 			lastSkill = entry.skill
-			items[#items + 1] = { text = L.PROFPLAN_SKILL:format(entry.skill or 0) }
+			elements[#elements + 1] = { fpPlan = "skill", dividerHeight = 18, text = L.PROFPLAN_SKILL:format(entry.skill or 0) }
 		end
-		local cost = (entry.cost or 0) > 0 and GetMoneyString(entry.cost, true) or nil
+		elements[#elements + 1] = { fpPlan = "recipe", dividerHeight = 20, entry = entry, now = row.now,
+			right = row.now and L.PROFPLAN_NOW or ((entry.level or 0) > level and L.PROFPLAN_LEVEL:format(entry.level) or nil) }
+	end
+	if #rows == 0 then
+		elements[#elements + 1] = { fpPlan = "note", dividerHeight = 20, text = L.PROFPLAN_ALL_KNOWN }
+	end
+	return elements
+end
+
+local function RecipeTooltip(owner, entry)
+	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	if entry.link and ns.RecipePreviewOn() then
+		GameTooltip:SetHyperlink(entry.link)
+		ns.AddRecipeScoreLine(GameTooltip, entry.link)
+		GameTooltip:AddLine(" ")
+	end
+	GameTooltip_SetTitle(GameTooltip, entry.name)
+	GameTooltip_AddNormalLine(GameTooltip, L.PROFPLAN_SKILL:format(entry.skill or 0))
+	if (entry.level or 0) > 0 then
+		GameTooltip_AddNormalLine(GameTooltip, L.PROFPLAN_LEVEL:format(entry.level))
+	end
+	if (entry.cost or 0) > 0 then
+		GameTooltip_AddNormalLine(GameTooltip, GetMoneyString(entry.cost, true))
+	end
+	GameTooltip:Show()
+end
+
+-- Draws one of our elements on the plain frame Blizzard's list gives it; the same frames also serve the list's
+-- own padding, which gets them back empty.
+local function Decorate(frame, data)
+	if not frame.fpText then
+		frame.fpIcon = frame:CreateTexture(nil, "ARTWORK")
+		frame.fpIcon:SetSize(16, 16)
+		frame.fpIcon:SetPoint("LEFT", 14, 0)
+		frame.fpText = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		frame.fpText:SetJustifyH("LEFT")
+		frame.fpText:SetWordWrap(false)
+		frame.fpRight = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+		frame.fpRight:SetPoint("RIGHT", -8, 0)
+		frame.fpHighlight = frame:CreateTexture(nil, "HIGHLIGHT")
+		frame.fpHighlight:SetAllPoints()
+		frame.fpHighlight:SetColorTexture(1, 1, 1, 0.08)
+	end
+	local kind = data and data.fpPlan
+	local isRecipe = kind == "recipe"
+	local shown = kind ~= nil and kind ~= true
+	frame.fpData = isRecipe and data.entry or nil
+	frame:EnableMouse(isRecipe)
+	frame.fpHighlight:SetShown(isRecipe)
+	frame.fpIcon:SetShown(isRecipe)
+	frame.fpText:SetShown(shown)
+	frame.fpRight:SetShown(isRecipe and data.right ~= nil)
+	if not shown then
+		return
+	end
+	frame.fpText:ClearAllPoints()
+	frame.fpText:SetPoint("LEFT", isRecipe and 34 or (kind == "title" and 4 or 10), 0)
+	frame.fpText:SetPoint("RIGHT", isRecipe and frame.fpRight or frame, isRecipe and "LEFT" or "RIGHT", -4, 0)
+	if isRecipe then
+		local entry = data.entry
+		frame.fpIcon:SetTexture(entry.icon or 134400)
+		frame.fpIcon:SetDesaturated(not data.now)
 		local arrow = ns.RecipePreviewOn() and entry.link and ns.RecipeUpgradeState
 			and ProfessionPlan.ArrowMarkup(ns.RecipeUpgradeState(entry.link)) or ""
-		items[#items + 1] = {
-			icon = entry.icon or 134400,
-			text = arrow .. (row.now and GREEN_FONT_COLOR:WrapTextInColorCode(entry.name) or entry.name),
-			right = row.now and L.PROFPLAN_NOW or ((entry.level or 0) > level and L.PROFPLAN_LEVEL:format(entry.level) or nil),
-			onClick = function()
-				ns.TryOnRecipe(entry.link)
-			end,
-			tooltip = function(tooltip)
-				if entry.link and ns.RecipePreviewOn() then
-					tooltip:SetHyperlink(entry.link)
-					ns.AddRecipeScoreLine(tooltip, entry.link)
-					tooltip:AddLine(" ")
-				end
-				GameTooltip_SetTitle(tooltip, entry.name)
-				GameTooltip_AddNormalLine(tooltip, L.PROFPLAN_SKILL:format(entry.skill or 0))
-				if (entry.level or 0) > 0 then
-					GameTooltip_AddNormalLine(tooltip, L.PROFPLAN_LEVEL:format(entry.level))
-				end
-				if cost then
-					GameTooltip_AddNormalLine(tooltip, cost)
-				end
-			end,
-		}
+		frame.fpText:SetText(arrow .. entry.name)
+		local color = data.now and GREEN_FONT_COLOR or DISABLED_FONT_COLOR
+		frame.fpText:SetTextColor(color:GetRGB())
+		frame.fpRight:SetText(data.right or "")
+	else
+		frame.fpText:SetText(data.text or "")
+		local color = kind == "title" and NORMAL_FONT_COLOR or DISABLED_FONT_COLOR
+		frame.fpText:SetTextColor(color:GetRGB())
 	end
-	if #items == 0 then
-		items[#items + 1] = { text = L.PROFPLAN_ALL_KNOWN, line = false }
+	if not frame.fpScripts then
+		frame.fpScripts = true
+		frame:SetScript("OnEnter", function(self)
+			if self.fpData then
+				RecipeTooltip(self, self.fpData)
+			end
+		end)
+		frame:SetScript("OnLeave", GameTooltip_Hide)
+		frame:SetScript("OnMouseUp", function(self, mouseButton)
+			if self.fpData and mouseButton == "LeftButton" then
+				ns.TryOnRecipe(self.fpData.link)
+			end
+		end)
 	end
-	return items, profession
 end
 
-local anchor
+local injected = { provider = nil, nodes = {} }
 
-local function Popup()
-	return _G.ForeverPlusPopupProfessionPlan
+local function CraftingList()
+	local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+	return page and page.RecipeList
 end
 
--- The list beside the profession window while it is open and the filter is on.
-local function UpdateList()
-	local frame = ProfessionsFrame
-	local popup = Popup()
-	if not (ProfessionPlan.db.upcoming and frame and frame:IsShown()) then
-		if popup then
-			popup:Hide()
+-- Takes our elements out of the list and, while the option is on and nothing is searched, adds them anew.
+local function Inject()
+	local recipeList = CraftingList()
+	local box = recipeList and recipeList.ScrollBox
+	local provider = box and box.GetDataProvider and box:GetDataProvider()
+	if injected.provider and injected.provider == provider then
+		for _, node in ipairs(injected.nodes) do
+			provider:Remove(node)
 		end
+	end
+	injected.provider, injected.nodes = provider, {}
+	if not (provider and ProfessionPlan.db.upcoming) then
 		return
 	end
-	if popup and popup:IsShown() then
-		popup:Refresh()
+	local search = recipeList.SearchBox
+	if search and search.HasText and search:HasText() then
 		return
 	end
-	if not anchor then
-		anchor = CreateFrame("Frame", nil, frame)
-		anchor:SetSize(1, 1)
-		anchor:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+	local profession, skill, known = CurrentProfession()
+	if not profession then
+		return
 	end
-	ns.ShowPopupList(anchor, function()
-		local items, profession = Items()
-		return { title = L.PROFPLAN_LIST:format(profession or ""), items = items, width = 320, maxRows = 22 }
-	end, "ProfessionPlan")
-	-- Below the 1-point anchor means beside the window, at its top.
+	local elements = ProfessionPlan.Elements(profession, ProfessionPlan.cdb.trainers[profession], known, skill,
+		ns.Number(UnitLevel("player"), 1))
+	for _, data in ipairs(elements) do
+		injected.nodes[#injected.nodes + 1] = provider:Insert(data)
+	end
+end
+ProfessionPlan.Inject = Inject
+
+local function OnAcquired(_, frame, node)
+	local data = node and node.GetData and node:GetData()
+	if data and data.isDivider then
+		return -- Blizzard's divider, ours too, is drawn by its template
+	end
+	if frame.GetObjectType and frame:GetObjectType() == "Frame" and (frame.fpText or (data and data.fpPlan)) then
+		Decorate(frame, data)
+	end
+end
+
+function ProfessionPlan.HookList()
+	local recipeList = CraftingList()
+	local box = recipeList and recipeList.ScrollBox
+	if not box or ProfessionPlan.listHooked then
+		return
+	end
+	ProfessionPlan.listHooked = true
+	-- Blizzard builds a new list on every change (learned recipe, filter, skill): ours is added to each.
+	hooksecurefunc(box, "SetDataProvider", ns.Measured("ProfessionPlan: list", Inject))
+	ScrollUtil.AddAcquiredFrameCallback(box, ns.Measured("ProfessionPlan: list row", OnAcquired), ProfessionPlan)
+	Inject()
 end
 
 -- The rows of the profession window's recipe list: arrow at the name for better equipment, Ctrl + click tries the
@@ -256,8 +344,6 @@ function ProfessionPlan:OnLogin()
 	self:RegisterEvent("TRAINER_SHOW", function()
 		ns.After("ProfessionPlan: ScanTrainer", 0.3, ScanTrainer)
 	end)
-	self:RegisterEvent("TRADE_SKILL_LIST_UPDATE", ns.Measured("ProfessionPlan: list", UpdateList))
-	self:RegisterEvent("TRADE_SKILL_CLOSE", ns.Measured("ProfessionPlan: list", UpdateList))
 	-- The switch in the filter menu of the profession window (as the retail filter for unlearned recipes).
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_PROFESSIONS_FILTER", function(_, rootDescription)
@@ -267,15 +353,12 @@ function ProfessionPlan:OnLogin()
 	end
 	ns.OnAddOnLoaded("Blizzard_Professions", function()
 		ProfessionPlan.HookRecipeRows()
-		if ProfessionsFrame then
-			ProfessionsFrame:HookScript("OnShow", ns.Measured("ProfessionPlan: list", UpdateList))
-			ProfessionsFrame:HookScript("OnHide", ns.Measured("ProfessionPlan: list", UpdateList))
-		end
+		ProfessionPlan.HookList()
 	end)
 end
 
 function ProfessionPlan:OnOptionChanged()
-	UpdateList()
+	Inject()
 end
 
 ProfessionPlan.options = {

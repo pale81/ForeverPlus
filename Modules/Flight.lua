@@ -24,6 +24,13 @@ local function CurrentNode()
 			return TaxiNodeName(index)
 		end
 	end
+	-- The flight map of newer clients: the node marked as the current one.
+	local mapID = GetTaxiMapID and GetTaxiMapID()
+	for _, node in ipairs(mapID and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes and C_TaxiMap.GetAllTaxiNodes(mapID) or {}) do
+		if node.state == Enum.FlightPathState.Current then
+			return node.name
+		end
+	end
 end
 
 local function RouteKey(from, to)
@@ -295,18 +302,38 @@ end, function()
 	Flight.db.times = {}
 end)
 
-function Flight:PLAYER_CONTROL_GAINED()
+-- A flown route is remembered with its time; the next flight on it counts down. Only whole flights count.
+function Flight.Record(route, duration)
+	-- The last flight as text (saved): why a time was or was not remembered.
+	Flight.db.lastFlight = ("%s, %d s"):format(tostring(route), duration)
+	if route and duration >= MIN_FLIGHT then
+		Flight.db.times[route] = floor(duration + 0.5)
+		return true
+	end
+	return false
+end
+
+-- The flight is over once the player is off the taxi. The game may still report "on taxi" when control comes
+-- back: the time was then never remembered (every flight counted up instead of down), so it is asked again.
+function Flight.Finish()
 	if not current then
 		return
 	end
-	local duration = GetTime() - current.start
-	-- Only complete flights count (not a flight ended early by a disconnect).
-	if current.route and duration >= MIN_FLIGHT and not UnitOnTaxi("player") then
-		self.db.times[current.route] = floor(duration + 0.5)
+	if UnitOnTaxi("player") then
+		ns.After("Flight: landing", 0.5, Flight.Finish)
+		return
 	end
+	Flight.Record(current.route, GetTime() - current.start)
 	current = nil
 	if bar then
 		bar:Hide()
+	end
+end
+
+function Flight:PLAYER_CONTROL_GAINED()
+	if current and not current.landing then
+		current.landing = true
+		Flight.Finish()
 	end
 end
 

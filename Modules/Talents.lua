@@ -743,6 +743,25 @@ local function HookPlanTooltip(button)
 	end
 end
 
+-- Builds the open tooltip of a talent again (new planned rank, reason for a refusal). Hidden first: Blizzard
+-- appends the descriptions of the ranks as tooltip data, and on a tooltip that stayed open they piled up (the
+-- same two descriptions once more with every click).
+local function RefreshTooltip(button)
+	if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
+		HookPlanTooltip(button)
+		GameTooltip:Hide()
+		button:SetTooltipInternal()
+	end
+end
+
+-- The counter beside the plan buttons: only while something is planned (it counted the learned talents as a plan).
+function Talents.CounterText(points, hasPlan)
+	if not hasPlan or points <= 0 then
+		return ""
+	end
+	return L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points)
+end
+
 local function UpdatePlan()
 	local frame = TalentsFrame()
 	if not frame or not frame:IsVisible() or not frame.EnumerateAllTalentButtons then
@@ -779,7 +798,7 @@ local function UpdatePlan()
 	if planBar then
 		local points = nodes and TotalPoints(nodes, plan) or 0
 		planBar:SetShown(enabled and true or false)
-		planBar.Counter:SetText(points > 0 and L.TALENTS_PLAN_COUNTER:format(points, PLAN_POINTS, FIRST_TALENT_LEVEL - 1 + points) or "")
+		planBar.Counter:SetText(Talents.CounterText(points, next(plan) ~= nil))
 		planBar:SetWidth(PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))
 		planBar.Apply:SetEnabled(pending)
 		planBar.Clear:SetEnabled(next(plan) ~= nil)
@@ -1012,10 +1031,7 @@ local function OnTalentClick(_, button, mouseButton)
 	local function Refuse(text)
 		-- The reason shows in the talent's tooltip, rebuilt below.
 		blocked = { nodeID = nodeID, text = text }
-		if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
-			HookPlanTooltip(button)
-			button:SetTooltipInternal()
-		end
+		RefreshTooltip(button)
 	end
 	local learned = node.ranksPurchased or 0
 	if IsShiftKeyDown() then
@@ -1060,10 +1076,7 @@ local function OnTalentClick(_, button, mouseButton)
 	plan[nodeID] = planned > learned and planned or nil
 	QueuePlanUpdate()
 	-- Rebuild the open tooltip with the new planned rank.
-	if GameTooltip:GetOwner() == button and button.SetTooltipInternal then
-		HookPlanTooltip(button)
-		button:SetTooltipInternal()
-	end
+	RefreshTooltip(button)
 end
 
 -- Buys the planned ranks the points allow; Blizzard's talent window shows

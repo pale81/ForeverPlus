@@ -216,6 +216,8 @@ read_globals = {
 	"DEFAULT_CHAT_FRAME",
 	"DressUpFrame",
 	"Enum",
+	"C_TaxiMap",
+	"GetTaxiMapID",
 	"EventRegistry",
 	"TextSizeManager",
 	"EventUtil",

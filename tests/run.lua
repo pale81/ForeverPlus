@@ -1869,7 +1869,7 @@ end)()
 	C_Traits.GetTraitDescription = function(entryID, rank) return "GetTraitEntry:" .. entryID .. ":" .. rank end
 	GameTooltip_AddColoredLine = function(_, text) lines[#lines + 1] = text end
 	C_Traits.GetNodeInfo = function() return { maxRanks = 3, ranksPurchased = 1, activeEntry = { entryID = 500, rank = 1 } } end
-	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(btn)
+	uv(uv(uv(onClick, "RefreshTooltip"), "HookPlanTooltip"), "AddPlanTooltip")(btn)
 	print("  plan tooltip", table.concat(lines, " | "))
 	assert(lines[#lines] == "GetTraitEntry:500:3", "planned rank values")
 	-- Row rule and arrows: node 2 in row 2 needs 5 points, node 3 needs node 1 at full rank
@@ -1893,7 +1893,7 @@ end)()
 	-- the restriction shows in the tooltip of that talent, in the colour of the plan
 	lines = {}
 	GameTooltip = { GetOwner = function() return bs[3] end, Show = function() end }
-	uv(uv(onClick, "HookPlanTooltip"), "AddPlanTooltip")(bs[3])
+	uv(uv(uv(onClick, "RefreshTooltip"), "HookPlanTooltip"), "AddPlanTooltip")(bs[3])
 	print("  restriction tooltip", table.concat(lines, " | "))
 	assert(#lines >= 1 and lines[#lines]:find("Plan:") and lines[#lines]:find("5"), "restriction in the tooltip")
 	for _ = 1, 4 do onClick(nil, bs[1], "RightButton") end
@@ -2342,7 +2342,37 @@ end)()
 	picked[1], qty[1], picked[2], qty[2] = nil, nil, nil, nil
 	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair, GetNumBuybackItems,
 		GetMerchantItemCostInfo, GetMerchantItemCostItem, ns.MerchantTools, dialog.db.merchantHide = unpack(saved, 1, 11)
+	-- The glow of a chosen row keeps the icons of the text (same width, same line breaks) and drops the colours.
+	assert(dialog.GlowText("|cff9a9a9a1.|r |cff1eff00Umhang|r 32 |TCoin:14:14|t |A:x:14:14|a") == "1. Umhang 32 |TCoin:14:14|t |A:x:14:14|a",
+		"glow text")
+	local talents = ns:GetModule("Talents")
+	assert(talents.CounterText(9, false) == "" and talents.CounterText(0, true) == "", "no plan, no counter")
+	assert(talents.CounterText(9, true):find("9/", 1, true), "a plan shows its points")
 	print("merchant hidden and special prices OK")
+end)()
+;(function()
+	-- Flight: the time of a route is remembered when the player is off the taxi, also when the game still
+	-- reports "on taxi" at the moment control comes back.
+	local flight = ns:GetModule("Flight")
+	local saved = { UnitOnTaxi, GetTime, ns.After, uv(flight.Finish, "current"), flight.db.times }
+	flight.db.times = {}
+	local onTaxi, now, again = true, 100, nil
+	UnitOnTaxi = function() return onTaxi end
+	GetTime = function() return now end
+	ns.After = function(_, _, fn) again = fn end
+	setuv(flight.Finish, "current", { route = "A -> B", start = 40 })
+	flight:PLAYER_CONTROL_GAINED()
+	assert(again and next(flight.db.times) == nil and uv(flight.Finish, "current"), "still on the taxi: asked again")
+	flight:PLAYER_CONTROL_GAINED()
+	onTaxi, now = false, 101
+	again()
+	assert(flight.db.times["A -> B"] == 61 and uv(flight.Finish, "current") == nil, "remembered after landing")
+	assert(flight.Record("A -> C", 3) == false and flight.db.times["A -> C"] == nil, "too short: no flight")
+	assert(flight.Record(nil, 60) == false, "no route, no time")
+	UnitOnTaxi, GetTime, ns.After = saved[1], saved[2], saved[3]
+	setuv(flight.Finish, "current", saved[4])
+	flight.db.times = saved[5]
+	print("flight time OK")
 end)()
 ;(function()
 	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.
@@ -2791,6 +2821,16 @@ end)()
 	assert(pick("DEATHKNIGHT", { might = true, wisdom = true }) == "might"
 		and buffs.ChooseBlessing("DEATHKNIGHT", true, { might = true, wisdom = true }, {}, 60) == "wisdom", "other class: by mana")
 	assert(not buffs.HasMana("WARRIOR", true) and buffs.HasMana("HUNTER", false), "mana by class")
+	-- One's own blessing: another paladin's blessing does not stand for it
+	local function own(preferred, on)
+		return buffs.ChooseOwnBlessing(preferred, "PALADIN", all, on or {}, 60)
+	end
+	assert(own("wisdom", { might = { remaining = 200 } }) == "wisdom", "Might from another paladin, own Wisdom gone: Wisdom offered")
+	assert(own("might", { might = { remaining = 200 } }) == "kings", "the chosen kind is on already: the next free one")
+	assert(own("wisdom", { wisdom = { remaining = 200, mine = true }, might = { remaining = 200 } }) == nil, "own blessing on: nothing")
+	local ownKind, ownRenew = own("wisdom", { wisdom = { remaining = 30, mine = true } })
+	assert(ownKind == "wisdom" and ownRenew, "own blessing runs out: renewed")
+	assert(own("wisdom", {}) == "wisdom", "nothing on: the chosen kind")
 	-- The whole bar: a friendly player in the target lacks Intellect, the player has it
 	local saved = { UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName }
 	UnitExists, UnitIsPlayer = function() return true end, function() return true end
@@ -2801,9 +2841,25 @@ end)()
 	assert(uv(update, "bar"), "bar built at login")
 	assert(rawget(_G, "ForeverPlusBuffButton1") and _G["BINDING_NAME_CLICK ForeverPlusBuffButton1:LeftButton"] == ns.L.BUFFS_BINDING,
 		"first button exists for the key binding")
+	-- In a rest area the same rule as for oneself: only with the option
+	local savedResting, savedZones = IsResting, buffs.db.restingZones
+	local savedTracking = C_Minimap.GetNumTrackingTypes
+	C_Minimap.GetNumTrackingTypes = function() return 0 end
+	buffs.db.restingZones = false
 	update()
 	local first = uv(update, "buttons")[1]
+	assert(not (first and first.shown), "rest area without the option: no button for the target either")
+	buffs.db.restingZones = true
+	update()
+	first = uv(update, "buttons")[1]
+	assert(first and first.shown and first.targetName == "Brann", "rest area with the option: the target is buffed")
+	buffs.db.restingZones = savedZones
+	IsResting = function() return false end
+	update()
+	first = uv(update, "buttons")[1]
 	assert(first and first.shown and first.targetName == "Brann", "button buffs the target, named below")
+	IsResting = savedResting
+	C_Minimap.GetNumTrackingTypes = savedTracking
 	UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName = unpack(saved)
 	setuv(evaluate, "FindAura", function() return nil end)
 	print("buff power OK")

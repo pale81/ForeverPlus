@@ -364,9 +364,13 @@ end
 -- Returns shown (bool), seconds until it should be re-checked, whether the
 -- buff is only about to expire (not missing yet) and whether it waits for
 -- power to cast it.
+local OwnBlessing -- set below, with the blessings
+
 local function Evaluate(reminder, threshold)
 	local remaining, spellID
-	if reminder.weapon then
+	if reminder.blessings then
+		return OwnBlessing(reminder, threshold)
+	elseif reminder.weapon then
 		if reminder.slot and not HasWeapon(reminder.slot) then
 			return false
 		end
@@ -455,13 +459,28 @@ function Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
 	end
 end
 
--- The blessings on the target: kind -> { remaining (0 = no end), mine }.
-local function TargetBlessings()
+-- One's own blessing: while a blessing of one's own is on the player it is only renewed; else the chosen kind
+-- (preferred), or when another paladin's blessing of that kind is on already, the next free kind of the class.
+-- A blessing of another paladin does not stand for one's own (Might from someone else, the own Wisdom clicked
+-- away: nothing was offered any more).
+function Buffs.ChooseOwnBlessing(preferred, class, known, onSelf, threshold)
+	local mine = false
+	for _, aura in pairs(onSelf) do
+		mine = mine or aura.mine
+	end
+	if not mine and preferred and known[preferred] and not onSelf[preferred] then
+		return preferred, false
+	end
+	return Buffs.ChooseBlessing(class, true, known, onSelf, threshold)
+end
+
+-- The blessings on a unit: kind -> { remaining (0 = no end), mine }.
+local function UnitBlessings(unit)
 	local found = {}
 	for kind, spellIDs in pairs(BLESSING_KINDS) do
 		for _, spellID in ipairs(spellIDs) do
 			local name = SpellName(spellID)
-			local aura = name and C_UnitAuras.GetAuraDataBySpellName("target", name, "HELPFUL")
+			local aura = name and C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL")
 			if aura then
 				local expires = aura.expirationTime
 				local remaining = (ns.Secret(expires) or not expires or expires == 0) and 0
@@ -475,6 +494,38 @@ local function TargetBlessings()
 		end
 	end
 	return found
+end
+
+local function KnownBlessings()
+	local known = {}
+	for kind, spellIDs in pairs(BLESSING_KINDS) do
+		known[kind] = IsKnown(spellIDs[1]) or nil
+	end
+	return known
+end
+
+-- Shown, seconds until the next check, only expiring, waiting for power, the blessing to cast.
+OwnBlessing = function(reminder, threshold)
+	local preferred = PickSpell(reminder)
+	if not preferred then
+		return false
+	end
+	local preferredKind
+	for kind, spellIDs in pairs(BLESSING_KINDS) do
+		if spellIDs[1] == preferred or spellIDs[2] == preferred then
+			preferredKind = kind
+		end
+	end
+	local _, class = UnitClass("player")
+	local kind, renew, recheck = Buffs.ChooseOwnBlessing(preferredKind, class, KnownBlessings(), UnitBlessings("player"), threshold)
+	if not kind then
+		return false, recheck
+	end
+	local blessing = kind == preferredKind and preferred or BLESSING_KINDS[kind][1]
+	if LacksPower(blessing) then
+		return false, nil, nil, true
+	end
+	return true, nil, renew, nil, blessing
 end
 
 local function TargetClass()
@@ -503,11 +554,8 @@ local function EvaluateTarget(reminder, threshold)
 		return false
 	end
 	if reminder.blessings then
-		local known = {}
-		for kind, spellIDs in pairs(BLESSING_KINDS) do
-			known[kind] = IsKnown(spellIDs[1]) or nil
-		end
-		local onTarget = TargetBlessings()
+		local known = KnownBlessings()
+		local onTarget = UnitBlessings("target")
 		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
 		local seen = {}
 		for name, aura in pairs(onTarget) do
@@ -630,17 +678,14 @@ local function Update()
 	local resting = IsResting() and not Buffs.db.restingZones
 	local flying = UnitOnTaxi("player") or IsFlying()
 	local fishing = Buffs.db.skipFishing and ns.HasFishingPole and ns.HasFishingPole()
-	-- A friendly target is buffed also in rest areas (cities, inns): choosing the target is the request.
-	local active = Buffs.db.enabled and not flying and not fishing and not UnitIsDeadOrGhost("player")
+	-- The same rules for oneself and for a friendly target (rest areas only when wanted, not while fishing or flying).
+	local active = Buffs.db.enabled and not flying and not fishing and not resting and not UnitIsDeadOrGhost("player")
 	local target = active and Buffs.db.targetBuffs and FriendlyTarget()
 	if active then
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck, expiring, noPower
-				if not resting then
-					missing, recheck, expiring, noPower = Evaluate(reminder, threshold)
-				end
+				local missing, recheck, expiring, noPower, ownSpell = Evaluate(reminder, threshold)
 				waitingForPower = waitingForPower or noPower
 				local targetMissing, targetExpiring, targetRecheck, targetSpell
 				if target and reminder.others then
@@ -665,7 +710,7 @@ local function Update()
 						expiring = targetExpiring
 					end
 					local button = buttons[count + 1] or CreateButton(count + 1)
-					if SetupButton(button, reminder, unit, unit == "target" and targetSpell or nil) then
+					if SetupButton(button, reminder, unit, unit == "target" and targetSpell or ownSpell) then
 						count = count + 1
 						-- Buffs about to expire are shown faded, missing ones fully.
 						button:SetAlpha(expiring and Buffs.db.expiringAlpha or 1)

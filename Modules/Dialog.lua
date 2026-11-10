@@ -549,6 +549,13 @@ local function CreateBubble()
 	return frame
 end
 
+-- The text of the faint copies around a chosen row: without colour codes (the glow has its own colour), but with
+-- the same icons. Blanks in their place had another width than the coins of a price, so a row that wraps broke
+-- its lines elsewhere and the words stood twice.
+function Dialog.GlowText(label)
+	return (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
 local function Pooled(frame, kind, index, create)
 	local pool = frame.pools[kind]
 	local object = pool[index]
@@ -880,9 +887,7 @@ local function RenderView(view)
 						if file and size then
 							glow:SetFont(file, size * 1.2, "")
 						end
-						-- No colour codes (the glow has its own colour) and no icons (blank spaces of the same size).
-						glow:SetText((label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T[^|]*|t", "|TInterface\\Common\\Spacer:14:14|t")
-							:gsub("|A[^|]*|a", "|TInterface\\Common\\Spacer:14:14|t")))
+						glow:SetText(Dialog.GlowText(label))
 					end
 				end
 

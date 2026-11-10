@@ -11,6 +11,8 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 		questButton = true, -- a small button at group, elite and dungeon quests: lists the player for it
 		tank5 = 1, healer5 = 1, dps5 = 3,
 		tank10 = 2, healer10 = 2, dps10 = 6,
+		presetRoles = false, -- the own roles are chosen in the group finder from the start
+		roleTank = false, roleHealer = false, roleDps = true,
 	},
 })
 
@@ -430,7 +432,10 @@ function GroupFinder:OnLogin()
 		if LFGBrowseSearchEntry_Update then
 			hooksecurefunc("LFGBrowseSearchEntry_Update", UpdateEntry)
 		end
+		-- The window sets the roles saved by the game when it loads: ours after it.
+		GroupFinder.ApplyRoles()
 	end)
+	GroupFinder.ApplyRoles()
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		if QuestObjectiveTracker and QuestObjectiveTracker.Update then
 			hooksecurefunc(QuestObjectiveTracker, "Update", ns.Measured("GroupFinder: quest buttons (tracker)", UpdateTracker))
@@ -441,8 +446,26 @@ function GroupFinder:OnLogin()
 	end
 end
 
+-- The roles chosen in the options, as the group finder takes them; nil while the option is off or none is chosen.
+function GroupFinder.PresetRoles(db)
+	if not db.presetRoles or not (db.roleTank or db.roleHealer or db.roleDps) then
+		return nil
+	end
+	return { tank = db.roleTank and true or false, healer = db.roleHealer and true or false, dps = db.roleDps and true or false }
+end
+
+-- Sets the own roles of the group finder (the ticks under "list yourself"); roles the class cannot fill are left
+-- out by the game. The window reads them when it shows.
+function GroupFinder.ApplyRoles()
+	local roles = GroupFinder.PresetRoles(GroupFinder.db)
+	if roles and C_LFGListRoles and C_LFGListRoles.SetRoles and not InCombatLockdown() then
+		C_LFGListRoles.SetRoles(roles, true)
+	end
+end
+
 function GroupFinder:OnOptionChanged(key)
 	RefreshAll()
+	GroupFinder.ApplyRoles()
 	if key == "questButton" then
 		UpdateTracker()
 		UpdateLog()
@@ -456,6 +479,10 @@ end
 GroupFinder.options = {
 	{ key = "composition", type = "toggle", name = L.GROUPFINDER_COMPOSITION, desc = L.GROUPFINDER_COMPOSITION_DESC },
 	{ key = "questButton", type = "toggle", name = L.GROUPQUEST_OPTION, desc = L.GROUPQUEST_OPTION_DESC, new = true },
+	{ key = "presetRoles", type = "toggle", name = L.GROUPFINDER_ROLES, desc = L.GROUPFINDER_ROLES_DESC, new = true },
+	{ key = "roleTank", type = "toggle", name = TANK, parent = "presetRoles" },
+	{ key = "roleHealer", type = "toggle", name = HEALER, parent = "presetRoles" },
+	{ key = "roleDps", type = "toggle", name = DAMAGER, parent = "presetRoles" },
 	{ type = "header", name = L.GROUPFINDER_FIVE },
 	Count("tank5", TANK, 5), Count("healer5", HEALER, 5), Count("dps5", DAMAGER, 5),
 	{ type = "header", name = L.GROUPFINDER_TEN },

@@ -2375,6 +2375,60 @@ end)()
 	print("flight time OK")
 end)()
 ;(function()
+	-- Group finder: the roles chosen in the options are set, only while the option is on
+	local finder = ns:GetModule("GroupFinder")
+	assert(finder.PresetRoles({ presetRoles = false, roleTank = true }) == nil, "off: nothing set")
+	assert(finder.PresetRoles({ presetRoles = true }) == nil, "no role chosen: nothing set")
+	local roles = finder.PresetRoles({ presetRoles = true, roleTank = true, roleDps = true })
+	assert(roles.tank == true and roles.healer == false and roles.dps == true, "several roles")
+	local savedRoles, savedDB, set, limit = C_LFGListRoles, { finder.db.presetRoles, finder.db.roleHealer, finder.db.roleDps }, nil, nil
+	C_LFGListRoles = { SetRoles = function(given, classOnly) set, limit = given, classOnly end }
+	finder.db.presetRoles = false
+	finder.ApplyRoles()
+	assert(set == nil, "the game's roles stay while the option is off")
+	finder.db.presetRoles, finder.db.roleHealer, finder.db.roleDps = true, true, false
+	finder.ApplyRoles()
+	assert(set and set.healer == true and set.dps == false and limit == true, "set, limited to the roles of the class")
+	C_LFGListRoles = savedRoles
+	finder.db.presetRoles, finder.db.roleHealer, finder.db.roleDps = savedDB[1], savedDB[2], savedDB[3]
+	print("group finder roles OK")
+end)()
+;(function()
+	-- Waypoint from coordinates: what is read, what is linked in the chat, what is set
+	local way = ns:GetModule("Waypoint")
+	local x, y, name = way.Parse("23, 34")
+	assert(x == 23 and y == 34 and name == nil, "comma")
+	x, y, name = way.Parse(" 23.5 34.2 Schmied ")
+	assert(x == 23.5 and y == 34.2 and name == "Schmied", "decimals, blank and a name")
+	x, y = way.Parse("23,5 / 34,2")
+	assert(x == 23.5 and y == 34.2, "comma as the decimal sign")
+	assert(way.Parse("123 45") == nil and way.Parse("hallo") == nil and way.Parse("") == nil and way.Parse(nil) == nil, "not coordinates")
+	local linked = way.Linkify("Komm zu 45.2, 61 bitte")
+	assert(linked:find("|Haddon:ForeverPlus:way:45.2:61|h[45.2, 61]|h", 1, true), "link in the chat: " .. linked)
+	assert(way.Linkify("Ich habe 1,5 Gold und 120, 300 Punkte") == "Ich habe 1,5 Gold und 120, 300 Punkte", "a decimal number and big numbers stay text")
+	assert(way.Linkify("Stufe 250, 300") == "Stufe 250, 300", "numbers above 100 are no coordinates")
+	local saved = { C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print }
+	local set, tracked, cleared, can = nil, nil, nil, true
+	C_Map.GetBestMapForUnit = function() return 1429 end
+	C_Map.CanSetUserWaypointOnMap = function() return can end
+	C_Map.SetUserWaypoint = function(point) set = point end
+	C_Map.ClearUserWaypoint = function() cleared = true end
+	UiMapPoint = { CreateFromCoordinates = function(mapID, px, py) return { mapID, px, py } end }
+	C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) tracked = on end }
+	ns.Print = function() end
+	way.Command("weg 23 34")
+	assert(set and set[1] == 1429 and set[2] == 0.23 and set[3] == 0.34 and tracked == true, "set on the player's map, tracked")
+	set = nil
+	way.Command("way quatsch")
+	assert(set == nil, "no numbers: nothing set")
+	can = false
+	assert(way.Set(1, 2) == false and set == nil, "a map without waypoints: nothing set")
+	way.Command("weg")
+	assert(cleared, "without numbers the waypoint goes")
+	C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print = unpack(saved, 1, 7)
+	print("waypoint OK")
+end)()
+;(function()
 	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.
 	local dialog = ns:GetModule("Dialog")
 	local savedCurrent, savedBubble = uv(dialog.Pending, "current"), uv(dialog.Pending, "bubble")

@@ -904,20 +904,20 @@ local pat = "^" .. DPS_TEMPLATE:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0"):gsub(
 print("  pattern", pat, ("(7,3 Schaden pro Sekunde)"):match(pat))
 assert(("(7,3 Schaden pro Sekunde)"):match(pat) == "7,3")
 print("upgrade trees OK")
--- Upgrade sign: the pop always ends at exactly size 1 and fully visible
+-- Upgrade toast: gain over the worn item, none for an empty slot
 do
 	local items = ns:GetModule("Items")
-	local s0, a0, d0 = items.PopScale(0)
-	assert(s0 == 0.25 and a0 == 0 and d0 == false)
-	local sPeak = items.PopScale(0.2199)
-	assert(sPeak > 1.3 and sPeak <= 1.35)
-	local s1, a1, d1 = items.PopScale(0.38)
-	assert(s1 == 1 and a1 == 1 and d1 == true)
-	for t = 0, 0.5, 0.01 do
-		local s = items.PopScale(t)
-		assert(s > 0 and s <= 1.35)
-	end
-	print("upgrade pop OK")
+	assert(math.abs(items.UpgradeGain(15, 12) - 25) < 0.001, "25 % better")
+	assert(items.UpgradeGain(5, 0) == nil and items.UpgradeGain(5, nil) == nil, "empty slot: no percent")
+	-- usable now, only the level missing (a grey arrow), or not at all
+	local red, white = { r = 1, g = 0.1, b = 0.1 }, { r = 1, g = 1, b = 1 }
+	local level = ns.FormatToPattern("Benötigt Stufe %d", true).pattern
+	assert(items.UseBlock({ { leftText = "Brust", leftColor = white } }, level) == "ok", "nothing red")
+	assert(items.UseBlock({ { leftText = "Benötigt Stufe 18", leftColor = red } }, level) == "level", "only the level")
+	assert(items.UseBlock({ { leftText = "Benötigt Stufe 18", leftColor = red }, { leftText = "Platte", leftColor = red } }, level) == "no",
+		"level and armour type")
+	assert(items.UseBlock(nil, level) == "no", "no tooltip data")
+	print("upgrade gain OK")
 end
 -- Group finder: classes and missing roles
 local gf = ns:GetModule("GroupFinder")

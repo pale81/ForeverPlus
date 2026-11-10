@@ -3882,8 +3882,23 @@ end)()
 	end
 	assert(P.Elements("Schmiedekunst", nil, {}, 1, 1)[3].fpPlan == "note", "no trainer list yet: a note")
 	-- added to the list Blizzard shows, taken out again when switched off
-	local nodes, removed = {}, 0
-	local provider = { Insert = function(_, data) local node = { data = data } nodes[#nodes + 1] = node return node end,
+	-- Blizzard sorts the top of its list on every insert by `group`, then by the category (its SortRootData): one
+	-- element of ours stands there, with a group behind Blizzard's, and carries the others below it.
+	local roots, children, removed = {}, 0, 0
+	local function Node(data)
+		return { data = data, GetData = function(self) return self.data end,
+			Insert = function(_, childData) children = children + 1 return Node(childData) end }
+	end
+	local function SortRoot(lhs, rhs)
+		local left, right = lhs:GetData(), rhs:GetData()
+		if left.group ~= right.group then
+			return left.group < right.group
+		end
+		return left.categoryInfo.uiOrder < right.categoryInfo.uiOrder
+	end
+	roots[1] = Node({ group = 2, categoryInfo = { uiOrder = 1 } })
+	roots[2] = Node({ group = 1, categoryInfo = { uiOrder = 2 } })
+	local provider = { Insert = function(_, data) local node = Node(data) roots[#roots + 1] = node table.sort(roots, SortRoot) return node end,
 		Remove = function() removed = removed + 1 end }
 	local savedFrame, savedTradeSkill = ProfessionsFrame, C_TradeSkillUI
 	ProfessionsFrame = { CraftingPage = { RecipeList = { ScrollBox = { GetDataProvider = function() return provider end },
@@ -3893,11 +3908,11 @@ end)()
 	P.cdb.trainers["Schmiedekunst"] = list
 	P.db.upcoming = true
 	P.Inject()
-	local added = #nodes
-	assert(added >= 8, "elements added: " .. added)
+	assert(#roots == 3 and roots[3]:GetData().fpPlan and roots[3]:GetData().isDivider, "one element at the top level, behind Blizzard's")
+	assert(children >= 7, "the others below it: " .. children)
 	P.db.upcoming = false
 	P.Inject()
-	assert(removed == added and #nodes == added, "taken out when switched off")
+	assert(removed == 1, "taken out when switched off")
 	ProfessionsFrame, C_TradeSkillUI = savedFrame, savedTradeSkill
 	print("profession plan OK")
 end)()

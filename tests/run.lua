@@ -3812,4 +3812,36 @@ end)()
 	end
 	print("core helpers OK")
 end)()
+;(function()
+	-- Talent tree after the class: the class line gets it once; others are asked for by inspection and kept
+	local T = ns:GetModule("Tooltip")
+	assert(T.db.talentTree == true and T.db.hoverTalentIcon == false, "defaults: tree on, symbol off")
+	assert(T.WithTree("Stufe 20 Krieger (Spieler)", "Krieger", "Waffen") == "Stufe 20 Krieger (Waffen) (Spieler)", "after the class")
+	assert(T.WithTree("Stufe 20 Krieger (Waffen)", "Krieger", "Waffen") == nil, "not twice")
+	assert(T.WithTree("Gilde", "Krieger", "Waffen") == nil, "no class in the line")
+	local saved = { UnitIsUnit, UnitGUID, CanInspect, NotifyInspect, InCombatLockdown, GetTime, ns.TalentTreeOf, InspectFrame }
+	local asked = 0
+	UnitIsUnit = function() return false end
+	UnitGUID = function(unit) return unit == "mouseover" and "Player-1-0002" or "Player-1-0001" end
+	CanInspect = function() return true end
+	NotifyInspect = function() asked = asked + 1 end
+	InCombatLockdown = function() return false end
+	InspectFrame = { IsShown = function() return false end }
+	ClearInspectPlayer = function() end
+	local now = 100
+	GetTime = function() return now end
+	assert(T.TreeOf("target") == nil and asked == 1, "unknown player: inspected")
+	assert(T.TreeOf("target") == nil and asked == 1, "not again within 1.5 s")
+	ns.TalentTreeOf = function(configID) return configID == -1 and "Furor" or nil, 132347 end
+	T.OnInspectReady(nil, "INSPECT_READY", "Player-1-0001")
+	local tree = T.TreeOf("target")
+	assert(tree and tree.name == "Furor" and tree.icon == 132347 and asked == 1, "kept after the inspection")
+	now = 200
+	InCombatLockdown = function() return true end
+	T.TreeOf("focus")
+	assert(asked == 1, "no inspection in combat")
+	UnitIsUnit, UnitGUID, CanInspect, NotifyInspect, InCombatLockdown, GetTime, ns.TalentTreeOf, InspectFrame = unpack(saved, 1, 8)
+	T.trees = {}
+	print("talent tree tooltip OK")
+end)()
 dofile("bundled.lua")

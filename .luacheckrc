@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"CanInspect", "NotifyInspect", "ClearInspectPlayer", "InspectFrame",
 	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "ProfessionsRecipeListRecipeMixin",
 	"ITEM_MIN_LEVEL",
 	"Fancy24Font",

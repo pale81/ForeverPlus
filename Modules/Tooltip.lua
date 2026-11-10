@@ -16,6 +16,8 @@ local Tooltip = ns:NewModule("Tooltip", {
 		hoverFullName = false,
 		hoverObjects = true,
 		classColors = true,
+		talentTree = true,      -- the talent tree after the class of players
+		hoverTalentIcon = false, -- its symbol in front of the name over the cursor
 		qualityBorder = true,
 		bronzeBorder = true,
 	},
@@ -330,6 +332,12 @@ local function Layout(frame)
 			text:SetFont(ns.GetFontFace(), NAME_SIZE, "OUTLINE")
 		end
 	end
+	-- The symbol of the talent tree in front of the name (option).
+	local isPlayer = UnitIsPlayer("mouseover")
+	local tree = Tooltip.db.hoverTalentIcon and isPlayer and not Secret(isPlayer) and Tooltip.TreeOf and Tooltip.TreeOf("mouseover")
+	if tree and tree.icon then
+		name = ("|T%d:0|t "):format(tree.icon) .. name
+	end
 	frame.Name:SetText(name)
 	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
 	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")
@@ -565,9 +573,115 @@ local function SyncHoverColor(tooltip)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Talent tree of players: after the class in the tooltip, as a symbol before the name over the cursor (option).
+-- One's own from the active talents; others from an inspection, asked for while pointing at them (out of combat,
+-- not while the inspect window is open, at most every 1.5 s), kept per player for the session.
+---------------------------------------------------------------------------
+Tooltip.trees = {} -- GUID -> { name =, icon = }
+local INSPECT_GAP = 1.5
+local inspect = { last = -INSPECT_GAP, guid = nil }
+
+-- The line with the class gets the tree: "Stufe 20 Krieger" -> "Stufe 20 Krieger (Waffen)".
+function Tooltip.WithTree(text, className, tree)
+	local from, to = text:find(className, 1, true)
+	if not from or text:find(tree, to + 1, true) then
+		return nil
+	end
+	return text:sub(1, to) .. " (" .. tree .. ")" .. text:sub(to + 1)
+end
+
+function Tooltip.TreeOf(unit)
+	local own = UnitIsUnit(unit, "player")
+	if own and not Secret(own) then
+		local name, icon = ns.TalentTreeOf(nil)
+		return name and { name = name, icon = icon } or nil
+	end
+	local guid = UnitGUID(unit)
+	if type(guid) ~= "string" or Secret(guid) then
+		return nil
+	end
+	if Tooltip.trees[guid] then
+		return Tooltip.trees[guid]
+	end
+	local canInspect = CanInspect and CanInspect(unit)
+	if not InCombatLockdown() and canInspect and not Secret(canInspect) and not (InspectFrame and InspectFrame:IsShown())
+		and GetTime() - inspect.last >= INSPECT_GAP then
+		inspect.last, inspect.guid = GetTime(), guid
+		NotifyInspect(unit)
+	end
+end
+
+local function AddTree(tooltip, unit)
+	if not Tooltip.db.talentTree then
+		return
+	end
+	local tree = Tooltip.TreeOf(unit)
+	local className = UnitClass(unit)
+	if not tree or not className or Secret(className) then
+		return
+	end
+	for i = 2, tooltip:NumLines() do
+		local line = _G["GameTooltipTextLeft" .. i]
+		local text = line and line:GetText()
+		if text and not Secret(text) then
+			local changed = Tooltip.WithTree(text, className, tree.name)
+			if changed or text:find(className, 1, true) then
+				if changed then
+					line:SetText(changed)
+				end
+				return
+			end
+		end
+	end
+end
+
+local function TreeTooltip(tooltip)
+	if tooltip:IsForbidden() or tooltip ~= GameTooltip then
+		return
+	end
+	local _, unit = tooltip:GetUnit()
+	if not unit or Secret(unit) then
+		return
+	end
+	local isPlayer = UnitIsPlayer(unit)
+	if isPlayer and not Secret(isPlayer) then
+		AddTree(tooltip, unit)
+	end
+end
+
+local function OnInspectReady(_, _, guid)
+	if not guid or Secret(guid) or guid ~= inspect.guid then
+		return
+	end
+	inspect.guid = nil
+	local configID = Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID or -1
+	local name, icon = ns.TalentTreeOf(configID)
+	if name then
+		Tooltip.trees[guid] = { name = name, icon = icon }
+	end
+	if ClearInspectPlayer and not (InspectFrame and InspectFrame:IsShown()) then
+		ClearInspectPlayer()
+	end
+	-- The tooltip and the name over the cursor of that player show it at once.
+	local mouseGuid = UnitGUID("mouseover")
+	if name and not Secret(mouseGuid) and mouseGuid == guid then
+		local _, unit = GameTooltip:GetUnit()
+		if unit and not Secret(unit) then
+			AddTree(GameTooltip, unit)
+			GameTooltip:Show()
+		end
+		if hover and hover:IsShown() and not hover.object then
+			Layout(hover)
+		end
+	end
+end
+Tooltip.OnInspectReady = OnInspectReady
+
 local function OnUnitTooltip(tooltip)
 	ClassColorTooltip(tooltip)
 	SyncHoverColor(tooltip)
+	TreeTooltip(tooltip)
 end
 
 -- Maximum stack size of stackable items (a section of the extra block).
@@ -749,11 +863,15 @@ end
 function Tooltip:OnLogin()
 	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
 	self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
+	self:ToggleEvent("INSPECT_READY", self.db.talentTree or self.db.hoverTalentIcon, OnInspectReady)
 end
 
 function Tooltip:OnOptionChanged(key)
 	if key == "bronzeBorder" and not self.db.bronzeBorder then
 		ResetBronzeBorders()
+	end
+	if key == "talentTree" or key == "hoverTalentIcon" then
+		self:ToggleEvent("INSPECT_READY", self.db.talentTree or self.db.hoverTalentIcon, OnInspectReady)
 	end
 	if key == "shiftInfo" then
 		self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
@@ -792,6 +910,8 @@ Tooltip.options = {
 	{ key = "hoverFullName", type = "toggle", name = L.TOOLTIP_HOVER_FULL_NAME, desc = L.TOOLTIP_HOVER_FULL_NAME_DESC, parent = "hoverName" },
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
+	{ key = "talentTree", type = "toggle", name = L.TOOLTIP_TALENT_TREE, desc = L.TOOLTIP_TALENT_TREE_DESC, new = true },
+	{ key = "hoverTalentIcon", type = "toggle", name = L.TOOLTIP_HOVER_TALENT_ICON, desc = L.TOOLTIP_HOVER_TALENT_ICON_DESC, parent = "hoverName", new = true },
 	{ key = "shiftInfo", type = "toggle", name = L.TOOLTIP_SHIFT_INFO, desc = L.TOOLTIP_SHIFT_INFO_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },

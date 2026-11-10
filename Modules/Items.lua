@@ -228,8 +228,8 @@ local _, playerClass = UnitClass("player")
 -- Forever has one specialization per class (C_SpecializationInfo); the three
 -- classic talent trees are trait groups. The tree with the most points wins,
 -- in the order the talent frame shows them (orderIndex).
-local function TalentTree()
-	local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+local function TalentTree(configID)
+	configID = configID or (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID())
 	local configInfo = configID and C_Traits.GetConfigInfo(configID)
 	local treeID = configInfo and configInfo.treeIDs and configInfo.treeIDs[1]
 	if not treeID then
@@ -256,6 +256,17 @@ local function TalentTree()
 		end
 	end
 	return best, best and trees[best].displayName, trees
+end
+
+-- Name and icon of the tree with the most points: one's own (configID nil) or of an inspected player
+-- (Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID after INSPECT_READY). nil when unknown or no point is spent.
+function ns.TalentTreeOf(configID)
+	local ok, index, name, trees = pcall(TalentTree, configID)
+	if not ok or not index or ns.Secret(name) then
+		return nil
+	end
+	local icon = trees and trees[index] and trees[index].icon
+	return name, not ns.Secret(icon) and icon or nil
 end
 
 -- The tree chosen in the options when this class has it, else the automatic one.

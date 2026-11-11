@@ -86,6 +86,7 @@ Modules\Durability.lua
 Data\TalentPresets.lua
 Modules\TalentSummary.lua
 Modules\TalentOrder.lua
+Modules\TalentBuilds.lua
 Modules\Talents.lua
 Modules\ProfessionPlan.lua
 Modules\Visuals.lua

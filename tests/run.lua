@@ -2033,6 +2033,87 @@ end)()
 	print("talent plan order OK")
 end)()
 ;(function()
+	-- Talent plans by name: the list, what was stored before, and the plan a character works with.
+	local builds = ns.TalentBuilds
+	local ranks = builds.ParseRanks("11:5,12:2,x,13:0")
+	assert(ranks[11] == 5 and ranks[12] == 2 and ranks[13] == 0 and builds.ParseRanks(nil)[1] == nil, "ranks of a stored template")
+	local list, counter = {}, {}
+	local first = builds.Add(list, counter, "Plan")
+	local second = builds.Add(list, counter, "Plan", { [1] = 3, [2] = 1 })
+	assert(first.id == 1 and second.id == 2 and second.name == "Plan (2)" and builds.Points(second) == 4 and builds.Points(first) == 0, "ids and names of their own")
+	assert(builds.UniqueName(list, "Plan (2)", second) == "Plan (2)" and builds.UniqueName(list, "Plan") == "Plan (3)", "a plan keeps its own name")
+	assert(builds.Find(list, 2) == second and builds.Find(list, 9) == nil and builds.Find(list, nil) == nil, "found by id")
+	assert(builds.Remove(list, 1) and #list == 1 and not builds.Remove(list, 1) and builds.Add(list, counter, "X").id == 3, "removed; ids are not used again")
+	list, counter = {}, { buildSeq = 4 }
+	builds.Migrate(list, counter, { [7] = 2 }, { 7, 7 }, { { name = "Tank", points = 3, ranks = "7:1,8:2" }, { name = "leer", ranks = "" }, "kaputt" }, "Plan")
+	assert(#list == 2 and list[1].name == "Plan" and list[1].ranks[7] == 2 and #list[1].order == 2 and list[1].id == 5
+		and list[2].name == "Tank" and list[2].ranks[8] == 2 and #list[2].order == 0, "the old plan first, then the templates with talents")
+	assert(#builds.Migrate({}, {}, {}, nil, nil, "Plan") == 0, "nothing stored: nothing added")
+
+	local talents = ns:GetModule("Talents")
+	local onClick = uv(uv(talents.OnLogin, "SetupPlanner"), "OnTalentClick")
+	local menu = uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")
+	local BuildList, ActiveBuild = uv(menu, "BuildList"), uv(menu, "ActiveBuild")
+	local key = uv(BuildList, "PlanKey")()
+	local savedDB, savedSeq, savedActive = talents.db.builds[key], talents.db.buildSeq, talents.cdb.activeBuild[key]
+	local savedPrint, savedEdit, savedMenu, savedLocale = ns.Print, ns.ShowEditWindow, MenuUtil.CreateContextMenu, GetLocale
+	ns.Print = function() end
+	-- what an older version stored is taken over once, the old plan is the active one
+	talents.db.builds[key], talents.cdb.activeBuild[key] = nil, nil
+	talents.db.plans, talents.db.planOrder = { [key] = { [7] = 2 } }, { [key] = { 7, 7 } }
+	talents.db.templates = { [key:match("^[^:]+")] = { { name = "Tank", ranks = "7:1,8:2" } } }
+	assert(#BuildList() == 2 and next(talents.db.plans) == nil and next(talents.db.planOrder) == nil and next(talents.db.templates) == nil, "taken over, the old fields emptied")
+	assert(#BuildList() == 2 and talents:CurrentPlan()[7] == 2 and ActiveBuild().name == ns.L.TALENTS_PLAN, "once only; the old plan is active")
+	talents.db.plans, talents.db.planOrder, talents.db.templates = nil, nil, nil
+	-- menu: the plans as a choice, then what can be done
+	local radios, entries = {}, {}
+	MenuUtil.CreateContextMenu = function(owner, gen)
+		local root = {}
+		function root.CreateTitle() end
+		function root.CreateDivider() end
+		function root.CreateRadio(_, text, isSelected, onSelect) radios[#radios + 1] = { text = text, isSelected = isSelected, onSelect = onSelect } end
+		function root.CreateButton(_, text, fn) entries[text] = fn end
+		gen(owner, root)
+	end
+	talents.db.planner = true
+	menu({})
+	assert(#radios == 2 and radios[1].text == ns.L.TALENTS_PLAN .. " (2)" and radios[2].text == "Tank (3)" and radios[1].isSelected() and not radios[2].isSelected(), "plans with their points, the active one marked")
+	radios[2].onSelect()
+	assert(ActiveBuild().name == "Tank" and talents:CurrentPlan()[8] == 2 and radios[2].isSelected(), "another plan chosen")
+	-- new, rename, save a copy, remove
+	local typed
+	ns.ShowEditWindow = function(_, _, _, _, onAccept) onAccept(typed) end
+	typed = "  Tank "
+	entries[ns.L.TALENTS_PLAN_NEW]()
+	assert(#BuildList() == 3 and ActiveBuild().name == "Tank (2)" and next(talents:CurrentPlan()) == nil, "a new, empty plan is the active one")
+	typed = "Heiler"
+	entries[ns.L.TALENTS_PLAN_RENAME]()
+	assert(ActiveBuild().name == "Heiler", "renamed")
+	typed = ""
+	entries[ns.L.TALENTS_PLAN_RENAME]()
+	assert(ActiveBuild().name == "Heiler", "no name: the plan keeps its own")
+	-- a plan from outside takes the empty active plan, otherwise it becomes a plan of its own
+	local StorePlan = uv(uv(menu, "ImportPlan"), "StorePlan")
+	StorePlan("Link", { [7] = 1 })
+	assert(#BuildList() == 3 and ActiveBuild().name == "Link" and talents:CurrentPlan()[7] == 1, "the empty plan is used")
+	StorePlan("Link", { [8] = 1 })
+	assert(#BuildList() == 4 and ActiveBuild().name == "Link (2)" and talents:CurrentPlan()[8] == 1 and BuildList()[3].ranks[7] == 1, "beside a plan with talents")
+	entries[ns.L.TALENTS_PLAN_REMOVE]()
+	assert(#BuildList() == 3 and ActiveBuild().name == ns.L.TALENTS_PLAN, "removed: the first plan is active")
+	for _ = 1, 3 do entries[ns.L.TALENTS_PLAN_REMOVE]() end
+	assert(#BuildList() == 0 and next(talents:CurrentPlan()) == nil and #BuildList() == 1, "without any plan there is an empty one as soon as it is asked for")
+	-- planner off: the menu still exports
+	radios, entries = {}, {}
+	talents.db.planner = false
+	menu({})
+	assert(#radios == 0 and entries[ns.L.TALENTS_EXPORT_PLAN] and not entries[ns.L.TALENTS_PLAN_NEW], "planner off: export only")
+	talents.db.planner = true
+	assert(onClick, "planner reachable")
+	talents.db.builds[key], talents.db.buildSeq, talents.cdb.activeBuild[key] = savedDB, savedSeq, savedActive
+	ns.Print, ns.ShowEditWindow, MenuUtil.CreateContextMenu, GetLocale = savedPrint, savedEdit, savedMenu, savedLocale
+	print("talent plans by name OK")
+end)()
+;(function()
 	-- Time in the finished level: the difference of the level starts (total played time minus time in the level).
 	local info = ns:GetModule("Info")
 	info.db.levelTime = true
@@ -2834,7 +2915,7 @@ end)()
 	assert(callback, "import window")
 	talents.db.planner = true
 	callback("  abc  ")
-	local plan = uv(ImportPlan, "CurrentPlan")()
+	local plan = talents:CurrentPlan()
 	assert(plan[11] == 5 and plan[12] == 2 and plan[10] == nil, "plan from the import (capped at the maximum ranks)")
 	assert(printed and printed[2] == 7 and printed[3] == 2 and printed[4] == 16, "report: points, talents, level")
 	ns.ShowEditWindow, ns.Print = oldShow, oldPrint

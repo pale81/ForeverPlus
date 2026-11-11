@@ -11,14 +11,17 @@ local Talents = ns:NewModule("Talents", {
 		planner = true,
 		unspentBadge = true,
 		planNext = true,
-		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
-		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
-		planOrder = {}, -- "classFile:specID" -> { nodeID, nodeID, … } the planned points in the order to learn them
+		-- "classFile:specID" -> { { id =, name =, ranks = { [nodeID] = planned rank }, order = { nodeID, … } }, … }:
+		-- the plans by name; order holds the points not learned yet, one talent per point, in the order to learn
+		-- them. Before that: plans (one per key), planOrder and templates (per class), taken over by BuildList.
+		builds = {},
+		buildSeq = 0, -- the id of the plan added last
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
 	},
 	charDefaults = {
 		seenSpells = {}, -- learnable spells already shown to the player
+		activeBuild = {}, -- "classFile:specID" -> id of the plan this character works with
 	},
 })
 
@@ -309,6 +312,7 @@ local function TalentsFrame()
 end
 
 local ApplyPlan, ClearPlan, ImportPlan, ExportPlan, SavePlanTemplate, ApplyTemplate -- planner, defined below
+local BuildList, ActiveBuild, ActivatePlan, NewPlan, RenamePlan, RemovePlan
 -- Parses a loadout string into node purchases using Blizzard's own reader.
 local function ParseBuild(frame, text)
 	local stream = ExportUtil.MakeImportDataStream(text)
@@ -329,39 +333,37 @@ end
 
 local PLAN_BUTTON_SIZE = 26
 
--- Import (templates or an import code), export (as an import code) and saving the plan as a template.
+-- The plans by name (the active one marked), the standard distributions, and what can be done with a plan.
 local function ShowBuildMenu(owner)
 	MenuUtil.CreateContextMenu(owner, function(_, root)
-		root:CreateTitle(L.TALENTS_BUILDS)
-		local import = root:CreateButton(L.TALENTS_IMPORT)
-		local presets = ns.TalentPresets and ns.TalentPresets[playerClass]
-		if presets and #presets > 0 then
-			import:CreateTitle(L.TALENTS_TEMPLATE_STANDARD)
-			for _, preset in ipairs(presets) do
-				local name = GetLocale() == "deDE" and preset.de or preset.en
-				import:CreateButton(("%s (%s)"):format(name, preset.points), function()
-					ApplyTemplate(preset, name)
+		if Talents.db.planner then
+			root:CreateTitle(L.TALENTS_BUILDS)
+			for _, build in ipairs(BuildList()) do
+				root:CreateRadio(("%s (%d)"):format(build.name, ns.TalentBuilds.Points(build)), function()
+					return ActiveBuild() == build
+				end, function()
+					ActivatePlan(build.id)
 				end)
 			end
-		end
-		local own = Talents.db.templates[playerClass] or {}
-		if #own > 0 then
-			import:CreateDivider()
-			import:CreateTitle(L.TALENTS_TEMPLATE_OWN)
-			for index, template in ipairs(own) do
-				local item = import:CreateButton(("%s (%d)"):format(template.name, template.points))
-				item:CreateButton(L.TALENTS_TEMPLATE_USE, function()
-					ApplyTemplate(template, template.name)
-				end)
-				item:CreateButton(DELETE, function()
-					tremove(own, index)
-				end)
+			local presets = ns.TalentPresets and ns.TalentPresets[playerClass]
+			if presets and #presets > 0 then
+				root:CreateTitle(L.TALENTS_TEMPLATE_STANDARD)
+				for _, preset in ipairs(presets) do
+					local name = GetLocale() == "deDE" and preset.de or preset.en
+					root:CreateButton(("%s (%s)"):format(name, preset.points), function()
+						ApplyTemplate(preset, name)
+					end)
+				end
 			end
+			root:CreateDivider()
+			root:CreateButton(L.TALENTS_PLAN_NEW, NewPlan)
+			root:CreateButton(L.TALENTS_PLAN_RENAME, RenamePlan)
+			root:CreateButton(L.TALENTS_SAVE_TEMPLATE, SavePlanTemplate)
+			root:CreateButton(L.TALENTS_PLAN_REMOVE, RemovePlan)
+			root:CreateDivider()
+			root:CreateButton(L.TALENTS_IMPORT_CODE, ImportPlan)
 		end
-		import:CreateDivider()
-		import:CreateButton(L.TALENTS_IMPORT_CODE, ImportPlan)
 		root:CreateButton(L.TALENTS_EXPORT_PLAN, ExportPlan)
-		root:CreateButton(L.TALENTS_SAVE_TEMPLATE, SavePlanTemplate)
 	end)
 end
 
@@ -378,19 +380,50 @@ local function PlanKey()
 	return ("%s:%s"):format(playerClass, PlayerUtil.GetCurrentSpecID() or 0)
 end
 
+-- The plans of this class and specialisation. What was stored before plans had names (the one plan with its
+-- order, the own templates of the class) is taken over once.
+function BuildList()
+	local key, db = PlanKey(), Talents.db
+	local list = db.builds[key]
+	if not list then
+		list = {}
+		db.builds[key] = list
+	end
+	-- The templates belong to the class: they wait until the game names the specialisation.
+	local plan, templates = db.plans and db.plans[key], PlayerUtil.GetCurrentSpecID() and db.templates and db.templates[playerClass]
+	if plan or templates then
+		ns.TalentBuilds.Migrate(list, db, plan, db.planOrder and db.planOrder[key], templates, L.TALENTS_PLAN)
+		if db.plans then
+			db.plans[key] = nil
+		end
+		if db.planOrder then
+			db.planOrder[key] = nil
+		end
+		if templates then
+			db.templates[playerClass] = nil
+		end
+	end
+	return list
+end
+
+-- The plan this character works with; without a choice the first one, without any plan an empty one.
+function ActiveBuild()
+	local list, key = BuildList(), PlanKey()
+	local build = ns.TalentBuilds.Find(list, Talents.cdb.activeBuild[key])
+	if not build then
+		build = list[1] or ns.TalentBuilds.Add(list, Talents.db, L.TALENTS_PLAN)
+		Talents.cdb.activeBuild[key] = build.id
+	end
+	return build
+end
+
 local function CurrentPlan()
-	local key = PlanKey()
-	local plans = Talents.db.plans
-	plans[key] = plans[key] or {}
-	return plans[key]
+	return ActiveBuild().ranks
 end
 
 -- The planned points that are not learned yet, one talent per point, in the order to learn them.
 local function CurrentOrder()
-	local key = PlanKey()
-	local orders = Talents.db.planOrder
-	orders[key] = orders[key] or {}
-	return orders[key]
+	return ActiveBuild().order
 end
 
 local function PlanOverlay(button)
@@ -873,27 +906,13 @@ local function UpdatePlan()
 	end
 end
 
--- Own templates: the plan (what is planned or learned) saved under a name.
-local function TemplateList()
-	local list = Talents.db.templates[playerClass]
-	if not list then
-		list = {}
-		Talents.db.templates[playerClass] = list
-	end
-	return list
-end
-
-local function StoreTemplate(name, ranks)
-	local points = 0
-	for rank in ranks:gmatch("%d+:(%d+)") do
-		points = points + tonumber(rank)
-	end
+-- What is planned or learned, saved as a plan of its own under a name (the active plan stays the active one).
+local function StoreTemplate(name, ranks, order)
 	if name == "" then
 		name = date("%d.%m. %H:%M")
 	end
-	local list = TemplateList()
-	list[#list + 1] = { name = name, points = points, ranks = ranks }
-	ns.Print(L.TALENTS_TEMPLATE_SAVED:format(name, points))
+	local build = ns.TalentBuilds.Add(BuildList(), Talents.db, name, ns.TalentBuilds.ParseRanks(ranks), order)
+	ns.Print(L.TALENTS_TEMPLATE_SAVED:format(build.name, ns.TalentBuilds.Points(build)))
 end
 
 function SavePlanTemplate()
@@ -922,8 +941,9 @@ function SavePlanTemplate()
 		parts[index] = part[1] .. ":" .. part[2]
 	end
 	local ranks = table.concat(parts, ",")
+	local order = { unpack(CurrentOrder()) }
 	ns.ShowEditWindow("TemplateName", L.TALENTS_TEMPLATE_SAVE, "", SAVE, function(name)
-		StoreTemplate(name, ranks)
+		StoreTemplate(name, ranks, order)
 	end, L.TALENTS_NAME_HINT)
 end
 
@@ -997,7 +1017,54 @@ local function QueuePlanUpdate()
 	end
 end
 
--- Puts a template (standard distribution or own) into the plan of the current specialisation:
+function ActivatePlan(id)
+	Talents.cdb.activeBuild[PlanKey()] = id
+	QueuePlanUpdate()
+end
+
+local function Trimmed(text)
+	return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+function NewPlan()
+	ns.ShowEditWindow("TemplateName", L.TALENTS_PLAN_NEW, "", SAVE, function(name)
+		name = Trimmed(name)
+		ActivatePlan(ns.TalentBuilds.Add(BuildList(), Talents.db, name ~= "" and name or date("%d.%m. %H:%M")).id)
+	end, L.TALENTS_NAME_HINT)
+end
+
+function RenamePlan()
+	local build = ActiveBuild()
+	ns.ShowEditWindow("TemplateName", L.TALENTS_PLAN_RENAME, build.name, SAVE, function(name)
+		name = Trimmed(name)
+		if name ~= "" then
+			build.name = ns.TalentBuilds.UniqueName(BuildList(), name, build)
+			QueuePlanUpdate()
+		end
+	end)
+end
+
+-- Takes the active plan out of the list; the first of the others becomes the active one.
+function RemovePlan()
+	local build = ActiveBuild()
+	ns.TalentBuilds.Remove(BuildList(), build.id)
+	ns.Print(L.TALENTS_PLAN_REMOVED:format(build.name))
+	QueuePlanUpdate()
+end
+
+-- A plan from outside (standard distribution, link, import code) becomes a plan of its own and the active
+-- one. An active plan with nothing in it is used for it instead of being left behind.
+local function StorePlan(name, ranks)
+	local list, build = BuildList(), ActiveBuild()
+	if next(build.ranks) == nil then
+		build.name = ns.TalentBuilds.UniqueName(list, name, build)
+		build.ranks, build.order = ranks, {}
+	else
+		ActivatePlan(ns.TalentBuilds.Add(list, Talents.db, name, ranks).id)
+	end
+end
+
+-- Makes a plan of a template (standard distribution, link):
 -- only when all its talents exist in this tree and the rules allow it.
 function ApplyTemplate(preset, name)
 	local frame = TalentsFrame()
@@ -1023,12 +1090,7 @@ function ApplyTemplate(preset, name)
 		ns.Print(L.TALENTS_TEMPLATE_BAD:format(problem))
 		return
 	end
-	local current = CurrentPlan()
-	wipe(current)
-	wipe(CurrentOrder())
-	for nodeID, rank in pairs(plan) do
-		current[nodeID] = rank
-	end
+	StorePlan(name, plan)
 	QueuePlanUpdate()
 	ns.Print(L.TALENTS_TEMPLATE_DONE:format(name, points))
 end
@@ -1196,9 +1258,7 @@ function ImportPlan()
 				imported[entry.nodeID] = (imported[entry.nodeID] or 0) + entry.ranksPurchased
 			end
 		end
-		local current, points, count = CurrentPlan(), 0, 0
-		wipe(current)
-		wipe(CurrentOrder())
+		local current, points, count = {}, 0, 0
 		for nodeID, rank in pairs(imported) do
 			local node = C_Traits.GetNodeInfo(configID, nodeID)
 			local maxRanks = node and node.maxRanks or 0
@@ -1207,10 +1267,11 @@ function ImportPlan()
 				points, count = points + current[nodeID], count + 1
 			end
 		end
-		QueuePlanUpdate()
 		if count == 0 then
 			ns.Print(L.TALENTS_IMPORT_EMPTY)
 		else
+			StorePlan(L.TALENTS_IMPORT_NAME, current)
+			QueuePlanUpdate()
 			ns.Print(L.TALENTS_IMPORT_DONE, points, count, FIRST_TALENT_LEVEL - 1 + points)
 		end
 	end, L.TALENTS_IMPORT_HINT)

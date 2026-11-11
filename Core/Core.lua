@@ -282,13 +282,15 @@ end
 -- Timing: one-time work is always measured, events only while measuring is
 -- switched on (/fp messen). The longest call per entry shows spikes.
 ---------------------------------------------------------------------------
-ns.timings = {} -- name -> { max =, count =, slow = (calls over 1 ms) }
+ns.timings = {} -- name -> { max =, count =, slow = (calls over SLOW_MS) }
 ns.measuring = false
 
 -- While measuring: the frames in which the whole addon took long (the game's
 -- profiler: LastTime of the addon) and how much of that the measured entries
 -- explain; what they do not is work outside them (scripts, hooks, timers).
 local SPIKE_MS = 4
+-- A call or a frame counts as slow from 5 ms: below that it is not felt (a frame at 60 FPS has 16.7 ms).
+ns.SLOW_MS = 5
 ns.spikes = { count = 0, worst = 0, measured = 0, name = nil }
 local frameMeasured, frameTop, frameTopTime = 0, nil, 0
 
@@ -316,7 +318,7 @@ function ns.RecordTiming(name, elapsed)
 	if elapsed > entry.max then
 		entry.max = elapsed
 	end
-	if elapsed > 1 then
+	if elapsed > ns.SLOW_MS then
 		entry.slow = entry.slow + 1
 	end
 end

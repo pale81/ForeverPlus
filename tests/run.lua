@@ -2735,24 +2735,30 @@ end)()
 	assert(tank.DODGE == 3 and tank.BLOCK == 2 and tank.CRITCHANCE == 1, "tank: avoidance before crit")
 	local healer = rank.Tiers({ INT = 1, SPI = 0.6, STA = 0.3, SP = 0.8, HEAL = 1, SCRIT = 8, MP5 = 2 })
 	assert(healer.INTELLECT == 3 and healer.SPIRIT == 2 and healer.SPELLHEALING == 3 and healer.MANAREGEN == 3 and healer.CRITCHANCE == 3, "healer")
-	local savedWeights, savedFont, savedEnabled = ns.StatWeights, ns.FontObject, rank.db.enabled
+	local places = rank.Places({ STR = 2, AGI = 1.2, STA = 1.2, AP = 1, HIT = 15, CRIT = 10, ARMOR = 0.01 })
+	assert(places.STRENGTH == 1 and places.AGILITY == 2 and places.STAMINA == 2 and places.INTELLECT == nil, "places in the group, equal weights share one")
+	assert(places.ATTACK_AP == 1 and places.HITCHANCE == 1 and places.CRITCHANCE == 4 and places.ARMOR == nil, "hit rows first, alone rows without a number: " .. tostring(places.CRITCHANCE))
+	local savedWeights, savedEnabled = ns.StatWeights, rank.db.enabled
 	ns.StatWeights = function() return { STR = 2, AGI = 1.2, STA = 0.3 } end
-	ns.FontObject = function(size) return "Big" .. size end
-	local font, color
-	local row = { Label = { SetFontObject = function(_, given) font = given end, SetTextColor = function(_, r, g, b) color = { r, g, b } end } }
+	local color, number, shown
+	local placeText = { SetPoint = function() end, SetFormattedText = function(_, f, n) number = f:format(n) end, Show = function() shown = true end, SetShown = function(_, on) shown = on end }
+	local row = { Label = { SetFontObject = function() error("no other font") end, SetTextColor = function(_, r, g, b) color = { r, g, b } end },
+		CreateFontString = function() return placeText end }
 	rank.db.enabled = true
 	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
-	assert(type(font) == "string" and font:find("^Big") and color[3] < 1 and row.fpRanked, "the most important row: larger and bright")
+	assert(color[1] == 1 and color[3] == 1 and number == "1." and shown and row.fpRanked, "the most important row: bright, number 1")
+	rank.OnRow(nil, row, { name = "STAMINA", unit = "player" })
+	assert(number == "3." and color[3] ~= 1, "a minor row: its number, the usual colour")
 	rank.OnRow(nil, row, { name = "INTELLECT", unit = "player" })
-	assert(font == "GameFontNormal" and color[1] == 0.5, "useless: grey, usual size")
+	assert(color[1] == 0.5 and shown == false, "useless: grey, no number")
 	rank.OnRow(nil, row, { name = "HEALTH", unit = "player" })
-	assert(font == "GameFontNormal" and color[1] ~= 0.5 and not row.fpRanked, "a row without rank gets the game's look back")
-	font = nil
+	assert(color[1] ~= 0.5 and not row.fpRanked and shown == false, "a row without rank gets the game's look back")
+	color = nil
 	rank.OnRow(nil, row, { name = "STRENGTH", unit = "pet" })
 	rank.db.enabled = false
 	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
-	assert(font == nil, "not for the pet, not with the option off")
-	ns.StatWeights, ns.FontObject, rank.db.enabled = savedWeights, savedFont, savedEnabled
+	assert(color == nil and shown == false, "not for the pet, not with the option off")
+	ns.StatWeights, rank.db.enabled = savedWeights, savedEnabled
 	print("stat rank OK")
 end)()
 ;(function()

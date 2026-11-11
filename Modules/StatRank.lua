@@ -1,5 +1,5 @@
 -- Attributes by importance: the rows of the character window show which values matter for the talent tree in
--- use: the most important ones larger and bright, the minor ones dull, the useless ones grey. The weights and the
+-- use: a number before the name (its place within its group), the most important ones bright, the useless grey. The weights and the
 -- tree are those of the item rating (option "rating by talent tree"), so a tree chosen there counts here too.
 local _, ns = ...
 local L = ns.L
@@ -59,10 +59,39 @@ function StatRank.Tiers(weights)
 	return tiers
 end
 
-local COLORS = { [3] = { 1, 0.96, 0.7 }, [2] = { 1, 0.82, 0 }, [1] = { 0.72, 0.6, 0.25 }, [0] = { 0.5, 0.5, 0.5 } }
-local GROW = 2 -- points the most important rows are larger
+-- Place per row within its group (1 = the largest weight; equal weights share a place); rows without weight and
+-- the rows that stand alone get none.
+function StatRank.Places(weights)
+	local places = {}
+	for _, group in ipairs(GROUPS) do
+		local rows = {}
+		for _, row in ipairs(group) do
+			if RowWeight(weights, row) > 0 then
+				rows[#rows + 1] = row
+			end
+		end
+		table.sort(rows, function(a, b)
+			local wa, wb = RowWeight(weights, a), RowWeight(weights, b)
+			if wa ~= wb then
+				return wa > wb
+			end
+			return a < b
+		end)
+		local place, last = 0, nil
+		for index, row in ipairs(rows) do
+			local weight = RowWeight(weights, row)
+			if weight ~= last then
+				place, last = index, weight
+			end
+			places[row] = place
+		end
+	end
+	return places
+end
 
-local tiersFor, tiers -- the weights the tiers were worked out for
+local BRIGHT, GREY = { 1, 1, 1 }, { 0.5, 0.5, 0.5 }
+
+local tiersFor, tiers, places -- the weights the tiers were worked out for
 
 local function CurrentTiers()
 	local weights = ns.StatWeights and ns.StatWeights()
@@ -70,9 +99,9 @@ local function CurrentTiers()
 		return nil
 	end
 	if weights ~= tiersFor then
-		tiersFor, tiers = weights, StatRank.Tiers(weights)
+		tiersFor, tiers, places = weights, StatRank.Tiers(weights), StatRank.Places(weights)
 	end
-	return tiers
+	return tiers, places
 end
 
 -- One row of the list: Blizzard's frames are reused for other rows, so a row that is not ranked gets its look back.
@@ -81,21 +110,38 @@ local function OnRow(_, frame, data)
 	if not label or type(data) ~= "table" then
 		return
 	end
-	local current = StatRank.db.enabled and not data.isHeader and data.unit == "player" and CurrentTiers()
+	local current, place
+	if StatRank.db.enabled and not data.isHeader and data.unit == "player" then
+		current, place = CurrentTiers()
+	end
 	local tier = current and current[data.name]
+	place = place and place[data.name]
+	if frame.fpPlace then
+		frame.fpPlace:SetShown(place ~= nil)
+	end
 	if not tier then
 		if frame.fpRanked then
 			frame.fpRanked = nil
-			label:SetFontObject("GameFontNormal")
 			label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 		end
 		return
 	end
 	frame.fpRanked = true
-	local _, size = GameFontNormal:GetFont()
-	local font = tier == 3 and size and ns.FontObject(math.floor(size + 0.5) + GROW, "")
-	label:SetFontObject(font or "GameFontNormal")
-	label:SetTextColor(unpack(COLORS[tier]))
+	if place then
+		if not frame.fpPlace then
+			frame.fpPlace = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			frame.fpPlace:SetPoint("RIGHT", label, "LEFT", -2, 0)
+		end
+		frame.fpPlace:SetFormattedText("%d.", place)
+		frame.fpPlace:Show()
+	end
+	if tier == 3 then
+		label:SetTextColor(unpack(BRIGHT))
+	elseif tier == 0 then
+		label:SetTextColor(unpack(GREY))
+	else
+		label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	end
 end
 StatRank.OnRow = OnRow
 

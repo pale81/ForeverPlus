@@ -965,6 +965,136 @@ function ApplyTemplate(preset, name)
 end
 
 
+---------------------------------------------------------------------------
+-- Links of the talent calculators on the web (Forever has no import code of its own).
+-- Wowhead: …/forever/talent-calc/paladin/vkndmh511-1-01_t0/0ab…: after six letters one digit per talent (its
+-- rank), the talents of a tree row by row from the left, the trees separated by "-", zeros at the end left out.
+-- Icy Veins: …/wow-forever/paladin-talent-calculator#tc-33Oy1~70888-…: one character per point spent; which
+-- character stands for which talent is the site's own choice (LINK_IDS: per class and tree the characters of the
+-- talents, row by row from the left; read from the site's calculator, data version 70888-0650090c).
+---------------------------------------------------------------------------
+local LINK_IDS = {
+	DRUID = { "0123456789abcdef", "ghijklmnopsrqtvwyxzu", "ABCDEFGHIJKLMNOP" },
+	HUNTER = { "0123546789abcdef", "ghijklmnopqrstuv", "wxyzABCDEFGHIJKLMN" },
+	MAGE = { "023456789abcdefghi", "klmnopqrjstuvwxyz", "ABCDEFGHIJKLMNOPQR" },
+	PALADIN = { "3O2748baAc96edPfg", "1ijkptsohqnl0wuvm", "xyzBDC5EFGHIQKJLN" },
+	PRIEST = { "0123456789abcdefgh", "ijklmnopqrstuvwxy", "zABCDEFGHIJKLMNOP" },
+	ROGUE = { "0123754c89abRgefd", "hijklmpno6qrvwStusx", "BzALyEDFJKCGOIMNPQ" },
+	SHAMAN = { "0123456789abcdef", "ghijkmnopqrsltuvwx", "yzABCDEFGHIJKLMN" },
+	WARLOCK = { "0123456789abcdefg", "hijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOP" },
+	WARRIOR = { "0123456789abcdefg", "hijklmnqoQrstwupvx", "yzABCDEFGHIJKLMNOP" },
+}
+
+-- Whether a text is a link of one of the calculators.
+function Talents.IsLink(text)
+	return type(text) == "string" and (text:find("talent%-calc/", 1) or text:find("%-talent%-calculator", 1)) and true or false
+end
+
+-- Reads a link for a class (file name, "PALADIN"): the ranks by place, trees[tree][place in the tree] = rank.
+-- Without a result the reason: "class" (another class), "format" (not readable).
+function Talents.ParseLink(text, class)
+	local trees = { {}, {}, {} }
+	local slug, code = text:match("talent%-calc/(%a+)/([^/%s%?#]+)")
+	if slug then
+		if slug:upper() ~= class then
+			return nil, "class"
+		end
+		local digits = code:gsub("_.*$", ""):match("^%a*([%d%-]*)$")
+		if not digits or digits == "" then
+			return nil, "format"
+		end
+		local tree = 0
+		for part in (digits .. "-"):gmatch("(%d*)%-") do
+			tree = tree + 1
+			if tree > 3 then
+				return nil, "format"
+			end
+			for place = 1, #part do
+				trees[tree][place] = tonumber(part:sub(place, place))
+			end
+		end
+		return trees
+	end
+	local points
+	slug, points = text:match("(%a+)%-talent%-calculator#tc%-(%w+)")
+	if not slug then
+		return nil, "format"
+	elseif slug:upper() ~= class then
+		return nil, "class"
+	end
+	local ids = LINK_IDS[class]
+	for index = 1, #points do
+		local found = false
+		for tree = 1, 3 do
+			local place = ids and ids[tree]:find(points:sub(index, index), 1, true)
+			if place then
+				trees[tree][place] = (trees[tree][place] or 0) + 1
+				found = true
+				break
+			end
+		end
+		if not found then
+			return nil, "format"
+		end
+	end
+	return trees
+end
+
+-- The ranks by place onto the talents of the game: ordered[tree] = { { nodeID, maxRanks }, … } row by row from the
+-- left. The text "nodeID:rank,…" of a template, or nil when the link does not fit these trees (a place that does
+-- not exist, more ranks than the talent has).
+function Talents.LinkRanks(trees, ordered)
+	local parts = {}
+	for tree = 1, 3 do
+		for place, rank in pairs(trees[tree]) do
+			local entry = ordered[tree] and ordered[tree][place]
+			if rank > 0 then
+				if not entry or rank > entry[2] then
+					return nil
+				end
+				parts[#parts + 1] = ("%d:%d"):format(entry[1], rank)
+			end
+		end
+	end
+	table.sort(parts)
+	return table.concat(parts, ",")
+end
+
+-- The talents of the open window by tree (left to right), row and column.
+local function OrderedNodes(nodes, rowOf)
+	local ordered = { {}, {}, {} }
+	for nodeID, node in pairs(nodes) do
+		local list = ordered[node.fpSpec or 0]
+		if list then
+			list[#list + 1] = { nodeID, node.maxRanks, row = rowOf[node.posY] or 0, x = ns.Number(node.posX, 0) }
+		end
+	end
+	for _, list in ipairs(ordered) do
+		table.sort(list, function(a, b)
+			if a.row ~= b.row then
+				return a.row < b.row
+			end
+			return a.x < b.x
+		end)
+	end
+	return ordered
+end
+
+local function ImportLink(frame, configID, text)
+	local trees, reason = Talents.ParseLink(text, playerClass)
+	if not trees then
+		ns.Print(reason == "class" and L.TALENTS_LINK_CLASS or L.TALENTS_LINK_FORMAT)
+		return
+	end
+	local nodes, rowOf = TreeState(frame, configID)
+	local ranks = Talents.LinkRanks(trees, OrderedNodes(nodes, rowOf))
+	if not ranks or ranks == "" then
+		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
+		return
+	end
+	ApplyTemplate({ ranks = ranks }, L.TALENTS_LINK_NAME)
+end
+
 -- Blizzard's loadout text into the plan (nothing is learned yet): the ✓ button learns what the
 -- points allow, from the top row down and in a row from left to right; the rest stays in the plan.
 function ImportPlan()
@@ -977,6 +1107,10 @@ function ImportPlan()
 	ns.ShowEditWindow("BuildImport", L.TALENTS_IMPORT_CODE, "", L.TALENTS_IMPORT, function(text)
 		text = ((text or ""):gsub("%s+", ""))
 		if text == "" then
+			return
+		end
+		if Talents.IsLink(text) then
+			ImportLink(frame, configID, text)
 			return
 		end
 		local ok, entries, err = pcall(ParseBuild, frame, text)

@@ -76,3 +76,8 @@ The validator checks sorted unique IDs, row shapes, counts, source metadata, res
 ## Area texts
 
 `ns.AreaInfo` in `Data/PlaceInfo.lua` is keyed by area IDs of the AreaTable (wago.tools/db2, build 1.60.1.70862, checked against the same CSV as `tools/places.py` uses: AreaPOI, AreaTable, UiMapAssignment; regenerating `Data/Places.lua` from them gives the same 59 places; no area of 70291 was removed or renamed in 70862). Texts are the authors' own, from general knowledge, unchecked against a source.
+
+## Talent calculator links (Modules/Talents.lua, `LINK_IDS`)
+
+The planner reads links of the Forever talent calculators of wowhead.com and icy-veins.com. No data of either site is shipped except what is needed to read their addresses: for Icy Veins the character that stands for each talent in its link (per class and tree, in the order of the tree; read from the calculator on 11 November 2026, the site's data version 70888-0650090c). Names, texts, icons and tooltips of the sites are not used; the talents themselves come from the game.
+

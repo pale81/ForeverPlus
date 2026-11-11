@@ -1195,9 +1195,7 @@ end
 -- Wowhead link in the right-click menus of the tracker and the quest log (Shift-click is the game's own
 -- "stop tracking", so it is not used). An addon cannot open a browser: the link shows in a window to copy.
 function Quests.WowheadURL(questID)
-	local locale = ({ deDE = "de/", frFR = "fr/", esES = "es/", esMX = "mx/", ptBR = "pt/", ruRU = "ru/", koKR = "ko/",
-		zhCN = "cn/", zhTW = "tw/", itIT = "it/" })[GetLocale()] or ""
-	return ("https://www.wowhead.com/forever/%squest=%d"):format(locale, questID)
+	return ns.WowheadURL("quest", questID)
 end
 
 function Quests.AddWowheadEntry(rootDescription, questID)

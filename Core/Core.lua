@@ -94,6 +94,13 @@ function ns.Secret(value)
 	return issecretvalue and issecretvalue(value) or false
 end
 
+-- The page of a quest, an item, an NPC … on Wowhead (its WoW Forever part) in the language of the client.
+function ns.WowheadURL(kind, id)
+	local locale = ({ deDE = "de/", frFR = "fr/", esES = "es/", esMX = "mx/", ptBR = "pt/", ruRU = "ru/", koKR = "ko/",
+		zhCN = "cn/", zhTW = "tw/", itIT = "it/" })[GetLocale()] or ""
+	return ("https://www.wowhead.com/forever/%s%s=%d"):format(locale, kind, id)
+end
+
 -- The parts of a creature or object GUID: kind ("Creature", "GameObject", "Vehicle", ...) and the numeric id.
 function ns.GuidParts(guid)
 	if type(guid) ~= "string" or ns.Secret(guid) then

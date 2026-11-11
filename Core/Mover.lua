@@ -66,6 +66,9 @@ local function ToggleLock(key)
 	end
 	PlayLockSound(locked)
 	RefreshDisplays()
+	if Mover.UpdateCatcher then
+		Mover.UpdateCatcher()
+	end
 end
 
 local function IsChatFrame(name)
@@ -328,6 +331,25 @@ end
 
 local altToggled -- the global handler toggled on this right-click already
 
+-- The title bar of a window: the top strip (Blizzard's title is 20 units high), not on a button there (close,
+-- maximise). Plain clicks there lock, unlock and move the window; the rest of the window stays the game's.
+local TITLE_HEIGHT = 26
+
+local function InTitleBar(frame, region)
+	if region ~= frame and region and region.IsObjectType and (region:IsObjectType("Button") or region:IsObjectType("EditBox")) then
+		return false
+	end
+	local top, left, right = frame:GetTop(), frame:GetLeft(), frame:GetRight()
+	local scale = ns.Number(frame:GetEffectiveScale(), 0)
+	if not (top and left and right) or scale <= 0 then
+		return false
+	end
+	local x, y = GetCursorPosition()
+	x, y = ns.Number(x, 0) / scale, ns.Number(y, 0) / scale
+	return x >= left and x <= right and y <= top and y >= top - TITLE_HEIGHT
+end
+Mover.InTitleBar = InTitleBar
+
 function Mover:GLOBAL_MOUSE_DOWN(_, button)
 	if button == "RightButton" then
 		altToggled = false
@@ -346,14 +368,14 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 		UpdateWindowWheel(frame, key)
 	end
 	if not IsAltKeyDown() then
-		-- Displays handle plain clicks themselves; windows only on their background.
-		if not isWindow or region ~= frame then
+		-- Displays handle plain clicks themselves; windows on their title bar and their free background.
+		if not isWindow or (region ~= frame and not InTitleBar(frame, region)) then
 			return
 		end
 	end
 	if button == "RightButton" then
-		-- A right-click on the free background of a window locks and unlocks it, like on the displays (they handle
-		-- the plain click themselves); with Alt anywhere in the window. Clicks on what is in a window stay Blizzard's.
+		-- A right-click on the title bar or the free background of a window locks and unlocks it, like on the
+		-- displays (they handle the plain click themselves); with Alt anywhere in the window.
 		altToggled = true
 		ToggleLock(key)
 	elseif button == "MiddleButton" and IsAltKeyDown() then
@@ -383,7 +405,7 @@ catcher:SetFrameStrata("TOOLTIP")
 catcher:EnableMouse(false)
 catcher:Hide()
 
-local ticker
+local ticker, ctrlDown, catcherOn
 local function UpdateCatcherTarget()
 	local foci = GetMouseFoci()
 	local region = foci and foci[1]
@@ -394,10 +416,21 @@ local function UpdateCatcherTarget()
 	if frame and IsLocked(key) then
 		frame = nil
 	end
-	if frame ~= catcher.target then
-		catcher.target, catcher.key = frame, key
+	-- Without Ctrl only over the title bar of an unlocked window: lists and pages inside keep their wheel.
+	local titleOnly = not ctrlDown
+	if frame and titleOnly and (displayOf[frame] or not InTitleBar(frame, region)) then
+		frame = nil
+	end
+	if frame ~= catcher.target or titleOnly ~= catcher.titleOnly then
+		catcher.target, catcher.key, catcher.titleOnly = frame, key, titleOnly
 		catcher:ClearAllPoints()
-		if frame then
+		if frame and titleOnly then
+			catcher:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+			catcher:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+			catcher:SetHeight(TITLE_HEIGHT)
+			catcher:EnableMouseWheel(true)
+			catcher:Show()
+		elseif frame then
 			catcher:SetAllPoints(frame)
 			catcher:EnableMouseWheel(true)
 			catcher:Show()
@@ -437,23 +470,56 @@ local function StopCatcher()
 		ticker:Cancel()
 		ticker = nil
 	end
+	catcherOn = false
 	catcher.target = nil
 	catcher:EnableMouseWheel(false)
 	catcher:Hide()
 end
 
+-- Some window is unlocked (displays scale with their own wheel).
+local function AnyWindowUnlocked()
+	if ns.db.lockAll then
+		return false
+	end
+	for key in pairs(ns.db.unlocked) do
+		if type(key) == "string" and not key:find("^[MD]:") then
+			return true
+		end
+	end
+	return false
+end
+
+-- The catcher follows the mouse while Ctrl is held or while a window is unlocked: a timer that plans itself
+-- again as long as that holds (no endless ticker).
+local function UpdateCatcher()
+	if not (Mover.db.enabled and (ctrlDown or AnyWindowUnlocked())) then
+		StopCatcher()
+		return
+	end
+	UpdateCatcherTarget()
+	catcherOn = true
+	if not ticker then
+		local scheduling = true
+		ticker = ns.NewTimer("Mover: UpdateCatcherTarget", 0.1, function()
+			if scheduling then
+				return -- a timer that fires at once (not in the game) must not plan itself again without end
+			end
+			ticker = nil
+			if catcherOn then
+				UpdateCatcher()
+			end
+		end)
+		scheduling = false
+	end
+end
+Mover.UpdateCatcher = UpdateCatcher
+
 function Mover:MODIFIER_STATE_CHANGED(_, key, down)
 	if key ~= "LCTRL" and key ~= "RCTRL" then
 		return
 	end
-	if down == 1 then
-		if not ticker then
-			UpdateCatcherTarget()
-			ticker = ns.NewTicker("Mover: UpdateCatcherTarget", 0.1, UpdateCatcherTarget)
-		end
-	else
-		StopCatcher()
-	end
+	ctrlDown = down == 1
+	UpdateCatcher()
 end
 
 ---------------------------------------------------------------------------
@@ -465,9 +531,7 @@ function Mover:Refresh()
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", enabled)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", enabled)
 	self:ToggleEvent("MODIFIER_STATE_CHANGED", enabled)
-	if not enabled then
-		StopCatcher()
-	end
+	UpdateCatcher()
 end
 
 -- Former per-display lock options and display positions.

@@ -1346,3 +1346,7 @@ L.STATRANK_ENABLE_DESC = "Im Charakterfenster zeigen die Namen der Werte, wie wi
 L.TALENTS_LINK_NAME = "Link"
 L.TALENTS_LINK_CLASS = "Der Link gehört zu einer anderen Klasse."
 L.TALENTS_LINK_FORMAT = "Der Link ließ sich nicht lesen. Erwartet wird die Adresse des Forever-Talentrechners von Wowhead (…/forever/talent-calc/…) oder Icy Veins (…-talent-calculator#tc-…) mit verteilten Punkten."
+L.TALENTS_PLAN_ORDER = "Reihenfolge des Plans zeigen"
+L.TALENTS_PLAN_ORDER_DESC = "Der Plan merkt sich, in welcher Reihenfolge du die Ränge geplant hast. Unter jedem geplanten Talent steht, mit welchen Stufen es an der Reihe ist; ist ein Punkt frei, leuchtet das nächste Talent des Plans, und der Tooltip des Talentknopfs im Mikromenü nennt es. „Übernehmen“ hält sich immer an die Reihenfolge."
+L.TALENTS_PLAN_LEVELS = "An der Reihe: Stufe %s"
+L.TALENTS_PLAN_NEXT = "Nächster Punkt laut Plan: %s"

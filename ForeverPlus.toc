@@ -85,6 +85,7 @@ Modules\ChatMinimize.lua
 Modules\Durability.lua
 Data\TalentPresets.lua
 Modules\TalentSummary.lua
+Modules\TalentOrder.lua
 Modules\Talents.lua
 Modules\ProfessionPlan.lua
 Modules\Visuals.lua

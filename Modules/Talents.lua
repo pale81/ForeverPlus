@@ -10,8 +10,10 @@ local Talents = ns:NewModule("Talents", {
 		enabled = true,
 		planner = true,
 		unspentBadge = true,
+		planNext = true,
 		templates = {}, -- classFile -> { { name =, points =, ranks = "nodeID:rank,…" }, ... } own templates
 		plans = {}, -- "classFile:specID" -> { [nodeID] = planned ranks }
+		planOrder = {}, -- "classFile:specID" -> { nodeID, nodeID, … } the planned points in the order to learn them
 		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
 	},
@@ -20,7 +22,6 @@ local Talents = ns:NewModule("Talents", {
 	},
 })
 
-local MAX_APPLY_PASSES = 10
 local _, playerClass = UnitClass("player")
 
 ---------------------------------------------------------------------------
@@ -326,56 +327,6 @@ local function ParseBuild(frame, text)
 	return frame:ConvertToImportLoadoutEntryInfo(configID, treeID, content), nil, configID, treeID
 end
 
--- Buys ranks until every node has its wanted ranks or nothing changes;
--- prerequisites need several passes. Nodes higher up the tree go first.
-local function PurchaseTowards(configID, wanted, selection, groupOf)
-	-- One tree after the other (groupOf: node -> position of its tree, 1 = the tree with the most
-	-- planned points), in a tree from the top row down and in a row from left to right.
-	local groups, keys = {}, {}
-	for nodeID in pairs(wanted) do
-		local node = C_Traits.GetNodeInfo(configID, nodeID)
-		local key = groupOf and groupOf[nodeID] or 0
-		if not groups[key] then
-			groups[key] = {}
-			keys[#keys + 1] = key
-		end
-		table.insert(groups[key], { nodeID = nodeID, y = node and node.posY or 0, x = node and node.posX or 0 })
-	end
-	table.sort(keys)
-	for _, key in ipairs(keys) do
-		local order = groups[key]
-		table.sort(order, function(a, b)
-			if a.y ~= b.y then
-				return a.y < b.y
-			end
-			return a.x < b.x
-		end)
-		-- Several passes: a talent behind an arrow or a row only opens after the ones before it.
-		for _ = 1, MAX_APPLY_PASSES do
-			local progress = false
-			for _, entry in ipairs(order) do
-				local nodeID, ranks = entry.nodeID, wanted[entry.nodeID]
-				local node = C_Traits.GetNodeInfo(configID, nodeID)
-				if node and node.ranksPurchased < ranks then
-					if node.type == Enum.TraitNodeType.Selection and selection and selection[nodeID] then
-						if C_Traits.SetSelection(configID, nodeID, selection[nodeID]) then
-							progress = true
-						end
-					else
-						while node.ranksPurchased < ranks and C_Traits.PurchaseRank(configID, nodeID) do
-							progress = true
-							node = C_Traits.GetNodeInfo(configID, nodeID)
-						end
-					end
-				end
-			end
-			if not progress then
-				break
-			end
-		end
-	end
-end
-
 local PLAN_BUTTON_SIZE = 26
 
 -- Import (templates or an import code), export (as an import code) and saving the plan as a template.
@@ -423,11 +374,23 @@ local FIRST_TALENT_LEVEL, PLAN_MAX_LEVEL = 10, 60
 local PLAN_POINTS = PLAN_MAX_LEVEL - FIRST_TALENT_LEVEL + 1
 local planBar
 
+local function PlanKey()
+	return ("%s:%s"):format(playerClass, PlayerUtil.GetCurrentSpecID() or 0)
+end
+
 local function CurrentPlan()
-	local key = ("%s:%s"):format(playerClass, PlayerUtil.GetCurrentSpecID() or 0)
+	local key = PlanKey()
 	local plans = Talents.db.plans
 	plans[key] = plans[key] or {}
 	return plans[key]
+end
+
+-- The planned points that are not learned yet, one talent per point, in the order to learn them.
+local function CurrentOrder()
+	local key = PlanKey()
+	local orders = Talents.db.planOrder
+	orders[key] = orders[key] or {}
+	return orders[key]
 end
 
 local function PlanOverlay(button)
@@ -442,6 +405,24 @@ local function PlanOverlay(button)
 		overlay.Text = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 		overlay.Text:SetPoint("BOTTOM", button, "TOP", 0, -6)
 		overlay.Text:SetTextColor(PLAN_COLOR:GetRGB())
+		-- Below the button: the levels at which the planned ranks are due.
+		overlay.Level = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		overlay.Level:SetPoint("TOP", button, "BOTTOM", 0, 5)
+		overlay.Level:SetTextColor(PLAN_COLOR:GetRGB())
+		-- Around the button: the talent the next free point belongs to, pulsing.
+		overlay.Next = button:CreateTexture(nil, "OVERLAY", nil, 7)
+		overlay.Next:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+		overlay.Next:SetBlendMode("ADD")
+		overlay.Next:SetVertexColor(PLAN_COLOR:GetRGB())
+		overlay.Next:SetPoint("CENTER", button, "CENTER", 0, 0)
+		overlay.Next:SetSize(ns.Number(button:GetWidth(), 40) * 1.8, ns.Number(button:GetHeight(), 40) * 1.8)
+		overlay.Next:Hide()
+		overlay.Pulse = overlay.Next:CreateAnimationGroup()
+		overlay.Pulse:SetLooping("BOUNCE")
+		local fade = overlay.Pulse:CreateAnimation("Alpha")
+		fade:SetFromAlpha(1)
+		fade:SetToAlpha(0.35)
+		fade:SetDuration(0.8)
 		button.fpPlan = overlay
 	end
 	return overlay
@@ -663,6 +644,72 @@ local function CheckPlan(nodes, rowOf, names, plan)
 	return nil
 end
 
+-- The steps of the plan in an order the rules allow, and the level of the first step. Steps the player
+-- clicked keep their order; planned ranks without a step (a template, an import, a plan from before the
+-- order was kept) are added tree by tree (most planned points first), row by row, from the left.
+local orderSynced = setmetatable({}, { __mode = "k" })
+
+local function PlanOrder(nodes, rowOf, names, plan)
+	local order = CurrentOrder()
+	local signature = PlanSignature(plan)
+	local synced = orderSynced[nodes]
+	if synced and synced.order == order and synced.signature == signature then
+		return order, synced.firstLevel
+	end
+	local wanted, ranks, perTree, learnedPoints = {}, {}, {}, 0
+	for nodeID, node in pairs(nodes) do
+		local learned = node.ranksPurchased or 0
+		if learned > 0 then
+			ranks[nodeID] = learned
+			learnedPoints = learnedPoints + learned
+		end
+		if (plan[nodeID] or 0) > learned then
+			wanted[nodeID] = plan[nodeID] - learned
+			local tree = GroupOf(node) or 0
+			perTree[tree] = (perTree[tree] or 0) + plan[nodeID]
+		end
+	end
+	local steps, missing = ns.TalentOrder.Reconcile(order, wanted)
+	local added = {}
+	for nodeID in pairs(missing) do
+		added[#added + 1] = nodeID
+	end
+	table.sort(added, function(a, b)
+		local nodeA, nodeB = nodes[a], nodes[b]
+		local treeA, treeB = GroupOf(nodeA) or 0, GroupOf(nodeB) or 0
+		if treeA ~= treeB then
+			if perTree[treeA] ~= perTree[treeB] then
+				return perTree[treeA] > perTree[treeB]
+			end
+			return treeA < treeB
+		end
+		local rowA, rowB = rowOf[nodeA.posY] or 0, rowOf[nodeB.posY] or 0
+		if rowA ~= rowB then
+			return rowA < rowB
+		end
+		local xA, xB = ns.Number(nodeA.posX, 0), ns.Number(nodeB.posX, 0)
+		if xA ~= xB then
+			return xA < xB
+		end
+		return a < b
+	end)
+	for _, nodeID in ipairs(added) do
+		for _ = 1, missing[nodeID] do
+			steps[#steps + 1] = nodeID
+		end
+	end
+	steps = ns.TalentOrder.Repair(steps, function(nodeID, state)
+		return CheckNode(nodes, rowOf, names, state, nodes[nodeID], (state[nodeID] or 0) + 1) == nil
+	end, ranks)
+	wipe(order)
+	for index, nodeID in ipairs(steps) do
+		order[index] = nodeID
+	end
+	local firstLevel = FIRST_TALENT_LEVEL + learnedPoints
+	orderSynced[nodes] = { order = order, signature = signature, firstLevel = firstLevel }
+	return order, firstLevel
+end
+
 -- A talent Blizzard still shows as locked (row or arrow) that the plan has
 -- unlocked: the next rank may be planned.
 local function UnlockedByPlan(node, nodes, rowOf, names, plan)
@@ -699,6 +746,13 @@ local function AddPlanTooltip(button)
 		GameTooltip_AddBlankLineToTooltip(GameTooltip)
 		blank = true
 		GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_RANK:format(planned, node.maxRanks), PLAN_COLOR)
+		if Talents.db.planNext then
+			local nodes, rowOf, names = TreeState(frame, configID)
+			local levels = ns.TalentOrder.LevelTexts(PlanOrder(nodes, rowOf, names, plan))[nodeID]
+			if levels then
+				GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_LEVELS:format(levels), PLAN_COLOR)
+			end
+		end
 		-- Plain lines: appended tooltip data would pile up with every change of the plan.
 		local ok, description = pcall(C_Traits.GetTraitDescription, entryID, planned)
 		if ok and type(description) == "string" and not ns.Secret(description) then
@@ -773,9 +827,15 @@ local function UpdatePlan()
 	local configID = frame:GetConfigID()
 	local plan = CurrentPlan()
 	local enabled = Talents.db.enabled and Talents.db.planner
-	local nodes
+	local nodes, levels, nextID
 	if enabled and configID then
-		nodes = TreeState(frame, configID)
+		local rowOf, names
+		nodes, rowOf, names = TreeState(frame, configID)
+		local order, firstLevel = PlanOrder(nodes, rowOf, names, plan)
+		if Talents.db.planNext then
+			levels = ns.TalentOrder.LevelTexts(order, firstLevel)
+			nextID = order[1] and Talents.UnspentPoints() > 0 and order[1] or nil
+		end
 	end
 	local pending = nodes and HasPending(nodes, plan) or false
 	for button in frame:EnumerateAllTalentButtons() do
@@ -792,6 +852,14 @@ local function UpdatePlan()
 			else
 				overlay.Text:Hide()
 				overlay.Tint:Hide()
+			end
+			overlay.Level:SetText(levels and levels[nodeID] or "")
+			local isNext = nextID ~= nil and nodeID == nextID
+			overlay.Next:SetShown(isNext)
+			if isNext then
+				overlay.Pulse:Play()
+			else
+				overlay.Pulse:Stop()
 			end
 		end
 	end
@@ -957,6 +1025,7 @@ function ApplyTemplate(preset, name)
 	end
 	local current = CurrentPlan()
 	wipe(current)
+	wipe(CurrentOrder())
 	for nodeID, rank in pairs(plan) do
 		current[nodeID] = rank
 	end
@@ -1129,6 +1198,7 @@ function ImportPlan()
 		end
 		local current, points, count = CurrentPlan(), 0, 0
 		wipe(current)
+		wipe(CurrentOrder())
 		for nodeID, rank in pairs(imported) do
 			local node = C_Traits.GetNodeInfo(configID, nodeID)
 			local maxRanks = node and node.maxRanks or 0
@@ -1188,6 +1258,7 @@ local function OnTalentClick(_, button, mouseButton)
 			Refuse(L.TALENTS_PLAN_REMOVE_BLOCKED)
 			return
 		end
+		ns.TalentOrder.RemoveLast(CurrentOrder(), nodeID)
 	elseif button.CanRefundRank and button:CanRefundRank() then
 		return -- Blizzard refunds a staged rank with this click
 	else
@@ -1206,6 +1277,9 @@ local function OnTalentClick(_, button, mouseButton)
 			return
 		end
 		planned = target
+		-- The new point is the last step; what was planned before gets its steps first.
+		local order = PlanOrder(nodes, rowOf, names, plan)
+		order[#order + 1] = nodeID
 	end
 	plan[nodeID] = planned > learned and planned or nil
 	QueuePlanUpdate()
@@ -1213,7 +1287,7 @@ local function OnTalentClick(_, button, mouseButton)
 	RefreshTooltip(button)
 end
 
--- Buys the planned ranks the points allow; Blizzard's talent window shows
+-- Buys the planned ranks the points allow, in the order of the plan; Blizzard's talent window shows
 -- them as pending until they are confirmed with its button.
 function ApplyPlan()
 	local configID = C_ClassTalents.GetActiveConfigID()
@@ -1223,33 +1297,17 @@ function ApplyPlan()
 		ns.Print(L.TALENTS_ERROR_FRAME)
 		return
 	end
-	-- The tree with the most planned points first, then the next one with what is left.
-	local plan, groupOf = CurrentPlan(), {}
-	if frame and frame.EnumerateAllTalentButtons then
-		local nodes = TreeState(frame, configID)
-		local totals, specs = {}, {}
-		for nodeID, ranks in pairs(plan) do
-			local spec = nodes[nodeID] and nodes[nodeID].fpSpec or 0
-			totals[spec] = (totals[spec] or 0) + ranks
-		end
-		for spec in pairs(totals) do
-			specs[#specs + 1] = spec
-		end
-		table.sort(specs, function(a, b)
-			if totals[a] ~= totals[b] then
-				return totals[a] > totals[b]
-			end
-			return a < b
-		end)
-		local position = {}
-		for index, spec in ipairs(specs) do
-			position[spec] = index
-		end
-		for nodeID in pairs(plan) do
-			groupOf[nodeID] = position[nodes[nodeID] and nodes[nodeID].fpSpec or 0] or 0
+	if not (frame and frame.EnumerateAllTalentButtons) then
+		ns.Print(L.TALENTS_ERROR_CLOSED)
+		return
+	end
+	-- Point by point in the order of the plan, as far as the points go.
+	local nodes, rowOf, names = TreeState(frame, configID)
+	for _, nodeID in ipairs(PlanOrder(nodes, rowOf, names, CurrentPlan())) do
+		if not C_Traits.PurchaseRank(configID, nodeID) then
+			break
 		end
 	end
-	PurchaseTowards(configID, plan, nil, groupOf)
 	ns.Print(L.TALENTS_PLAN_STAGED)
 	QueuePlanUpdate()
 end
@@ -1268,6 +1326,7 @@ end
 
 function ClearPlan()
 	wipe(CurrentPlan())
+	wipe(CurrentOrder())
 	QueuePlanUpdate()
 end
 
@@ -1538,10 +1597,46 @@ function Talents.UnspentPoints()
 	return points
 end
 
+-- The name of the talent the plan gives the next free point to, or nil.
+function Talents.NextPlanned()
+	if not (Talents.db.enabled and Talents.db.planner and Talents.db.planNext) then
+		return nil
+	end
+	local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
+	if not configID then
+		return nil
+	end
+	local plan = CurrentPlan()
+	for _, nodeID in ipairs(CurrentOrder()) do
+		local node = C_Traits.GetNodeInfo(configID, nodeID)
+		if node and ns.Number(node.ranksPurchased, 0) < (plan[nodeID] or 0) then
+			local entryID = node.activeEntry and node.activeEntry.entryID or (node.entryIDs and node.entryIDs[1])
+			local entry = entryID and C_Traits.GetEntryInfo(configID, entryID)
+			local definition = entry and entry.definitionID and C_Traits.GetDefinitionInfo(entry.definitionID)
+			local name = definition and (definition.overrideName or (definition.spellID and C_Spell.GetSpellName(definition.spellID)))
+			return type(name) == "string" and name ~= "" and name or nil
+		end
+	end
+	return nil
+end
+
+-- Tooltip of the talent button in the micro menu: with a free point, the talent the plan names next.
+local function AddNextToTooltip(self)
+	local name = GameTooltip:GetOwner() == self and Talents.UnspentPoints() > 0 and Talents.NextPlanned()
+	if name then
+		GameTooltip_AddColoredLine(GameTooltip, L.TALENTS_PLAN_NEXT:format(name), PLAN_COLOR)
+		GameTooltip:Show()
+	end
+end
+
 function Talents.UpdateUnspent()
 	local button = PlayerSpellsMicroButton or TalentMicroButton
 	if not button then
 		return
+	end
+	if Talents.nextHooked ~= button then
+		Talents.nextHooked = button
+		button:HookScript("OnEnter", ns.Measured("Talents: next planned talent (tooltip)", AddNextToTooltip))
 	end
 	local points = Talents.db.unspentBadge and Talents.UnspentPoints() or 0
 	local badge = Talents.unspentBadge
@@ -1623,5 +1718,6 @@ end
 Talents.options = {
 	{ key = "enabled", type = "toggle", name = L.TALENTS_ENABLE, desc = L.TALENTS_ENABLE_DESC },
 	{ key = "planner", type = "toggle", name = L.TALENTS_PLANNER, desc = L.TALENTS_PLANNER_DESC },
+	{ key = "planNext", type = "toggle", name = L.TALENTS_PLAN_ORDER, desc = L.TALENTS_PLAN_ORDER_DESC },
 	{ key = "unspentBadge", type = "toggle", name = L.TALENTS_UNSPENT, desc = L.TALENTS_UNSPENT_DESC },
 }

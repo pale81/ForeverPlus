@@ -2727,6 +2727,7 @@ end)()
 	Fire("PLAYER_LEVEL_UP", 21)
 	assert(shots == 2 and sounds == 1, "level-up: picture and fanfare (" .. shots .. ", " .. sounds .. ")")
 	assert(kit == "fanfare" and moments.db.levelSoundKit == "UI_RAID_BOSS_DEFEATED", "the chosen sound of the game")
+	assert(moments.SoundKey("UI_EPICLOOT_TOAST") == "UI_RAID_BOSS_DEFEATED" and moments.SoundKey("UI_SCENARIO_ENDING") == "UI_SCENARIO_ENDING", "a removed short sound falls back to the first")
 	SOUNDKIT.UI_RAID_BOSS_DEFEATED = nil
 	moments.PlayLevelSound = savedLevelSound
 	Screenshot, PlaySound, ns.After, GetTime = saved[1], saved[2], saved[3], saved[4]

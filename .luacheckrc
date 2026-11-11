@@ -247,6 +247,7 @@ read_globals = {
 	"GetNumLootItems",
 	"GetNumQuestChoices", "GetQuestReward", "GetQuestMoneyToGet", "AcceptQuest", "CompleteQuest", "AcknowledgeAutoAcceptQuest", "QuestFlagsPVP",
 	"GetPlayerFacing",
+	"SetLFGRoles",
 	"GetProfessionInfo",
 	"GetProfessions",
 	"GetQuestItemInfo",

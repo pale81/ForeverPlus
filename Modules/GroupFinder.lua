@@ -13,6 +13,7 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 		tank10 = 2, healer10 = 2, dps10 = 6,
 		presetRoles = false, -- the own roles are chosen in the group finder from the start
 		roleTank = false, roleHealer = false, roleDps = true,
+		roleLeader = false, -- the leader flag of the dungeon finder
 	},
 })
 
@@ -435,6 +436,7 @@ function GroupFinder:OnLogin()
 		-- The window sets the roles saved by the game when it loads: ours after it.
 		GroupFinder.ApplyRoles()
 	end)
+	ns.OnAddOnLoaded("Blizzard_GroupFinder", GroupFinder.ApplyRoles)
 	GroupFinder.ApplyRoles()
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		if QuestObjectiveTracker and QuestObjectiveTracker.Update then
@@ -451,15 +453,22 @@ function GroupFinder.PresetRoles(db)
 	if not db.presetRoles or not (db.roleTank or db.roleHealer or db.roleDps) then
 		return nil
 	end
-	return { tank = db.roleTank and true or false, healer = db.roleHealer and true or false, dps = db.roleDps and true or false }
+	return { tank = db.roleTank and true or false, healer = db.roleHealer and true or false, dps = db.roleDps and true or false,
+		leader = db.roleLeader and true or false }
 end
 
--- Sets the own roles of the group finder (the ticks under "list yourself"); roles the class cannot fill are left
--- out by the game. The window reads them when it shows.
+-- Sets the own roles of the group finder (the ticks under "list yourself") and of the dungeon finder (with the
+-- leader flag); roles the class cannot fill are left out by the game. The windows read them when they show.
 function GroupFinder.ApplyRoles()
 	local roles = GroupFinder.PresetRoles(GroupFinder.db)
-	if roles and C_LFGListRoles and C_LFGListRoles.SetRoles and not InCombatLockdown() then
-		C_LFGListRoles.SetRoles(roles, true)
+	if not roles or InCombatLockdown() then
+		return
+	end
+	if C_LFGListRoles and C_LFGListRoles.SetRoles then
+		C_LFGListRoles.SetRoles({ tank = roles.tank, healer = roles.healer, dps = roles.dps }, true)
+	end
+	if SetLFGRoles then
+		SetLFGRoles(roles.leader, roles.tank, roles.healer, roles.dps)
 	end
 end
 
@@ -483,6 +492,7 @@ GroupFinder.options = {
 	{ key = "roleTank", type = "toggle", name = TANK, parent = "presetRoles" },
 	{ key = "roleHealer", type = "toggle", name = HEALER, parent = "presetRoles" },
 	{ key = "roleDps", type = "toggle", name = DAMAGER, parent = "presetRoles" },
+	{ key = "roleLeader", type = "toggle", name = L.GROUPFINDER_LEADER, desc = L.GROUPFINDER_LEADER_DESC, parent = "presetRoles", new = true },
 	{ type = "header", name = L.GROUPFINDER_FIVE },
 	Count("tank5", TANK, 5), Count("healer5", HEALER, 5), Count("dps5", DAMAGER, 5),
 	{ type = "header", name = L.GROUPFINDER_TEN },

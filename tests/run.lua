@@ -2616,7 +2616,18 @@ end)()
 	assert(set == nil, "the game's roles stay while the option is off")
 	finder.db.presetRoles, finder.db.roleHealer, finder.db.roleDps = true, true, false
 	finder.ApplyRoles()
-	assert(set and set.healer == true and set.dps == false and limit == true, "set, limited to the roles of the class")
+	assert(set and set.healer == true and set.dps == false and set.leader == nil and limit == true, "set, limited to the roles of the class")
+	-- the dungeon finder: the same roles and the leader flag
+	local lfg
+	local savedLFG = SetLFGRoles
+	SetLFGRoles = function(...) lfg = { ... } end
+	finder.db.roleLeader = true
+	finder.ApplyRoles()
+	assert(lfg and lfg[1] == true and lfg[2] == false and lfg[3] == true and lfg[4] == false, "dungeon finder with the leader flag")
+	finder.db.roleLeader = false
+	finder.ApplyRoles()
+	assert(lfg[1] == false, "without the leader flag")
+	SetLFGRoles = savedLFG
 	C_LFGListRoles = savedRoles
 	finder.db.presetRoles, finder.db.roleHealer, finder.db.roleDps = savedDB[1], savedDB[2], savedDB[3]
 	print("group finder roles OK")

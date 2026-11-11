@@ -2649,9 +2649,34 @@ end)()
 	way.Command("way quatsch")
 	assert(set == nil, "no numbers: nothing set")
 	can = false
-	assert(way.Set(1, 2) == false and set == nil, "a map without waypoints: nothing set")
+	assert(way.Set(10, 20) == true and set == nil and way.Target().mapID == 1429 and way.Target().y == 0.2, "a map without the game's waypoints: only our own")
 	way.Command("weg")
-	assert(cleared, "without numbers the waypoint goes")
+	assert(cleared and way.Target() == nil, "without numbers the waypoint goes")
+	-- direction and distance: north is up, the game's facing turns to the west
+	local function near(a, b) return math.abs(a - b) < 1e-6 end
+	local distance, angle = way.Bearing(0.5, 0.5, 0.5, 0.4, 1000, 1000, 0)
+	assert(near(distance, 100) and near(angle, 0), "100 yards to the north, straight ahead")
+	distance, angle = way.Bearing(0.5, 0.5, 0.4, 0.5, 1000, 1000, 0)
+	assert(near(angle, math.pi / 2), "to the west: turned to the left")
+	distance, angle = way.Bearing(0.5, 0.5, 0.6, 0.5, 1000, 500, math.pi / 2)
+	assert(near(distance, 100) and near(angle, -math.pi), "facing west, the target in the east: behind")
+	distance = way.Bearing(0.5, 0.5, 0.5, 0.6, 1000, 500, 0)
+	assert(near(distance, 50), "the height of the map counts for north and south")
+	-- the game's waypoint (map, recipe radar) is followed; the player on another map gets no direction
+	local mapPos = { 0.5, 0.5 }
+	C_Map.HasUserWaypoint = function() return true end
+	C_Map.GetUserWaypoint = function() return { uiMapID = 1411, position = { GetXY = function() return 0.3, 0.4 end } } end
+	C_Map.GetPlayerMapPosition = function(mapID) return mapID == 1411 and mapPos and { GetXY = function() return mapPos[1], mapPos[2] end } or nil end
+	C_Map.GetMapWorldSize = function() return 1000, 1000 end
+	GetPlayerFacing = function() return 0 end
+	distance = way.Where()
+	assert(way.Target().mapID == 1411 and way.Target().x == 0.3 and near(distance, math.sqrt(0.2 ^ 2 + 0.1 ^ 2) * 1000), "the game's waypoint")
+	mapPos = nil
+	local _, goal = way.Where()
+	assert(way.Where() == nil and goal.mapID == 1411, "another map: no distance")
+	C_Map.HasUserWaypoint = function() return false end
+	way.Clear()
+	assert(way.Target() == nil, "cleared")
 	C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print = unpack(saved, 1, 7)
 	print("waypoint OK")
 end)()

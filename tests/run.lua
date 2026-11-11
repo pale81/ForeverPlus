@@ -2052,7 +2052,7 @@ end)()
 
 	local talents = ns:GetModule("Talents")
 	local onClick = uv(uv(talents.OnLogin, "SetupPlanner"), "OnTalentClick")
-	local menu = uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")
+	local menu = uv(uv(uv(talents.OnLogin, "SetupPlanner"), "CreatePlanBar"), "ShowBuildMenu")
 	local BuildList, ActiveBuild = uv(menu, "BuildList"), uv(menu, "ActiveBuild")
 	local key = uv(BuildList, "PlanKey")()
 	local savedDB, savedSeq, savedActive = talents.db.builds[key], talents.db.buildSeq, talents.cdb.activeBuild[key]
@@ -2867,7 +2867,7 @@ end)()
 ;(function()
 	-- Talent plan as Blizzard's loadout text: same bit layout the game reads back.
 	local talents = ns:GetModule("Talents")
-	local menu = uv(talents.OnLogin, "CreateButtons") and uv(uv(talents.OnLogin, "CreateButtons"), "ShowBuildMenu")
+	local menu = uv(uv(uv(talents.OnLogin, "SetupPlanner"), "CreatePlanBar"), "ShowBuildMenu")
 	local ExportPlan = menu and uv(menu, "ExportPlan")
 	local LoadoutString = ExportPlan and uv(ExportPlan, "LoadoutString")
 	assert(LoadoutString, "loadout writer reachable")

@@ -898,9 +898,16 @@ local function UpdatePlan()
 	end
 	if planBar then
 		local points = nodes and TotalPoints(nodes, plan) or 0
-		planBar:SetShown(enabled and true or false)
-		planBar.Counter:SetText(Talents.CounterText(points, next(plan) ~= nil))
-		planBar:SetWidth(PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))
+		local planner = enabled and true or false
+		-- Without the planner the bar is only the menu, which then still exports.
+		planBar:SetShown(Talents.db.enabled and true or false)
+		planBar.Menu:SetText(planner and ActiveBuild().name or L.TALENTS_EXPORT)
+		local menuWidth = ns.Number(planBar.Menu:GetTextWidth(), 60) + 24
+		planBar.Menu:SetWidth(menuWidth)
+		planBar.Apply:SetShown(planner)
+		planBar.Clear:SetShown(planner)
+		planBar.Counter:SetText(planner and Talents.CounterText(points, next(plan) ~= nil) or "")
+		planBar:SetWidth(menuWidth + 4 + PLAN_BUTTON_SIZE * 2 + 14 + ns.Number(planBar.Counter:GetStringWidth(), 0))
 		planBar.Apply:SetEnabled(pending)
 		planBar.Clear:SetEnabled(next(plan) ~= nil)
 	end
@@ -1467,8 +1474,9 @@ local function ShowPlanSummary(owner)
 	GameTooltip:Show()
 end
 
--- Top centre of the talent window, between the title and the tabs: two small
--- symbol buttons ("apply" tick, "clear" cross) and the counter, in the colour of the plan.
+-- Top centre of the talent window, between the title and the tabs: the name of the active plan (a button
+-- that opens the menu of the plans), two small symbol buttons ("apply" tick, "clear" cross) and the counter,
+-- in the colour of the plan.
 local PLAN_BAR_POINT = { "TOP", nil, "TOP", 0, -62 }
 
 local function CreatePlanBar(frame)
@@ -1479,7 +1487,12 @@ local function CreatePlanBar(frame)
 	bar.Apply = CreatePlanButton(bar, "common-icon-checkmark", L.TALENTS_PLAN_BUTTON_APPLY, L.TALENTS_PLAN_BUTTON_APPLY_DESC, function()
 		ApplyPlan()
 	end)
-	bar.Apply:SetPoint("LEFT", bar, "LEFT", 0, 0)
+	bar.Menu = CreateFrame("Button", nil, bar, "UIPanelButtonTemplate")
+	bar.Menu:SetSize(84, 22)
+	bar.Menu:SetPoint("LEFT", bar, "LEFT", 0, 0)
+	bar.Menu:SetScript("OnClick", ShowBuildMenu)
+	AddButtonTip(bar.Menu, L.TALENTS_BUILDS, L.TALENTS_PLAN_MENU_DESC)
+	bar.Apply:SetPoint("LEFT", bar.Menu, "RIGHT", 4, 0)
 	bar.Clear = CreatePlanButton(bar, "common-icon-redx", L.TALENTS_PLAN_BUTTON_CLEAR, L.TALENTS_PLAN_BUTTON_CLEAR_DESC, function()
 		ClearPlan()
 	end)
@@ -1535,17 +1548,10 @@ local function CreateButtons()
 	-- Inside the talent window, on the bottom bar right of Blizzard's buttons.
 	local parent = TalentsFrame() or PlayerSpellsFrame
 	local anchor = parent.Background or parent
-	local builds = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-	builds:SetSize(120, 22)
-	builds:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -24, 8)
-	builds:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 1010)
-	builds:SetText(L.TALENTS_BUILDS)
-	builds:SetScript("OnClick", ShowBuildMenu)
-
 	local spells = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	spells:SetSize(150, 22)
-	spells:SetFrameLevel(builds:GetFrameLevel())
-	spells:SetPoint("RIGHT", builds, "LEFT", -6, 0)
+	spells:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 1010)
+	spells:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -24, 8)
 	spells:SetText(L.TALENTS_SPELLS)
 	spells:SetScript("OnClick", ShowSpellsByLevel)
 	-- The button glows (a soft pulse) while there is something new to learn.
@@ -1574,7 +1580,7 @@ local function CreateButtons()
 	alert:Hide()
 	spells.Alert = alert
 	spellsButton = spells
-	buttons = { builds, spells }
+	buttons = { spells }
 
 	local topButton = PlayerSpellsFrame.MaximizeMinimizeButton or PlayerSpellsFrame.CloseButton
 	bookButton = CreateFrame("Button", nil, PlayerSpellsFrame, "UIPanelButtonTemplate")

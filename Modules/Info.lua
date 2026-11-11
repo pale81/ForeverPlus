@@ -19,9 +19,9 @@ local PERF_INTERVAL = 1
 local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
 local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame on average (total line): green below 0.5, orange 0.5-2, red from 2
--- Rows of the table (highest value, frames over 1 ms): red only for a real spike or many slow frames, orange between.
+-- Rows of the table (highest value, frames over 5 ms): red only for a real spike or many slow frames, orange between.
 local PEAK_ORANGE, PEAK_RED = 1.5, 5
-local SLOW_ORANGE, SLOW_RED = 10, 100
+local SLOW_ORANGE, SLOW_RED = 3, 20
 
 local _, playerClass = UnitClass("player")
 local playerName, playerRealm = UnitName("player"), GetRealmName()
@@ -225,7 +225,7 @@ local function SampleAddonMetrics()
 		if elapsed > entry.peak then
 			entry.peak = elapsed
 		end
-		if elapsed > 1 then
+		if elapsed > ns.SLOW_MS then
 			entry.slow = entry.slow + 1
 		end
 	end

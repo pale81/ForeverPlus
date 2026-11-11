@@ -652,6 +652,30 @@ do
 	IsAltKeyDown = function() return true end
 	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
 	assert(ns.db.unlocked["CharacterFrame"] == true, "with Alt anywhere in the window")
+	-- the title bar: the top strip of the window, also on the title's own frame, not on a button there
+	IsAltKeyDown = function() return false end
+	window.GetTop, window.GetLeft, window.GetRight = function() return 500 end, function() return 100 end, function() return 400 end
+	window.GetEffectiveScale = function() return 1 end
+	child.IsObjectType = function(_, kind) return kind == "Frame" end
+	local savedCursor = GetCursorPosition
+	GetCursorPosition = function() return 200, 490 end
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == nil, "a right-click on the title (even on its own frame) locks")
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == true, "and unlocks")
+	local closeButton = NewFrame("Button")
+	closeButton.IsObjectType = function(_, kind) return kind == "Button" end
+	GetMouseFoci = function() return { closeButton } end
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == true, "not on a button in the title bar")
+	GetMouseFoci = function() return { child } end
+	GetCursorPosition = function() return 200, 300 end
+	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	assert(ns.db.unlocked["CharacterFrame"] == true, "below the title bar on something in the window: the game's")
+	assert(mover.InTitleBar(window, window) == false, "below the strip")
+	GetCursorPosition = function() return 399, 474 end
+	assert(mover.InTitleBar(window, child) == true, "title strip 26 units")
+	GetCursorPosition = savedCursor
 	ns.db.unlocked["CharacterFrame"] = nil
 	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", findTarget)
 	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", savedWheel)

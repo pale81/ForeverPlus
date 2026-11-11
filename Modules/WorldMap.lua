@@ -27,6 +27,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		labelOffsets = {}, -- "map:name" -> { dx, dy } in parts of the canvas
 		questStarts = true,
 		filterMenu = true,
+		zoneLevels = true, -- the level range after the name of the zone under the mouse
 	},
 })
 
@@ -287,9 +288,81 @@ function WorldMap.AddFilterMenu(rootDescription)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Level ranges of the zones: the game has none for Forever (C_Map.GetMapLevels gives 0), so its name under the
+-- mouse stays bare. Our own range (Data/ZoneLevels.lua) goes after it, in the colours the game would use.
+---------------------------------------------------------------------------
+-- The text and colour for a range at the player's level, as Blizzard's own label does it.
+function WorldMap.LevelText(low, high, playerLevel)
+	local color
+	if playerLevel < low then
+		color = GetQuestDifficultyColor(low)
+	elseif playerLevel > high then
+		color = GetQuestDifficultyColor(high - 2) -- zones entirely below the player do not turn yellow
+	else
+		color = QuestDifficultyColors.difficult
+	end
+	local text = low == high and ("(%d)"):format(high) or ("(%d-%d)"):format(low, high)
+	return text, color
+end
+
+-- Which zone the label names: the part of the map under the mouse; nil when that is no zone with a range of ours
+-- or the game shows a range itself.
+function WorldMap.HoveredRange(map)
+	if not (WorldMap.db.zoneLevels and ns.ZoneLevels and map:IsCanvasMouseFocus()) then
+		return nil
+	end
+	local mapID = map:GetMapID()
+	local x, y = map:GetNormalizedCursorPosition()
+	local info = mapID and x and C_Map.GetMapInfoAtPosition(mapID, x, y)
+	if not info or info.mapID == mapID then
+		return nil
+	end
+	local range = ns.ZoneLevels[info.mapID]
+	local own = C_Map.GetMapLevels(info.mapID)
+	if not range or (own and own > 0) then
+		return nil
+	end
+	return range, info.name
+end
+
+local function UpdateLevelLabel(label)
+	local text = label.fpLevels
+	local map = label.dataProvider and label.dataProvider:GetMap()
+	local range, name = nil, nil
+	if map then
+		range, name = WorldMap.HoveredRange(map)
+	end
+	-- Only while the label shows that zone's name (a quest or a symbol may have the label instead).
+	if not range or label.Name:GetText() ~= name or not label.Name:IsVisible() then
+		text:Hide()
+		return
+	end
+	local levels, color = WorldMap.LevelText(range[1], range[2], UnitLevel("player"))
+	text:SetText(levels)
+	text:SetTextColor(color.r, color.g, color.b)
+	text:Show()
+end
+
+local function HookAreaLabel()
+	for provider in pairs(WorldMapFrame.dataProviders or {}) do
+		local label = type(provider) == "table" and provider.Label
+		if label and label.Name and label.labelInfoByType and not label.fpLevels then
+			label.fpLevels = label:CreateFontString(nil, "OVERLAY")
+			label.fpLevels:SetFontObject(label.Name:GetFontObject() or "GameFontNormalLarge")
+			label.fpLevels:SetPoint("LEFT", label.Name, "RIGHT", 6, 0)
+			label.fpLevels:Hide()
+			label:HookScript("OnUpdate", ns.Measured("WorldMap: zone levels", UpdateLevelLabel))
+			return label
+		end
+	end
+end
+WorldMap.HookAreaLabel = HookAreaLabel
+
 function WorldMap:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
 		self:Apply()
+		HookAreaLabel()
 	end)
 	if Menu and Menu.ModifyMenu then
 		Menu.ModifyMenu("MENU_WORLD_MAP_TRACKING", function(_, rootDescription)
@@ -343,6 +416,7 @@ WorldMap.options = {
 	{ key = "placeInfo", type = "toggle", name = L.WORLDMAP_PLACE_INFO, desc = L.WORLDMAP_PLACE_INFO_DESC, parent = "places", new = true },
 	{ key = "areaInfo", type = "toggle", name = L.WORLDMAP_AREA_INFO, desc = L.WORLDMAP_AREA_INFO_DESC, parent = "placeInfo", new = true },
 	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
+	{ key = "zoneLevels", type = "toggle", name = L.WORLDMAP_ZONE_LEVELS, desc = L.WORLDMAP_ZONE_LEVELS_DESC, new = true },
 	{ key = "symbolScale", type = "slider", name = L.WORLDMAP_SYMBOL_SCALE, desc = L.WORLDMAP_SYMBOL_SCALE_DESC, min = 50, max = 200, step = 5, new = true,
 		format = function(value)
 			return ("%d %%"):format(value)

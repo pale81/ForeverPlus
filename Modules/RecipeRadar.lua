@@ -341,7 +341,7 @@ end
 ---------------------------------------------------------------------------
 -- Shared pin behaviour (tooltip, waypoint)
 ---------------------------------------------------------------------------
-local function FillVendorTooltip(tooltip, entry)
+local function FillVendorTooltip(tooltip, entry, onWorldMap)
 	local vendor = entry.vendor
 	GameTooltip_SetTitle(tooltip, NpcName(vendor.npc) or "?")
 	local subName = NpcTitle(vendor.npc)
@@ -355,7 +355,12 @@ local function FillVendorTooltip(tooltip, entry)
 		local color = status == "ok" and GREEN_FONT_COLOR or ORANGE_FONT_COLOR
 		tooltip:AddLine(name, color.r, color.g, color.b)
 	end
-	GameTooltip_AddInstructionLine(tooltip, L.RADAR_CLICK_WAYPOINT)
+	if onWorldMap then
+		GameTooltip_AddInstructionLine(tooltip, L.RADAR_CLICK_WOWHEAD)
+		GameTooltip_AddInstructionLine(tooltip, L.RADAR_SHIFT_WAYPOINT)
+	else
+		GameTooltip_AddInstructionLine(tooltip, L.RADAR_CLICK_WAYPOINT)
+	end
 	GameTooltip_AddInstructionLine(tooltip, L.RADAR_MARK)
 end
 
@@ -453,12 +458,24 @@ end)
 local WORLD_MAP_PIN_SIZE = 20
 
 local function WorldMapTooltip(tooltip, symbol)
-	FillVendorTooltip(tooltip, symbol.data)
+	FillVendorTooltip(tooltip, symbol.data, true)
 end
 
+-- The Wowhead pages of the recipes a vendor shows, one per line.
+function Radar.WowheadText(entry)
+	local lines = {}
+	for _, recipe in ipairs(entry.recipes) do
+		lines[#lines + 1] = ns.WowheadURL("item", recipe[1])
+	end
+	return table.concat(lines, "\n")
+end
+
+-- Left click: the Wowhead pages of the recipes; Shift + left click: the waypoint; right click: ticked off.
 local function WorldMapClick(symbol, button)
-	if button == "LeftButton" then
+	if button == "LeftButton" and IsShiftKeyDown() then
 		SetWaypoint(symbol.mapID, symbol.data.vendor)
+	elseif button == "LeftButton" then
+		ns.ShowEditWindow("Wowhead", L.QUESTS_WOWHEAD, Radar.WowheadText(symbol.data), CLOSE, function() end, L.QUESTS_WOWHEAD_HINT)
 	elseif button == "RightButton" then
 		MarkAndRefresh(symbol.data)
 	end

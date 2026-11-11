@@ -2229,6 +2229,33 @@ end)()
 	local marked = {}
 	radar.MarkCollected({ recipes = { { 11, "ok" }, { 12, "low" } } }, marked)
 	assert(marked[11] and marked[12], "right click marks every recipe of the vendor")
+	local savedLocale = GetLocale
+	GetLocale = function() return "deDE" end
+	assert(radar.WowheadText({ recipes = { { 11, "ok" }, { 12, "low" } } }) == "https://www.wowhead.com/forever/de/item=11\nhttps://www.wowhead.com/forever/de/item=12", "one Wowhead page per recipe")
+	GetLocale = savedLocale
+	assert(ns.WowheadURL("quest", 5) == "https://www.wowhead.com/forever/quest=5", "without a language part in English")
+	-- the world map symbol: click opens the links, Shift + click sets the waypoint
+	local click = uv(ns.MapSymbols.AddSource, "sources")
+	local symbol
+	for _, source in ipairs(click or {}) do
+		source(1429, function(_, _, given) if given.kind == "radar" then symbol = given end end)
+	end
+	if symbol then
+		local shown, waypoint
+		local savedEdit, savedShift, savedCan = ns.ShowEditWindow, IsShiftKeyDown, C_Map.CanSetUserWaypointOnMap
+		ns.ShowEditWindow = function(_, _, text) shown = text end
+		C_Map.CanSetUserWaypointOnMap = function() waypoint = true return false end
+		IsShiftKeyDown = function() return false end
+		symbol.click(symbol, "LeftButton")
+		assert(shown and shown:find("item=", 1, true) and not waypoint, "click: Wowhead")
+		shown = nil
+		IsShiftKeyDown = function() return true end
+		symbol.click(symbol, "LeftButton")
+		assert(waypoint and not shown, "Shift + click: waypoint")
+		ns.ShowEditWindow, IsShiftKeyDown, C_Map.CanSetUserWaypointOnMap = savedEdit, savedShift, savedCan
+	else
+		print("  (no radar symbol on the test map: click checked by WowheadText only)")
+	end
 	print("radar collected OK")
 end)()
 ;(function()

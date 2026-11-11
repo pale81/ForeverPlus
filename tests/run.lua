@@ -2720,6 +2720,44 @@ end)()
 	print("waypoint OK")
 end)()
 ;(function()
+	-- Level ranges of the zones: Forever's own, after the name of the zone under the mouse, coloured like the game's
+	local worldMap = ns:GetModule("WorldMap")
+	assert(ns.ZoneLevels and ns.ZoneLevels[1429] and ns.ZoneLevels[1429][1] >= 1 and ns.ZoneLevels[1429][2] <= 15, "Elwynn Forest in the data")
+	for mapID, range in pairs(ns.ZoneLevels) do
+		assert(type(mapID) == "number" and range[1] >= 1 and range[1] <= range[2] and range[2] <= 60, "a range per zone")
+	end
+	local saved = { GetQuestDifficultyColor, QuestDifficultyColors, C_Map.GetMapInfoAtPosition, C_Map.GetMapLevels, worldMap.db.zoneLevels }
+	GetQuestDifficultyColor = function(level) return { r = level, g = 0, b = 0 } end
+	QuestDifficultyColors = { difficult = { r = 1, g = 1, b = 0 } }
+	local text, color = worldMap.LevelText(10, 20, 5)
+	assert(text == "(10-20)" and color.r == 10, "below: the colour of the lowest level")
+	text, color = worldMap.LevelText(10, 20, 15)
+	assert(color.r == 1 and color.g == 1, "within: yellow")
+	text, color = worldMap.LevelText(10, 20, 30)
+	assert(color.r == 18, "above: the highest level less two")
+	assert(worldMap.LevelText(7, 7, 1) == "(7)", "one level")
+	local focus = true
+	local map = { IsCanvasMouseFocus = function() return focus end, GetMapID = function() return 1415 end, GetNormalizedCursorPosition = function() return 0.4, 0.6 end }
+	C_Map.GetMapInfoAtPosition = function() return { mapID = 1429, name = "Wald von Elwynn" } end
+	C_Map.GetMapLevels = function() return 0, 0, 0, 0 end
+	worldMap.db.zoneLevels = true
+	local range, name = worldMap.HoveredRange(map)
+	assert(range == ns.ZoneLevels[1429] and name == "Wald von Elwynn", "the zone under the mouse")
+	C_Map.GetMapLevels = function() return 5, 10 end
+	assert(worldMap.HoveredRange(map) == nil, "the game shows a range itself: none of ours")
+	C_Map.GetMapLevels = function() return 0, 0 end
+	C_Map.GetMapInfoAtPosition = function() return { mapID = 1415, name = "Östliche Königreiche" } end
+	assert(worldMap.HoveredRange(map) == nil, "the map itself is no zone under the mouse")
+	focus = false
+	C_Map.GetMapInfoAtPosition = function() return { mapID = 1429, name = "Wald von Elwynn" } end
+	assert(worldMap.HoveredRange(map) == nil, "mouse not on the map")
+	focus = true
+	worldMap.db.zoneLevels = false
+	assert(worldMap.HoveredRange(map) == nil, "option off")
+	GetQuestDifficultyColor, QuestDifficultyColors, C_Map.GetMapInfoAtPosition, C_Map.GetMapLevels, worldMap.db.zoneLevels = unpack(saved, 1, 5)
+	print("zone levels OK")
+end)()
+;(function()
 	-- Moments: one picture per boss (two events), a picture and a sound at a level-up, each only with its option
 	local moments = ns:GetModule("Moments")
 	assert(moments.ShotDue(1000) == true and moments.ShotDue(1002) == false and moments.ShotDue(1010) == true, "one picture per boss")

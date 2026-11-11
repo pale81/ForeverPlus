@@ -46,6 +46,7 @@ Data\Points.lua
 Data\FontFamilies.lua
 Data\Inns.lua
 Data\WeaponMasters.lua
+Data\ZoneLevels.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua

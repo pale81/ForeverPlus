@@ -2,8 +2,17 @@
 local _, ns = ...
 local L = ns.L
 
-local SOUNDS = { "UI_RAID_BOSS_DEFEATED", "UI_GARRISON_MISSION_COMPLETE_MISSION_SUCCESS", "UI_LEGENDARY_LOOT_TOAST",
-	"UI_WORLDQUEST_COMPLETE", "UI_EPICLOOT_TOAST" }
+-- Victory sounds of the game that last (not the short toasts): boss defeated, PvP rank up, a keystone run with a new
+-- record or done, the end of a scenario, the celebration of a covenant choice. Key in SOUNDKIT, name in the menu.
+local SOUNDS = {
+	{ "UI_RAID_BOSS_DEFEATED", "MOMENTS_SOUND_BOSS" },
+	{ "UI_PVP_HONOR_PRESTIGE_RANK_UP", "MOMENTS_SOUND_PVP" },
+	{ "UI_70_CHALLENGE_MODE_NEW_RECORD", "MOMENTS_SOUND_RECORD" },
+	{ "UI_70_CHALLENGE_MODE_COMPLETE_NO_UPGRADE", "MOMENTS_SOUND_KEYSTONE" },
+	{ "UI_SCENARIO_ENDING", "MOMENTS_SOUND_SCENARIO" },
+	{ "UI_COVENANT_CHOICE_CELEBRATION_ANIMATION_BASTION", "MOMENTS_SOUND_CELEBRATION" },
+}
+local DEFAULT_SOUND = "UI_RAID_BOSS_DEFEATED"
 
 local Moments = ns:NewModule("Moments", {
 	title = L.MOMENTS_TITLE,
@@ -15,6 +24,16 @@ local Moments = ns:NewModule("Moments", {
 		levelSoundKit = "UI_RAID_BOSS_DEFEATED",
 	},
 })
+
+-- The chosen sound, or the first one when the saved choice is no longer in the list (the short ones were removed).
+function Moments.SoundKey(saved)
+	for _, sound in ipairs(SOUNDS) do
+		if sound[1] == saved then
+			return saved
+		end
+	end
+	return DEFAULT_SOUND
+end
 
 local SHOT_DELAY = 1 -- seconds: the message of the game (level reached, boss defeated) is on the screen by then
 local SHOT_GAP = 5 -- a boss ends with two events (ENCOUNTER_END, BOSS_KILL): one picture
@@ -38,6 +57,7 @@ local function Shoot()
 end
 
 function Moments.PlayLevelSound()
+	Moments.db.levelSoundKit = Moments.SoundKey(Moments.db.levelSoundKit)
 	local kit = SOUNDKIT[Moments.db.levelSoundKit]
 	if kit then
 		PlaySound(kit, "Master")
@@ -80,8 +100,8 @@ Moments.options = {
 	{ key = "levelSound", type = "toggle", name = L.MOMENTS_SOUND, desc = L.MOMENTS_SOUND_DESC, new = true },
 	{ key = "levelSoundKit", type = "dropdown", name = L.MOMENTS_SOUND_KIT, parent = "levelSound", values = function()
 		local values = {}
-		for index, key in ipairs(SOUNDS) do
-			values[#values + 1] = { key, L.MOMENTS_SOUND_NAME:format(index) }
+		for _, sound in ipairs(SOUNDS) do
+			values[#values + 1] = { sound[1], L[sound[2]] }
 		end
 		return values
 	end },

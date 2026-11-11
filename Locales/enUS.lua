@@ -1347,3 +1347,7 @@ L.STATRANK_ENABLE_DESC = "In the character window the names of the values show h
 L.TALENTS_LINK_NAME = "Link"
 L.TALENTS_LINK_CLASS = "The link belongs to another class."
 L.TALENTS_LINK_FORMAT = "The link could not be read. Expected is the address of the Forever talent calculator of Wowhead (…/forever/talent-calc/…) or Icy Veins (…-talent-calculator#tc-…) with points spent."
+L.TALENTS_PLAN_ORDER = "Show the order of the plan"
+L.TALENTS_PLAN_ORDER_DESC = "The plan remembers the order in which you planned the ranks. Below each planned talent are the levels at which it is due; with a free point the next talent of the plan glows, and the tooltip of the talent button in the micro menu names it. Apply always follows the order."
+L.TALENTS_PLAN_LEVELS = "Due at level %s"
+L.TALENTS_PLAN_NEXT = "Next point by the plan: %s"

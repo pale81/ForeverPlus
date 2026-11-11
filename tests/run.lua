@@ -1914,6 +1914,7 @@ end)()
 	local printed
 	local oldPrint = ns.Print
 	ns.Print = function(msg) printed = msg end
+	talents:QueuePlanUpdate() -- another tree: in the game its events ask for a new reading
 	onClick(nil, bs[3], "RightButton")
 	assert(not plan2[3], "row 1 needs 5 points")
 	-- the restriction shows in the tooltip of that talent, in the colour of the plan
@@ -1935,6 +1936,101 @@ end)()
 	print("  planner rules ok, last message:", printed)
 	print("planner OK")
 	end
+end)()
+;(function()
+	-- Order of the talent plan: steps per point, kept in line with the plan and the rules.
+	local order = ns.TalentOrder
+	local kept, missing = order.Reconcile({ 1, 1, 2, 1, 3 }, { [1] = 2, [2] = 1, [4] = 2 })
+	assert(table.concat(kept, ",") == "1,2,1" and missing[4] == 2 and missing[1] == nil and missing[2] == nil,
+		"learned points drop the earliest steps, a talent no longer planned drops all: " .. table.concat(kept, ","))
+	local steps = { 1, 2, 1, 3 }
+	assert(order.RemoveLast(steps, 1) and table.concat(steps, ",") == "1,2,3" and not order.RemoveLast(steps, 9), "the last step of a talent goes")
+	-- talent 3 needs two points in the others first
+	local ranks = { [1] = 1 }
+	local repaired = order.Repair({ 3, 2, 1, 3 }, function(id, state)
+		return id ~= 3 or (state[1] or 0) + (state[2] or 0) >= 2
+	end, ranks)
+	assert(table.concat(repaired, ",") == "2,3,1,3" and ranks[3] == 2, "first step the rules allow: " .. table.concat(repaired, ","))
+	repaired = order.Repair({ 3, 1 }, function(id) return id == 1 end, {})
+	assert(table.concat(repaired, ",") == "1,3", "a step nothing unlocks stays at the end")
+	local texts = order.LevelTexts({ 1, 1, 1, 2, 1, 3 }, 14)
+	assert(texts[1] == "14–16, 18" and texts[2] == "17" and texts[3] == "19" and texts[4] == nil, "levels of the steps: " .. tostring(texts[1]))
+
+	-- In the planner: clicks keep their order, taking a rank back repairs it, "apply" buys in that order.
+	local talents = ns:GetModule("Talents")
+	talents.db.enabled, talents.db.planner, talents.db.planNext = true, true, true
+	local onClick = uv(uv(talents.OnLogin, "SetupPlanner"), "OnTalentClick")
+	local savedTraits, savedCT, savedSpec, savedSpell = C_Traits, C_ClassTalents, C_SpecializationInfo, C_Spell
+	local defs = {
+		[1] = { ID = 1, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {}, entryIDs = { 501 } },
+		[2] = { ID = 2, posY = 0, maxRanks = 5, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {}, entryIDs = { 502 } },
+		[3] = { ID = 3, posY = 100, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {}, entryIDs = { 503 } },
+		[4] = { ID = 4, posY = 200, maxRanks = 1, ranksPurchased = 0, groupIDs = { 9 }, visibleEdges = {}, entryIDs = { 504 } },
+	}
+	local bought, points = {}, 99
+	C_Traits = {
+		GetNodeInfo = function(_, id) local c = {} for k, v in pairs(defs[id]) do c[k] = v end return c end,
+		PurchaseRank = function(_, id)
+			if #bought >= points then return false end
+			bought[#bought + 1] = id
+			return true
+		end,
+		GetEntryInfo = function(_, entryID) return { definitionID = entryID + 1000 } end,
+		GetDefinitionInfo = function(definitionID) return { spellID = definitionID + 1000 } end,
+		GetConfigInfo = function() return nil end,
+	}
+	C_Spell = { GetSpellName = function(spellID) return "Zauber " .. spellID end }
+	C_ClassTalents = { GetActiveConfigID = function() return 1 end }
+	C_SpecializationInfo = { HasPlayerEarnedATalentPoint = function() return true end }
+	InCombatLockdown = function() return false end
+	PlayerUtil = { GetCurrentSpecID = function() return 1 end }
+	IsControlKeyDown = function() return false end
+	local buttons, bs = {}, {}
+	for id = 1, 4 do
+		bs[id] = { GetNodeID = function() return id end, CanRefundRank = function() return false end, GetName = function() return "T" .. id end }
+		buttons[bs[id]] = true
+	end
+	PlayerSpellsFrame = { TalentsFrame = { GetConfigID = function() return 1 end, EnumerateAllTalentButtons = function() return pairs(buttons) end } }
+	GameTooltip = { GetOwner = function() return nil end }
+	local plan, stored = uv(onClick, "CurrentPlan")(), uv(onClick, "CurrentOrder")()
+	wipe(plan); wipe(stored)
+	talents:QueuePlanUpdate()
+	local oldPrint = ns.Print
+	ns.Print = function() end
+	local function Applied()
+		bought = {}
+		talents:ApplyPlan()
+		return table.concat(bought, ",")
+	end
+	IsShiftKeyDown = function() return false end
+	for _ = 1, 5 do onClick(nil, bs[1], "RightButton") end
+	onClick(nil, bs[3], "RightButton")
+	for _ = 1, 5 do onClick(nil, bs[2], "RightButton") end
+	assert(Applied() == "1,1,1,1,1,3,2,2,2,2,2", "the order of the clicks: " .. Applied())
+	assert(talents.NextPlanned() == "Zauber 2501", "the next talent of the plan by name: " .. tostring(talents.NextPlanned()))
+	-- one rank of the first talent taken back: the talent of the second row has to wait for a fifth point
+	IsShiftKeyDown = function() return true end
+	onClick(nil, bs[1], "RightButton")
+	assert(plan[1] == 4 and Applied() == "1,1,1,1,2,3,2,2,2,2", "repaired after taking a rank back: " .. Applied())
+	points = 3
+	assert(Applied() == "1,1,1", "as far as the points go")
+	points = 99
+	-- a plan without steps (template, import, older plan): row by row; learned ranks need no step
+	wipe(plan); wipe(stored)
+	plan[4], plan[3], plan[2], plan[1] = 1, 1, 5, 5
+	defs[1].ranksPurchased = 2
+	talents:QueuePlanUpdate()
+	assert(Applied() == "1,1,1,2,2,2,2,2,3,4", "derived order: " .. Applied())
+	assert(talents.NextPlanned() == "Zauber 2501", "next: the first talent still short of its planned rank")
+	defs[1].ranksPurchased = 5
+	assert(talents.NextPlanned() == "Zauber 2502", "learned steps are passed over")
+	talents.db.planNext = false
+	assert(talents.NextPlanned() == nil, "option off: no hint")
+	talents.db.planNext = true
+	wipe(plan); wipe(stored)
+	ns.Print = oldPrint
+	C_Traits, C_ClassTalents, C_SpecializationInfo, C_Spell = savedTraits, savedCT, savedSpec, savedSpell
+	print("talent plan order OK")
 end)()
 ;(function()
 	-- Time in the finished level: the difference of the level starts (total played time minus time in the level).

@@ -2200,6 +2200,8 @@ end)()
 		"recognize the localized direct attribute bonuses")
 	assert(gain(nil, "Increases your chance to dodge by an additional 2%.", weights, {}, false) == 24,
 		"score a change in chance in percentage points")
+	assert(gain(nil, "Increases your Parry chance by 1%.", { PARRY = 9 }, {}, false) == 9,
+		"recognize the parry talent's description")
 	local healer = { SP = 0.85, HEAL = 1, HASTE = 2, SHASTE = 6, SCRIT = 7 }
 	assert(gain(nil, "Increases your spell power by 10.", healer, {}, false) == 10,
 		"generic spell power has the same value in talents and in gear")
@@ -2208,6 +2210,8 @@ end)()
 		"keep explicitly melee and spell haste talents separate")
 	assert(gain(nil, "Erhöht Eure kritische Trefferchance mit allen Zaubern und Angriffen um 2%.", healer, {}, true) == 14,
 		"use the profile's spell crit weight for a shared crit talent")
+	assert(gain(nil, "Improves your chance to get a critical strike with all spells and attacks by 1%.", healer, {}, false) == 7,
+		"recognize the shared crit talent's English description")
 	assert(not gain(nil, "Increases your chance to dodge by 2% for 10 sec.", weights, {}, false)
 		and not gain(nil, "Increases your Stamina by 2% while in Bear Form.", weights, { STA = 76 }, false),
 		"temporary and conditional effects are outside the item model")
@@ -2548,6 +2552,9 @@ end)()
 	Add(18, 2, 0, 1, 5)
 	Add(19, 2, 1, 2, 5)
 	Add(31, 3, 0, 0, 2, 2)
+	Add(32, 3, 0, 0, 5)
+	defs[32].isVisible, defs[32].posX, defs[32].posY = false, 102800, -100
+	defs[17].posX = 9000
 	ns.TalentPresets = { [class] = {
 		{ de = "Andere", en = "Other", points = "", ranks = "" },
 		{ de = "Schutz", en = "Protection", points = "20/31/0", ranks = table.concat(preset, ",") },
@@ -2559,6 +2566,10 @@ end)()
 		EnumerateAllTalentButtons = function() return pairs(buttons) end,
 	} }
 	C_Traits = {
+		GetConfigInfo = function() return { treeIDs = { 1117 } } end,
+		GetGroupDisplayInfoByTreeID = function()
+			return { { groupID = 3, orderIndex = 3 }, { groupID = 1, orderIndex = 1 }, { groupID = 2, orderIndex = 2 } }
+		end,
 		GetNodeInfo = function(_, id) return CopyTable(defs[id]) end,
 		GetEntryInfo = function(_, id) return { definitionID = id } end,
 		GetDefinitionInfo = function(id) return { spellID = id } end,
@@ -2604,6 +2615,15 @@ end)()
 	menu({})
 	assert(active().ranks[12] == 5 and not active().ranks[19] and build.ranks[19] == 5,
 		"changing the gear weights changes the recommended allocation")
+	defs[31].ranksPurchased = 0
+	weights = { DODGE = 12, DEF = 1.5 }
+	talents:QueuePlanUpdate()
+	menu({})
+	assert(ns.TalentBuilds.Points(active()) == 51 and #active().order == 51 and active().ranks[17] == 1
+		and active().ranks[12] == 5 and not active().ranks[19] and not active().ranks[32],
+		"keep the complete tested allocation when learned ranks fit it, regardless of alternative gear gains")
+	defs[31].ranksPurchased = 2
+	talents:QueuePlanUpdate()
 	C_Traits.GetTraitDescription = function() return "Grants a new ability." end
 	menu({})
 	assert(ns.TalentBuilds.Points(active()) == 51 and #active().order == 49 and active().ranks[17] == 1,

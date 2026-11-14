@@ -139,9 +139,11 @@ local STAT_PHRASES = {
 		["melee attack speed"] = "HASTE", ["spell haste"] = "SHASTE", ["spell casting speed"] = "SHASTE",
 		["spell critical strike chance"] = "SCRIT",
 		["chance to dodge"] = "DODGE", ["chance to parry"] = "PARRY", ["chance to block"] = "BLOCK",
+		["dodge chance"] = "DODGE", ["parry chance"] = "PARRY", ["block chance"] = "BLOCK",
 		["chance to hit"] = "HIT", ["chance to hit with all spells"] = "SHIT",
 		["chance to hit with all spells and attacks"] = "HIT", ["chance to hit with all attacks and spells"] = "HIT",
 		["critical strike chance with all spells and attacks"] = "CRIT",
+		["chance to get a critical strike with all spells and attacks"] = "CRIT",
 	},
 	[true] = {
 		["stärke"] = "STR", beweglichkeit = "AGI", ausdauer = "STA", intelligenz = "INT", willenskraft = "SPI",

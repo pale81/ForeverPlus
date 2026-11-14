@@ -4393,7 +4393,7 @@ end)()
 	-- kind, nothing while one's own is on the target
 	local all = { kings = true, might = true, wisdom = true, salvation = true, light = true }
 	local function pick(class, known, on)
-		return (buffs.ChooseBlessing(class, false, known or all, on or {}, 60))
+		return (buffs.ChooseBlessing(class, false, known or all, on or {}, 60, 20))
 	end
 	assert(pick("PRIEST", { might = true, wisdom = true }) == "wisdom", "priest: Wisdom, never Might")
 	assert(pick("PRIEST", { might = true }) == nil, "priest: no Might at all")
@@ -4404,14 +4404,14 @@ end)()
 	assert(pick("ROGUE", nil, { kings = { remaining = 200 } }) == "might", "Kings from another paladin: Might")
 	assert(pick("MAGE", nil, { kings = { remaining = 200 }, wisdom = { remaining = 200 } }) == "salvation", "next free kind")
 	assert(pick("MAGE", nil, { might = { remaining = 200, mine = true } }) == nil, "own blessing on it: nothing")
-	local kind, renew = buffs.ChooseBlessing("MAGE", false, all, { light = { remaining = 30, mine = true } }, 60)
+	local kind, renew = buffs.ChooseBlessing("MAGE", false, all, { light = { remaining = 30, mine = true } }, 60, 20)
 	assert(kind == "light" and renew, "own blessing runs out: renewed, same kind")
 	assert(pick("DEATHKNIGHT", { might = true, wisdom = true }) == "might"
-		and buffs.ChooseBlessing("DEATHKNIGHT", true, { might = true, wisdom = true }, {}, 60) == "wisdom", "other class: by mana")
+		and buffs.ChooseBlessing("DEATHKNIGHT", true, { might = true, wisdom = true }, {}, 60, 20) == "wisdom", "other class: by mana")
 	assert(not buffs.HasMana("WARRIOR", true) and buffs.HasMana("HUNTER", false), "mana by class")
 	-- One's own blessing: another paladin's blessing does not stand for it
 	local function own(preferred, on)
-		return buffs.ChooseOwnBlessing(preferred, "PALADIN", all, on or {}, 60)
+		return buffs.ChooseBlessing("PALADIN", true, all, on or {}, 60, 20, false, preferred)
 	end
 	assert(own("wisdom", { might = { remaining = 200 } }) == "wisdom", "Might from another paladin, own Wisdom gone: Wisdom offered")
 	assert(own("might", { might = { remaining = 200 } }) == "kings", "the chosen kind is on already: the next free one")
@@ -4521,6 +4521,71 @@ end)()
 	UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName = unpack(saved)
 	setuv(evaluate, "FindAura", function() return nil end)
 	print("buff power OK")
+end)()
+;(function()
+	local buffs = ns:GetModule("Buffs")
+	local update = uv(buffs.OnLogin, "Update")
+	local evaluate = uv(uv(update, "EvaluateOwn"), "Evaluate")
+	local reminder = { key = "blessing", blessings = true, cast = { 19740, 19742, 20217 } }
+	local choices = {}
+	local pickSpell = uv(evaluate, "PickSpell")
+	local savedClassDB = uv(pickSpell, "classDB")
+	setuv(pickSpell, "classDB", choices)
+
+	local savedLevel, savedRole, savedClass, savedTree = UnitLevel, rawget(_G, "UnitGroupRolesAssigned"), UnitClass, ns.TalentTreeOf
+	local savedKnown, savedAura = C_SpellBook.IsSpellKnown, C_UnitAuras.GetAuraDataBySpellName
+	local savedFindSlot, savedTrace = C_SpellBook.FindSpellBookSlotForSpell, buffs.lastBlessingTrace
+	local level, role, tree = 9, "NONE", 2
+	local known = { [19740] = true, [19742] = true, [20217] = true }
+	local auras = {}
+	UnitLevel = function() return level end
+	UnitGroupRolesAssigned = function() return role end
+	UnitClass = function() return "Paladin", "PALADIN" end
+	ns.TalentTreeOf = function() return "Protection", nil, tree end
+	C_SpellBook.IsSpellKnown = function(id) return known[id] or false end
+	C_SpellBook.FindSpellBookSlotForSpell = function() return nil end
+	C_UnitAuras.GetAuraDataBySpellName = function(unit, name) return unit == "target" and auras[name] or nil end
+
+	local function targetSpell()
+		return select(4, buffs.EvaluateTarget(reminder, 60))
+	end
+	local function ownSpell()
+		return select(5, evaluate(reminder, 60))
+	end
+	assert(targetSpell() == 19742, "level 9 target: Wisdom instead of Kings")
+	level = 10
+	assert(targetSpell() == 20217, "level 10 target: Kings allowed")
+	level = 9
+	auras.Spell25898 = { expirationTime = GetTime() + 30, sourceUnit = "player" }
+	assert(targetSpell() == 19742, "expiring Greater Kings on level 9 target: choose an eligible blessing")
+	auras.Spell25898 = nil
+	assert(ownSpell() == 19742, "own Protection tree: automatic Wisdom when Kings cannot be cast")
+	choices.blessingChoice = 20217
+	assert(ownSpell() == 19742, "manual Kings also respects the level gate")
+	level = 20
+	choices.blessingChoice = 0
+	assert(ownSpell() == 20217, "own Protection tree: automatic Kings before Might")
+	choices.blessingChoice = 19740
+	assert(ownSpell() == 19740, "own manual Might is respected")
+
+	known[20217], known[19742] = nil, nil
+	choices.blessingChoice = 0
+	assert(ownSpell() == nil, "automatic Protection skips Might when it is the only known blessing")
+	tree = 3
+	assert(ownSpell() == 19740, "automatic Retribution can still select Might")
+	role = "TANK"
+	assert(targetSpell() == nil, "assigned paladin tank does not get automatic Might")
+	role = "NONE"
+	auras.Spell25780 = { expirationTime = 0 }
+	assert(targetSpell() == nil, "Righteous Fury identifies a tank without an assigned role")
+	auras.Spell25780 = nil
+	assert(targetSpell() == 19740, "other paladin still gets Might as a fallback")
+
+	UnitLevel, UnitGroupRolesAssigned, UnitClass, ns.TalentTreeOf = savedLevel, savedRole, savedClass, savedTree
+	C_SpellBook.IsSpellKnown, C_UnitAuras.GetAuraDataBySpellName = savedKnown, savedAura
+	C_SpellBook.FindSpellBookSlotForSpell, buffs.lastBlessingTrace = savedFindSlot, savedTrace
+	setuv(pickSpell, "classDB", savedClassDB)
+	print("blessing eligibility and tank priority OK")
 end)()
 ;(function()
 	-- Trainer: train all from the last entry, as far as the money goes; new professions left out.

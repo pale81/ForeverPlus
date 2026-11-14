@@ -97,6 +97,10 @@ The Shift mouseover block for enemies uses the existing creature records in `Dat
 
 `ns.AreaInfo` in `Data/PlaceInfo.lua` is keyed by area IDs of the AreaTable (wago.tools/db2, build 1.60.1.70862, checked against the same CSV as `tools/places.py` uses: AreaPOI, AreaTable, UiMapAssignment; regenerating `Data/Places.lua` from them gives the same 59 places; no area of 70291 was removed or renamed in 70862). Texts are the authors' own, from general knowledge, unchecked against a source.
 
+## Paladin blessings
+
+The buff reminder uses an add-on rule of recipient level 10 for Blessing of Kings. The automatic tank order prioritizes the attributes from Kings and the mana regeneration from Wisdom. Blizzard's class overview describes the Protection Paladin's Holy threat and mana mechanics and the move of Kings to the baseline spellbook. [Blizzard's Forever Paladin overview](https://worldofwarcraft.blizzard.com/en-gb/news/24302099/world-of-warcraft-forever-class-deep-dives-paladin)
+
 ## Talent presets
 
 All 36 level-60 templates were checked against client build 1.60.1.70938 for rank caps, row gates and prerequisites. The damage and tank comparisons below use WoWSims' Forever engine with 4,000 iterations per allocation, one level-63 target and a fight length of 180 ± 5 seconds. Gear, rotation and encounter settings are matched within each pair. The comparison uses each role's reference gear and rotation. Different equipment, rotations, encounters and utility needs may change the preferred build. The template ranks adapted from the simulator presets are covered by the [WoWSims MIT notice](Data/ThirdParty/WoWSims-MIT-LICENSE.txt). [WoWSims source and presets](https://github.com/wowsims/forever/tree/fbe0e9a322ce89c895e6a410db05bab4b525f87e)

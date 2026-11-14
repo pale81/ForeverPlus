@@ -369,14 +369,15 @@ local function TalentTree(configID)
 end
 
 -- Name and icon of the tree with the most points: one's own (configID nil) or of an inspected player
--- (Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID after INSPECT_READY). nil when unknown or no point is spent.
+-- (Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID after INSPECT_READY). Also returns the tree index.
+-- nil when unknown or no point is spent.
 function ns.TalentTreeOf(configID)
 	local ok, index, name, trees = pcall(TalentTree, configID)
 	if not ok or not index or ns.Secret(name) then
 		return nil
 	end
 	local icon = trees and trees[index] and trees[index].icon
-	return name, not ns.Secret(icon) and icon or nil
+	return name, not ns.Secret(icon) and icon or nil, index
 end
 
 -- The tree chosen in the options when this class has it, else the automatic one.

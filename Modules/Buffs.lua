@@ -31,6 +31,8 @@ _G["BINDING_NAME_" .. BINDING] = L.BUFFS_BINDING
 local SPACING = 4
 local UPDATE_DELAY = 0.1
 local DEFAULT_MUTE_DURATION = 30 * 60
+local KINGS_MIN_LEVEL = 10
+local RIGHTEOUS_FURY = 25780
 
 -- auras: spell IDs whose buff satisfies the reminder.
 -- cast: spells offered for casting (first known one when set to automatic).
@@ -62,7 +64,7 @@ local REMINDERS = {
 			cast = { 19740, 19742, 20217, 1038, 19977, 20911 }, others = true, blessings = true },
 		{ key = "aura", auras = { 465, 7294, 19746, 19876, 19888, 19891, 20218 },
 			cast = { 465, 7294, 19746, 20218, 19876, 19888, 19891 } },
-		{ key = "righteousFury", auras = { 25780 }, cast = { 25780 }, default = false },
+		{ key = "righteousFury", auras = { RIGHTEOUS_FURY }, cast = { RIGHTEOUS_FURY }, default = false },
 		{ key = "senseUndead", tracking = true, auras = { 5502 }, cast = { 5502 }, default = false },
 	},
 	WARLOCK = {
@@ -490,9 +492,7 @@ end
 
 -- Paladin blessings by kind: the normal and the greater one count the same. Each paladin gives a target one
 -- blessing; two paladins give two different kinds. Order per class of the target (classic guides): Kings for
--- everyone first, then what the class gets from it: Might only adds melee attack power (not for hunters and
--- casters), Wisdom only helps who has mana, Salvation not for warriors (they may tank). Sanctuary is left out
--- (tanks only, cannot be told).
+-- eligible targets first, then what the class gets from it. Tanking paladins skip automatic Might.
 local BLESSING_KINDS = {
 	kings = { 20217, 25898 }, might = { 19740, 25782 }, wisdom = { 19742, 25894 }, salvation = { 1038, 25895 },
 	light = { 19977, 25890 }, sanctuary = { 20911, 25899 },
@@ -511,6 +511,7 @@ local BLESSING_ORDER = {
 local MANA_CLASSES = { MAGE = true, PRIEST = true, WARLOCK = true, PALADIN = true, SHAMAN = true, DRUID = true,
 	HUNTER = true }
 local NO_MANA_CLASSES = { WARRIOR = true, ROGUE = true }
+local TANK_PALADIN_ORDER = { "kings", "wisdom", "light" }
 
 -- Whether a player of this class has mana (another class: what the game says, usesMana).
 function Buffs.HasMana(class, usesMana)
@@ -522,40 +523,35 @@ function Buffs.HasMana(class, usesMana)
 	return usesMana and true or false
 end
 
--- Which blessing a target gets: class and mana of the target, known (kind -> true), onTarget (kind -> { remaining,
--- mine }). A blessing of one's own on it is only renewed when it runs out within the threshold; else the first
--- kind of the class's order that is known and not on the target yet. Returns the kind and whether it renews.
-function Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
+local function CanSuggestBlessing(kind, level, paladinTank, preferred)
+	return (kind ~= "kings" or level >= KINGS_MIN_LEVEL)
+		and (kind ~= "might" or not paladinTank or preferred == "might")
+end
+
+-- Keep one's own blessing until it is due. Then renew it if eligible, or pick a free blessing.
+-- The preferred kind is only passed for the player, never for a friendly target.
+function Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold, level, paladinTank, preferred)
 	for kind, aura in pairs(onTarget) do
 		if aura.mine then
-			if aura.remaining ~= 0 and aura.remaining <= threshold then
+			if aura.remaining == 0 or aura.remaining > threshold then
+				return nil, false, aura.remaining ~= 0 and aura.remaining - threshold or nil
+			end
+			if CanSuggestBlessing(kind, level, paladinTank, preferred) then
 				return kind, true
 			end
-			return nil, false, aura.remaining ~= 0 and aura.remaining - threshold or nil
+			break
 		end
 	end
-	local order = BLESSING_ORDER[class]
+	if preferred and known[preferred] and not onTarget[preferred] and CanSuggestBlessing(preferred, level, paladinTank, preferred) then
+		return preferred, false
+	end
+	local order = paladinTank and TANK_PALADIN_ORDER or BLESSING_ORDER[class]
 		or (Buffs.HasMana(class, usesMana) and { "kings", "wisdom", "light" } or { "kings", "might", "light" })
 	for _, kind in ipairs(order) do
-		if known[kind] and not onTarget[kind] then
+		if known[kind] and not onTarget[kind] and CanSuggestBlessing(kind, level, paladinTank, preferred) then
 			return kind, false
 		end
 	end
-end
-
--- One's own blessing: while a blessing of one's own is on the player it is only renewed; else the chosen kind
--- (preferred), or when another paladin's blessing of that kind is on already, the next free kind of the class.
--- A blessing of another paladin does not stand for one's own (Might from someone else, the own Wisdom clicked
--- away: nothing was offered any more).
-function Buffs.ChooseOwnBlessing(preferred, class, known, onSelf, threshold)
-	local mine = false
-	for _, aura in pairs(onSelf) do
-		mine = mine or aura.mine
-	end
-	if not mine and preferred and known[preferred] and not onSelf[preferred] then
-		return preferred, false
-	end
-	return Buffs.ChooseBlessing(class, true, known, onSelf, threshold)
 end
 
 -- The blessings on a unit: kind -> { remaining (0 = no end), mine }.
@@ -588,20 +584,44 @@ local function KnownBlessings()
 	return known
 end
 
+local function IsPaladinTank(unit)
+	local role = UnitGroupRolesAssigned(unit)
+	if not ns.Secret(role) and role == "TANK" then
+		return true
+	end
+	if unit == "player" then
+		local _, _, tree = ns.TalentTreeOf()
+		if tree == 2 then -- Protection is the second Paladin tree.
+			return true
+		end
+	end
+	local name = SpellName(RIGHTEOUS_FURY)
+	return name and C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL") ~= nil
+end
+
 -- Shown, seconds until the next check, only expiring, waiting for power, the blessing to cast.
 OwnBlessing = function(reminder, threshold)
-	local preferred = PickSpell(reminder)
-	if not preferred then
-		return false
+	local paladinTank = IsPaladinTank("player")
+	-- Automatic selection for a tank uses the tank order. The dropdown still allows a manual choice.
+	local preferred
+	if paladinTank then
+		local choice = classDB[ChoiceKey(reminder)]
+		if choice and choice ~= 0 and IsKnown(choice) then
+			preferred = choice
+		end
+	else
+		preferred = PickSpell(reminder)
 	end
 	local preferredKind
 	for kind, spellIDs in pairs(BLESSING_KINDS) do
 		if spellIDs[1] == preferred or spellIDs[2] == preferred then
 			preferredKind = kind
+			break
 		end
 	end
-	local _, class = UnitClass("player")
-	local kind, renew, recheck = Buffs.ChooseOwnBlessing(preferredKind, class, KnownBlessings(), UnitBlessings("player"), threshold)
+	local level = ns.Number(UnitLevel("player"), 0)
+	local kind, renew, recheck = Buffs.ChooseBlessing("PALADIN", true, KnownBlessings(), UnitBlessings("player"), threshold,
+		level, paladinTank, preferredKind)
 	if not kind then
 		return false, recheck
 	end
@@ -638,18 +658,22 @@ local function EvaluateTarget(reminder, threshold)
 		return false
 	end
 	if reminder.blessings then
+		local level = ns.Number(UnitLevel("target"), 0)
+		local paladinTank = class == "PALADIN" and IsPaladinTank("target")
 		local known = KnownBlessings()
 		local onTarget = UnitBlessings("target")
-		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold)
+		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold, level, paladinTank)
 		local seen = {}
 		for name, aura in pairs(onTarget) do
 			seen[#seen + 1] = ("%s(%s, %d s)"):format(name, aura.mine and "eigen" or "fremd", aura.remaining)
 		end
-		local key = ("%s|%s|%s|%s"):format(Plain(UnitName("target")), tostring(class), table.concat(seen, " "), tostring(kind))
+		local key = ("%s|%s|%d|%s|%s|%s"):format(Plain(UnitName("target")), tostring(class), level,
+			tostring(paladinTank), table.concat(seen, " "), tostring(kind))
 		if key ~= Buffs.lastBlessingTrace then
 			Buffs.lastBlessingTrace = key
-			Trace("Ziel %s (%s, Mana %s): Segen darauf %s; Wahl %s = %s", Plain(UnitName("target")), tostring(class),
-				tostring(Buffs.HasMana(class, usesMana)), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
+			Trace("Ziel %s (%s, Stufe %d, Mana %s, Paladin-Tank %s): Segen darauf %s; Wahl %s = %s",
+				Plain(UnitName("target")), tostring(class), level, tostring(Buffs.HasMana(class, usesMana)),
+				tostring(paladinTank), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
 				Plain(kind and SpellName(BLESSING_KINDS[kind][1])))
 		end
 		if not kind then
@@ -889,6 +913,14 @@ local function CreateBar()
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("SPELLS_CHANGED")
+	if playerClass == "PALADIN" then
+		events:RegisterUnitEvent("UNIT_LEVEL", "player", "target")
+		for _, event in ipairs({ "PLAYER_ROLES_ASSIGNED", "GROUP_ROSTER_UPDATE", "TRAIT_CONFIG_UPDATED", "ACTIVE_TALENT_GROUP_CHANGED" }) do
+			if C_EventUtils.IsEventValid(event) then
+				events:RegisterEvent(event)
+			end
+		end
+	end
 	events:RegisterEvent("UPDATE_BINDINGS")
 	events:RegisterEvent("PLAYER_UNGHOST")
 	events:RegisterEvent("PLAYER_ALIVE")

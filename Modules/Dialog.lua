@@ -574,8 +574,48 @@ local function CreateText(frame)
 	return text
 end
 
+-- Only rows with wares in the basket need the game's quantity field.
+local function CreateQuantity(row)
+	row.Qty = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+	row.Qty:SetSize(40, 20)
+	row.Qty:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+	row.Qty:SetAutoFocus(false)
+	row.Qty:SetNumeric(true)
+	row.Qty:SetMaxLetters(3)
+	row.Qty:SetJustifyH("CENTER")
+	row.Qty:SetScript("OnEnterPressed", function(self)
+		self:ClearFocus()
+		local number = tonumber(self:GetText())
+		if number and row.onQuantity then
+			row.onQuantity(number)
+		end
+	end)
+	row.Qty:SetScript("OnEscapePressed", function(self)
+		self:ClearFocus()
+	end)
+	return row.Qty
+end
+
+-- The chosen row uses faint copies of its text one pixel in eight directions.
+local function CreateRowGlow(row)
+	row.Glow = {}
+	for _, direction in ipairs({ { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } }) do
+		local glow = row:CreateFontString(nil, "ARTWORK", nil)
+		glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", direction[1], direction[2])
+		glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", direction[1], direction[2])
+		glow:SetJustifyH("LEFT")
+		glow:SetJustifyV("TOP")
+		glow:SetNonSpaceWrap(true)
+		glow:SetTextColor(1, 0.72, 0.2, 0.1)
+		glow:Hide()
+		row.Glow[#row.Glow + 1] = glow
+	end
+	return row.Glow
+end
+
 local function CreateRow(frame)
 	local row = CreateFrame("Button", nil, frame)
+	row.Qty, row.Glow = false, false
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
 	row.Icon:SetSize(16, 16)
 	row.Icon:SetPoint("TOPLEFT", 0, -1)
@@ -595,32 +635,12 @@ local function CreateRow(frame)
 	row.Highlight:SetPoint("BOTTOMRIGHT", 3, -1)
 	row.Highlight:SetColorTexture(0, 0, 0, 0.1)
 	row.Highlight:Hide()
-	-- In the basket / chosen: a soft green tint, and the counter of the quantity (a click types a number).
+	-- In the basket / chosen: a soft green tint behind the row.
 	row.Picked = row:CreateTexture(nil, "BACKGROUND", nil, -1)
 	row.Picked:SetPoint("TOPLEFT", -4, 2)
 	row.Picked:SetPoint("BOTTOMRIGHT", 4, -2)
 	row.Picked:SetColorTexture(0.25, 0.9, 0.35, 0.16)
 	row.Picked:Hide()
-	-- The quantity of a ware in the basket: the game's own input field right of the row (left clicks on the row
-	-- count up, right clicks down; the number can be typed too).
-	row.Qty = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-	row.Qty:SetSize(40, 20)
-	row.Qty:SetPoint("RIGHT", row, "RIGHT", 0, 0)
-	row.Qty:SetAutoFocus(false)
-	row.Qty:SetNumeric(true)
-	row.Qty:SetMaxLetters(3)
-	row.Qty:SetJustifyH("CENTER")
-	row.Qty:SetScript("OnEnterPressed", function(self)
-		self:ClearFocus()
-		local number = tonumber(self:GetText())
-		if number and row.onQuantity then
-			row.onQuantity(number)
-		end
-	end)
-	row.Qty:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-	end)
-	row.Qty:Hide()
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	row:EnableMouseWheel(true)
 	row:SetScript("OnMouseWheel", function(_, delta)
@@ -630,20 +650,6 @@ local function CreateRow(frame)
 			Dialog.ScrollContent(delta)
 		end
 	end)
-	-- The chosen text is a little fuller: warm copies of it one pixel around it (eight directions), very faint, under
-	-- the text itself; no wider halo, so it reads as weight, not as shine.
-	row.Glow = {}
-	for _, direction in ipairs({ { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } }) do
-		local glow = row:CreateFontString(nil, "ARTWORK", nil)
-		glow:SetPoint("TOPLEFT", row.Text, "TOPLEFT", direction[1], direction[2])
-		glow:SetPoint("BOTTOMRIGHT", row.Text, "BOTTOMRIGHT", direction[1], direction[2])
-		glow:SetJustifyH("LEFT")
-		glow:SetJustifyV("TOP")
-		glow:SetNonSpaceWrap(true)
-		glow:SetTextColor(1, 0.72, 0.2, 0.1)
-		glow:Hide()
-		row.Glow[#row.Glow + 1] = glow
-	end
 	row:SetScript("OnEnter", function(button)
 		button.Highlight:Show()
 		if button.tooltip then
@@ -777,6 +783,12 @@ local function RenderView(view)
 	end
 	local y = 0
 	local listScroll, selectedTop, selectedHeight = false, nil, nil
+	local textFont = TextFont()
+	local baseFont = _G[textFont]
+	local fontFile, fontSize, fontFlags
+	if baseFont then
+		fontFile, fontSize, fontFlags = baseFont:GetFont()
+	end
 	wipe(frame.rowActions)
 	wipe(frame.numberIndex)
 	frame.maxRowNumber = 0
@@ -784,7 +796,7 @@ local function RenderView(view)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
 		fs:SetParent(host)
-		fs:SetFontObject(font or TextFont())
+		fs:SetFontObject(font or textFont)
 		fs:ClearAllPoints()
 		fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
 		fs:SetWidth(WIDTH)
@@ -836,8 +848,8 @@ local function RenderView(view)
 				end
 				row.Text:ClearAllPoints()
 				row.Text:SetPoint("TOPLEFT", iconWidth, 0)
-				row.Text:SetWidth(WIDTH - iconWidth)
-				row.Text:SetTextColor(unpack(info.dim and palette.dim or palette.row))
+				-- Keep a free column for the quantity field so long names and prices can wrap.
+				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- Every option that can be chosen has a number (key 1 to 9).
 				local label = info.text
 				if info.action then
@@ -851,38 +863,40 @@ local function RenderView(view)
 				-- The row that is chosen (clicked or lit with Tab): a little larger and bold, as under a magnifying glass.
 				local emphasised = info.action and #frame.rowActions == frame.selectedRow
 				-- Always set the font itself: a font object set again would not undo an earlier size.
-				local baseFont = _G[TextFont()]
-				local file, size, flags
-				if baseFont then
-					file, size, flags = baseFont:GetFont()
-				end
-				if file and size then
-					row.Text:SetFont(file, emphasised and size * 1.2 or size, emphasised and "" or flags or "")
+				if fontFile and fontSize then
+					row.Text:SetFont(fontFile, emphasised and fontSize * 1.2 or fontSize, emphasised and "" or fontFlags or "")
 				else
-					row.Text:SetFontObject(TextFont())
+					row.Text:SetFontObject(textFont)
 				end
 				-- In the basket: a tick in front (the others get a blank of the same width).
 				label = (info.picked and "|A:common-icon-checkmark:14:14|a " or "|TInterface\\Common\\Spacer:14:14|t ") .. label
 				row.Text:SetText(label)
 				row.Picked:SetShown(info.picked and true or false)
 				row.onQuantity = info.onQuantity
-				row.Qty:SetShown(info.counter ~= nil)
-				if info.counter and not row.Qty:HasFocus() then
-					row.Qty:SetText(tostring(info.counter))
+				if info.counter ~= nil then
+					local quantity = row.Qty or CreateQuantity(row)
+					quantity:Show()
+					if info.counter and not quantity:HasFocus() then
+						quantity:SetText(tostring(info.counter))
+					end
+				elseif row.Qty then
+					row.Qty:Hide()
 				end
-				-- A row with a quantity field keeps a free column on the right; a long name with its price wraps (in
-				-- one line it was cut off, the price with it).
-				row.Text:SetWidth(WIDTH - iconWidth - (info.reserve or 0))
 				-- The chosen text stands out: brighter and warm next to the rest.
 				row.Text:SetTextColor(unpack(emphasised and { 1, 0.97, 0.78 } or (info.dim and palette.dim or palette.row)))
 				row.number = info.action and #frame.rowActions or nil
-				for _, glow in ipairs(row.Glow) do
-					glow:SetShown(emphasised and true or false)
-					if emphasised then
-						if file and size then
-							glow:SetFont(file, size * 1.2, "")
+				if emphasised then
+					local glowText = Dialog.GlowText(label)
+					for _, glow in ipairs(row.Glow or CreateRowGlow(row)) do
+						if fontFile and fontSize then
+							glow:SetFont(fontFile, fontSize * 1.2, "")
 						end
-						glow:SetText(Dialog.GlowText(label))
+						glow:SetText(glowText)
+						glow:Show()
+					end
+				elseif row.Glow then
+					for _, glow in ipairs(row.Glow) do
+						glow:Hide()
 					end
 				end
 
@@ -2543,6 +2557,28 @@ function Dialog:OnLogin()
 	HookWindows()
 	ns.OnAddOnLoaded("Blizzard_TrainerUI", HookWindows)
 	self:Apply()
+	-- Build the hidden shell during login warmup. Prepare common rows in separate slices.
+	ns.After("Dialog: prepare bubble", 2, function()
+		if bubble or not self.db.enabled or InCombatLockdown() then
+			return
+		end
+		bubble = CreateBubble()
+		ns.RunSliced("Dialog: prepare rows", 6, function(index)
+			if current or not self.db.enabled or InCombatLockdown() then
+				return
+			end
+			if index <= 3 then
+				local row = Pooled(bubble, "row", index, CreateRow)
+				if index == 1 and not row.Glow then
+					CreateRowGlow(row)
+				end
+			elseif index <= 5 then
+				Pooled(bubble, "text", index - 3, CreateText)
+			else
+				Pooled(bubble, "button", 1, CreateButton)
+			end
+		end)
+	end)
 end
 
 function Dialog:OnOptionChanged()

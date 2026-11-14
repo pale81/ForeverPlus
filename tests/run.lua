@@ -2159,6 +2159,21 @@ end)()
 	end
 	-- back: gossip first, then a quest detail; "back" shows the gossip step again
 	dialog:OnConversation("GOSSIP_SHOW")
+	local bubble = ForeverPlusDialogBubble
+	local rows = bubble.pools.row
+	assert(rows[1].Glow and not rows[2].Glow and not rows[1].Qty and not rows[2].Qty,
+		"fresh gossip rows only create the selected glow and no quantity fields")
+	bubble.selectedRow = 2
+	dialog.Rerender()
+	assert(not rows[1].Glow[1]:IsShown() and rows[2].Glow[1]:IsShown(), "selection moves the glow")
+	local active = uv(dialog.Rerender, "current").view.blocks[2].rows[2]
+	active.counter = 2
+	dialog.Rerender()
+	local quantity = rows[2].Qty
+	assert(quantity and quantity:IsShown(), "a row creates its quantity field when needed")
+	active.counter = nil
+	dialog.Rerender()
+	assert(rows[2].Qty == quantity and not quantity:IsShown(), "a reused row hides the quantity field")
 	dialog:OnConversation("QUEST_DETAIL")
 	assert(pcall(dialog.GoBack), "back runs")
 	GetQuestID = function() return 77 end

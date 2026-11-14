@@ -230,7 +230,7 @@ local WEIGHTS = {
 		-- Holy
 		{ HEAL = 1, SP = 0.85, MP5 = 0.75, SPI = 0.7, INT = 0.5, SCRIT = 4, SHASTE = 3, STA = 0.3, ARMOR = 0.005 },
 		-- Shadow
-		{ SP = 1, SHADOW = 1, SHIT = 12, SCRIT = 13, SHASTE = 6.5, INT = 0.3, SPI = 0.35, STA = 0.4, MP5 = 0.25, ARMOR = 0.005 },
+		{ SP = 1, SHADOW = 1, SHIT = 12, SCRIT = 13, SHASTE = 6.5, INT = 0.3, SPI = 0.08, STA = 0.25, MP5 = 0.25, ARMOR = 0.005 },
 	},
 	SHAMAN = {
 		-- Elemental
@@ -247,7 +247,7 @@ local WEIGHTS = {
 		-- Fire
 		{ SP = 1, FIRE = 0.9, ARCANE = 0.1, SHIT = 15, SCRIT = 11, SHASTE = 3, INT = 0.5, SPI = 0.3, MP5 = 0.25, STA = 0.3, ARMOR = 0.005 },
 		-- Frost
-		{ SP = 1, FROST = 0.8, ARCANE = 0.2, SHIT = 16, SCRIT = 9.5, SHASTE = 12, INT = 0.25, SPI = 0.25, MP5 = 0.15, STA = 0.3, ARMOR = 0.005 },
+		{ SP = 1, FROST = 0.8, ARCANE = 0.2, SHIT = 16, SCRIT = 9.5, SHASTE = 12, INT = 0.27, SPI = 0.10, MP5 = 0.15, STA = 0.20, ARMOR = 0.005 },
 	},
 	WARLOCK = {
 		-- Affliction
@@ -259,7 +259,7 @@ local WEIGHTS = {
 	},
 	DRUID = {
 		-- Balance
-		{ SP = 1, ARCANE = 0.65, NATURE = 0.35, SHIT = 11, SCRIT = 9.5, SHASTE = 8.5, INT = 0.3, SPI = 0.3, MP5 = 0.2, STA = 0.3, ARMOR = 0.005 },
+		{ SP = 1, ARCANE = 0.65, NATURE = 0.35, SHIT = 11, SCRIT = 9.5, SHASTE = 8.5, INT = 0.3, SPI = 0.10, MP5 = 0.2, STA = 0.25, ARMOR = 0.005 },
 		-- Feral (cat)
 		{ AGI = 2, STR = 1.8, STA = 0.45, AP = 0.72, DPS = 14,
 			HIT = 14, CRIT = 22, EXPERTISE = 14, HASTE = 11, ARP = 0.25, ARMOR = 0.02 },
@@ -331,23 +331,27 @@ local weights -- of the current class/specialization, cleared on spec change
 local weightsName, weightsTree, weightsPreset
 local _, playerClass = UnitClass("player")
 
--- Forever has one specialization per class (C_SpecializationInfo); the three
--- classic talent trees are trait groups. The tree with the most points wins,
--- in the order the talent frame shows them (orderIndex).
-local function TalentTree(configID)
-	configID = configID or (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID())
+-- The client exposes the classic talent trees as groups ordered left to right.
+function ns.TalentGroups(configID)
+	if type(C_Traits.GetConfigInfo) ~= "function" or type(C_Traits.GetGroupDisplayInfoByTreeID) ~= "function" then
+		return {}
+	end
 	local configInfo = configID and C_Traits.GetConfigInfo(configID)
 	local treeID = configInfo and configInfo.treeIDs and configInfo.treeIDs[1]
-	if not treeID then
-		return nil
-	end
 	local trees = {}
-	for _, info in ipairs(C_Traits.GetGroupDisplayInfoByTreeID(treeID) or {}) do
+	for _, info in ipairs(treeID and C_Traits.GetGroupDisplayInfoByTreeID(treeID) or {}) do
 		trees[#trees + 1] = info
 	end
 	table.sort(trees, function(a, b)
 		return a.orderIndex < b.orderIndex
 	end)
+	return trees
+end
+
+-- Forever has one specialization per class. The tree with the most points wins.
+local function TalentTree(configID)
+	configID = configID or (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID())
+	local trees = ns.TalentGroups(configID)
 	local groupIDs, indexOf = {}, {}
 	for i, info in ipairs(trees) do
 		groupIDs[i] = info.groupID

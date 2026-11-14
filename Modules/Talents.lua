@@ -387,7 +387,7 @@ local function BuildTreeState(frame, configID)
 	for button in frame:EnumerateAllTalentButtons() do
 		local nodeID = button.GetNodeID and button:GetNodeID()
 		local node = nodeID and C_Traits.GetNodeInfo(configID, nodeID)
-		if node and node.maxRanks and node.maxRanks > 0 then
+		if node and node.maxRanks and node.maxRanks > 0 and node.isVisible ~= false then
 			node.ID = node.ID or nodeID
 			node.posY = node.posY or 0
 			nodes[nodeID] = node
@@ -409,8 +409,13 @@ local function BuildTreeState(frame, configID)
 		rowOf[y] = row
 		previous = y
 	end
-	-- The specialisation of a talent: the three columns of the tree are far apart. This does
-	-- not depend on the order the game lists the groups of a node in.
+	-- Match the same tree indices as the gear scorer. Positions are a fallback for
+	-- nodes that do not report a display group.
+	local groups = ns.TalentGroups(configID)
+	local groupIndex = {}
+	for index, group in ipairs(groups) do
+		groupIndex[group.groupID] = index
+	end
 	local xs = {}
 	for _, node in pairs(nodes) do
 		xs[ns.Number(node.posX, 0)] = true
@@ -437,7 +442,14 @@ local function BuildTreeState(frame, configID)
 		specOf[x] = spec
 	end
 	for _, node in pairs(nodes) do
-		node.fpSpec = specOf[ns.Number(node.posX, 0)]
+		for _, groupID in ipairs(node.groupIDs or {}) do
+			local index = groupIndex[groupID]
+			if index then
+				node.fpSpec = index
+				break
+			end
+		end
+		node.fpSpec = node.fpSpec or specOf[ns.Number(node.posX, 0)]
 	end
 	return nodes, rowOf, names
 end
@@ -1342,9 +1354,7 @@ function RecommendPlan()
 	local nodes, rowOf, names = TreeState(frame, configID)
 	local ordered = {}
 	for _, node in pairs(nodes) do
-		if node.isVisible ~= false then
-			ordered[#ordered + 1] = node
-		end
+		ordered[#ordered + 1] = node
 	end
 	table.sort(ordered, function(a, b)
 		local aRow, bRow = rowOf[a.posY] or 0, rowOf[b.posY] or 0
@@ -1358,17 +1368,34 @@ function RecommendPlan()
 	local preset = presets and presets[presetIndex or tree]
 	local targets = ns.TalentBuilds.ParseRanks(preset and preset.ranks)
 	local gains = RecommendationGains(configID, ordered, weights)
-	local plan, order = FillRecommendation(nodes, rowOf, names, ordered, targets, gains, tree)
+	-- Use the audited allocation where it fits the character's learned points.
+	-- A local stat comparison cannot measure the effect on the entire build.
+	local compatible = preset ~= nil
+	for id, node in pairs(nodes) do
+		if (node.ranksPurchased or 0) > (targets[id] or 0) then
+			compatible = false
+			break
+		end
+	end
+	local plan, order
+	if compatible then
+		plan, order = FillRecommendation(nodes, rowOf, names, ordered, targets, gains, tree, true)
+	end
+	if not plan then
+		plan, order = FillRecommendation(nodes, rowOf, names, ordered, targets, gains, tree)
+		if plan then
+			local improved = CopyTable(plan)
+			if ImproveRecommendation(nodes, rowOf, names, ordered, improved, gains) then
+				local revised, revisedOrder = FillRecommendation(nodes, rowOf, names, ordered, improved, gains, tree, true)
+				if revised then
+					plan, order = revised, revisedOrder
+				end
+			end
+		end
+	end
 	if not plan then
 		ns.Print(L.TALENTS_RECOMMEND_INCOMPLETE:format(PLAN_POINTS))
 		return
-	end
-	local improved = CopyTable(plan)
-	if ImproveRecommendation(nodes, rowOf, names, ordered, improved, gains) then
-		local revised, revisedOrder = FillRecommendation(nodes, rowOf, names, ordered, improved, gains, tree, true)
-		if revised then
-			plan, order = revised, revisedOrder
-		end
 	end
 
 	local label = preset and (GetLocale() == "deDE" and preset.de or preset.en) or treeName

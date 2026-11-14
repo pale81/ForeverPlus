@@ -196,7 +196,11 @@ SecondsToTime = function(s) return tostring(s) .. "s" end
 C_AddOnProfiler = { IsEnabled = function() return true end, GetAddOnMetric = function(n) return n == "Slow" and 6.2 or 0.4 end }
 C_AddOns.GetNumAddOns = function() return 2 end
 C_AddOns.IsAddOnLoaded = function() return true end
-C_AddOns.GetAddOnInfo = function(i) return i == 1 and "Slow" or "Fast", i == 1 and "|cffff0000Slow|r Addon" or "Fast" end
+C_AddOns.GetAddOnInfo = function(i)
+	if i == 1 then return "Slow", "|cffff0000Slow|r Addon" end
+	if i == 2 then return "Fast", "Fast" end
+	return i, i
+end
 issecretvalue = function() return false end
 MerchantSellAllJunkButton = CreateFrame("Button"); MerchantSellAllJunkButton.Icon = MerchantSellAllJunkButton:CreateTexture()
 ProfessionsFrame = false -- profession tests install their own frame
@@ -609,8 +613,7 @@ print("info OK")
 	local sampler = uv(setup, "profilerSampler")
 	local event = sampler:GetScript("OnEvent")
 	local sample = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
-	local session = uv(setup, "SampleAddonMetrics")
-	local metrics = uv(session, "sessionMetrics")
+	local metrics = uv(show, "sessionMetrics")
 	local row = metrics.Slow
 	local savedTime, savedMetric = GetTime, C_AddOnProfiler.GetAddOnMetric
 	local now, elapsed = 500, 40
@@ -682,6 +685,18 @@ print("info OK")
 	perf:GetScript("OnEnter")(perf)
 	GameTooltip.AddLine = added
 	assert(sawPeak, "the session peak call is visible without starting a measurement")
+	now, elapsed = 767, 0.4
+	sample()
+	now, elapsed = 768, 40
+	sample()
+	assert(own.peak == 40 and not own.peakCall and own.slowFrame == 33.3 and own.slowCall == "Test: session spike",
+		"an unattributed peak retains the most recent attributed slow frame")
+	local slowLine = ns.L.INFO_CPU_LAST_SLOW_CALL:format(33.3, "Test: session spike", 31)
+	local sawSlow = false
+	GameTooltip.AddLine = function(_, line) sawSlow = sawSlow or line == slowLine end
+	perf:GetScript("OnEnter")(perf)
+	GameTooltip.AddLine = added
+	assert(sawSlow, "the tooltip still shows the last attributable spike")
 	local mouseUp = perf:GetScript("OnMouseUp")
 	local savedShift = IsShiftKeyDown
 	local savedResult = info.lastMeasure
@@ -691,10 +706,10 @@ print("info OK")
 	assert(row.peak == 0 and row.slow == 0 and row.recentCount == 0 and row.recentTotal == 0
 		and own.peak == 0 and not own.peakAt and not own.peakCall and info.lastMeasure and not ns.measureUntil,
 		"shift-left-click resets the session only")
-	now = 767
+	now = 769
 	sample()
 	assert(row.recentCount == 0 and own.peak == 0, "the last frame from before reset is discarded")
-	now, elapsed = 768, 0.4
+	now, elapsed = 770, 0.4
 	sample()
 	assert(row.recentCount == 1 and row.recentTotal == 0.4 and own.peak == 0.4, "sampling restarts immediately")
 	IsShiftKeyDown, info.lastMeasure = savedShift, savedResult
@@ -1861,6 +1876,9 @@ vis.db.activeBuffExceptions = {}
 	local perf = uv(info.UpdatePerformance, "perfFrame")
 	perf:GetScript("OnMouseUp")(perf, "MiddleButton")
 	assert(ns.measuring and not ns.timings.old, "measuring, old values cleared")
+	local lateStart = ns.Measured("Test: measurement start", function() ns.SetMeasuring(true) end)
+	lateStart()
+	assert(not ns.timings["Info: performance click"] and not ns.timings["Test: measurement start"], "startup calls stay outside the results")
 	local sampleFrame = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
 	local savedMetric = C_AddOnProfiler.GetAddOnMetric
 	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
@@ -1869,12 +1887,13 @@ vis.db.activeBuffExceptions = {}
 	now = 801
 	C_AddOnProfiler.GetAddOnMetric = function() return 5 end
 	sampleFrame()
+	assert(ns.spikes.samples == 0, "the frame containing the click stays outside the results")
 	ns.RecordTiming("X: y", 0.9)
 	ns.RecordTiming("Y: x", 0.4)
 	now = 802
 	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
 	sampleFrame()
-	assert(ns.spikes.samples == 2 and ns.spikes.count == 1 and ns.spikes.worst == 35 and ns.spikes.name == "X: y",
+	assert(ns.spikes.samples == 1 and ns.spikes.count == 1 and ns.spikes.worst == 35 and ns.spikes.name == "X: y",
 		"one slow frame can occur even when every individual call is short")
 	timerFn()
 	assert(info.lastMeasure.frames == ns.spikes and not ns.measuring and ns.TopTimings(5)[1].name == "X: y", "timed measure")
@@ -1882,6 +1901,8 @@ vis.db.activeBuffExceptions = {}
 	ns.SetMeasuring(true)
 	sampleFrame()
 	now = 803
+	sampleFrame()
+	now = 804
 	C_AddOnProfiler.GetAddOnMetric = function() return 0.7 end
 	sampleFrame()
 	assert(ns.spikes.worst == 0.7 and ns.spikes.count == 0 and oldFrames.worst == 35,
@@ -6431,7 +6452,11 @@ end)()
 	C_Timer.After = function(_, fn) fn() end
 	C_Timer.NewTimer = function(_, fn) fn() return {} end
 	C_Timer.NewTicker = function(_, fn, n) fn("ticker") return { n = n } end
+	local savedTime = GetTime
+	local now = savedTime()
+	GetTime = function() return now end
 	ns.SetMeasuring(true)
+	now = now + 1
 	local ran, got = 0, nil
 	ns.After("Test: after", 1, function() ran = ran + 1 end)
 	ns.NewTimer("Test: timer", 1, function() ran = ran + 1 end)
@@ -6442,6 +6467,7 @@ end)()
 	local spikeFrame = uv(ns.SetMeasuring, "spikeFrame")
 	assert(spikeFrame.shown == true or spikeFrame:IsShown() == true, "spike counter runs while measuring")
 	ns.SetMeasuring(false)
+	GetTime = savedTime
 	assert(not ns.measuring and spikeFrame:IsShown(), "session sampling continues after detailed measurement stops")
 	C_Timer.After, C_Timer.NewTimer, C_Timer.NewTicker = savedAfter, savedTimer, savedTicker
 	-- No timer bypasses the measurement

@@ -567,7 +567,7 @@ local function UpdateCastWatch()
 	local enabled = Visuals.db.castsLeft
 	if enabled and not castWatcher then
 		castWatcher = CreateFrame("Frame")
-		castWatcher:SetScript("OnEvent", function(_, event, _, powerType)
+		castWatcher:SetScript("OnEvent", ns.Measured("Visuals: cast event", function(_, event, _, powerType)
 			-- Only mana decides how many casts are left.
 			if event == "UNIT_POWER_UPDATE" and (ns.Secret(powerType) or powerType ~= "MANA") then
 				return
@@ -576,7 +576,7 @@ local function UpdateCastWatch()
 				wipe(manaCosts)
 			end
 			QueueCasts()
-		end)
+		end))
 	end
 	if castWatcher then
 		local events = { "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "SPELLS_CHANGED",

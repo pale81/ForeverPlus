@@ -300,6 +300,11 @@ local lastTop, lastTopTime, lastTopAt
 local previousFrameAt
 local sessionSampler
 local SESSION_CALL_MIN = 0.25
+local measureStartedAt
+
+local function ActiveMeasurement()
+	return ns.measuring and GetTime() > measureStartedAt and ns.spikes
+end
 
 -- Work done once while loading (OnInitialize, OnLogin, the settings pages): kept apart from the timings of play, so
 -- the list of the longest calls shows what costs while playing.
@@ -340,7 +345,6 @@ end
 
 -- Share the frame boundary between the session display and explicit measurements.
 local spikeFrame = CreateFrame("Frame")
-local readyToSample
 spikeFrame:Hide()
 spikeFrame:SetScript("OnUpdate", function()
 	local now = GetTime()
@@ -353,10 +357,18 @@ spikeFrame:SetScript("OnUpdate", function()
 			name, elapsed = lastTop, lastTopTime
 		end
 	end
-	local total = sessionSampler and sessionSampler(now, name, elapsed)
+	local total
+	if sessionSampler then
+		local start = debugprofilestop()
+		total = sessionSampler(now, name, elapsed, previousFrameAt)
+		local duration = debugprofilestop() - start
+		if duration >= SESSION_CALL_MIN then
+			RecordFrameCall("Info: CPU sampler", duration)
+		end
+	end
 	local profiler = C_AddOnProfiler
-	-- The first report after starting may include the previous session's work.
-	if ns.measuring and readyToSample and profiler and profiler.IsEnabled() then
+	-- LastTime reports the previous frame. Start with the first complete frame after the click or command.
+	if ns.measuring and previousFrameAt and previousFrameAt > measureStartedAt and profiler and profiler.IsEnabled() then
 		total = total or profiler.GetAddOnMetric(addonName, Enum.AddOnProfilerMetric.LastTime)
 		if type(total) == "number" then
 			local spikes = ns.spikes
@@ -369,7 +381,7 @@ spikeFrame:SetScript("OnUpdate", function()
 			end
 		end
 	end
-	readyToSample, previousFrameAt = ns.measuring, now
+	previousFrameAt = now
 end)
 
 function ns.SetSessionProfiler(sample)
@@ -386,7 +398,7 @@ function ns.SetMeasuring(on)
 	if on then
 		wipe(ns.timings)
 		ns.spikes = { samples = 0, count = 0, worst = 0 }
-		readyToSample = false
+		measureStartedAt = GetTime()
 		if not sessionSampler then
 			frameTop, frameTopTime, frameTopAt = nil, nil, nil
 			lastTop, lastTopTime, lastTopAt = nil, nil, nil
@@ -416,10 +428,11 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 	if set then
 		if ns.measuring or sessionSampler then
 			for owner, fn in pairs(set) do
+				local measurement = ActiveMeasurement()
 				local start = debugprofilestop()
 				xpcall(fn, ErrorHandler, owner, event, ...)
 				local elapsed = debugprofilestop() - start
-				if ns.measuring then
+				if measurement and measurement == ns.spikes and ns.measuring then
 					ns.RecordTiming(OwnerName(owner) .. ": " .. event, elapsed)
 				elseif elapsed >= SESSION_CALL_MIN then
 					RecordFrameCall(OwnerName(owner) .. ": " .. event, elapsed)
@@ -445,10 +458,11 @@ function ns.Measured(name, fn)
 			fn(...)
 			return
 		end
+		local measurement = ActiveMeasurement()
 		local start = debugprofilestop()
 		fn(...)
 		local elapsed = debugprofilestop() - start
-		if ns.measuring then
+		if measurement and measurement == ns.spikes and ns.measuring then
 			ns.RecordTiming(name, elapsed)
 		elseif elapsed >= SESSION_CALL_MIN then
 			RecordFrameCall(name, elapsed)
@@ -505,7 +519,7 @@ function ns.StartTimedMeasure(seconds, onDone)
 	end
 	ns.SetMeasuring(true)
 	ns.measureUntil = GetTime() + seconds
-	ns.measureTimer = C_Timer.NewTimer(seconds, function()
+	ns.measureTimer = ns.NewTimer("Info: measurement results", seconds, function()
 		ns.SetMeasuring(false)
 		ns.measureTimer, ns.measureUntil = nil, nil
 		ns.PrintTimings()

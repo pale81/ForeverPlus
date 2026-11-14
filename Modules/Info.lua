@@ -187,21 +187,26 @@ local perfFrame, perfTicker
 local lastCpuTooltipUpdate = 0
 local profilerSampler
 local sampledAddons = {}
+local tooltipRows = {}
 local sessionMetrics = {}
-local skipNextSample = false
+local resetAt
 
 local function ResetMetrics(entry)
 	entry.peak, entry.slow = 0, 0
 	entry.peakAt, entry.peakCall, entry.peakCallTime = nil, nil, nil
+	entry.slowAt, entry.slowFrame, entry.slowCall, entry.slowCallTime = nil, nil, nil, nil
 	entry.recentIndex, entry.recentCount, entry.recentTotal = 1, 0, 0
 end
 
-local function TrackAddon(name)
+local function TrackAddon(name, title)
 	if name and not sessionMetrics[name] then
-		sampledAddons[#sampledAddons + 1] = name
-		local entry = { recent = {} }
+		local label = title or name
+		local entry = { name = name, title = (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")),
+			own = name == ns.name, recent = {} }
 		ResetMetrics(entry)
 		sessionMetrics[name] = entry
+		sampledAddons[#sampledAddons + 1] = entry
+		tooltipRows[#tooltipRows + 1] = entry
 	end
 end
 
@@ -212,7 +217,7 @@ local screenGrace = LOGIN_GRACE
 
 local function OnProfilerEvent(_, event, arg1, arg2)
 	if event == "ADDON_LOADED" then
-		TrackAddon(arg1)
+		TrackAddon(C_AddOns.GetAddOnInfo(arg1))
 	elseif event == "LOADING_SCREEN_ENABLED" then
 		loadingScreen = true
 		screenGrace = ignoreUntil and ZONE_GRACE or LOGIN_GRACE
@@ -231,9 +236,8 @@ local function OnProfilerEvent(_, event, arg1, arg2)
 	end
 end
 
-local function SampleAddonMetrics(now, peakCall, peakCallTime)
-	if skipNextSample then
-		skipNextSample = false
+local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt)
+	if resetAt and (not previousFrameAt or previousFrameAt <= resetAt) then
 		return
 	end
 	if loadingScreen or not ignoreUntil or now < ignoreUntil
@@ -242,13 +246,13 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime)
 	end
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
 	local ownElapsed
-	for _, name in ipairs(sampledAddons) do
-		local elapsed = C_AddOnProfiler.GetAddOnMetric(name, lastTime) or 0
-		local own = name == ns.name
+	local readMetric = C_AddOnProfiler.GetAddOnMetric
+	for _, entry in ipairs(sampledAddons) do
+		local elapsed = readMetric(entry.name, lastTime) or 0
+		local own = entry.own
 		if own then
 			ownElapsed = elapsed
 		end
-		local entry = sessionMetrics[name]
 		local index = entry.recentIndex
 		if entry.recentCount == 60 then
 			entry.recentTotal = entry.recentTotal - entry.recent[index]
@@ -267,6 +271,10 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime)
 		end
 		if elapsed > ns.SLOW_MS then
 			entry.slow = entry.slow + 1
+			if own and peakCall then
+				entry.slowAt, entry.slowFrame = now, elapsed
+				entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
+			end
 		end
 	end
 	return ownElapsed
@@ -315,8 +323,11 @@ local function PeakColor(peak, slow)
 	return LEVEL_COLORS[Info.PeakLevel(peak, slow)]
 end
 
-local function StripColors(text)
-	return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+local function HigherPeak(a, b)
+	if a.peak == b.peak then
+		return a.title < b.title
+	end
+	return a.peak > b.peak
 end
 
 -- ForeverPlus self measurement (30 s), started from the display.
@@ -357,7 +368,6 @@ local function StartMeasure()
 	if ns.measureUntil then
 		return
 	end
-	ns.PrintAlways(L.INFO_MEASURE_STARTED:format(MEASURE_SECONDS))
 	ns.StartTimedMeasure(MEASURE_SECONDS, function()
 		Info.lastMeasure = { calls = ns.TopTimings(MEASURE_LINES), frames = ns.spikes }
 	end)
@@ -374,24 +384,7 @@ local function ShowCpuTooltip(owner)
 		GameTooltip:Show()
 		return
 	end
-	-- Sample LastTime locally so the values can be reset independently of the client.
-	local list = {}
-	for i = 1, C_AddOns.GetNumAddOns() do
-		if C_AddOns.IsAddOnLoaded(i) then
-			local name, title = C_AddOns.GetAddOnInfo(i)
-			local metrics = sessionMetrics[name]
-			list[#list + 1] = {
-				title = StripColors(title or name),
-				own = name == ns.name,
-				ms = metrics and metrics.recentCount > 0 and max(0, metrics.recentTotal / metrics.recentCount) or 0,
-				peak = metrics and metrics.peak or 0,
-				slow = metrics and metrics.slow or 0,
-			}
-		end
-	end
-	table.sort(list, function(a, b)
-		return a.peak > b.peak
-	end)
+	table.sort(tooltipRows, HigherPeak)
 	-- Sections: explanation, table (names white, values coloured), total, measurement, hints.
 	GameTooltip:AddLine(L.INFO_CPU_COLUMNS, 0.62, 0.62, 0.62, true)
 	if loadingScreen or not ignoreUntil then
@@ -402,11 +395,12 @@ local function ShowCpuTooltip(owner)
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_HEADER_ADDON, L.INFO_CPU_HEADER_VALUES, 0.62, 0.62, 0.62, 0.62, 0.62, 0.62)
 	local total = 0
-	for _, addon in ipairs(list) do
-		total = total + addon.ms
+	for _, addon in ipairs(tooltipRows) do
+		local ms = addon.recentCount > 0 and max(0, addon.recentTotal / addon.recentCount) or 0
+		total = total + ms
 		local color = PeakColor(addon.peak, addon.slow)
 		local own = addon.own
-		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
+		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(ms, addon.peak, addon.slow),
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			color.r, color.g, color.b)
 	end
@@ -417,6 +411,10 @@ local function ShowCpuTooltip(owner)
 			local line = own.peakCall and L.INFO_CPU_PEAK_CALL:format(own.peakCall, own.peakCallTime)
 				or L.INFO_CPU_PEAK_UNATTRIBUTED
 			GameTooltip:AddLine(line, 0.62, 0.62, 0.62, true)
+			if own.slowAt and own.slowAt ~= own.peakAt then
+				GameTooltip:AddLine(L.INFO_CPU_LAST_SLOW_CALL:format(own.slowFrame, own.slowCall, own.slowCallTime),
+					0.62, 0.62, 0.62, true)
+			end
 		end
 	end
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
@@ -453,15 +451,20 @@ local function ValueColor(value, poor, bad, lowIsBad)
 end
 
 local RefreshCpuTooltip = ns.Measured("Info: CPU tooltip", ShowCpuTooltip)
+local lastFPS, lastMS, lastColorSetting
 
 local function UpdatePerformance()
 	local _, _, latencyHome, latencyWorld = GetNetStats()
 	local label = NORMAL_FONT_COLOR
-	local fps, ms = ns.Number(GetFramerate(), 0), max(ns.Number(latencyHome, 0), ns.Number(latencyWorld, 0))
-	perfFrame.Text:SetFormattedText("%s %s   %s %s",
-		label:WrapTextInColorCode("FPS"), ValueColor(fps, FPS_POOR, FPS_BAD, true):WrapTextInColorCode(("%d"):format(fps)),
-		label:WrapTextInColorCode("MS"), ValueColor(ms, MS_POOR, MS_BAD, false):WrapTextInColorCode(("%d"):format(ms)))
-	perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
+	local fps = math.floor(ns.Number(GetFramerate(), 0))
+	local ms = math.floor(max(ns.Number(latencyHome, 0), ns.Number(latencyWorld, 0)))
+	if fps ~= lastFPS or ms ~= lastMS or Info.db.perfColors ~= lastColorSetting then
+		lastFPS, lastMS, lastColorSetting = fps, ms, Info.db.perfColors
+		perfFrame.Text:SetFormattedText("%s %s   %s %s",
+			label:WrapTextInColorCode("FPS"), ValueColor(fps, FPS_POOR, FPS_BAD, true):WrapTextInColorCode(("%d"):format(fps)),
+			label:WrapTextInColorCode("MS"), ValueColor(ms, MS_POOR, MS_BAD, false):WrapTextInColorCode(("%d"):format(ms)))
+		perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
+	end
 	if GameTooltip:GetOwner() == perfFrame and GetTime() - lastCpuTooltipUpdate >= CPU_TOOLTIP_INTERVAL then
 		RefreshCpuTooltip(perfFrame)
 	end
@@ -482,7 +485,7 @@ local function CreatePerfFrame()
 			for _, entry in pairs(sessionMetrics) do
 				ResetMetrics(entry)
 			end
-			skipNextSample = true -- LastTime still refers to a frame from before the reset.
+			resetAt = GetTime()
 			if GameTooltip:GetOwner() == self then
 				RefreshCpuTooltip(self)
 			end
@@ -497,6 +500,7 @@ end
 function Info:UpdateFont()
 	if perfFrame then
 		perfFrame.Text:SetFont(ns.GetFontFace(), 12, "OUTLINE")
+		lastFPS = nil -- measure the new font on the next update
 	end
 end
 

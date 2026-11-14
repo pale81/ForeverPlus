@@ -954,7 +954,7 @@ local function CreateBar()
 	end
 	-- The bar is hidden in combat and nothing is rebuilt then: aura changes (many in a fight) are not listened to.
 	events:RegisterEvent("PLAYER_REGEN_DISABLED")
-	events:SetScript("OnEvent", function(self, event)
+	events:SetScript("OnEvent", ns.Measured("Buffs: event", function(self, event)
 		if event == "PLAYER_REGEN_DISABLED" then
 			self:UnregisterEvent("UNIT_AURA")
 			return
@@ -962,7 +962,7 @@ local function CreateBar()
 			self:RegisterUnitEvent("UNIT_AURA", "player", "target")
 		end
 		RequestUpdate()
-	end)
+	end))
 	-- What the game really cast (for the trace).
 	local casts = CreateFrame("Frame")
 	casts:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")

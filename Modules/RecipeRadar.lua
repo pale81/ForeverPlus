@@ -577,15 +577,18 @@ end
 
 local moving, turning = false, false
 local elapsedSinceUpdate = 0
+local UpdateMinimapPins = ns.Measured("RecipeRadar: minimap positions", PositionMinimapPins)
+
+local function OnMinimapUpdate(_, elapsed)
+	elapsedSinceUpdate = elapsedSinceUpdate + elapsed
+	if elapsedSinceUpdate >= MINIMAP_UPDATE_INTERVAL then
+		elapsedSinceUpdate = 0
+		UpdateMinimapPins()
+	end
+end
 
 local function UpdateMinimapDriver()
-	minimapHolder:SetScript("OnUpdate", (#activePins > 0 and (moving or turning)) and function(_, elapsed)
-		elapsedSinceUpdate = elapsedSinceUpdate + elapsed
-		if elapsedSinceUpdate >= MINIMAP_UPDATE_INTERVAL then
-			elapsedSinceUpdate = 0
-			PositionMinimapPins()
-		end
-	end or nil)
+	minimapHolder:SetScript("OnUpdate", (#activePins > 0 and (moving or turning)) and OnMinimapUpdate or nil)
 end
 
 local function RefreshMinimap(checked)

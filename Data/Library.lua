@@ -1,9 +1,7 @@
 -- Library books (Friend of the Library): the 40 book items of the client data
--- (build 1.60.1.70862, unchanged since 70291) and where to find them. Positions are in percent of the
--- zone map, taken from published guides where two sources agree or only one
--- names a position; books without a position (conflicting sources, dungeon) get
--- one from a player's own find (Modules/Library.lua, /fp bücher export).
--- { item ID, map ID (nil: unknown), x, y, name, quest ID of the hand-in (nil: unknown) }
+-- (build 1.60.1.70862, unchanged since 70291) and where to find them. Guide
+-- positions are in percent of the zone map. Own finds take precedence.
+-- { item ID, map ID (nil: unknown), x, y, name, hand-in quest ID, optional hint key }
 -- The hand-in quest IDs are from the Forever data of AllTheThings (MIT, Data/ThirdParty).
 local _, ns = ...
 
@@ -21,7 +19,7 @@ ns.LibraryBooks = {
 	{ 209846, 1413, 46.0, 36.5, "Secrets of the Dreamers", 78143 },
 	{ 209847, 1413, 56.3, 8.8, "Arcanic Systems Manual", 78145 },
 	{ 209848, 1437, 33.6, 47.9, "Goaz Scrolls", 78146 },
-	{ 209849, nil, 0, 0, "Crimes Against Anatomy", 78147 },
+	{ 209849, 1431, 16.7, 28.5, "Crimes Against Anatomy", 78147 },
 	{ 209850, 1432, 77.5, 14.1, "Runes of the Sorcerer-Kings", 78148 },
 	{ 209851, 1442, 74.4, 85.7, "Fury of the Land", 78149 },
 	{ 210177, 1421, 43.4, 41.2, "Ataeric: On Arcane Curiosities", 79096 },
@@ -35,18 +33,20 @@ ns.LibraryBooks = {
 	{ 215824, 1435, 61.0, 22.0, "A Luddite's Guide to Caring for Your Demonic Pet", nil },
 	{ 220345, 1435, 70.2, 51.9, "Sanguine Sorcery", nil },
 	{ 220346, 1446, 72.6, 47.5, "Legends of the Tidesages", nil },
-	{ 220347, 1444, 50.6, 15.7, "The Liminal and the Arcane", nil },
+	{ 220347, nil, 0, 0, "The Liminal and the Arcane", nil }, -- Only the SoD location is known.
 	{ 220348, 1447, 20.4, 62.3, "Everyday Etiquette", nil },
-	{ 220349, nil, 0, 0, "Stonewrought Design", nil },
+	-- The Forever client has no Blackrock Mountain map. Both books use the same
+	-- approximate Burning Steppes position from Method, with directions at the marker.
+	{ 220349, 1428, 31.1, 30.1, "Stonewrought Design", nil, "LIBRARY_STONEWROUGHT_HINT" },
 	{ 220350, 1425, 35.8, 72.5, "Venomous Journeys", nil },
 	{ 220352, 1427, 38.1, 49.8, "A Mind of Metal", nil },
 	{ 220353, 1419, 55.3, 32.2, "Conjurer's Codex", nil },
 	{ 228132, 1422, 38.26, 54.62, "Undead Potatoes", nil },
-	{ 228133, nil, 0, 0, "Magma or Lava?", nil },
+	{ 228133, 1428, 31.1, 30.1, "Magma or Lava?", nil, "LIBRARY_MAGMA_HINT" },
 	{ 228134, 1448, 65.1, 3.2, "Northern Kalimdor - A Comprehensive Guide", nil },
-	{ 228135, nil, 0, 0, "A Study of the Light", nil },
+	{ 228135, 1423, 71.8, 48.2, "A Study of the Light", nil },
 	{ 228136, 1452, 60.4, 37.4, "Ka-Boom!", nil },
-	{ 228138, nil, 0, 0, "The Knight and the Lady", nil },
-	{ 228140, nil, 0, 0, "Scourge: Undead Menace or Misunderstood?", nil },
+	{ 228138, 1423, 47.3, 42.3, "The Knight and the Lady", nil },
+	{ 228140, 1423, 26.5, 15.0, "Scourge: Undead Menace or Misunderstood?", nil },
 	{ 228141, 1422, 69.18, 72.27, "Necromancy 101", nil },
 }

@@ -5145,6 +5145,47 @@ end
 	for _ in pairs(seen) do n = n + 1 end
 	assert(n == 40, "40 different books: " .. n)
 	assert(located >= 30, "most books have a position")
+	local source
+	for _, candidate in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
+		if uv(candidate, "Positions") then source = candidate break end
+	end
+	assert(source, "library source on the world map")
+	local oldSymbols, oldPrint, oldMenu = Lib.db.symbols, ns.PrintAlways, MenuUtil.CreateContextMenu
+	local oldOwned, oldQuestDone = Lib.cdb.owned, C_QuestLog.IsQuestFlaggedCompleted
+	Lib.db.symbols, Lib.cdb.owned = true, {}
+	C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+	local list = {}
+	ns.PrintAlways = function(line, ...) list[#list + 1] = line:format(...) end
+	Lib.Command("")
+	assert(list[1] == ns.L.LIBRARY_STATUS:format(0, 40) and #list == 41, "Rumi counts and appears once")
+	local function Pins(mapID)
+		local pins = {}
+		source(mapID, function(_, _, pin) pins[#pins + 1] = pin end)
+		return pins
+	end
+	assert(#Pins(1431) == 1 and #Pins(1423) == 3, "new Duskwood and Eastern Plaguelands pins")
+	assert(#Pins(1432) == 2 and #Pins(1436) == 2, "both Rumi locations are shown")
+	assert(#Pins(1444) == 0, "the old SoD location has no shipped pin")
+	local blackrock = Pins(1428)
+	assert(#blackrock == 1, "the two Blackrock books share a single pin")
+	local tooltip = {}
+	blackrock[1].tooltip({ AddLine = function(_, line) tooltip[line] = true end }, blackrock[1])
+	assert(tooltip[ns.L.LIBRARY_STONEWROUGHT_HINT] and tooltip[ns.L.LIBRARY_MAGMA_HINT], "both directions are shown")
+	local choices = {}
+	MenuUtil.CreateContextMenu = function(owner, build)
+		build(owner, { CreateTitle = function() end, CreateButton = function(_, _, callback, itemID)
+			choices[itemID] = function() callback(itemID) end
+		end })
+	end
+	blackrock[1].click(blackrock[1], "RightButton")
+	assert(choices[220349] and choices[228133], "choose either book from the shared pin")
+	choices[220349]()
+	blackrock = Pins(1428)
+	assert(#blackrock == 1 and Lib.cdb.owned[220349] and not Lib.cdb.owned[228133], "mark only the chosen book")
+	blackrock[1].click(blackrock[1], "RightButton")
+	assert(Lib.cdb.owned[228133] and #Pins(1428) == 0, "last book is directly marked and the shared pin disappears")
+	Lib.cdb.owned, C_QuestLog.IsQuestFlaggedCompleted = oldOwned, oldQuestDone
+	Lib.db.symbols, ns.PrintAlways, MenuUtil.CreateContextMenu = oldSymbols, oldPrint, oldMenu
 	-- a book in the bags after login counts as collected and its find is remembered
 	local id = ns.LibraryBooks[1][1]
 	local inBags = false

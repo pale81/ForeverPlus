@@ -19,7 +19,18 @@ local Library = ns:NewModule("Library", {
 	},
 })
 
-local books = ns.LibraryBooks or {}
+local books, guidePositions = {}, {}
+for _, entry in ipairs(ns.LibraryBooks or {}) do
+	local id = entry[1]
+	if not guidePositions[id] then
+		books[#books + 1] = entry
+		guidePositions[id] = {}
+	end
+	if entry[2] then
+		local positions = guidePositions[id]
+		positions[#positions + 1] = { entry[2], entry[3], entry[4] }
+	end
+end
 local ready = false -- after the first scan: new books are finds of this session
 
 local function BookName(book)
@@ -88,17 +99,36 @@ end
 -- Map symbols
 ---------------------------------------------------------------------------
 local function Tooltip(tooltip, symbol)
-	local book = symbol.data
-	tooltip:AddLine(BookName(book), 1, 1, 1)
-	tooltip:AddLine(symbol.exact and L.LIBRARY_FOUND or L.LIBRARY_APPROX, 0.8, 0.8, 0.8)
-	tooltip:AddLine(L.LIBRARY_MARK, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	for _, entry in ipairs(symbol.data) do
+		local book = entry.book
+		tooltip:AddLine(BookName(book), 1, 1, 1)
+		tooltip:AddLine(entry.exact and L.LIBRARY_FOUND or L.LIBRARY_APPROX, 0.8, 0.8, 0.8)
+		if not entry.exact and book[7] then
+			tooltip:AddLine(L[book[7]], 0.8, 0.8, 0.8, true)
+		end
+	end
+	local action = #symbol.data == 1 and L.LIBRARY_MARK or L.LIBRARY_MARK_SELECT
+	tooltip:AddLine(action, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+end
+
+local function MarkCollected(id)
+	Library.cdb.owned[id] = true
+	ns.MapSymbols.Refresh()
 end
 
 local function Click(symbol, button)
-	if button == "RightButton" then
-		Library.cdb.owned[symbol.data[1]] = true
-		ns.MapSymbols.Refresh()
+	if button ~= "RightButton" then return end
+	if #symbol.data == 1 then
+		MarkCollected(symbol.data[1].book[1])
+		return
 	end
+	GameTooltip:Hide()
+	MenuUtil.CreateContextMenu(WorldMapFrame, function(_, root)
+		root:CreateTitle(L.LIBRARY_MARK_SELECT_TITLE)
+		for _, entry in ipairs(symbol.data) do
+			root:CreateButton(BookName(entry.book), MarkCollected, entry.book[1])
+		end
+	end)
 end
 
 -- Positions of a book: the own find when there is one, else the guide's.
@@ -107,13 +137,7 @@ local function Positions(book)
 	if find then
 		return { { find[1], find[2], find[3], true } }
 	end
-	local list = {}
-	for _, entry in ipairs(books) do
-		if entry[1] == book[1] and entry[2] then
-			list[#list + 1] = { entry[2], entry[3], entry[4], false }
-		end
-	end
-	return list
+	return guidePositions[book[1]]
 end
 
 ns.MapSymbols.AddSource(function(mapID, add)
@@ -121,17 +145,22 @@ ns.MapSymbols.AddSource(function(mapID, add)
 		return
 	end
 	ns.MapSymbols.ForZones(mapID, function(zoneMapID, toMap)
-		local seen = {}
+		local markers = {}
 		for _, book in ipairs(books) do
-			local id = book[1]
-			if not IsOwned(book) and not seen[id] then
-				seen[id] = true
+			if not IsOwned(book) then
 				for _, position in ipairs(Positions(book)) do
 					if position[1] == zoneMapID then
-						local x, y = toMap(position[2], position[3])
-						local icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)
-						add(x, y, { kind = "book", texture = icon or 134939, round = true, size = 18,
-							data = book, exact = position[4], tooltip = Tooltip, click = Click })
+						local key = position[2] .. ":" .. position[3]
+						local group = markers[key]
+						if not group then
+							local x, y = toMap(position[2], position[3])
+							local icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(book[1])
+							group = {}
+							markers[key] = group
+							add(x, y, { kind = "book", texture = icon or 134939, round = true, size = 18,
+								data = group, tooltip = Tooltip, click = Click })
+						end
+						group[#group + 1] = { book = book, exact = position[4] }
 					end
 				end
 			end

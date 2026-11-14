@@ -317,7 +317,6 @@ local function CreateBubble()
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
 	frame.Art, frame.Tail = Dialog.CreateBubbleShape(frame)
 	frame.hasArt = frame.Art ~= nil
-	frame.hasTail = frame.Tail ~= nil
 	frame.Abandon = CreateFrame("Button", nil, frame)
 	frame.Abandon:SetSize(16, 16)
 	frame.Abandon:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
@@ -538,10 +537,6 @@ local function CreateBubble()
 	end)
 	frame.Help:SetScript("OnLeave", GameTooltip_Hide)
 	frame.Help:Hide()
-	frame.PlateWatch = CreateFrame("Frame", nil, frame) -- runs only while the bubble is on show
-	ns.SetUpdate(frame.PlateWatch, "Dialog: plate watch", function()
-		Dialog.WatchPlate()
-	end)
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
 	frame.maxRowNumber = 0
@@ -767,7 +762,7 @@ local function RenderView(view)
 		frame.Art:SetShown(usePlayer)
 	end
 	if frame.Tail then
-		frame.Tail:SetShown(usePlayer)
+		frame.Tail:SetShown(usePlayer and Dialog.anchorPlate ~= nil)
 	end
 	local used = { text = 0, row = 0, item = 0, button = 0 }
 	-- A conversation step puts its text into the scrolling area, lists of merchant and trainer page themselves.
@@ -1066,58 +1061,14 @@ end
 ---------------------------------------------------------------------------
 -- Placement and Blizzard's windows
 ---------------------------------------------------------------------------
--- Who the talk is with, remembered when the bubble opens: the target changes during the talk and the plate of
--- the NPC must not be taken for another one (nor a plate frame the game gave to another unit).
-local npcGuid
+local npcGuid, anchorUnit, plateWatch, plateLostAt
+-- The game can still report a removed token while dispatching the removal event.
+local removedPlates = {}
 
--- The unit the talk is with: "npc", else (some NPCs, guards for one, give no "npc" unit) the target or the soft
--- interaction target, if it is not the player.
-local function TalkUnit()
-	for _, token in ipairs({ "npc", "softinteract", "target" }) do
-		if UnitExists(token) and not UnitIsUnit(token, "player") then
-			return token
-		end
-	end
-end
-
--- The tokens of the plates, made once (the plate is looked for in every picture while a talk is open).
-local PLATE_TOKENS = {}
-for index = 1, 100 do
-	PLATE_TOKENS[index] = "nameplate" .. index
-end
-
--- The plate of the NPC, asked from the game by unit token every time: the fields of a plate frame (unitToken) are
--- filled by Blizzard's handler, which may run after ours, and still name the unit before on a frame given to
--- another unit (the bubble then jumped onto that unit).
 local function NpcNameplate()
-	local function PlateOf(token)
-		if not UnitExists(token) then
-			return nil
-		end
-		if npcGuid then
-			local guid = UnitGUID(token)
-			if not guid or ns.Secret(guid) or guid ~= npcGuid then
-				return nil
-			end
-		end
-		local nameplate = C_NamePlate.GetNamePlateForUnit(token)
-		return nameplate and not nameplate:IsForbidden() and nameplate or nil
-	end
-	if not npcGuid then
-		local unit = TalkUnit()
-		return unit and PlateOf(unit) or nil
-	end
-	local nameplate = PlateOf("npc")
-	if nameplate then
-		return nameplate
-	end
-	for _, token in ipairs(PLATE_TOKENS) do
-		nameplate = PlateOf(token)
-		if nameplate then
-			return nameplate
-		end
-	end
-	return nil
+	local plate
+	plate, anchorUnit = ns.NpcBubbleNameplate(npcGuid, anchorUnit, removedPlates)
+	return plate
 end
 
 -- The bubble sits on the lower edge of the plate and covers it: the plate is made invisible meanwhile.
@@ -1174,7 +1125,6 @@ function Dialog.ShowWhenSettled()
 	ns.SetUpdate(settler, "Dialog: opening", function()
 		if not bubble:IsShown() then
 			ns.SetUpdate(settler, "Dialog: opening", nil)
-			bubble.settling = nil
 			return
 		end
 		local now, scale = GetTime(), Scale()
@@ -1187,10 +1137,6 @@ function Dialog.ShowWhenSettled()
 		end
 		ns.SetUpdate(settler, "Dialog: opening", nil)
 		Trace("Öffnen +%.2f: Blase zeigt sich", now - started)
-		bubble.settling = nil
-		if bubble.lost then
-			return -- the plate went meanwhile: the bubble shows once it is back, or after LOST_WAIT
-		end
 		if ns.db.fadeIn == false then
 			bubble:SetAlpha(1)
 		else
@@ -1222,24 +1168,21 @@ local function Where(frame)
 		Dialog.Measure(pcall(function() return frame:IsVisible() and 1 or 0 end)))
 end
 
-local LOST_WAIT = 0.4 -- seconds the bubble waits unseen for the plate of the NPC to come again
+local LOST_WAIT = 0.4 -- allow the nameplate to appear before showing Blizzard's window
 
--- `exclude`: a plate that is going away (NAME_PLATE_UNIT_REMOVED); it still names the NPC at that moment
--- but is given to another unit next (the bubble then jumped onto the player or another unit).
-local function Place(exclude)
+local function Place(nameplate)
+	Dialog.anchorPlate = nameplate
+	plateLostAt = nil
 	bubble:ClearAllPoints()
 	-- The game keeps the whole bubble on the screen (title cut off at the top edge when the NPC's head was near it);
 	-- a setter only, so it also works while the bubble hangs on a plate that cannot be measured.
 	local clamped = pcall(bubble.SetClampedToScreen, bubble, Dialog.db.onScreen and true or false)
 	-- The border art, its shadow and the tail lie outside the frame and count too.
 	pcall(bubble.SetClampRectInsets, bubble, -INSET - SHADOW_ROOM, INSET + SHADOW_ROOM, INSET + SHADOW_ROOM, -INSET - 24)
-	local nameplate = NpcNameplate()
-	if nameplate and nameplate == exclude then
-		nameplate = nil
+	if bubble.Tail then
+		bubble.Tail:SetShown(Dialog.db.style == "PLAYER" and bubble.hasArt)
 	end
-	local hadPlate = Dialog.anchorPlate ~= nil
-	Dialog.anchorPlate = nameplate
-	Trace("Platz: %s (NPC bekannt %s, %d Plaketten, im Bild halten %s)", nameplate and "Plakette des NPCs" or "oben am Bildschirm",
+	Trace("Platz: Plakette des NPCs (NPC bekannt %s, %d Plaketten, im Bild halten %s)",
 		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}), clamped and tostring(Dialog.db.onScreen) or "Fehler")
 	-- Where the bubble really stands, once the game has laid it out (the last placing only).
 	Dialog.placeCount = (Dialog.placeCount or 0) + 1
@@ -1249,36 +1192,26 @@ local function Place(exclude)
 			Trace("Blase steht: %s", Where(bubble))
 		end
 	end)
-	if nameplate then
-		Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
-		-- The tail (27 points below the shape) ends at the lower edge of the plate, over the head.
-		bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 24)
-		if bubble.lost then
-			bubble.lost = nil
-			if not bubble.settling then
-				bubble:SetAlpha(1)
-			end
-		end
-		if Dialog.db.hidePlate then
-			HidePlate(nameplate)
-		else
-			RestorePlate()
-		end
+	Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
+	-- The tail (27 points below the shape) ends at the lower edge of the plate, over the head.
+	bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 24)
+	if Dialog.db.hidePlate then
+		HidePlate(nameplate)
 	else
 		RestorePlate()
-		bubble:SetPoint("TOP", UIParent, "TOP", 0, -140)
-		-- The plate went during the talk (another target was chosen): it usually comes again at once. Until then the
-		-- bubble is invisible instead of jumping to the top of the screen (above the player) and back.
-		if hadPlate and not bubble.lost then
-			bubble.lost = GetTime()
-			bubble.Fade:Stop()
-			bubble:SetAlpha(0)
-		end
-		-- The NPC has no plate: its plate is switched on for the talk, the bubble moves there.
-		if Dialog.db.plates then
-			ns.ShowFriendlyPlates(true, "dialog")
-		end
 	end
+end
+
+local function WaitForPlate()
+	Dialog.anchorPlate = nil
+	bubble:Hide()
+	bubble.Fade:Stop()
+	bubble:ClearAllPoints()
+	RestorePlate()
+	if settler then
+		ns.SetUpdate(settler, "Dialog: opening", nil)
+	end
+	plateLostAt = plateLostAt or GetTime()
 end
 
 -- Blizzard's window stays open (it carries the conversation) but takes no room.
@@ -1362,36 +1295,25 @@ local function HookWindows()
 	HideWindowAtOnce(ClassTrainerFrame, function() return Dialog.db.trainer end)
 end
 
--- Every picture while the bubble is on show: the plate it hangs on must still be the NPC's (plate frames are given
--- to other units without a word), and a bubble waiting for its plate shows at the top of the screen after LOST_WAIT.
-function Dialog.WatchPlate()
-	if not current then
-		return
-	end
-	if NpcNameplate() ~= Dialog.anchorPlate then
-		Trace("Plakette des NPCs hat gewechselt")
-		Place()
-	elseif bubble.lost and GetTime() - bubble.lost > LOST_WAIT then
-		Trace("Plakette kam nicht wieder: Blase oben am Bildschirm")
-		bubble.lost = nil
-		if not bubble.settling then
-			bubble:SetAlpha(1)
-		end
-	end
-end
-
 local function Hide()
 	Trace("Blase weg")
 	RestorePlate()
 	if bubble then
 		bubble:Hide()
-		bubble.lost, bubble.settling = nil, nil
+		bubble:ClearAllPoints()
+	end
+	if plateWatch then
+		plateWatch:Hide()
+	end
+	if settler then
+		ns.SetUpdate(settler, "Dialog: opening", nil)
 	end
 	Dialog.anchorPlate = nil
 	FinishReveal()
 	reveal.key = nil -- a new talk says its words again
 	current = nil
-	npcGuid = nil
+	npcGuid, anchorUnit, plateLostAt = nil, nil, nil
+	wipe(removedPlates)
 	wipe(history)
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false, "dialog")
@@ -1402,6 +1324,29 @@ local function UseBlizzard()
 	Trace("Blizzards Fenster statt Blase")
 	showToken = showToken + 1
 	Hide()
+end
+
+-- Keep watching during the brief wait, even though the bubble itself is hidden.
+function Dialog.WatchPlate()
+	if not current then
+		return
+	end
+	local nameplate = NpcNameplate()
+	if nameplate then
+		if nameplate ~= Dialog.anchorPlate then
+			Trace("Plakette des NPCs hat gewechselt")
+			Place(nameplate)
+			if not bubble:IsShown() then
+				bubble:SetAlpha(1)
+				bubble:Show()
+			end
+		end
+	elseif not plateLostAt then
+		Trace("Plakette des NPCs fehlt")
+		WaitForPlate()
+	elseif GetTime() - plateLostAt >= LOST_WAIT then
+		UseBlizzard()
+	end
 end
 
 RenderFailed = function(err)
@@ -1472,7 +1417,7 @@ end
 
 -- Builds the step on show again (the option lit with Tab changes the look of its row).
 function Dialog.Rerender()
-	if current and bubble and bubble:IsShown() then
+	if current and bubble then
 		Render(current.view)
 	end
 end
@@ -1505,7 +1450,7 @@ function Dialog.Pending()
 		if token ~= pendingToken then
 			return
 		end
-		if current and bubble:IsShown() and not (GossipFrame and GossipFrame:IsShown() or QuestFrame and QuestFrame:IsShown()) then
+		if current and not (GossipFrame and GossipFrame:IsShown() or QuestFrame and QuestFrame:IsShown()) then
 			-- The conversation ended meanwhile without an event: the empty step must not stay.
 			Hide()
 		else
@@ -1577,11 +1522,13 @@ local function Show(view, fromBack)
 			table.remove(history, 1)
 		end
 	end
-	local talkUnit = not current and TalkUnit()
-	if talkUnit then
-		local guid = UnitGUID(talkUnit)
-		npcGuid = guid and not ns.Secret(guid) and guid or nil
+	if not current then
+		npcGuid = ns.NpcBubbleGUID(true)
+	elseif not fromBack and not npcGuid then
+		npcGuid = ns.NpcBubbleGUID()
 	end
+	-- A plate already visible on the target can disappear as soon as the target changes.
+	ns.ShowFriendlyPlates(Dialog.db.plates and npcGuid ~= nil, "dialog")
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	current = { view = view }
 	Render(view)
@@ -1590,21 +1537,29 @@ local function Show(view, fromBack)
 	end
 	local used = bubble.lastUsed
 	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
-	Place()
-	local opening = not bubble:IsShown()
-	bubble:Show()
-	-- The NPC's plate settles in the first pictures after the talk begins (it comes and grows, the bubble hangs on
-	-- it and jerked): the bubble stays invisible that long and fades in afterwards.
-	if opening then
-		bubble.Fade:Stop()
-		bubble:SetAlpha(0)
-		bubble.settling, bubble.lost = true, nil
-		Dialog.ShowWhenSettled()
+	local nameplate = NpcNameplate()
+	if nameplate then
+		Place(nameplate)
+		if not bubble:IsShown() then
+			-- Let the nameplate settle before the bubble fades in.
+			bubble.Fade:Stop()
+			bubble:SetAlpha(0)
+			bubble:Show()
+			Dialog.ShowWhenSettled()
+		end
+	else
+		WaitForPlate()
 	end
+	if not plateWatch then
+		plateWatch = CreateFrame("Frame")
+		ns.SetUpdate(plateWatch, "Dialog: plate watch", Dialog.WatchPlate)
+	end
+	plateWatch:Show()
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
+	local token = showToken
 	ns.After("Dialog: Show (timer)", 0, function()
-		if current and bubble:IsShown() then
+		if token == showToken and current then
 			CollapseAll(true)
 		end
 	end)
@@ -1642,7 +1597,7 @@ end
 local function HideIfWindowsGone()
 	local token = showToken
 	ns.After("Dialog: HideIfWindowsGone (timer)", 0.3, function()
-		if token == showToken and current and bubble and bubble:IsShown() and PENDING_KINDS[current.view.kind]
+		if token == showToken and current and PENDING_KINDS[current.view.kind]
 			and not ConversationWindowShown() then
 			Hide()
 		end
@@ -2487,11 +2442,8 @@ function Dialog:Apply()
 	for event in pairs(VIEWS) do
 		self:ToggleEvent(event, on, self.OnConversation)
 	end
-	-- The plate of the NPC appears after the start of the talk: the bubble moves onto it.
-	-- Once more a picture later, when Blizzard's handler has filled the plate.
-	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function()
-		Dialog.OnPlateAdded()
-		ns.After("Dialog: OnPlateAdded", 0, Dialog.OnPlateAdded)
+	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, function(_, _, unit)
+		Dialog.OnPlateAdded(unit)
 	end)
 	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, function(_, _, unit)
 		Dialog.OnPlateRemoved(unit)
@@ -2511,6 +2463,7 @@ function Dialog:Apply()
 	if not on then
 		Hide()
 	elseif current and bubble then
+		ns.ShowFriendlyPlates(self.db.plates and npcGuid ~= nil, "dialog")
 		Render(current.view)
 	end
 end
@@ -2536,29 +2489,19 @@ function Dialog.PrintTrace()
 	ns.ShowTrace(L.DIALOG_TRACE:format(#trace), trace)
 end
 
--- /fp blase: state of the bubble and of what the conversation offers.
--- A plate came: the bubble moves when the NPC's plate is another frame than the one it hangs on (also when the
--- frame it hangs on now belongs to someone else: then to the top of the screen).
-function Dialog.OnPlateAdded()
-	if current and bubble and bubble:IsShown() and NpcNameplate() ~= Dialog.anchorPlate then
-		Place()
-	end
+function Dialog.OnPlateAdded(unit)
+	removedPlates[unit] = nil
+	Dialog.WatchPlate()
 end
 
--- A plate that goes away is given to another unit next: the bubble is placed again without it.
 function Dialog.OnPlateRemoved(unit)
-	if not (current and bubble and bubble:IsShown()) then
-		return
-	end
-	local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
-	plate = ok and plate or nil
-	if not plate then
-		Place()
-	elseif plate == Dialog.anchorPlate then
-		Place(plate)
+	if current then
+		removedPlates[unit] = true
+		Dialog.WatchPlate()
 	end
 end
 
+-- /fp blase: state of the bubble and of what the conversation offers.
 function Dialog.PrintStatus()
 	local options = C_GossipInfo and C_GossipInfo.GetOptions and C_GossipInfo.GetOptions() or {}
 	local available = C_GossipInfo and C_GossipInfo.GetAvailableQuests and C_GossipInfo.GetAvailableQuests() or {}

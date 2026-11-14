@@ -50,6 +50,7 @@ Data\ZoneLevels.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\Items.lua
+Modules\BankView.lua
 Modules\Restock.lua
 Modules\Services.lua
 Modules\Auction.lua

@@ -1,5 +1,5 @@
--- Zeppelin and boat rides: the stops come from the game data (Data/TransportPaths.lua, world positions put on
--- the map at run time), the travel times from recordings: the client offers no list of rides, so rides
+-- Zeppelin and boat rides: the stops come from Data/TransportPaths.lua,
+-- the travel times from recordings: the client offers no list of rides, so rides
 -- are recorded (a player who moves on the map without moving himself is on
 -- one). The docks and destinations found this way appear as symbols on the
 -- world map. Recordings stay in the saved settings of the player; /fp daten
@@ -26,6 +26,8 @@ local MAX_RIDES = 200
 local PATH_INTERVAL, MAX_PATH = 5, 60
 local LOST_SECONDS = 90    -- without a position (open sea) for this long: ride over
 local DOCK_RADIUS = 0.02   -- rides starting or ending this close share a dock
+local SHIP_ICON = [[Interface\Icons\INV_Misc_Anchor]]
+local AIRSHIP_ICON = [[Interface\Icons\INV_Misc_Toy_05]]
 
 ---------------------------------------------------------------------------
 -- Recording: one sample every SAMPLE_INTERVAL, fed to a small state machine
@@ -143,19 +145,39 @@ local function Round(value)
 	return math.floor(value * 10000 + 0.5) / 10000
 end
 
--- { [mapID] = { { x, y, map, routes = { { to = dock, seconds = {…} } } } } }
+-- Docks by home map, and known stops by every map that shows them.
 function Transports.BuildDocks(rides)
-	local docks = {}
-	local function Dock(mapID, x, y)
-		local list = docks[mapID] or {}
-		docks[mapID] = list
-		for _, dock in ipairs(list) do
-			if math.abs(dock.x - x) + math.abs(dock.y - y) <= DOCK_RADIUS then
-				return dock
+	local docks, positions = {}, {}
+	local function AddPosition(dock, mapID, x, y)
+		local entries = positions[mapID] or {}
+		positions[mapID] = entries
+		entries[#entries + 1] = { x = x, y = y, dock = dock }
+	end
+
+	local function Dock(mapID, x, y, stop, kind)
+		local nearest, distance = nil, DOCK_RADIUS
+		for _, entry in ipairs(positions[mapID] or {}) do
+			local dock = entry.dock
+			local delta = math.abs(entry.x - x) + math.abs(entry.y - y)
+			if delta <= distance and (not stop or (dock.kind == kind and dock.area == stop[1])) then
+				nearest, distance = dock, delta
 			end
 		end
-		local dock = { x = x, y = y, mapID = mapID, routes = {} }
+		if nearest then
+			return nearest
+		end
+		local dock = { x = x, y = y, mapID = mapID, routes = {}, area = stop and stop[1], kind = kind, stop = stop }
+		local list = docks[mapID] or {}
+		docks[mapID] = list
 		list[#list + 1] = dock
+		-- Recordings can report a nearby stop on the city map or its surrounding zone.
+		if stop then
+			for i = 2, #stop do
+				AddPosition(dock, unpack(stop[i]))
+			end
+		else
+			AddPosition(dock, mapID, x, y)
+		end
 		return dock
 	end
 	for _, ride in ipairs(rides) do
@@ -163,16 +185,18 @@ function Transports.BuildDocks(rides)
 		-- seconds: nil for a route known from the game data without a recorded ride
 		if type(fromMap) == "number" and type(toMap) == "number" and type(fromX) == "number" and type(toX) == "number"
 			and type(fromY) == "number" and type(toY) == "number" and (seconds == nil or type(seconds) == "number") then
-			local from, to = Dock(fromMap, fromX, fromY), Dock(toMap, toX, toY)
+			local from = Dock(fromMap, fromX, fromY, ride.fromStop, ride.kind)
+			local to = Dock(toMap, toX, toY, ride.toStop, ride.kind)
 			if from ~= to then
 				local route
 				for _, known in ipairs(from.routes) do
 					if known.to == to then
 						route = known
+						break
 					end
 				end
 				if not route then
-					route = { to = to, seconds = {} }
+					route = { to = to, seconds = {}, following = ride.following }
 					from.routes[#from.routes + 1] = route
 				end
 				if seconds then
@@ -181,43 +205,30 @@ function Transports.BuildDocks(rides)
 			end
 		end
 	end
-	return docks
+	return docks, positions
 end
 
--- The paths of the game data as rides without a time: each stop to the next, the last back to the first.
--- toMap(continent, x, y) gives map ID and position (0–1) of a world position, or nil.
-function Transports.PathRides(paths, toMap)
+-- The first position of each stop is on its zone or city map, used to match recordings.
+function Transports.PathRides(paths)
 	local rides = {}
-	for _, stops in ipairs(paths or {}) do
-		local placed = {}
-		for index, stop in ipairs(stops) do
-			local mapID, x, y = toMap(stop[1], stop[2], stop[3])
-			placed[index] = mapID and { mapID, x, y } or false
-		end
-		for index, from in ipairs(placed) do
-			local to = placed[index % #placed + 1]
-			if from and to and #placed > 1 then
-				rides[#rides + 1] = { from[1], from[2], from[3], to[1], to[2], to[3] }
+	for _, path in ipairs(paths or {}) do
+		local kind, stops = path[1], path[2]
+		for i, from in ipairs(stops) do
+			local to = stops[i % #stops + 1]
+			local a, b = from[2], to[2]
+			local following = {}
+			for offset = 2, #stops - 1 do
+				following[#following + 1] = stops[(i + offset - 1) % #stops + 1]
 			end
+			rides[#rides + 1] = { a[1], a[2], a[3], b[1], b[2], b[3],
+				kind = kind, fromStop = from, toStop = to, following = following }
 		end
 	end
 	return rides
 end
 
-local function WorldToMap(continent, x, y)
-	local ok, mapID, position = pcall(C_Map.GetMapPosFromWorldPos, continent, CreateVector2D(x, y))
-	if not ok or not position then
-		return nil
-	end
-	local px, py = position:GetXY()
-	mapID, px, py = ns.Number(mapID), ns.Number(px), ns.Number(py)
-	if mapID and px and py then
-		return mapID, px, py
-	end
-end
-
 local function AllRides()
-	local list = Transports.PathRides(ns.TransportPaths, WorldToMap)
+	local list = Transports.PathRides(ns.TransportPaths)
 	for _, ride in ipairs(ns.TransportRoutes or {}) do
 		list[#list + 1] = ride
 	end
@@ -229,7 +240,7 @@ end
 
 function Transports:Docks()
 	if not self.docks then
-		self.docks = Transports.BuildDocks(AllRides())
+		self.docks, self.docksByMap = Transports.BuildDocks(AllRides())
 	end
 	return self.docks
 end
@@ -244,23 +255,36 @@ local function FormatTime(seconds)
 	return ("%d:%02d"):format(math.floor(seconds / 60), seconds % 60)
 end
 
-local function MapName(mapID)
+local function PlaceName(mapID, area)
+	local name = area and C_Map.GetAreaInfo(area)
+	if type(name) == "string" and not ns.Secret(name) and name ~= "" then
+		return name
+	end
 	local info = C_Map.GetMapInfo(mapID)
-	return info and ns.Number(info.mapID) and type(info.name) == "string" and info.name or "?"
+	name = info and info.name
+	return type(name) == "string" and not ns.Secret(name) and name ~= "" and name or "?"
 end
 
 local function DockTooltip(tooltip, symbol)
-	local dock = symbol.data
-	tooltip:AddLine(L.TRANSPORTS_DOCK, 1, 1, 1)
-	for _, route in ipairs(dock.routes) do
+	local dock, routes = symbol.data, symbol.routes
+	local kind = dock.kind == "ship" and L.TRANSPORTS_SHIP
+		or dock.kind == "zeppelin" and L.TRANSPORTS_ZEPPELIN
+		or dock.kind == "airship" and L.TRANSPORTS_AIRSHIP or L.TRANSPORTS_DOCK
+	tooltip:AddLine(kind, 1, 1, 1)
+	tooltip:AddLine(PlaceName(dock.mapID, dock.area), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	for _, route in ipairs(routes) do
+		local destination = PlaceName(route.to.mapID, route.to.area)
 		if #route.seconds > 0 then
-			tooltip:AddDoubleLine(L.TRANSPORTS_TO:format(MapName(route.to.mapID), #route.seconds),
+			tooltip:AddDoubleLine(L.TRANSPORTS_TO:format(destination, #route.seconds),
 				FormatTime(Median(route.seconds)), 0.8, 0.8, 0.8, 1, 1, 1)
 		else
-			tooltip:AddLine(L.TRANSPORTS_TO_KNOWN:format(MapName(route.to.mapID)), 0.8, 0.8, 0.8)
+			tooltip:AddLine(L.TRANSPORTS_TO_KNOWN:format(destination), 0.8, 0.8, 0.8)
+		end
+		for _, stop in ipairs(route.following or {}) do
+			tooltip:AddLine(L.TRANSPORTS_THEN:format(PlaceName(stop[2][1], stop[1])), 0.8, 0.8, 0.8)
 		end
 	end
-	if #dock.routes == 0 then
+	if #routes == 0 then
 		tooltip:AddLine(L.TRANSPORTS_ARRIVAL, 0.6, 0.6, 0.6)
 	end
 end
@@ -270,10 +294,36 @@ ns.MapSymbols.AddSource(function(mapID, add)
 		return
 	end
 	local docks = Transports:Docks()
+	local info = C_Map.GetMapInfo(mapID)
+	local overview = info and (info.mapType == Enum.UIMapType.Continent or info.mapType == Enum.UIMapType.World)
+	local grouped = {}
+	local function AddDock(x, y, dock)
+		local key = overview and dock.area and dock.kind .. ":" .. dock.area
+		local symbol = key and grouped[key]
+		if not symbol then
+			local airborne = dock.kind == "zeppelin" or dock.kind == "airship"
+			symbol = { kind = "transport", texture = airborne and AIRSHIP_ICON or SHIP_ICON, round = true,
+				size = 18, data = dock, routes = {}, tooltip = DockTooltip }
+			if key then
+				grouped[key] = symbol
+			end
+			add(x, y, symbol)
+		end
+		for _, route in ipairs(dock.routes) do
+			symbol.routes[#symbol.routes + 1] = route
+		end
+	end
+	for _, entry in ipairs(Transports.docksByMap[mapID] or {}) do
+		if entry.dock.stop then
+			AddDock(entry.x, entry.y, entry.dock)
+		end
+	end
 	ns.MapSymbols.ForZones(mapID, function(zoneMapID, toMap)
 		for _, dock in ipairs(docks[zoneMapID] or {}) do
-			local x, y = toMap(dock.x * 100, dock.y * 100)
-			add(x, y, { kind = "transport", atlas = "taxinode_neutral", size = 18, data = dock, tooltip = DockTooltip })
+			if not dock.stop then
+				local x, y = toMap(dock.x * 100, dock.y * 100)
+				AddDock(x, y, dock)
+			end
 		end
 	end)
 end)

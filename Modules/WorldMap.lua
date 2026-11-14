@@ -289,8 +289,7 @@ function WorldMap.AddFilterMenu(rootDescription)
 end
 
 ---------------------------------------------------------------------------
--- Level ranges of the zones: the game has none for Forever (C_Map.GetMapLevels gives 0), so its name under the
--- mouse stays bare. Our own range (Data/ZoneLevels.lua) goes after it, in the colours the game would use.
+-- Recommended player levels for Forever's zones (Data/ZoneLevels.lua), in Blizzard's difficulty colours.
 ---------------------------------------------------------------------------
 -- The text and colour for a range at the player's level, as Blizzard's own label does it.
 function WorldMap.LevelText(low, high, playerLevel)
@@ -306,40 +305,64 @@ function WorldMap.LevelText(low, high, playerLevel)
 	return text, color
 end
 
--- Which zone the label names: the part of the map under the mouse; nil when that is no zone with a range of ours
--- or the game shows a range itself.
+-- The zone under the mouse, including the currently opened zone when there is no child map under the mouse.
 function WorldMap.HoveredRange(map)
 	if not (WorldMap.db.zoneLevels and ns.ZoneLevels and map:IsCanvasMouseFocus()) then
 		return nil
 	end
 	local mapID = map:GetMapID()
 	local x, y = map:GetNormalizedCursorPosition()
-	local info = mapID and x and C_Map.GetMapInfoAtPosition(mapID, x, y)
-	if not info or info.mapID == mapID then
+	if not (mapID and x and y) then
 		return nil
 	end
-	local range = ns.ZoneLevels[info.mapID]
-	local own = C_Map.GetMapLevels(info.mapID)
-	if not range or (own and own > 0) then
+	local info = C_Map.GetMapInfoAtPosition(mapID, x, y)
+	local zoneID = info and info.mapID or mapID
+	local range = ns.ZoneLevels[zoneID]
+	if not range then
 		return nil
 	end
-	return range, info.name
+	local currentZone = zoneID == mapID
+	if not currentZone then
+		local low, high = C_Map.GetMapLevels(zoneID)
+		if low and high and low > 0 and high > 0 then
+			return nil -- Blizzard includes its own range in the name of the child map.
+		end
+	end
+	info = info or C_Map.GetMapInfo(zoneID)
+	if info and info.name then
+		return range, info.name, currentZone
+	end
 end
 
 local function UpdateLevelLabel(label)
 	local text = label.fpLevels
 	local map = label.dataProvider and label.dataProvider:GetMap()
-	local range, name = nil, nil
+	local range, name, currentZone
 	if map then
-		range, name = WorldMap.HoveredRange(map)
+		range, name, currentZone = WorldMap.HoveredRange(map)
 	end
-	-- Only while the label shows that zone's name (a quest or a symbol may have the label instead).
-	if not range or label.Name:GetText() ~= name or not label.Name:IsVisible() then
+	if not range then
 		text:Hide()
 		return
 	end
+	local labelName = label.Name:GetText()
+	local showZoneName = currentZone and (not labelName or labelName == "")
+	-- A pin or a subzone can have its own label. Use the opened zone's name when Blizzard has no label.
+	if not showZoneName and (labelName ~= name or not label.Name:IsVisible()) then
+		text:Hide()
+		return
+	end
+	if label.fpLevelCentered ~= showZoneName then
+		label.fpLevelCentered = showZoneName
+		text:ClearAllPoints()
+		if showZoneName then
+			text:SetPoint("TOP", label.Name, "TOP")
+		else
+			text:SetPoint("LEFT", label.Name, "RIGHT", 6, 0)
+		end
+	end
 	local levels, color = WorldMap.LevelText(range[1], range[2], UnitLevel("player"))
-	text:SetText(levels)
+	text:SetText(showZoneName and (name .. " " .. levels) or levels)
 	text:SetTextColor(color.r, color.g, color.b)
 	text:Show()
 end
@@ -350,7 +373,6 @@ local function HookAreaLabel()
 		if label and label.Name and label.labelInfoByType and not label.fpLevels then
 			label.fpLevels = label:CreateFontString(nil, "OVERLAY")
 			label.fpLevels:SetFontObject(label.Name:GetFontObject() or "GameFontNormalLarge")
-			label.fpLevels:SetPoint("LEFT", label.Name, "RIGHT", 6, 0)
 			label.fpLevels:Hide()
 			label:HookScript("OnUpdate", ns.Measured("WorldMap: zone levels", UpdateLevelLabel))
 			return label

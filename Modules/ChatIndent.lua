@@ -17,10 +17,12 @@ local Indent = ns:NewModule("ChatIndent", {
 local MARGIN = 6          -- pixels kept free at the right edge (measuring is not exact)
 local FALLBACK_BLANKS = 2 -- indentation without a timestamp
 local MAX_REMEMBERED = 400
+local MAX_WIDTHS = 512
 
 local meter
+local meterFont, meterFile, meterSize, meterFlags
 local widths = {}         -- token -> width for the current font
-local meterKey
+local widthCount = 0
 local spaceWidth = 4
 local originals = {}     -- wrapped text -> original text
 local remembered = 0
@@ -38,14 +40,15 @@ local function PrepareMeter(frame)
 		meter = ns.hider:CreateFontString(nil, "ARTWORK")
 	end
 	local object = frame:GetFontObject()
-	if object then
+	if object and object ~= meterFont then
 		meter:SetFontObject(object)
+		meterFont = object
 	end
 	local file, size, flags = meter:GetFont()
-	local key = ("%s|%s|%s"):format(tostring(file), tostring(size), tostring(flags))
-	if key ~= meterKey then
-		meterKey = key
+	if file ~= meterFile or size ~= meterSize or flags ~= meterFlags then
+		meterFile, meterSize, meterFlags = file, size, flags
 		wipe(widths)
+		widthCount = 0
 		spaceWidth = math.max(1, Indent.measure("a a") - Indent.measure("aa"))
 	end
 end
@@ -54,14 +57,19 @@ local function TokenWidth(token)
 	local width = widths[token]
 	if not width then
 		width = Indent.measure(token)
+		if widthCount >= MAX_WIDTHS then
+			wipe(widths)
+			widthCount = 0
+		end
 		widths[token] = width
+		widthCount = widthCount + 1
 	end
 	return width
 end
 
 -- Width of a text including blanks at its end (a measured string may leave those out).
 local function PaddedWidth(text)
-	return math.max(0, Indent.measure(text .. "a") - Indent.measure("a"))
+	return math.max(0, Indent.measure(text .. "a") - TokenWidth("a"))
 end
 
 -- Words, split at blanks outside of links; nil for texts that already have line breaks or escapes
@@ -109,9 +117,10 @@ end
 
 -- Whether the message itself starts with the timestamp (else the chat window puts it in front when it draws the
 -- line, and the first line has that much less room).
-local function StartsWithTimestamp(message, sample)
+local function MessageTimestamp(message, sample)
 	local plain = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-	return (plain:sub(1, #sample):gsub("%d", "#")) == (sample:gsub("%d", "#"))
+	local prefix = plain:sub(1, #sample)
+	return (prefix:gsub("%d", "#")) == (sample:gsub("%d", "#")) and prefix or sample
 end
 
 -- The message with line breaks and blanks in front of the continuation lines; nil when it fits or
@@ -129,15 +138,6 @@ function Indent.Wrap(frame, message)
 	local barWidth = scrollBar and scrollBar.IsShown and scrollBar:IsShown() and ns.Number(scrollBar:GetWidth(), 0) or 0
 	local available = width - MARGIN - barWidth
 	PrepareMeter(frame)
-	-- The indent is the width of the timestamp as it stands in the message (a message of the chat events carries its
-	-- own); lines without one (messages of addons) get the width the timestamp would have, so all continuation
-	-- lines stand in one column.
-	local sample = TimestampSample()
-	local indent = sample and PaddedWidth(sample) or spaceWidth * FALLBACK_BLANKS
-	if sample and StartsWithTimestamp(message, sample) then
-		local plain = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-		indent = PaddedWidth(plain:sub(1, #sample))
-	end
 	if Indent.measure(message) <= available then
 		return nil
 	end
@@ -145,6 +145,11 @@ function Indent.Wrap(frame, message)
 	if not tokens or #tokens < 2 then
 		return nil
 	end
+	-- The indent is the width of the timestamp as it stands in the message (a message of the chat events carries its
+	-- own); lines without one (messages of addons) get the width the timestamp would have, so all continuation
+	-- lines stand in one column.
+	local sample = TimestampSample()
+	local indent = sample and PaddedWidth(MessageTimestamp(message, sample)) or spaceWidth * FALLBACK_BLANKS
 	local blanks = math.max(1, math.floor(indent / spaceWidth + 0.5))
 	local pad = (" "):rep(blanks)
 	local padWidth = blanks * spaceWidth
@@ -177,20 +182,42 @@ local function Remember(wrapped, original)
 	remembered = remembered + 1
 end
 
+local pendingWraps = {}
+
 local function OnAddMessage(frame, message)
 	if not Indent.db.enabled or type(message) ~= "string" or ns.Secret(message) then
 		return
+	end
+	local batch = pendingWraps[frame]
+	if batch and batch[message] then
+		return -- the same text uses the same wrap
 	end
 	local wrapped = Indent.Wrap(frame, message)
 	if not wrapped then
 		return
 	end
-	Remember(wrapped, message)
-	frame:TransformMessages(function(text)
-		return not ns.Secret(text) and text == message
-	end, function(_, ...)
-		return wrapped, ...
-	end)
+	if batch then
+		batch[message] = wrapped
+	else
+		batch = { [message] = wrapped }
+		pendingWraps[frame] = batch
+		-- TransformMessages traverses the whole history. Do that once per
+		-- window for all messages that arrived together.
+		ns.After("Chat: apply indented wraps", 0, function()
+			if pendingWraps[frame] ~= batch then
+				return
+			end
+			pendingWraps[frame] = nil
+			for original, replacement in pairs(batch) do
+				Remember(replacement, original)
+			end
+			frame:TransformMessages(function(text)
+				return not ns.Secret(text) and batch[text] ~= nil
+			end, function(text, ...)
+				return batch[text], ...
+			end)
+		end)
+	end
 end
 
 -- Wraps the lines again (after a resize) or gives them back unwrapped (rewrap false).
@@ -233,6 +260,9 @@ local function Hook(frame)
 end
 
 function Indent:Apply()
+	if not self.db.enabled then
+		wipe(pendingWraps)
+	end
 	for _, name in ipairs(CHAT_FRAMES) do
 		local frame = _G[name]
 		-- The combat log is far too busy.

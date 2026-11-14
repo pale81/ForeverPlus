@@ -292,14 +292,10 @@ end
 ns.timings = {} -- name -> { max =, count =, slow = (calls over SLOW_MS) }
 ns.measuring = false
 
--- While measuring: the frames in which the whole addon took long (the game's
--- profiler: LastTime of the addon) and how much of that the measured entries
--- explain; what they do not is work outside them (scripts, hooks, timers).
-local SPIKE_MS = 4
--- A call or a frame counts as slow from 5 ms: below that it is not felt (a frame at 60 FPS has 16.7 ms).
+-- Use the same threshold for individual calls and the game's addon frame times.
 ns.SLOW_MS = 5
-ns.spikes = { count = 0, worst = 0, measured = 0, name = nil }
-local frameMeasured, frameTop, frameTopTime = 0, nil, 0
+ns.spikes = { samples = 0, count = 0, worst = 0 }
+local frameTop, frameTopTime = nil, 0
 
 -- Work done once while loading (OnInitialize, OnLogin, the settings pages): kept apart from the timings of play, so
 -- the list of the longest calls shows what costs while playing.
@@ -310,11 +306,8 @@ function ns.RecordLoad(name, elapsed)
 end
 
 function ns.RecordTiming(name, elapsed)
-	if ns.measuring then
-		frameMeasured = frameMeasured + elapsed
-		if elapsed > frameTopTime then
-			frameTop, frameTopTime = name, elapsed
-		end
+	if ns.measuring and elapsed > frameTopTime then
+		frameTop, frameTopTime = name, elapsed
 	end
 	local entry = ns.timings[name]
 	if not entry then
@@ -332,22 +325,26 @@ end
 
 -- Runs while measuring: the previous frame's total against what was measured in it.
 local spikeFrame = CreateFrame("Frame")
-local lastMeasured, lastTop = 0, nil
+local readyToSample, lastTop
 spikeFrame:Hide()
 spikeFrame:SetScript("OnUpdate", function()
 	local profiler = C_AddOnProfiler
-	if profiler and profiler.IsEnabled() then
-		local total = profiler.GetAddOnMetric(addonName, Enum.AddOnProfilerMetric.LastTime) or 0
-		if total > SPIKE_MS then
+	-- The first report after starting may include the previous session's work.
+	if readyToSample and profiler and profiler.IsEnabled() then
+		local total = profiler.GetAddOnMetric(addonName, Enum.AddOnProfilerMetric.LastTime)
+		if type(total) == "number" then
 			local spikes = ns.spikes
-			spikes.count = spikes.count + 1
+			spikes.samples = spikes.samples + 1
+			if total > ns.SLOW_MS then
+				spikes.count = spikes.count + 1
+			end
 			if total > spikes.worst then
-				spikes.worst, spikes.measured, spikes.name = total, lastMeasured, lastTop
+				spikes.worst, spikes.name = total, lastTop
 			end
 		end
 	end
-	lastMeasured, lastTop = frameMeasured, frameTop
-	frameMeasured, frameTop, frameTopTime = 0, nil, 0
+	readyToSample, lastTop = true, frameTop
+	frameTop, frameTopTime = nil, 0
 end)
 
 -- Switches measuring on (earlier values are cleared) or off; the spike counter only runs meanwhile.
@@ -355,10 +352,18 @@ function ns.SetMeasuring(on)
 	ns.measuring = on and true or false
 	if on then
 		wipe(ns.timings)
-		ns.spikes.count, ns.spikes.worst, ns.spikes.measured, ns.spikes.name = 0, 0, 0, nil
-		frameMeasured, frameTop, frameTopTime = 0, nil, 0
+		ns.spikes = { samples = 0, count = 0, worst = 0 }
+		frameTop, frameTopTime = nil, 0
+		readyToSample, lastTop = false, nil
 	end
 	spikeFrame:SetShown(ns.measuring)
+end
+
+function ns.FormatMeasuredFrames(stats)
+	if stats.samples == 0 then
+		return ns.L.TIMINGS_FRAMES_UNAVAILABLE
+	end
+	return ns.L.TIMINGS_FRAMES:format(stats.worst, stats.count, stats.samples, ns.SLOW_MS)
 end
 
 local function OwnerName(owner)
@@ -419,15 +424,14 @@ function ns.NewTicker(name, delay, fn, iterations)
 	return C_Timer.NewTicker(delay, ns.Measured(name, fn), iterations)
 end
 
--- Calls fn(i) for i = 1..count spread over frames, at most budget ms per
--- frame (default 0.25, below the 1 ms the game's addon profiler counts as
--- slow), then onDone. Used for large one-time scans.
+-- Calls fn(i) for i = 1..count, yielding after an entry if the frame budget is spent.
+-- Calls onDone when finished and returns the ticker so callers can cancel stale scans.
 local SLICE_BUDGET = 0.25
 
 function ns.RunSliced(name, count, fn, onDone, budget)
 	budget = budget or SLICE_BUDGET
 	local index = 1
-	C_Timer.NewTicker(0, function(ticker)
+	return C_Timer.NewTicker(0, function(ticker)
 		local start = debugprofilestop()
 		-- A slow frame rate gets less of the work per frame.
 		local frameBudget = ns.Number(GetFramerate(), 60) < 40 and budget / 2 or budget
@@ -486,6 +490,7 @@ local TIMING_COLORS = { green = "|cff00ff00", orange = "|cffff8800", red = "|cff
 function ns.PrintTimings()
 	local list = ns.TopTimings(12)
 	ns.PrintAlways(ns.L.TIMINGS_HEADER)
+	ns.PrintAlways(ns.FormatMeasuredFrames(ns.spikes))
 	if #list == 0 then
 		ns.PrintAlways(ns.L.TIMINGS_EMPTY)
 	end
@@ -507,8 +512,8 @@ function ns.PrintTimings()
 		ns.PrintAlways(ns.L.TIMINGS_LOAD, total, longestName, longest)
 	end
 	local spikes = ns.spikes
-	if spikes.count > 0 then
-		ns.PrintAlways(ns.L.TIMINGS_SPIKES, SPIKE_MS, spikes.count, spikes.worst, spikes.measured, spikes.name or "-")
+	if spikes.count > 0 and spikes.name then
+		ns.PrintAlways(ns.L.TIMINGS_SPIKES, spikes.name)
 	end
 end
 

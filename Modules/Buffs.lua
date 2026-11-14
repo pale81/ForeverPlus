@@ -16,10 +16,12 @@ local Buffs = ns:NewModule("Buffs", {
 		skipFishing = true,
 		expiringAlpha = 0.3,
 		wheelCast = false,
+		middleClickMute = true,
 		targetBuffs = true, -- buffs that can be given to others: also for a friendly player in the target
 		targetRange = true, -- the target's reminder only while the target is within reach of the buff
 		classes = {},
 	},
+	charDefaults = { mutedUntil = {} },
 })
 
 local MAX_BUTTONS = 8
@@ -28,6 +30,7 @@ local BINDING = "CLICK ForeverPlusBuffButton1:LeftButton"
 _G["BINDING_NAME_" .. BINDING] = L.BUFFS_BINDING
 local SPACING = 4
 local UPDATE_DELAY = 0.1
+local DEFAULT_MUTE_DURATION = 30 * 60
 
 -- auras: spell IDs whose buff satisfies the reminder.
 -- cast: spells offered for casting (first known one when set to automatic).
@@ -238,6 +241,59 @@ local function PickPoison(reminder)
 	end
 end
 
+-- Missing auras have no duration in C_UnitAuras. Read it from the spell or item description instead.
+local function DescriptionDuration(description)
+	if type(description) ~= "string" or ns.Secret(description) then
+		return nil
+	end
+	local text = description:lower():gsub("\194\160", " ")
+	for _, pattern in ipairs(L.BUFFS_DURATION_PATTERNS) do
+		local longest
+		for amount, unit in text:gmatch(pattern) do
+			local seconds = L.BUFFS_DURATION_UNITS[unit]
+			if seconds then
+				local duration = tonumber((amount:gsub(",", "."))) * seconds
+				if duration > 0 and (not longest or duration > longest) then
+					longest = duration
+				end
+			end
+		end
+		if longest then
+			return longest
+		end
+	end
+end
+
+local function MuteDuration(button)
+	if not Buffs.db.middleClickMute or not button.ownReminder or button.ownReminder.tracking then
+		return nil
+	end
+	local spellID = button.spellID
+	if spellID then
+		local name = SpellName(spellID)
+		local aura = name and C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+		local duration = aura and ns.Number(aura.duration)
+		if duration then
+			return duration > 0 and duration or DEFAULT_MUTE_DURATION
+		end
+	elseif button.itemID then
+		spellID = select(2, C_Item.GetItemSpell(button.itemID))
+	end
+	local duration = spellID and DescriptionDuration(C_Spell.GetSpellDescription(spellID))
+	if not duration and button.itemID then
+		local data = C_TooltipInfo.GetItemByID(button.itemID)
+		for _, line in ipairs(data and data.lines or {}) do
+			if line.type == Enum.TooltipDataLineType.ItemSpellTriggerOnUse then
+				duration = DescriptionDuration(line.leftText)
+				if duration then
+					break
+				end
+			end
+		end
+	end
+	return duration or DEFAULT_MUTE_DURATION
+end
+
 ---------------------------------------------------------------------------
 -- Buttons
 ---------------------------------------------------------------------------
@@ -250,6 +306,10 @@ local function ButtonOnEnter(self)
 	end
 	if self.targetName then
 		GameTooltip:AddLine(L.BUFFS_ON_TARGET:format(self.targetName), 0.4, 1, 0.4)
+	end
+	local duration = MuteDuration(self)
+	if duration then
+		GameTooltip:AddLine(L.BUFFS_MUTE_HINT:format(SecondsToTime(duration)), 0.7, 0.7, 0.7)
 	end
 	GameTooltip:Show()
 end
@@ -265,9 +325,17 @@ local function CreateButton(index)
 			Plain(self.spellID and SpellName(self.spellID)), Plain(self:GetAttribute("spell")), tostring(unit),
 			Plain(unit and UnitName(unit)))
 	end)
-	button:HookScript("PostClick", function(self)
+	button:HookScript("PostClick", ns.Measured("Buffs: middle click", function(self, mouseButton, down)
 		self:SetChecked(false)
-	end)
+		if mouseButton == "MiddleButton" and not down and not InCombatLockdown() then
+			local duration = MuteDuration(self)
+			if duration then
+				Buffs.cdb.mutedUntil[self.ownReminder.key] = GetServerTime() + duration
+				GameTooltip:Hide()
+				RequestUpdate()
+			end
+		end
+	end))
 	button:SetScript("OnEnter", ButtonOnEnter)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	if button.HotKey then
@@ -308,6 +376,9 @@ end
 -- unit: who the spell goes to ("player" or "target").
 local function SetupButton(button, reminder, unit, chosen)
 	button.spellID, button.itemID, button.targetName = nil, nil, nil
+	button.ownReminder = unit == "player" and reminder
+	-- The empty action overrides the default spell/item action for middle click (with any modifier).
+	button:SetAttribute("*type3", button.ownReminder and Buffs.db.middleClickMute and "" or nil)
 	button.Who:SetText("")
 	if reminder.items then
 		local itemID = PickPoison(reminder)
@@ -402,6 +473,19 @@ local function Evaluate(reminder, threshold)
 		return false, nil, nil, true
 	end
 	return true, nil, remaining ~= nil
+end
+
+local function EvaluateOwn(reminder, threshold)
+	local mutedUntil = Buffs.cdb.mutedUntil
+	local deadline = mutedUntil[reminder.key]
+	if deadline and Buffs.db.middleClickMute then
+		local remaining = deadline - GetServerTime()
+		if remaining > 0 then
+			return false, remaining
+		end
+		mutedUntil[reminder.key] = nil
+	end
+	return Evaluate(reminder, threshold)
 end
 
 -- Paladin blessings by kind: the normal and the greater one count the same. Each paladin gives a target one
@@ -646,6 +730,7 @@ end
 local function HideButtons(first)
 	for index = first, #buttons do
 		local button = buttons[index]
+		button.ownReminder = false
 		button:SetAttribute("type", nil)
 		button:Hide()
 		button.Alert.ProcStartAnim:Stop()
@@ -685,7 +770,7 @@ local function Update()
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck, expiring, noPower, ownSpell = Evaluate(reminder, threshold)
+				local missing, recheck, expiring, noPower, ownSpell = EvaluateOwn(reminder, threshold)
 				waitingForPower = waitingForPower or noPower
 				local targetMissing, targetExpiring, targetRecheck, targetSpell
 				if target and reminder.others then
@@ -720,7 +805,8 @@ local function Update()
 							button.Alert.ProcStartAnim:Play()
 						end
 					end
-				elseif recheck then
+				end
+				if recheck then
 					nextCheck = nextCheck and min(nextCheck, recheck) or recheck
 				end
 			end
@@ -859,6 +945,9 @@ function Buffs:OnLogin()
 end
 
 function Buffs:OnOptionChanged(key)
+	if key == "middleClickMute" and not self.db.middleClickMute then
+		wipe(self.cdb.mutedUntil)
+	end
 	if not bar then
 		return
 	end
@@ -905,6 +994,7 @@ function Buffs:options()
 		{ key = "scale", type = "slider", name = L.BUFFS_SCALE, parent = "enabled", min = 0.5, max = 1.5, step = 0.05,
 			format = function(v) return ("%d%%"):format(v * 100 + 0.5) end },
 		{ key = "wheelCast", type = "toggle", name = L.BUFFS_WHEEL, desc = L.BUFFS_WHEEL_DESC, parent = "enabled" },
+		{ key = "middleClickMute", type = "toggle", name = L.BUFFS_MUTE, desc = L.BUFFS_MUTE_DESC, parent = "enabled" },
 		{ key = "targetBuffs", type = "toggle", name = L.BUFFS_TARGET, desc = L.BUFFS_TARGET_DESC, parent = "enabled",
 			new = true },
 		{ key = "targetRange", type = "toggle", name = L.BUFFS_TARGET_RANGE, desc = L.BUFFS_TARGET_RANGE_DESC,

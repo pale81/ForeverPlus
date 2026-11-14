@@ -128,3 +128,89 @@ function Summary.Build(descriptions, german)
 	end
 	return lines, other
 end
+
+-- Match whole, single-effect descriptions. A conditional bonus or an effect on a specific
+-- ability needs a model of the fight before it can be compared with a bonus from equipment.
+local STAT_PHRASES = {
+	[false] = {
+		strength = "STR", agility = "AGI", stamina = "STA", intellect = "INT", spirit = "SPI",
+		armor = "ARMOR", ["defense skill"] = "DEF", ["attack power"] = "AP", ["ranged attack power"] = "RAP",
+		["spell power"] = "SP", ["healing power"] = "HEAL",
+		["melee attack speed"] = "HASTE", ["spell haste"] = "SHASTE", ["spell casting speed"] = "SHASTE",
+		["spell critical strike chance"] = "SCRIT",
+		["chance to dodge"] = "DODGE", ["chance to parry"] = "PARRY", ["chance to block"] = "BLOCK",
+		["chance to hit"] = "HIT", ["chance to hit with all spells"] = "SHIT",
+		["chance to hit with all spells and attacks"] = "HIT", ["chance to hit with all attacks and spells"] = "HIT",
+		["critical strike chance with all spells and attacks"] = "CRIT",
+	},
+	[true] = {
+		["stärke"] = "STR", beweglichkeit = "AGI", ausdauer = "STA", intelligenz = "INT", willenskraft = "SPI",
+		["rüstung"] = "ARMOR", verteidigung = "DEF", verteidigungsfertigkeit = "DEF", verteidigungswert = "DEF",
+		angriffskraft = "AP", fernkampfangriffskraft = "RAP",
+		zaubermacht = "SP", heilzaubermacht = "HEAL", nahkampfangriffstempo = "HASTE",
+		zaubertempo = "SHASTE", zaubergeschwindigkeit = "SHASTE", zauberkritchance = "SCRIT",
+		ausweichchance = "DODGE", parierchance = "PARRY", blockchance = "BLOCK",
+		["chance, einem angriff auszuweichen,"] = "DODGE", ["chance, einen angriff zu parieren,"] = "PARRY",
+		["chance, einen angriff zu blocken,"] = "BLOCK", ["trefferchance mit allen zaubern"] = "SHIT",
+		trefferchance = "HIT", ["trefferchance mit allen angriffen und zaubern"] = "HIT",
+		["trefferchance mit allen zaubern und angriffen"] = "HIT",
+		["kritische trefferchance mit allen angriffen und zaubern"] = "CRIT",
+		["kritische trefferchance mit allen zaubern und angriffen"] = "CRIT",
+	},
+}
+local PERCENTAGE_POINTS = {
+	DODGE = true, PARRY = true, BLOCK = true, HIT = true, SHIT = true, CRIT = true, SCRIT = true, HASTE = true, SHASTE = true,
+}
+
+local function DirectBonus(description, german)
+	local text = description:lower():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+	local verb, stat, value
+	if german then
+		verb, stat, value = text:match("^(%S+) (.-) um (.+)$")
+		if verb ~= "erhöht" and verb ~= "verbessert" then
+			return nil
+		end
+		stat = stat:gsub("^eure[nms]? ", ""):gsub("^euer ", ""):gsub("^die ", ""):gsub("^den ", "")
+		stat = stat:gsub("^deine?[nms]? ", ""):gsub("^gesamte[nms]? ", "")
+		value = value:gsub("^zusätzlich ", "")
+	else
+		verb, stat, value = text:match("^(%S+) (.-) by (.+)$")
+		if verb ~= "increases" and verb ~= "improves" then
+			return nil
+		end
+		stat = stat:gsub("^your ", ""):gsub("^the ", "")
+		stat = stat:gsub("^total ", "")
+		value = value:gsub("^an additional ", "")
+	end
+	local key = STAT_PHRASES[german][stat]
+	local amount, percent = value:match("^(%d+[.,]?%d*)%s*(%%?)%.?$")
+	if key and amount then
+		return key, Number(amount), percent == "%"
+	end
+end
+
+-- Score only what changes with one point. Percent bonuses to primary stats are estimated
+-- using the current character stats. Chances are already in the scorer's percentage-point units.
+function Summary.RankGain(previous, description, weights, stats, german)
+	local key, amount, percent = DirectBonus(description, german)
+	if not amount then
+		return nil
+	end
+	local old = 0
+	if previous then
+		local previousKey, previousAmount, previousPercent = DirectBonus(previous, german)
+		if key ~= previousKey or percent ~= previousPercent then
+			return nil
+		end
+		old = previousAmount
+	end
+	local gain = amount - old
+	if gain <= 0 or (PERCENTAGE_POINTS[key] and not percent) then
+		return nil
+	end
+	if percent and not PERCENTAGE_POINTS[key] then
+		gain = gain * (stats[key] or 0) / 100
+	end
+	local weight = key == "HASTE" and (weights.HASTE or 0) or ns.SharedStatWeight(weights, key)
+	return gain > 0 and gain * weight or nil
+end

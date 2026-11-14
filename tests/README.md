@@ -10,7 +10,7 @@ QUESTIEDB=/pfad/QuestieDB/ lua5.1 run.lua ..
 
 Ohne `QUESTIEDB` wird `../../QuestieDB/` (neben dem Addon-Ordner) erwartet. Ein Fehler bricht mit `lua5.1: run.lua:<Zeile>: <Meldung>` ab; sonst endet die Ausgabe mit den letzten `… OK`-Zeilen.
 
-`sh tools/check.sh` führt Tests und luacheck zusammen aus (Voraussetzungen: `sh tools/setup-local.sh`).
+`sh tools/check.sh` führt Tests und luacheck zusammen aus (Voraussetzungen: `sh tools/setup-local.sh`). Der Testlauf verwendet standardmäßig `enUS`. `LOC=deDE sh tools/check.sh` prüft mit deutschen Addon-Texten.
 
 Weitere Prüfungen:
 

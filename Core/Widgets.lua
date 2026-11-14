@@ -617,47 +617,97 @@ function ns.CreateBubbleArt(frame, inset, tailOffsetX, tint)
 	return art, tail
 end
 
+-- Capture the speaker at the start of the interaction. Some dialogs have no
+-- "npc" token, so the caller can use the interaction target at opening time.
+function ns.NpcBubbleGUID(useTarget)
+	local unit = "npc"
+	if useTarget and not UnitExists(unit) then
+		unit = UnitExists("softinteract") and "softinteract" or "target"
+	end
+	local guid = UnitGUID(unit)
+	if type(guid) == "string" and not ns.Secret(guid) and guid ~= "" and not guid:find("^Player%-") then
+		return guid
+	end
+end
+
+local plateTokens = {}
+for index = 1, 100 do
+	plateTokens[index] = "nameplate" .. index
+end
+
+local function PlateForGUID(unit, guid, removed)
+	if unit and not removed[unit] and UnitExists(unit) then
+		local currentGUID = UnitGUID(unit)
+		if not ns.Secret(currentGUID) and currentGUID == guid then
+			local plate = C_NamePlate.GetNamePlateForUnit(unit)
+			if plate and not plate:IsForbidden() then
+				return plate, unit
+			end
+		end
+	end
+end
+
+-- Use the actual nameplate token, since interaction and target aliases can
+-- change, and the fields on a recycled frame can still belong to its old unit.
+function ns.NpcBubbleNameplate(guid, previousUnit, removed)
+	if not guid then
+		return
+	end
+	local plate, unit = PlateForGUID(previousUnit, guid, removed)
+	if plate then
+		return plate, unit
+	end
+	for _, token in ipairs(plateTokens) do
+		if token ~= previousUnit then
+			plate, unit = PlateForGUID(token, guid, removed)
+			if plate then
+				return plate, unit
+			end
+		end
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Friendly NPC nameplates, switched on only while a bubble needs one to hang
 -- on (the NPC the player talks to has no plate otherwise) and restored after.
 ---------------------------------------------------------------------------
-local PLATES_CVAR = "nameplateShowFriendlyNpcs"
-local platesRestore -- nil: untouched; false: was on already; string: previous value
-local platesOwners = {} -- who needs the plates now ("dialog", "speech"): the last one to let go restores
+-- Friendly NPC plates alone can still disappear when the NPC stops being the target.
+local plateCVars = { "nameplateShowFriendlyNpcs", "nameplateShowAll" }
+local platesRestore, platesOwners = {}, {}
 
--- owner: one switch per user of the plates; the speech bubble ending with the gossip must not take the plates
--- away from the conversation bubble that goes on (the plate went and came again, the bubble jumped).
-function ns.ShowFriendlyPlates(on, owner)
-	owner = owner or "?"
-	if on then
-		platesOwners[owner] = true
-		if platesRestore == nil and not InCombatLockdown() then
-			local current = GetCVar(PLATES_CVAR)
-			if current == "1" then
-				platesRestore = false
-			elseif current then
-				platesRestore = current
-				SetCVar(PLATES_CVAR, "1")
+local function SyncFriendlyPlates()
+	if next(platesOwners) then
+		for _, cvar in ipairs(plateCVars) do
+			local value = GetCVar(cvar)
+			if value and value ~= "1" then
+				platesRestore[cvar] = platesRestore[cvar] or value
+				SetCVar(cvar, "1")
 			end
 		end
 		return
 	end
-	platesOwners[owner] = nil
-	if next(platesOwners) ~= nil then
-		return
-	end
-	if platesRestore ~= nil then
-		local restore = platesRestore
-		platesRestore = nil
-		if restore then
-			ns.RunOutOfCombat(function()
-				if platesRestore == nil then
-					SetCVar(PLATES_CVAR, restore)
-				end
-			end)
+	for _, cvar in ipairs(plateCVars) do
+		local value = platesRestore[cvar]
+		platesRestore[cvar] = nil
+		if value and GetCVar(cvar) == "1" then
+			SetCVar(cvar, value)
 		end
 	end
 end
+
+-- Dialog and SpeechBubbles can overlap while Blizzard changes windows.
+function ns.ShowFriendlyPlates(on, owner)
+	local needed = on and true or nil
+	if platesOwners[owner] ~= needed then
+		platesOwners[owner] = needed
+		ns.RunOutOfCombat(SyncFriendlyPlates)
+	end
+end
+
+ns:RegisterEvent("PLAYER_LOGOUT", "NPC bubble nameplates", function()
+	wipe(platesOwners)
+	SyncFriendlyPlates()
+end)
 
 ---------------------------------------------------------------------------
 -- Crisp pixel border with slightly rounded (stepped) corners

@@ -224,27 +224,74 @@ local function DepositReagents()
 	run.ticker = ns.NewTicker("Services: Step", STEP_INTERVAL, Step)
 end
 
-local function CreateDepositButton()
-	local panel = BankFrame and BankFrame.BankPanel
-	if depositButton or not panel then
+local DEPOSIT_WIDTH, DEPOSIT_HEIGHT = 28, 26 -- BankAutoSortButtonTemplate
+local DEPOSIT_INSET = 6
+
+local function CreateDepositRim(button)
+	local atlas = C_Texture.GetAtlasInfo("bags-button-autosort-up")
+	local file = atlas and (atlas.file or atlas.filename)
+	if not file then
+		local rim = button:CreateTexture(nil, "OVERLAY")
+		rim:SetAllPoints()
+		rim:SetAtlas("bank-frame-bag-slotframe")
 		return
 	end
-	depositButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-	depositButton:SetText(L.SERVICES_DEPOSIT)
-	depositButton:SetSize(ns.Number(depositButton:GetTextWidth(), 120) + 24, 22)
-	local sort = panel.AutoSortButton
-	if sort then
-		depositButton:SetPoint("LEFT", sort, "RIGHT", 6, 0)
-	else
-		depositButton:SetPoint("TOPRIGHT", BankFrame, "TOPRIGHT", -30, -30)
+
+	-- Keep the four edges of the sort art and leave its bag emblem out of the center.
+	local left, top = atlas.leftTexCoord, atlas.topTexCoord
+	local u = (atlas.rightTexCoord - left) / DEPOSIT_WIDTH
+	local v = (atlas.bottomTexCoord - top) / DEPOSIT_HEIGHT
+	local function Edge(x0, y0, x1, y1)
+		local edge = button:CreateTexture(nil, "OVERLAY")
+		edge:SetPoint("TOPLEFT", button, "TOPLEFT", x0, -y0)
+		edge:SetSize(x1 - x0, y1 - y0)
+		edge:SetTexture(file)
+		edge:SetTexCoord(left + x0 * u, left + x1 * u, top + y0 * v, top + y1 * v)
+		edge:SetDesaturated(true)
 	end
-	depositButton:SetScript("OnClick", DepositReagents)
-	depositButton:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+
+	local inset = DEPOSIT_INSET
+	Edge(0, 0, DEPOSIT_WIDTH, inset)
+	Edge(0, DEPOSIT_HEIGHT - inset, DEPOSIT_WIDTH, DEPOSIT_HEIGHT)
+	Edge(0, inset, inset, DEPOSIT_HEIGHT - inset)
+	Edge(DEPOSIT_WIDTH - inset, inset, DEPOSIT_WIDTH, DEPOSIT_HEIGHT - inset)
+end
+
+local function CreateDepositButton()
+	local frame = BankFrame
+	local search = frame and frame.BankItemSearchBox
+	if depositButton or not search then
+		return
+	end
+	depositButton = CreateFrame("Button", nil, frame)
+	depositButton:SetSize(DEPOSIT_WIDTH, DEPOSIT_HEIGHT)
+	depositButton:SetPoint("RIGHT", search, "LEFT", -8, -1)
+	local center = depositButton:CreateTexture(nil, "BACKGROUND")
+	center:SetPoint("CENTER")
+	center:SetSize(DEPOSIT_WIDTH - 2 * DEPOSIT_INSET, DEPOSIT_HEIGHT - 2 * DEPOSIT_INSET)
+	center:SetColorTexture(0.12, 0.09, 0.06)
+	local icon = depositButton:CreateTexture(nil, "ARTWORK")
+	icon:SetPoint("CENTER")
+	icon:SetSize(12, 12)
+	icon:SetTexture([[Interface\Icons\INV_Misc_Herb_01]])
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	CreateDepositRim(depositButton)
+	local pressed = depositButton:CreateTexture(nil, "OVERLAY", nil, 1)
+	pressed:SetAllPoints(center)
+	pressed:SetColorTexture(0, 0, 0, 0.3)
+	depositButton:SetPushedTexture(pressed)
+	depositButton:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
+	local highlight = depositButton:GetHighlightTexture()
+	highlight:ClearAllPoints()
+	highlight:SetPoint("CENTER")
+	highlight:SetSize(24, 23)
+	depositButton:SetScript("OnClick", ns.Measured("Services: Deposit reagents", DepositReagents))
+	depositButton:SetScript("OnEnter", ns.Measured("Services: Deposit tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 		GameTooltip_SetTitle(GameTooltip, L.SERVICES_DEPOSIT)
 		GameTooltip_AddNormalLine(GameTooltip, L.SERVICES_DEPOSIT_TOOLTIP)
 		GameTooltip:Show()
-	end)
+	end))
 	depositButton:SetScript("OnLeave", GameTooltip_Hide)
 end
 

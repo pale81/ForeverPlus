@@ -313,17 +313,22 @@ local function RecipeStatus(itemID)
 	end
 end
 
-local function GetVendors(mapID)
+local function GetVendors(mapID, checked)
 	local list = indexReady and mapID and vendorsByMap[mapID]
 	if not list then
 		return nil
 	end
+	checked = checked or {}
 	local result
 	for _, vendor in ipairs(list) do
 		if vendor.team == "N" or vendor.team == playerTeam then
 			local open
 			for _, itemID in ipairs(vendor.items) do
-				local status = RecipeStatus(itemID)
+				local status = checked[itemID]
+				if status == nil then
+					status = RecipeStatus(itemID) or false
+					checked[itemID] = status
+				end
 				if status then
 					open = open or {}
 					open[#open + 1] = { itemID, status }
@@ -481,12 +486,14 @@ local function WorldMapClick(symbol, button)
 	end
 end
 
+local worldSourceChecks
+
 ns.MapSymbols.AddSource(function(mapID, add)
 	local db = Radar.db
 	if not (db and db.enabled and db.worldMap) then
 		return
 	end
-	for _, entry in ipairs(GetVendors(mapID) or {}) do
+	for _, entry in ipairs(GetVendors(mapID, worldSourceChecks) or {}) do
 		add(entry.vendor.x / 100, entry.vendor.y / 100, { kind = "radar", texture = PinIcon(entry), size = WORLD_MAP_PIN_SIZE,
 			round = true, data = entry, mapID = mapID, tooltip = WorldMapTooltip, click = WorldMapClick })
 	end
@@ -495,11 +502,6 @@ ns.MapSymbols.AddSource(function(mapID, add)
 		Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", true, OnItemInfo)
 	end
 end)
-
-local function RefreshWorldMap()
-	ns.MapSymbols.Refresh()
-end
-
 
 ---------------------------------------------------------------------------
 -- Minimap
@@ -586,27 +588,44 @@ local function UpdateMinimapDriver()
 	end or nil)
 end
 
-local function RefreshMinimap()
-	wipe(activePins)
-	for _, pin in ipairs(minimapPins) do
-		pin:Hide()
-	end
+local function RefreshMinimap(checked)
 	local db = Radar.db
 	currentMapID = C_Map.GetBestMapForUnit("player")
-	if currentMapID then
-		currentMapWidth, currentMapHeight = C_Map.GetMapWorldSize(currentMapID)
-	else
-		currentMapWidth, currentMapHeight = nil, nil
-	end
-	minimapRadius = C_Minimap.GetViewRadius()
+	local count = 0
 	if db.enabled and db.minimap and currentMapID then
-		for index, entry in ipairs(GetVendors(currentMapID) or {}) do
+		local entries = GetVendors(currentMapID, checked) or {}
+		count = #entries
+		if count > 0 then
+			currentMapWidth, currentMapHeight = C_Map.GetMapWorldSize(currentMapID)
+			minimapRadius = C_Minimap.GetViewRadius()
+		end
+		local scale = count > 0 and ns.MinimapSymbolScale and ns.MinimapSymbolScale() or 1
+		for index, entry in ipairs(entries) do
 			local pin = minimapPins[index] or CreateMinimapPin(index)
+			if pin.entry and pin.entry.vendor ~= entry.vendor and GameTooltip:IsOwned(pin) then
+				GameTooltip:Hide()
+			end
 			pin.entry = entry
-			pin:SetScale(ns.MinimapSymbolScale and ns.MinimapSymbolScale() or 1)
-			pin.Icon:SetTexture(PinIcon(entry))
+			if pin.fpRadarScale ~= scale then
+				pin.fpRadarScale = scale
+				pin:SetScale(scale)
+			end
+			local itemID = entry.recipes[1][1]
+			if pin.fpRadarItem ~= itemID then
+				local icon = C_Item.GetItemIconByID(itemID)
+				pin.fpRadarItem = icon and itemID or nil
+				pin.Icon:SetTexture(icon or 134939)
+			end
 			activePins[index] = pin
 		end
+	end
+	for index = #activePins, count + 1, -1 do
+		local pin = activePins[index]
+		if GameTooltip:IsOwned(pin) then
+			GameTooltip:Hide()
+		end
+		pin:Hide()
+		activePins[index] = nil
 	end
 	PositionMinimapPins()
 	UpdateMinimapDriver()
@@ -620,8 +639,14 @@ local refreshPending = false
 local function Refresh()
 	refreshPending = false
 	waitingForItems = false
-	RefreshMinimap()
-	RefreshWorldMap()
+	local checked = {}
+	RefreshMinimap(checked)
+	worldSourceChecks = checked
+	local ok, err = pcall(ns.MapSymbols.Refresh)
+	worldSourceChecks = nil
+	if not ok then
+		error(err, 0)
+	end
 	Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", waitingForItems, OnItemInfo)
 end
 

@@ -16,7 +16,7 @@ local Talents = ns:NewModule("Talents", {
 		-- them. Before that: plans (one per key), planOrder and templates (per class), taken over by BuildList.
 		builds = {},
 		buildSeq = 0, -- the id of the plan added last
-		trainer = {}, -- classFile -> { { name, rank, icon, level }, ... } from the class trainer
+		trainer = {}, -- classFile -> { { name, rank, icon, level, line }, ... } from the class trainer
 		petTrainer = {}, -- classFile -> { { name, rank, icon, level, known }, ... } from the pet trainer (hunters)
 	},
 	charDefaults = {
@@ -45,25 +45,10 @@ local function SpellBookLines()
 	for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
 		local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
 		if info and not info.offSpecID and not info.isGuild then
-			lines[#lines + 1] = info
+			lines[line] = info
 		end
 	end
 	return lines
-end
-
--- name|rank of every spell the player knows.
-local function KnownSpellKeys()
-	local known = {}
-	local bank = Enum.SpellBookSpellBank.Player
-	for _, info in ipairs(SpellBookLines()) do
-		for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
-			if item and item.spellID and IsKnown(item.spellID) then
-				known[SpellKey(item.name, item.subName)] = true
-			end
-		end
-	end
-	return known
 end
 
 local function TrainerList()
@@ -88,7 +73,7 @@ local function ScanTrainer()
 	end
 	local isPet = trainerType == Enum.TrainerType.Pet
 	local classLines = {}
-	for _, info in ipairs(SpellBookLines()) do
+	for _, info in pairs(SpellBookLines()) do
 		classLines[info.name] = true
 	end
 	local saved = {}
@@ -104,7 +89,7 @@ local function ScanTrainer()
 		local name, serviceType, icon, level, rank = GetTrainerServiceInfo(index)
 		local line = GetTrainerServiceSkillLine and GetTrainerServiceSkillLine(index)
 		if name and serviceType ~= "header" and level and level > 0 and (isPet or not line or classLines[line]) then
-			found[#found + 1] = { name = name, rank = rank ~= "" and rank or nil, icon = icon, level = level,
+			found[#found + 1] = { name = name, rank = rank ~= "" and rank or nil, icon = icon, level = level, line = line,
 				known = isPet and serviceType == "used" or nil }
 		end
 	end
@@ -121,187 +106,115 @@ local function ScanTrainer()
 	end
 end
 
--- All entries: { key, level, name, rank, icon, known }, by level.
-local function CollectSpells()
-	local byLevel, seen = {}, {}
-	local function Add(level, key, name, rank, icon, known)
-		if level and level > 0 and not seen[key] then
-			seen[key] = true
-			byLevel[level] = byLevel[level] or {}
-			tinsert(byLevel[level], { key = key, level = level, name = name, rank = rank, icon = icon, known = known })
+local function SortTrainerSpells(items)
+	table.sort(items, function(a, b)
+		if a.level ~= b.level then
+			return a.level < b.level
+		elseif a.name ~= b.name then
+			return a.name < b.name
 		end
-	end
-	local function AddSpell(level, spellID)
-		if not spellID then
-			return
-		end
-		local name = C_Spell.GetSpellName(spellID) or ("spell:" .. spellID)
-		local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
-		rank = rank ~= "" and rank or nil
-		Add(level, SpellKey(name, rank), name, rank, C_Spell.GetSpellTexture(spellID), IsKnown(spellID))
-	end
-	local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or 60
-	for level = 1, maxLevel do
-		for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
-			AddSpell(level, spellID)
-		end
-	end
+		return (a.rank or "") < (b.rank or "")
+	end)
+end
+
+-- Only fill gaps in the client data. A native future slot already has its own
+-- level, tooltip and trainer highlight, even if the current filters hide it.
+local function CollectTrainerSpells(onDone)
 	local bank = Enum.SpellBookSpellBank.Player
-	for _, info in ipairs(SpellBookLines()) do
-		for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
-			if item and item.spellID then
-				AddSpell(C_SpellBook.GetSpellBookItemLevelLearned(index, bank), item.spellID)
+	local byID, byKey, lineByName, lineByLabel = {}, {}, {}, {}
+	local slots, visibleLines = {}, {}
+	for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+		local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
+		if info and not info.offSpecID and not info.isGuild then
+			if not info.shouldHide then
+				lineByLabel[info.name] = line
+			end
+			for slot = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+				slots[#slots + 1] = slot
+				visibleLines[#slots] = not info.shouldHide and line or false
 			end
 		end
 	end
-	local known = KnownSpellKeys()
-	for _, entry in ipairs(TrainerList()) do
-		local key = SpellKey(entry.name, entry.rank)
-		Add(entry.level, key, entry.name, entry.rank, entry.icon, known[key] or false)
-	end
-	return byLevel
-end
 
--- Spells the player could learn at the trainer right now.
-local function LearnableSpells(byLevel)
-	local playerLevel = UnitLevel("player")
-	local list = {}
-	for level, spells in pairs(byLevel or CollectSpells()) do
-		if level <= playerLevel then
-			for _, entry in ipairs(spells) do
-				if not entry.known then
-					list[#list + 1] = entry.key
+	local missing = {}
+	local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or 60
+	local function Scan(index)
+		if index <= #slots then
+			local item = C_SpellBook.GetSpellBookItemInfo(slots[index], bank)
+			if item and item.spellID and item.name then
+				byID[item.spellID] = true
+				byKey[SpellKey(item.name, item.subName)] = true
+				local line = visibleLines[index]
+				if line and (not lineByName[item.name] or line < lineByName[item.name]) then
+					lineByName[item.name] = line
+				end
+			end
+			return
+		end
+		local level = index - #slots
+		for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
+			if not byID[spellID] then
+				local name = C_Spell.GetSpellName(spellID)
+				local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
+				local key = SpellKey(name, rank)
+				if name then
+					if IsKnown(spellID) then
+						byKey[key], missing[key] = true, nil
+					elseif not byKey[key] and not missing[key] then
+						missing[key] = { name = name, rank = rank ~= "" and rank or nil, level = level,
+							icon = C_Spell.GetSpellTexture(spellID), spellID = spellID }
+					end
 				end
 			end
 		end
 	end
-	return list
-end
-
-local spellsButton
-
--- The button sparkles while there is something new to learn.
-local function UpdateSpellsGlow()
-	if not spellsButton then
-		return
-	end
-	if not Talents.db.enabled then
-		spellsButton.Alert:SetShown(false)
-		return
-	end
-	local seen = Talents.cdb.seenSpells
-	local new = false
-	for _, key in ipairs(LearnableSpells()) do
-		if not seen[key] then
-			new = true
-			break
-		end
-	end
-	spellsButton.Alert:SetShown(new and Talents.db.enabled)
-end
-
--- The abilities of the hunter's pet by level, from the pet trainer's list
--- (stored at each visit) and the pet's own spell book while it is out.
-local function PetKnownKeys()
-	local known = {}
-	local bank = Enum.SpellBookSpellBank.Pet
-	if C_SpellBook.HasPetSpells and C_SpellBook.HasPetSpells() then
-		for index = 1, C_SpellBook.HasPetSpells() or 0 do
-			local item = C_SpellBook.GetSpellBookItemInfo(index, bank)
-			if item and item.spellID and item.name then
-				known[SpellKey(item.name, item.subName)] = true
+	local function Finish()
+		for _, entry in ipairs(TrainerList()) do
+			local key = SpellKey(entry.name, entry.rank)
+			if not byKey[key] then
+				local fromAPI = missing[key]
+				missing[key] = { name = entry.name, rank = entry.rank, level = entry.level, line = entry.line,
+					icon = entry.icon or (fromAPI and fromAPI.icon), spellID = fromAPI and fromAPI.spellID }
 			end
 		end
-	end
-	return known
-end
 
-local function SpellRow(entry, known, isNew, level)
-	local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
-	return {
-		icon = entry.icon or 134400,
-		text = known and GRAY_FONT_COLOR:WrapTextInColorCode(name) or name,
-		right = isNew and GREEN_FONT_COLOR:WrapTextInColorCode(L.TALENTS_NEW) or nil,
-		-- A row is only there to be looked at: pointing at it counts as seen.
-		onClick = function() end,
-		tooltip = function(tooltip)
-			if isNew and entry.key then
-				Talents.cdb.seenSpells[entry.key] = true
-				UpdateSpellsGlow()
-			end
-			GameTooltip_SetTitle(tooltip, name)
-			GameTooltip_AddNormalLine(tooltip, L.TALENTS_LEVEL:format(level))
-		end,
-	}
-end
-
-local function AddPetAbilities(items)
-	items[#items + 1] = { text = L.TALENTS_PET_HEADER }
-	local list = PetTrainerList()
-	if #list == 0 then
-		items[#items + 1] = { text = L.TALENTS_VISIT_PET_TRAINER, line = false }
-		return
-	end
-	local known = PetKnownKeys()
-	local byLevel, levels = {}, {}
-	for _, entry in ipairs(list) do
-		if not byLevel[entry.level] then
-			byLevel[entry.level] = {}
-			levels[#levels + 1] = entry.level
+		local byLine = {}
+		for key, entry in pairs(missing) do
+			local line = lineByLabel[entry.line] or lineByName[entry.name] or Enum.SpellBookSkillLineIndex.General
+			entry.key = key
+			byLine[line] = byLine[line] or {}
+			tinsert(byLine[line], entry)
 		end
-		tinsert(byLevel[entry.level], entry)
-	end
-	table.sort(levels)
-	for _, level in ipairs(levels) do
-		items[#items + 1] = { text = L.TALENTS_LEVEL:format(level), line = false }
-		table.sort(byLevel[level], function(a, b)
-			return a.name < b.name
-		end)
-		for _, entry in ipairs(byLevel[level]) do
-			items[#items + 1] = SpellRow(entry, entry.known or known[SpellKey(entry.name, entry.rank)], false, level)
+		for _, items in pairs(byLine) do
+			SortTrainerSpells(items)
 		end
+		onDone(byLine)
 	end
+	return ns.RunSliced("Talents: scan trainer spells", #slots + maxLevel, Scan, Finish)
 end
 
--- The spells by level as a list: spells that can be learned now and were not seen yet are marked
--- "new"; the button of the window sparkles until they were pointed at or learned.
-local function SpellItems()
-	local byLevel = CollectSpells()
-	local seen = Talents.cdb.seenSpells
-	local playerLevel = UnitLevel("player")
+local function CollectPetTrainerSpells()
 	local items = {}
-	if #TrainerList() == 0 then
-		items[#items + 1] = { text = L.TALENTS_VISIT_TRAINER, line = false }
+	if playerClass ~= "HUNTER" then
+		return items
 	end
-	local levels = {}
-	for level in pairs(byLevel) do
-		levels[#levels + 1] = level
-	end
-	table.sort(levels)
-	for _, level in ipairs(levels) do
-		items[#items + 1] = { text = L.TALENTS_LEVEL:format(level) }
-		table.sort(byLevel[level], function(a, b)
-			return a.name < b.name
-		end)
-		for _, entry in ipairs(byLevel[level]) do
-			local isNew = not entry.known and level <= playerLevel and not seen[entry.key]
-			items[#items + 1] = SpellRow(entry, entry.known, isNew, level)
+	local present = {}
+	for slot = 1, C_SpellBook.HasPetSpells() or 0 do
+		local item = C_SpellBook.GetSpellBookItemInfo(slot, Enum.SpellBookSpellBank.Pet)
+		if item and item.name then
+			present[SpellKey(item.name, item.subName)] = true
 		end
 	end
-	if #levels == 0 then
-		items[#items + 1] = { text = L.TALENTS_NO_SPELLS, line = false }
+	for _, entry in ipairs(PetTrainerList()) do
+		local key = SpellKey(entry.name, entry.rank)
+		if not (entry.known or present[key]) then
+			items[#items + 1] = { name = entry.name, rank = entry.rank, level = entry.level,
+				icon = entry.icon, key = "pet|" .. key, pet = true }
+			present[key] = true
+		end
 	end
-	if playerClass == "HUNTER" then
-		AddPetAbilities(items)
-	end
+	SortTrainerSpells(items)
 	return items
-end
-
-local function ShowSpellsByLevel(owner)
-	ns.ShowPopupList(owner, function()
-		return { title = L.TALENTS_SPELLS, items = SpellItems(), width = 340, maxRows = 22 }
-	end, "Spells")
 end
 
 ---------------------------------------------------------------------------
@@ -312,7 +225,7 @@ local function TalentsFrame()
 end
 
 local ApplyPlan, ClearPlan, ImportPlan, ExportPlan, SavePlanTemplate, ApplyTemplate -- planner, defined below
-local BuildList, ActiveBuild, ActivatePlan, NewPlan, RenamePlan, RemovePlan
+local BuildList, ActiveBuild, ActivatePlan, NewPlan, RenamePlan, RemovePlan, RecommendPlan
 -- Parses a loadout string into node purchases using Blizzard's own reader.
 local function ParseBuild(frame, text)
 	local stream = ExportUtil.MakeImportDataStream(text)
@@ -356,6 +269,7 @@ local function ShowBuildMenu(owner)
 				end
 			end
 			root:CreateDivider()
+			root:CreateButton(L.TALENTS_RECOMMEND, RecommendPlan)
 			root:CreateButton(L.TALENTS_PLAN_NEW, NewPlan)
 			root:CreateButton(L.TALENTS_PLAN_RENAME, RenamePlan)
 			root:CreateButton(L.TALENTS_SAVE_TEMPLATE, SavePlanTemplate)
@@ -545,6 +459,13 @@ end
 
 local function Effective(node, plan)
 	return math.max(node.ranksPurchased or 0, plan[node.ID] or 0)
+end
+
+local function RankDescription(entryID, rank)
+	local ok, description = pcall(C_Traits.GetTraitDescription, entryID, rank)
+	if ok and type(description) == "string" and not ns.Secret(description) then
+		return description
+	end
 end
 
 -- Points of the whole plan: what is learned already counts with the planned ranks.
@@ -787,8 +708,8 @@ local function AddPlanTooltip(button)
 			end
 		end
 		-- Plain lines: appended tooltip data would pile up with every change of the plan.
-		local ok, description = pcall(C_Traits.GetTraitDescription, entryID, planned)
-		if ok and type(description) == "string" and not ns.Secret(description) then
+		local description = RankDescription(entryID, planned)
+		if description then
 			GameTooltip_AddHighlightLine(GameTooltip, description, true)
 		end
 	end
@@ -1061,13 +982,13 @@ end
 
 -- A plan from outside (standard distribution, link, import code) becomes a plan of its own and the active
 -- one. An active plan with nothing in it is used for it instead of being left behind.
-local function StorePlan(name, ranks)
+local function StorePlan(name, ranks, order)
 	local list, build = BuildList(), ActiveBuild()
 	if next(build.ranks) == nil then
 		build.name = ns.TalentBuilds.UniqueName(list, name, build)
-		build.ranks, build.order = ranks, {}
+		build.ranks, build.order = ranks, order or {}
 	else
-		ActivatePlan(ns.TalentBuilds.Add(list, Talents.db, name, ranks).id)
+		ActivatePlan(ns.TalentBuilds.Add(list, Talents.db, name, ranks, order).id)
 	end
 end
 
@@ -1284,6 +1205,182 @@ function ImportPlan()
 	end, L.TALENTS_IMPORT_HINT)
 end
 
+local function AddPlanRank(nodes, rowOf, names, plan, node)
+	local target = Effective(node, plan) + 1
+	if target > node.maxRanks then
+		return false
+	end
+	if TotalPoints(nodes, plan) >= PLAN_POINTS then
+		return false, L.TALENTS_PLAN_FULL:format(PLAN_POINTS, PLAN_MAX_LEVEL)
+	end
+	local problem = CheckNode(nodes, rowOf, names, plan, node, target)
+	if problem then
+		return false, problem
+	end
+	-- The new point is the last step; what was planned before gets its steps first.
+	local order = PlanOrder(nodes, rowOf, names, plan)
+	order[#order + 1] = node.ID
+	plan[node.ID] = target
+	return true
+end
+
+local PRIMARY_STATS = { "STR", "AGI", "STA", "INT", "SPI" }
+
+local function RecommendationGains(configID, nodes, weights)
+	local stats, gains = {}, {}
+	local german = GetLocale() == "deDE"
+	for index, stat in ipairs(PRIMARY_STATS) do
+		stats[stat] = ns.Number(select(2, UnitStat("player", index)), 0)
+	end
+	for _, node in ipairs(nodes) do
+		local entryID = node.entryIDs and #node.entryIDs == 1 and node.entryIDs[1]
+		local entry = entryID and C_Traits.GetEntryInfo(configID, entryID)
+		local definition = entry and entry.definitionID and C_Traits.GetDefinitionInfo(entry.definitionID)
+		if definition and definition.spellID and C_Spell.IsSpellPassive(definition.spellID) then
+			local previous, scores = nil, {}
+			for rank = 1, node.maxRanks do
+				local description = RankDescription(entryID, rank)
+				if description and (rank == 1 or previous) then
+					scores[rank] = ns.TalentSummary.RankGain(previous, description, weights, stats, german)
+				end
+				previous = description
+			end
+			if next(scores) then
+				gains[node.ID] = scores
+			end
+		end
+	end
+	return gains
+end
+
+-- Keep the role's template ahead of filler. Within each priority, prefer the higher
+-- marginal stat score, then use the ordered nodes to break ties.
+local function FillRecommendation(nodes, rowOf, names, ordered, targets, gains, tree, targetsOnly)
+	local plan, order = {}, {}
+	for id, node in pairs(nodes) do
+		local learned = node.ranksPurchased or 0
+		if learned > 0 then
+			plan[id] = learned
+		end
+	end
+	local points = TotalPoints(nodes, plan)
+	while points < PLAN_POINTS do
+		local best, bestRank, bestPriority, bestGain = nil, nil, -1, 0
+		for _, node in ipairs(ordered) do
+			local id = node.ID
+			local rank = (plan[id] or 0) + 1
+			local inTemplate = rank <= (targets[id] or 0)
+			if rank <= node.maxRanks and (inTemplate or not targetsOnly) then
+				local priority = (inTemplate and 2 or 0) + (GroupOf(node) == tree and 1 or 0)
+				local gain = gains[id] and gains[id][rank] or 0
+				if (priority > bestPriority or (priority == bestPriority and gain > bestGain))
+					and not CheckNode(nodes, rowOf, names, plan, node, rank) then
+					best, bestRank, bestPriority, bestGain = id, rank, priority, gain
+				end
+			end
+		end
+		if not best then
+			break
+		end
+		plan[best] = bestRank
+		order[#order + 1] = best
+		points = points + 1
+	end
+	if points == PLAN_POINTS then
+		return plan, order
+	end
+end
+
+-- Trade measured bonuses in the same row and tree. This preserves the tree split,
+-- the points available to unlock later rows, and talents whose effects need the template.
+local function ImproveRecommendation(nodes, rowOf, names, ordered, plan, gains)
+	local scored = {}
+	for _, node in ipairs(ordered) do
+		if gains[node.ID] then
+			scored[#scored + 1] = node
+		end
+	end
+	local changed = false
+	for _ = 1, PLAN_POINTS do
+		local take, give, improvement = nil, nil, 0
+		for _, to in ipairs(scored) do
+			local toRank = plan[to.ID] or 0
+			local nextGain = gains[to.ID][toRank + 1]
+			if nextGain and nextGain > 0 then
+				for _, from in ipairs(scored) do
+					local fromRank = plan[from.ID] or 0
+					local oldGain = gains[from.ID][fromRank]
+					if from ~= to and oldGain and nextGain - oldGain > improvement and fromRank > (from.ranksPurchased or 0)
+						and GroupOf(from) == GroupOf(to) and rowOf[from.posY] == rowOf[to.posY] then
+						local oldTarget = plan[to.ID]
+						plan[to.ID], plan[from.ID] = toRank + 1, fromRank - 1
+						if not CheckPlan(nodes, rowOf, names, plan) then
+							take, give, improvement = to.ID, from.ID, nextGain - oldGain
+						end
+						plan[to.ID], plan[from.ID] = oldTarget, fromRank
+					end
+				end
+			end
+		end
+		if not take then
+			break
+		end
+		local remaining = plan[give] - 1
+		plan[take], plan[give] = (plan[take] or 0) + 1, remaining > 0 and remaining or nil
+		changed = true
+	end
+	return changed
+end
+
+function RecommendPlan()
+	local frame = TalentsFrame()
+	local configID = frame and frame:IsVisible() and frame:GetConfigID()
+	if not (Talents.db.enabled and Talents.db.planner and configID) then
+		return
+	end
+	local weights, treeName, tree, presetIndex = ns.StatWeights()
+	local nodes, rowOf, names = TreeState(frame, configID)
+	local ordered = {}
+	for _, node in pairs(nodes) do
+		if node.isVisible ~= false then
+			ordered[#ordered + 1] = node
+		end
+	end
+	table.sort(ordered, function(a, b)
+		local aRow, bRow = rowOf[a.posY] or 0, rowOf[b.posY] or 0
+		if aRow ~= bRow then
+			return aRow > bRow
+		end
+		return a.ID < b.ID
+	end)
+
+	local presets = ns.TalentPresets and ns.TalentPresets[playerClass]
+	local preset = presets and presets[presetIndex or tree]
+	local targets = ns.TalentBuilds.ParseRanks(preset and preset.ranks)
+	local gains = RecommendationGains(configID, ordered, weights)
+	local plan, order = FillRecommendation(nodes, rowOf, names, ordered, targets, gains, tree)
+	if not plan then
+		ns.Print(L.TALENTS_RECOMMEND_INCOMPLETE:format(PLAN_POINTS))
+		return
+	end
+	local improved = CopyTable(plan)
+	if ImproveRecommendation(nodes, rowOf, names, ordered, improved, gains) then
+		local revised, revisedOrder = FillRecommendation(nodes, rowOf, names, ordered, improved, gains, tree, true)
+		if revised then
+			plan, order = revised, revisedOrder
+		end
+	end
+
+	local label = preset and (GetLocale() == "deDE" and preset.de or preset.en) or treeName
+	local name = L.TALENTS_RECOMMEND_NAME:format(PLAN_MAX_LEVEL)
+	if label and not ns.Secret(label) then
+		name = name .. " (" .. label .. ")"
+	end
+	StorePlan(name, plan, order)
+	QueuePlanUpdate()
+	ns.Print(L.TALENTS_TEMPLATE_DONE:format(ActiveBuild().name, PLAN_POINTS))
+end
+
 local function OnTalentClick(_, button, mouseButton)
 	if mouseButton ~= "RightButton" or IsControlKeyDown() or not (Talents.db.enabled and Talents.db.planner) then
 		return
@@ -1295,10 +1392,10 @@ local function OnTalentClick(_, button, mouseButton)
 	if not node or not node.maxRanks or node.maxRanks == 0 then
 		return
 	end
+	node.ID = node.ID or nodeID
 	local plan = CurrentPlan()
 	local planned = plan[nodeID] or 0
 	local nodes, rowOf, names = TreeState(frame, configID)
-	local problem
 	blocked = nil
 	local function Refuse(text)
 		-- The reason shows in the talent's tooltip, rebuilt below.
@@ -1320,36 +1417,25 @@ local function OnTalentClick(_, button, mouseButton)
 		local old = plan[nodeID]
 		plan[nodeID] = planned > learned and planned or nil
 		-- Removing must not leave a talent above without its requirement.
-		problem = CheckPlan(nodes, rowOf, names, plan)
+		local problem = CheckPlan(nodes, rowOf, names, plan)
 		plan[nodeID] = old
 		if problem then
 			Refuse(L.TALENTS_PLAN_REMOVE_BLOCKED)
 			return
 		end
 		ns.TalentOrder.RemoveLast(CurrentOrder(), nodeID)
+		plan[nodeID] = planned > learned and planned or nil
 	elseif button.CanRefundRank and button:CanRefundRank() then
 		return -- Blizzard refunds a staged rank with this click
 	else
-		local target = math.max(planned, node.ranksPurchased or 0) + 1
-		if target > node.maxRanks then
+		local added, problem = AddPlanRank(nodes, rowOf, names, plan, node)
+		if not added then
+			if problem then
+				Refuse(problem)
+			end
 			return
 		end
-		-- The plan counts the learned points too.
-		if TotalPoints(nodes, plan) - math.max(planned, learned) + target > PLAN_POINTS then
-			Refuse(L.TALENTS_PLAN_FULL:format(PLAN_POINTS, PLAN_MAX_LEVEL))
-			return
-		end
-		problem = CheckNode(nodes, rowOf, names, plan, node, target)
-		if problem then
-			Refuse(problem)
-			return
-		end
-		planned = target
-		-- The new point is the last step; what was planned before gets its steps first.
-		local order = PlanOrder(nodes, rowOf, names, plan)
-		order[#order + 1] = nodeID
 	end
-	plan[nodeID] = planned > learned and planned or nil
 	QueuePlanUpdate()
 	-- Rebuild the open tooltip with the new planned rank.
 	RefreshTooltip(button)
@@ -1451,8 +1537,8 @@ local function ShowPlanSummary(owner)
 		local entryID = node.activeEntry and node.activeEntry.entryID or (node.entryIDs and node.entryIDs[1])
 		if rank > 0 and entryID then
 			talents, points = talents + 1, points + rank
-			local ok, description = pcall(C_Traits.GetTraitDescription, entryID, rank)
-			if ok and type(description) == "string" and not ns.Secret(description) then
+			local description = RankDescription(entryID, rank)
+			if description then
 				descriptions[#descriptions + 1] = description
 			end
 		end
@@ -1529,116 +1615,453 @@ local function SetupPlanner(frame)
 end
 
 ---------------------------------------------------------------------------
--- Buttons below the talent window
+-- Trainer spells in the spell book
 ---------------------------------------------------------------------------
-local buttons
-local bookButton
-
--- Below level 10 the game hides the talent tab; the spell list then sits at the top of the window instead.
-local function UpdateBookButton()
-	local frame = PlayerSpellsFrame
-	if not bookButton or not frame then
+local function SetTrainerSpellRequirement(row, entry, playerLevel)
+	local trainable = entry.level <= playerLevel
+	local isNew = trainable and not Talents.cdb.seenSpells[entry.key]
+	local state = row.fpTrainerState
+	if state.level == entry.level and state.trainable == trainable and state.isNew == isNew then
 		return
 	end
-	local ok, available = pcall(frame.IsTabAvailable, frame, frame.talentTabID)
-	bookButton:SetShown(Talents.db.enabled and ok and not available and true or false)
+	state.level, state.trainable, state.isNew = entry.level, trainable, isNew
+	local requirement = trainable and SPELLBOOK_TRAINABLE or SPELLBOOK_AVAILABLE_AT:format(entry.level)
+	row.RequiredLevel:SetText(isNew and (requirement .. " · " .. L.TALENTS_NEW) or requirement)
+	row.Button.TrainableShadow:SetShown(isNew)
+	row.Button.TrainableBackplate:SetShown(trainable)
+	row:UpdateTextContainer()
 end
 
-local function CreateButtons()
-	-- Inside the talent window, on the bottom bar right of Blizzard's buttons.
-	local parent = TalentsFrame() or PlayerSpellsFrame
-	local anchor = parent.Background or parent
-	local spells = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-	spells:SetSize(150, 22)
-	spells:SetFrameLevel(ns.Number(parent:GetFrameLevel(), 0) + 1010)
-	spells:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -24, 8)
-	spells:SetText(L.TALENTS_SPELLS)
-	spells:SetScript("OnClick", ShowSpellsByLevel)
-	-- The button glows (a soft pulse) while there is something new to learn.
-	local alert = CreateFrame("Frame", nil, spells)
-	alert:SetAllPoints(spells)
-	alert:SetFrameLevel(spells:GetFrameLevel() + 2)
-	alert:EnableMouse(false)
-	local glow = alert:CreateTexture(nil, "OVERLAY")
-	glow:SetAllPoints()
-	glow:SetTexture([[Interface\Buttons\UI-Common-MouseHilight]])
-	glow:SetBlendMode("ADD")
-	glow:SetVertexColor(1, 0.82, 0.1)
-	local pulse = glow:CreateAnimationGroup()
-	pulse:SetLooping("BOUNCE")
-	local fade = pulse:CreateAnimation("Alpha")
-	fade:SetFromAlpha(0.2)
-	fade:SetToAlpha(1)
-	fade:SetDuration(0.8)
-	fade:SetSmoothing("IN_OUT")
-	alert:SetScript("OnShow", function()
-		pulse:Play()
-	end)
-	alert:SetScript("OnHide", function()
-		pulse:Stop()
-	end)
-	alert:Hide()
-	spells.Alert = alert
-	spellsButton = spells
-	buttons = { spells }
-
-	local topButton = PlayerSpellsFrame.MaximizeMinimizeButton or PlayerSpellsFrame.CloseButton
-	bookButton = CreateFrame("Button", nil, PlayerSpellsFrame, "UIPanelButtonTemplate")
-	bookButton:SetSize(150, 22)
-	bookButton:SetFrameLevel(ns.Number(PlayerSpellsFrame:GetFrameLevel(), 0) + 5600)
-	if topButton then
-		bookButton:SetPoint("RIGHT", topButton, "LEFT", -8, 0)
-	else
-		bookButton:SetPoint("TOPRIGHT", PlayerSpellsFrame, "TOPRIGHT", -60, -4)
+local function ShowTrainerSpellTooltip(button)
+	local row = button:GetParent()
+	local entry = row.fpTrainerEntry
+	local playerLevel = UnitLevel("player")
+	if entry.level <= playerLevel and not Talents.cdb.seenSpells[entry.key] then
+		Talents.cdb.seenSpells[entry.key] = true
+		SetTrainerSpellRequirement(row, entry, playerLevel)
 	end
-	bookButton:SetText(L.TALENTS_SPELLS)
-	bookButton:SetScript("OnClick", ShowSpellsByLevel)
-	bookButton:Hide()
+	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+	if not (entry.spellID and GameTooltip:SetSpellByID(entry.spellID)) then
+		local name = entry.rank and ("%s (%s)"):format(entry.name, entry.rank) or entry.name
+		GameTooltip_SetTitle(GameTooltip, name)
+	end
+	if entry.pet then
+		GameTooltip_AddNormalLine(GameTooltip, L.TALENTS_PET_HEADER)
+	end
+	GameTooltip_AddNormalLine(GameTooltip, L.TALENTS_LEVEL:format(entry.level))
+	GameTooltip:Show()
+end
+
+local function InitTrainerSpell(row, entry, playerLevel)
+	local changed = row.fpTrainerEntry ~= entry
+	if changed and GameTooltip:IsOwned(row.Button) then
+		GameTooltip:Hide()
+	end
+	row.fpTrainerEntry = entry
+	local button = row.Button
+	if not row.fpTrainerState then
+		row.fpTrainerState = {}
+		-- This pool uses Blizzard's artwork. Its entries have no native slot or
+		-- action data, so the original click and drag handlers have no action.
+		local art = SpellBookItemMixin.ArtSet.Square
+		row:ApplyBorderArt(art.inactiveBorder, art.inactiveBorderAnchors)
+		button.IconMask:SetAtlas(art.iconMask)
+		button.IconMask:Show()
+		button.TrainableBackplate:SetAtlas(art.trainableBackplate)
+		button.Icon:SetDesaturated(true)
+		button.Icon:SetAlpha(row.unlearnedIconAlpha)
+		button:HookScript("OnEnter", ns.Measured("Talents: trainer spell tooltip", ShowTrainerSpellTooltip))
+		local function HideTooltip(owner)
+			if GameTooltip:IsOwned(owner) then
+				GameTooltip:Hide()
+			end
+		end
+		button:HookScript("OnLeave", HideTooltip)
+		button:HookScript("OnHide", HideTooltip)
+		for _, text in ipairs({ row.Name, row.SubName, row.RequiredLevel }) do
+			local face, size = text:GetFont()
+			if face then
+				text:SetFont(face, size, "")
+			end
+			text:SetShadowOffset(0, 0)
+			text:SetAlpha(row.unlearnedTextAlpha)
+		end
+	end
+	if changed then
+		button.Icon:SetTexture(entry.icon or 134400)
+		row.Name:SetText(entry.name)
+		row.SubName:SetText(entry.rank or "")
+		row.fpTrainerState.level = nil -- a new name may need different text anchors even at the same level
+	end
+	SetTrainerSpellRequirement(row, entry, playerLevel)
+end
+
+local SPELL_BOOK_ROW_HEIGHT = 60
+
+-- Blizzard's pager supplies the occupied cells, including full-width header
+-- and spacer rows. Read its layout so the previews only use empty space.
+local function FreeSpellBookCells(pager, view, width, height, layout)
+	local rows, cells = {}, {}
+	local columns = pager.columnsPerRow
+	local columnWidth = (width - (columns - 1) * pager.xPadding) / columns
+	for _, cell in ipairs(layout or {}) do
+		local index = cell.gridRow
+		local row = rows[index] or {}
+		rows[index] = row
+		row[cell.gridColumn] = true
+		if cell.isHeader or cell.isSpacer then
+			row.full = true
+		end
+		if cell.isSpacer then
+			row.height = pager.spacerSize
+		end
+	end
+
+	local rowIndex, offset = 1, 0
+	while offset + SPELL_BOOK_ROW_HEIGHT <= height do
+		local row = rows[rowIndex]
+		if not row or not row.full then
+			for column = 1, columns do
+				if not row or not row[column] then
+					cells[#cells + 1] = {
+						x = (column - 1) * (columnWidth + pager.xPadding), y = -offset,
+						width = columnWidth, view = view,
+					}
+				end
+			end
+		end
+		offset = offset + (row and row.height or SPELL_BOOK_ROW_HEIGHT) + pager.yPadding
+		rowIndex = rowIndex + 1
+	end
+	return cells
+end
+
+local function SpellBookLayout(pager, nativePages, previous)
+	local views = pager.viewsPerPage
+	local geometry = { nativePages, views, pager.columnsPerRow, pager.xPadding, pager.yPadding, pager.spacerSize or 0 }
+	local widths, heights = {}, {}
+	for index = 1, views do
+		local view = pager.ViewFrames[index]
+		widths[index], heights[index] = view:GetWidth(), view:GetHeight()
+		geometry[#geometry + 1] = widths[index]
+		geometry[#geometry + 1] = heights[index]
+	end
+	local signature = table.concat(geometry, ":")
+	if previous and previous.source == pager.viewDataList and previous.signature == signature then
+		return previous
+	end
+	local layout = { source = pager.viewDataList, signature = signature, emptyPage = {}, pages = {}, capacity = 0 }
+	for index = 1, views do
+		for _, cell in ipairs(FreeSpellBookCells(pager, pager.ViewFrames[index], widths[index], heights[index])) do
+			layout.emptyPage[#layout.emptyPage + 1] = cell
+		end
+	end
+	for page = 1, nativePages do
+		local cells = {}
+		layout.pages[page] = { firstItem = layout.capacity + 1, cells = cells }
+		for index = 1, views do
+			local occupied = pager.viewDataList[(page - 1) * views + index]
+			for _, cell in ipairs(FreeSpellBookCells(pager, pager.ViewFrames[index], widths[index], heights[index], occupied)) do
+				cells[#cells + 1] = cell
+			end
+		end
+		layout.capacity = layout.capacity + #cells
+	end
+	return layout
+end
+
+local function TrainerSpellsForCategory(book, category, playerSpells, petSpells)
+	local petBank = Enum.SpellBookSpellBank.Pet
+	if category:GetSpellBank() == petBank then
+		return petSpells
+	end
+	local items = playerSpells[category.skillLineIndex] or {}
+	if category.skillLineIndex ~= Enum.SpellBookSkillLineIndex.General or #petSpells == 0 then
+		return items
+	end
+	for _, tab in ipairs(book.categoryMixins) do
+		if tab:GetSpellBank() == petBank and tab:IsAvailable() then
+			return items
+		end
+	end
+	local combined = {}
+	for _, entry in ipairs(items) do combined[#combined + 1] = entry end
+	for _, entry in ipairs(petSpells) do combined[#combined + 1] = entry end
+	SortTrainerSpells(combined)
+	return combined
+end
+
+local function CreateContinuationCover(parent, book)
+	local cover = CreateFrame("Frame", nil, parent)
+	cover:SetAllPoints()
+	cover:SetClipsChildren(true)
+	cover:SetFrameLevel(parent:GetFrameLevel() + 1)
+	cover:EnableMouse(true)
+	cover:EnableMouseWheel(true)
+	cover:Hide()
+	-- Crop the original parchment to the paged area. The search and tabs above
+	-- it remain usable while showing a continuation page.
+	local art = CreateFrame("Frame", nil, cover)
+	art:SetAllPoints(book)
+	local compact = art:CreateTexture(nil, "BACKGROUND")
+	compact:SetAllPoints()
+	compact:SetAtlas("spellbook-Page-Right-C60")
+	local left = art:CreateTexture(nil, "BACKGROUND")
+	left:SetPoint("TOPLEFT")
+	left:SetPoint("BOTTOMRIGHT", art, "BOTTOM")
+	left:SetAtlas("spellbook-Page-Left-C60")
+	local right = art:CreateTexture(nil, "BACKGROUND")
+	right:SetPoint("TOPLEFT", art, "TOP")
+	right:SetPoint("BOTTOMRIGHT")
+	right:SetAtlas("spellbook-Page-Right-C60")
+	return cover, function()
+		local minimized = book.isMinimized == true
+		compact:SetShown(minimized)
+		left:SetShown(not minimized)
+		right:SetShown(not minimized)
+	end
+end
+
+local queueTrainerBook
+local function SetupSpellsBook(book)
+	local pager = book.PagedSpellsFrame
+	if not (pager and type(pager.ViewFrames) == "table" and type(pager.columnsPerRow) == "number") then
+		return
+	end
+
+	local layer = CreateFrame("Frame", nil, book)
+	layer:SetAllPoints(pager)
+	layer:SetFrameLevel(ns.Number(pager:GetFrameLevel(), 0) + 50)
+	local cover, UpdateParchment = CreateContinuationCover(layer, book)
+	local rows = {}
+	local nativeControls = pager.PagingControls
+	local nextPage = CreateFrame("Button", nil, layer, "PagingControlsNextPageButtonTemplate")
+	nextPage:SetPoint("CENTER", nativeControls.NextPageButton)
+	nextPage:SetFrameLevel(layer:GetFrameLevel() + 5)
+	local footer = CreateFrame("Frame", nil, layer)
+	footer:SetAllPoints()
+	footer:SetFrameLevel(layer:GetFrameLevel() + 4)
+	local previousPage = CreateFrame("Button", nil, footer, "PagingControlsPrevPageButtonTemplate")
+	previousPage:SetPoint("CENTER", nativeControls.PrevPageButton)
+	local pageNumber = footer:CreateFontString(nil, "ARTWORK", "SystemFont_Med3")
+	pageNumber:SetPoint("RIGHT", nativeControls.PageText, "RIGHT")
+	pageNumber:SetTextColor(SPELLBOOK_FONT_COLOR:GetRGB())
+	local face, size = pageNumber:GetFont()
+	if face then
+		pageNumber:SetFont(face, size, "")
+	end
+	pageNumber:SetShadowOffset(0, 0)
+
+	local extraPage, extraPages, queued = 0, 0, false
+	local playerSpells, petSpells, spellScan
+	local layout, coveringPage, rowUpdate
+	local function RefreshTrainerBook()
+		queued = false
+		local category = book:IsVisible() and book:GetActiveCategoryMixin()
+		if not (Talents.db.enabled and category and pager.viewDataList) then
+			layer:Hide()
+			return
+		end
+		if not playerSpells then
+			if not spellScan then
+				local ticker = CollectTrainerSpells(function(spells)
+					spellScan, playerSpells = nil, spells
+					queueTrainerBook()
+				end)
+				if not playerSpells then
+					spellScan = ticker
+				end
+			end
+			return
+		end
+		petSpells = petSpells or CollectPetTrainerSpells()
+		local items = TrainerSpellsForCategory(book, category, playerSpells, petSpells)
+		if #items == 0 then
+			layer:Hide()
+			return
+		end
+
+		local nativePage, nativePages = nativeControls:GetCurrentPage(), nativeControls:GetMaxPages()
+		layout = SpellBookLayout(pager, nativePages, layout)
+		local fullPage = layout.emptyPage
+		extraPages = #fullPage > 0 and math.max(0, math.ceil((#items - layout.capacity) / #fullPage)) or 0
+		extraPage = math.min(extraPage, extraPages)
+
+		layer:Show()
+		local pageCells, firstItem
+		if extraPage > 0 then
+			pageCells = fullPage
+			firstItem = layout.capacity + (extraPage - 1) * #fullPage + 1
+		else
+			local page = layout.pages[nativePage]
+			pageCells, firstItem = page.cells, page.firstItem
+		end
+		if extraPages > 0 then
+			local continuation = extraPage > 0
+			if continuation ~= coveringPage then
+				coveringPage = continuation
+				cover:ClearAllPoints()
+				if continuation then
+					cover:SetAllPoints(layer)
+				else
+					cover:SetPoint("TOPLEFT", nativeControls.PageText, "TOPLEFT", -1, 1)
+					cover:SetPoint("BOTTOMRIGHT", nativeControls.PageText, "BOTTOMRIGHT", 1, -1)
+				end
+				cover:EnableMouse(continuation)
+				cover:EnableMouseWheel(continuation)
+			end
+			local page = extraPage > 0 and nativePages + extraPage or nativePage
+			pageNumber:SetFormattedText(PAGE_NUMBER_WITH_MAX, page, nativePages + extraPages)
+			UpdateParchment()
+		end
+		cover:SetShown(extraPages > 0)
+		footer:SetShown(extraPages > 0)
+		previousPage:SetShown(extraPage > 0)
+		nextPage:SetShown(extraPage > 0 or (nativePage == nativePages and extraPages > 0))
+		nextPage:SetEnabled(extraPage < extraPages)
+
+		local count = math.max(0, math.min(#pageCells, #items - firstItem + 1))
+		local playerLevel = UnitLevel("player")
+		for index, row in ipairs(rows) do
+			if index > count or row.fpTrainerCell ~= pageCells[index] or row.fpTrainerEntry ~= items[firstItem + index - 1] then
+				row:Hide()
+			end
+		end
+		if count == 0 then
+			return
+		end
+		local function UpdateRow(index)
+			local row = rows[index]
+			if not row then
+				row = CreateFrame("Frame", nil, layer, "SpellBookItemTemplate")
+				row.fpTrainerState = false
+				row:SetFrameLevel(layer:GetFrameLevel() + 3)
+				rows[index] = row
+			end
+			local cell = pageCells[index]
+			if row.fpTrainerCell ~= cell then
+				row.fpTrainerCell = cell
+				row:ClearAllPoints()
+				row:SetPoint("TOPLEFT", cell.view, "TOPLEFT", cell.x, cell.y)
+				row:SetSize(cell.width, SPELL_BOOK_ROW_HEIGHT)
+			end
+			InitTrainerSpell(row, items[firstItem + index - 1], playerLevel)
+			row:Show()
+		end
+		local finished = false
+		local ticker = ns.RunSliced("Talents: draw spellbook rows", count, UpdateRow, function()
+			rowUpdate, finished = nil, true
+		end)
+		if not finished then
+			rowUpdate = ticker
+		end
+	end
+
+	local function ChangeContinuationPage(delta)
+		local page = math.min(extraPages, math.max(0, extraPage + delta))
+		if page == extraPage then
+			return
+		end
+		extraPage = page
+		PlaySound(SOUNDKIT.IG_ABILITY_PAGE_TURN)
+		queueTrainerBook()
+	end
+	nextPage:SetScript("OnClick", ns.Measured("Talents: next spellbook page", function()
+		ChangeContinuationPage(1)
+	end))
+	previousPage:SetScript("OnClick", ns.Measured("Talents: previous spellbook page", function()
+		ChangeContinuationPage(-1)
+	end))
+	cover:SetScript("OnMouseWheel", ns.Measured("Talents: turn spellbook page", function(_, delta)
+		if delta > 0 then
+			ChangeContinuationPage(-1)
+		elseif nextPage:IsEnabled() then
+			ChangeContinuationPage(1)
+		end
+	end))
+
+	queueTrainerBook = function(invalidate)
+		if invalidate then
+			if spellScan then
+				spellScan:Cancel()
+				spellScan = nil
+			end
+			playerSpells, petSpells = nil, nil
+		end
+		if rowUpdate then
+			rowUpdate:Cancel()
+			rowUpdate = nil
+		end
+		if not queued and book:IsVisible() then
+			queued = true
+			ns.After("Talents: refresh trainer spells", 0, RefreshTrainerBook)
+		end
+	end
+
+	local function NativePageChanged()
+		extraPage = 0
+		queueTrainerBook()
+	end
+	EventRegistry:RegisterCallback("PlayerSpellsFrame.SpellBookFrame.DisplayedSpellsChanged",
+		ns.Measured("Talents: spellbook page changed", NativePageChanged), Talents)
+	hooksecurefunc(book, "OnActiveCategoryChanged", ns.Measured("Talents: spellbook category changed", NativePageChanged))
+	book:HookScript("OnShow", ns.Measured("Talents: spellbook opened", function()
+		extraPage = 0
+		queueTrainerBook()
+	end))
+	book:HookScript("OnHide", ns.Measured("Talents: spellbook closed", function()
+		extraPage = 0
+		if rowUpdate then
+			rowUpdate:Cancel()
+			rowUpdate = nil
+		end
+		if spellScan then
+			spellScan:Cancel()
+			spellScan = nil
+		end
+		layer:Hide()
+	end))
+	layer:Hide()
 end
 
 function Talents:Update()
-	for _, button in ipairs(buttons or {}) do
-		button:SetShown(self.db.enabled)
-	end
-	UpdateSpellsGlow()
-	UpdateBookButton()
-end
-
-local glowPending = false
-local function QueueGlowUpdate()
-	if not glowPending then
-		glowPending = true
-		ns.After("Talents: QueueGlowUpdate (timer)", 1, function()
-			glowPending = false
-			UpdateSpellsGlow()
-			UpdateBookButton()
-		end)
+	if queueTrainerBook then
+		queueTrainerBook(true)
 	end
 end
 
 function Talents:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_PlayerSpells", function()
 		if PlayerSpellsFrame then
-			CreateButtons()
-			self:Update()
-			PlayerSpellsFrame:HookScript("OnShow", UpdateSpellsGlow)
-			PlayerSpellsFrame:HookScript("OnShow", UpdateBookButton)
-			if PlayerSpellsFrame.SetTab then
-				hooksecurefunc(PlayerSpellsFrame, "SetTab", UpdateBookButton)
+			if PlayerSpellsFrame.SpellBookFrame then
+				SetupSpellsBook(PlayerSpellsFrame.SpellBookFrame)
+				self:Update()
 			end
 			if TalentsFrame() then
 				SetupPlanner(TalentsFrame())
 			end
 		end
 	end)
-	self:RegisterEvent("PLAYER_LEVEL_UP", QueueGlowUpdate)
+	self:RegisterEvent("PLAYER_LEVEL_UP", self.Update)
 	self:RegisterEvent("TRAINER_SHOW", function()
 		ns.After("Talents: OnLogin (timer)", 0.3, function()
 			ScanTrainer()
-			QueueGlowUpdate()
+			self:Update()
 		end)
 	end)
-	self:RegisterEvent("SPELLS_CHANGED", QueueGlowUpdate)
+	self:RegisterEvent("SPELLS_CHANGED", self.Update)
+	self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", function(_, _, unit)
+		if unit == "player" then
+			self:Update()
+		end
+	end)
+	if playerClass == "HUNTER" then
+		self:RegisterEvent("UNIT_PET", function(_, _, unit)
+			if unit == "player" then
+				self:Update()
+			end
+		end)
+	end
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CURRENCY_INFO_UPDATED",
 		"ACTIVE_COMBAT_CONFIG_CHANGED", "PLAYER_ENTERING_WORLD" }) do
 		ns:RegisterEvent(event, Talents.UpdateUnspent, Talents.QueueUnspent)

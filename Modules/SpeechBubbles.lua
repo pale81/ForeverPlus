@@ -23,21 +23,17 @@ local INSET = 16     -- the border art lies this far around the text
 local FALLBACK_Y = -120
 local TEXTURE = [[Interface\Tooltips\UI-Tooltip-Background]]
 
-local bubbles = {}      -- nameplate -> bubble
-local fallbackBubble
-local current           -- the bubble on show
-local lastNameplate     -- nameplate of the NPC, remembered before the dialog opens
+local speechBubble, active
+local npcGuid, anchorUnit, anchorPlate
+local removedPlates = {}
 
 -- Like the players' chat bubbles: dark rounded box with a light border and a
 -- tail, the text centred in white. Without that art a plain dark pane.
-local function CreateBubble(parent, withTail)
-	local bubble = CreateFrame("Frame", nil, parent)
+local function CreateBubble()
+	local bubble = CreateFrame("Frame", nil, UIParent)
 	bubble:SetSize(BUBBLE_WIDTH, 30)
 	bubble:SetFrameStrata("HIGH")
 	bubble.Art, bubble.Tail = ns.CreateBubbleArt(bubble, INSET, -10)
-	if bubble.Tail then
-		bubble.Tail:SetShown(withTail)
-	end
 	if not bubble.Art then
 		local back = bubble:CreateTexture(nil, "BACKGROUND")
 		back:SetPoint("TOPLEFT", -PADDING, PADDING)
@@ -54,24 +50,6 @@ local function CreateBubble(parent, withTail)
 	bubble.Text:SetTextColor(1, 1, 1)
 	bubble:Hide()
 	return bubble
-end
-
-local function NameplateBubble(nameplate)
-	local bubble = bubbles[nameplate]
-	if not bubble then
-		bubble = CreateBubble(nameplate, true)
-		bubble:SetPoint("BOTTOM", nameplate, "TOP", 0, 15 + INSET + 16)
-		bubbles[nameplate] = bubble
-	end
-	return bubble
-end
-
-local function FallbackBubble()
-	if not fallbackBubble then
-		fallbackBubble = CreateBubble(UIParent, false)
-		fallbackBubble:SetPoint("TOP", UIParent, "TOP", 0, FALLBACK_Y)
-	end
-	return fallbackBubble
 end
 
 -- Puts the text in the bubble: as wide as the text needs (up to the maximum),
@@ -108,49 +86,57 @@ local function QuestText(event)
 end
 
 local function NpcNameplate()
-	if UnitExists("npc") then
-		local nameplate = C_NamePlate.GetNamePlateForUnit("npc")
-		if nameplate and not nameplate:IsForbidden() then
-			return nameplate
-		end
-	end
+	local plate
+	plate, anchorUnit = ns.NpcBubbleNameplate(npcGuid, anchorUnit, removedPlates)
+	return plate
 end
 
-local lastText
-
 local function Hide()
-	if current then
-		current:Hide()
-		current = nil
+	if speechBubble then
+		speechBubble:Hide()
 	end
-	lastText = nil
+	active, npcGuid, anchorUnit, anchorPlate = nil, nil, nil, nil
+	wipe(removedPlates)
 	ns.ShowFriendlyPlates(false, "speech")
 end
 
-local function Show(text)
-	local nameplate = NpcNameplate() or lastNameplate
-	if nameplate and nameplate:IsForbidden() then
-		nameplate = nil
+local function Place(nameplate)
+	anchorPlate = nameplate
+	speechBubble:ClearAllPoints()
+	if speechBubble.Tail then
+		speechBubble.Tail:SetShown(nameplate ~= nil)
 	end
-	local bubble
 	if nameplate then
-		bubble = NameplateBubble(nameplate)
+		speechBubble:SetPoint("BOTTOM", nameplate, "TOP", 0, 15 + INSET + 16)
+		speechBubble:Show()
 	elseif SpeechBubbles.db.fallback then
-		bubble = FallbackBubble()
-		-- No plate to hang on: the NPC's plate is switched on for the talk; the bubble
-		-- moves there as soon as it exists.
-		ns.ShowFriendlyPlates(true, "speech")
+		speechBubble:SetPoint("TOP", UIParent, "TOP", 0, FALLBACK_Y)
+		speechBubble:Show()
+	else
+		speechBubble:Hide()
 	end
-	if current then
-		current:Hide()
-		current = nil
+end
+
+local function RefreshNameplate()
+	if not active then
+		return
 	end
-	if bubble then
-		SetText(bubble, text)
-		bubble:Show()
-		current = bubble
-		lastText = text
+	local nameplate = NpcNameplate()
+	if nameplate ~= anchorPlate then
+		Place(nameplate)
 	end
+end
+
+local function Show(text)
+	if not speechBubble then
+		speechBubble = CreateBubble()
+		ns.SetUpdate(speechBubble, "SpeechBubbles: plate watch", RefreshNameplate)
+	end
+	npcGuid = ns.NpcBubbleGUID() or npcGuid
+	ns.ShowFriendlyPlates(SpeechBubbles.db.fallback and npcGuid ~= nil, "speech")
+	active = true
+	SetText(speechBubble, text)
+	Place(NpcNameplate())
 end
 
 local function OnGossip()
@@ -171,11 +157,15 @@ local function OnQuestText(_, event)
 	end
 end
 
-local function RememberNameplate()
-	lastNameplate = NpcNameplate() or lastNameplate
-	-- The plate of the NPC appeared while the bubble sits at the top of the screen.
-	if current and current == fallbackBubble and lastText and NpcNameplate() then
-		Show(lastText)
+local function OnPlateAdded(_, _, unit)
+	removedPlates[unit] = nil
+	RefreshNameplate()
+end
+
+local function OnPlateRemoved(_, _, unit)
+	if active then
+		removedPlates[unit] = true
+		RefreshNameplate()
 	end
 end
 
@@ -191,10 +181,13 @@ function SpeechBubbles:Apply()
 	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "QUEST_COMPLETE" }) do
 		self:ToggleEvent(event, on, Hide)
 	end
-	self:ToggleEvent("PLAYER_TARGET_CHANGED", on, RememberNameplate)
-	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, RememberNameplate)
+	self:ToggleEvent("NAME_PLATE_UNIT_ADDED", on, OnPlateAdded)
+	self:ToggleEvent("NAME_PLATE_UNIT_REMOVED", on, OnPlateRemoved)
 	if not on then
 		Hide()
+	elseif active then
+		ns.ShowFriendlyPlates(self.db.fallback and npcGuid ~= nil, "speech")
+		Place(NpcNameplate())
 	end
 end
 

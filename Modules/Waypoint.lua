@@ -128,7 +128,8 @@ end
 function Waypoint.Target()
 	local point = C_Map.HasUserWaypoint and C_Map.HasUserWaypoint() and C_Map.GetUserWaypoint()
 	if point and point.uiMapID and point.position then
-		local x, y = point.position:GetXY()
+		-- The waypoint's nested position has x and y, but no vector methods.
+		local x, y = point.position.x, point.position.y
 		if not (target and target.mapID == point.uiMapID and math.abs(target.x - x) < 0.0005 and math.abs(target.y - y) < 0.0005) then
 			target = { mapID = point.uiMapID, x = x, y = y }
 		end

@@ -35,6 +35,7 @@ local ARROW_SIZE = 11
 
 local icons = {}  -- bag button -> texture
 local arrows = {} -- bag button -> arrow texture
+local shownModes = {} -- bag button -> mark currently displayed
 local hooked = {}
 local run         -- { ticker, steps, moved = { itemID -> count }, wait = { bag, slot }, skip = { itemID -> true } }
 local atBank, atGuild = false, false
@@ -56,15 +57,19 @@ end
 ---------------------------------------------------------------------------
 -- Marks in the bags
 ---------------------------------------------------------------------------
-local function UpdateButton(button)
-	local icon = icons[button]
-	if not Restock.db.enabled and not icon then
+local function ActiveMarks()
+	local marks = Restock.db.enabled and Restock.cdb.items
+	return marks and next(marks) and marks or nil
+end
+
+local function UpdateButton(button, marks)
+	local itemID = marks and C_Container.GetContainerItemID(button:GetBagID(), button:GetID())
+	local mode = itemID and marks[itemID] or nil
+	if mode == shownModes[button] then
 		return
 	end
-	local info = C_Container.GetContainerItemInfo(button:GetBagID(), button:GetID())
-	local mode = Restock.db.enabled and info and info.itemID and Restock.cdb.items[info.itemID] or nil
-	local show = mode and true or false
-	if show and not icon then
+	local icon = icons[button]
+	if mode and not icon then
 		icon = button:CreateTexture(nil, "OVERLAY", nil, 2)
 		icon:SetTexture(ICON)
 		icon:SetSize(ICON_SIZE, ICON_SIZE)
@@ -75,15 +80,14 @@ local function UpdateButton(button)
 		arrow:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", -2, 0)
 		arrows[button] = arrow
 	end
-	if icon then
-		icon:SetShown(show)
-		local arrow = arrows[button]
-		arrow:SetShown(show)
-		if show then
-			arrow:SetAtlas(ARROW[mode])
-			arrow:SetVertexColor(unpack(ARROW_COLOR[mode]))
-		end
+	shownModes[button] = mode
+	local arrow = arrows[button]
+	if mode then
+		arrow:SetAtlas(ARROW[mode])
+		arrow:SetVertexColor(unpack(ARROW_COLOR[mode]))
 	end
+	icon:SetShown(mode ~= nil)
+	arrow:SetShown(mode ~= nil)
 end
 
 local function ContainerFrames()
@@ -95,10 +99,11 @@ local function ContainerFrames()
 end
 
 local function UpdateAllButtons()
+	local marks = ActiveMarks()
 	for _, frame in ipairs(ContainerFrames()) do
 		if frame and frame:IsShown() then
 			for _, button in frame:EnumerateValidItems() do
-				UpdateButton(button)
+				UpdateButton(button, marks)
 			end
 		end
 	end
@@ -132,12 +137,13 @@ local function OnItemMouseUp(button, mouseButton)
 end
 
 local function PostUpdateItems(frame)
+	local marks = ActiveMarks()
 	for _, button in frame:EnumerateValidItems() do
 		if not hooked[button] then
 			hooked[button] = true
 			button:HookScript("OnMouseUp", OnItemMouseUp)
 		end
-		UpdateButton(button)
+		UpdateButton(button, marks)
 	end
 end
 

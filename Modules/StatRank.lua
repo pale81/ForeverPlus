@@ -1,6 +1,4 @@
--- Attributes by importance: the rows of the character window show which values matter for the talent tree in
--- use: a number before the name (its place within its group), the most important ones bright, the useless grey. The weights and the
--- tree are those of the item rating (option "rating by talent tree"), so a tree chosen there counts here too.
+-- Rank the visible character stats using the same talent-tree weights as item scoring.
 local _, ns = ...
 local L = ns.L
 
@@ -12,150 +10,189 @@ local StatRank = ns:NewModule("StatRank", {
 	},
 })
 
--- Row of the character window (PAPERDOLL_STATINFO) -> the weights it stands for (the largest counts).
+-- Character-window row -> the item weights it represents (the largest counts for combined rows).
 local ROW_KEYS = {
 	STRENGTH = { "STR" }, AGILITY = { "AGI" }, STAMINA = { "STA" }, INTELLECT = { "INT" }, SPIRIT = { "SPI" },
+	MAINHAND_DAMAGE = { "DPS" }, OFFHAND_DAMAGE = { "DPS" }, RANGED_DAMAGE = { "RDPS" },
 	ATTACK_AP = { "AP" }, RANGED_ATTACK_AP = { "RAP" }, SPELLPOWER = { "SP" }, SPELLHEALING = { "HEAL" },
 	CRITCHANCE = { "CRIT", "SCRIT" }, HITCHANCE = { "HIT", "SHIT" }, HITCHANCE_MELEE = { "HIT" },
 	HITCHANCE_RANGED = { "HIT" }, HITCHANCE_SPELL = { "SHIT" }, DODGE = { "DODGE" }, PARRY = { "PARRY" }, BLOCK = { "BLOCK" },
+	HASTE = { "HASTE", "SHASTE" }, EXPERTISE = { "EXPERTISE" }, ARMORPEN = { "ARP" },
 	MANAREGEN = { "MP5" }, DEFENSE = { "DEF" }, ARMOR = { "ARMOR" },
 }
--- The weights count per point of very different things (one point of strength, one percent to hit): rows are
--- only compared within a group, against the largest weight of the group.
+
+-- Compare like units within each Blizzard section. Weapon damage uses the weight for weapon DPS.
 local GROUPS = {
 	{ "STRENGTH", "AGILITY", "STAMINA", "INTELLECT", "SPIRIT" },
-	{ "ATTACK_AP", "RANGED_ATTACK_AP", "SPELLPOWER", "SPELLHEALING" },
-	{ "CRITCHANCE", "HITCHANCE", "HITCHANCE_MELEE", "HITCHANCE_RANGED", "HITCHANCE_SPELL", "DODGE", "PARRY", "BLOCK" },
+	{ "MAINHAND_DAMAGE", "OFFHAND_DAMAGE", "RANGED_DAMAGE" },
+	{ "ATTACK_AP", "RANGED_ATTACK_AP" },
+	{ "SPELLPOWER", "SPELLHEALING" },
+	{ "CRITCHANCE", "HITCHANCE", "HITCHANCE_MELEE", "HITCHANCE_RANGED", "HITCHANCE_SPELL", "HASTE", "EXPERTISE" },
+	{ "DODGE", "PARRY", "BLOCK" },
 }
--- Rows that stand alone: the weight from which they are important (3) or of some use (2); below that minor.
-local ALONE = { MANAREGEN = { 1.5, 1 }, DEFENSE = { 1, 0.5 }, ARMOR = { 0.05, 0.02 } }
-local TOP_SHARE, MID_SHARE = 0.8, 0.4
+local ROW_GROUP = {}
+for group, rows in ipairs(GROUPS) do
+	for _, name in ipairs(rows) do
+		ROW_GROUP[name] = group
+	end
+end
 
-local function RowWeight(weights, row)
+local TOP_SHARE, MID_SHARE = 0.8, 0.4
+local COLORS = {
+	[0] = { 0.58, 0.58, 0.58 },
+	{ 0.76, 0.68, 0.52 },
+	{ 1, 0.82, 0.28 },
+	{ 0.35, 0.9, 1 },
+}
+
+local function RowWeight(weights, keys)
 	local best = 0
-	for _, key in ipairs(ROW_KEYS[row]) do
+	for _, key in ipairs(keys) do
 		best = math.max(best, weights[key] or 0)
 	end
 	return best
 end
 
--- Importance per row for a set of weights: 3 most important, 2 useful, 1 minor, 0 useless.
-function StatRank.Tiers(weights)
-	local tiers = {}
-	for _, group in ipairs(GROUPS) do
-		local top = 0
-		for _, row in ipairs(group) do
-			top = math.max(top, RowWeight(weights, row))
-		end
-		for _, row in ipairs(group) do
-			local weight = RowWeight(weights, row)
-			tiers[row] = (weight <= 0 or top <= 0) and 0 or (weight >= top * TOP_SHARE and 3) or (weight >= top * MID_SHARE and 2) or 1
-		end
-	end
-	for row, limits in pairs(ALONE) do
-		local weight = RowWeight(weights, row)
-		tiers[row] = weight <= 0 and 0 or (weight >= limits[1] and 3) or (weight >= limits[2] and 2) or 1
-	end
-	return tiers
+local function Tier(weight, high, medium)
+	return weight <= 0 and 0 or (weight >= high and 3) or (weight >= medium and 2) or 1
 end
 
--- Place per row within its group (1 = the largest weight; equal weights share a place); rows without weight and
--- the rows that stand alone get none.
-function StatRank.Places(weights)
-	local places = {}
-	for _, group in ipairs(GROUPS) do
-		local rows = {}
-		for _, row in ipairs(group) do
-			if RowWeight(weights, row) > 0 then
-				rows[#rows + 1] = row
-			end
-		end
-		table.sort(rows, function(a, b)
-			local wa, wb = RowWeight(weights, a), RowWeight(weights, b)
-			if wa ~= wb then
-				return wa > wb
-			end
-			return a < b
-		end)
-		local place, last = 0, nil
-		for index, row in ipairs(rows) do
-			local weight = RowWeight(weights, row)
-			if weight ~= last then
-				place, last = index, weight
-			end
-			places[row] = place
-		end
+local function RankGroup(rows, order, styles, group)
+	local slots = {}
+	for index, entry in ipairs(group) do
+		slots[index] = entry.index
 	end
-	return places
+	table.sort(group, function(a, b)
+		if a.weight ~= b.weight then
+			return a.weight > b.weight
+		end
+		return a.index < b.index
+	end)
+	local top, last, place = group[1].weight
+	for index, entry in ipairs(group) do
+		if entry.weight ~= last then
+			last, place = entry.weight, index
+		end
+		local data, slot = rows[entry.index], slots[index]
+		order[data] = slot
+		styles[data] = {
+			tier = Tier(entry.weight, top * TOP_SHARE, top * MID_SHARE),
+			place = entry.weight > 0 and place or nil,
+			statIndex = rows[slot].statIndex,
+		}
+	end
 end
 
-local BRIGHT, GREY = { 1, 1, 1 }, { 0.5, 0.5, 0.5 }
-
-local tiersFor, tiers, places -- the weights the tiers were worked out for
-
-local function CurrentTiers()
-	local weights = ns.StatWeights and ns.StatWeights()
-	if not weights then
-		return nil
+local function Presentation(rows, weights)
+	local order, styles = {}, {}
+	local groups, section = {}, {}
+	for index, data in ipairs(rows) do
+		order[data] = index
+		if data.isHeader then
+			section = {}
+		elseif weights and data.unit == "player" and ROW_KEYS[data.name] then
+			local weight = RowWeight(weights, ROW_KEYS[data.name])
+			local groupID = ROW_GROUP[data.name]
+			if groupID then
+				if not section[groupID] then
+					section[groupID] = {}
+					groups[#groups + 1] = section[groupID]
+				end
+				local group = section[groupID]
+				group[#group + 1] = { index = index, weight = weight }
+			else
+				-- Keep standalone rows aligned with ranked rows and reserve priority colors for ranks.
+				styles[data] = { tier = weight == 0 and 0 or nil }
+			end
+		end
 	end
-	if weights ~= tiersFor then
-		tiersFor, tiers, places = weights, StatRank.Tiers(weights), StatRank.Places(weights)
+	for _, group in ipairs(groups) do
+		RankGroup(rows, order, styles, group)
 	end
-	return tiers, places
+	return order, styles
 end
 
--- One row of the list: Blizzard's frames are reused for other rows, so a row that is not ranked gets its look back.
+local styles = {}
+local RANK_LABEL_INSET = 8
+
+-- Blizzard reuses the row frames. Restore the label and stripe when ranking no longer applies.
 local function OnRow(_, frame, data)
-	local label = frame and frame.Label
-	if not label or type(data) ~= "table" then
+	local label = frame.Label
+	if not label or type(data) ~= "table" or data.isHeader then
 		return
 	end
-	local current, place
-	if StatRank.db.enabled and not data.isHeader and data.unit == "player" then
-		current, place = CurrentTiers()
+	local style = styles[data]
+	local place = style and style.place
+	if place and not frame.fpPlace then
+		frame.fpPlace = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		frame.fpPlace:SetPoint("RIGHT", label, "LEFT", -2, 0)
 	end
-	local tier = current and current[data.name]
-	place = place and place[data.name]
 	if frame.fpPlace then
 		frame.fpPlace:SetShown(place ~= nil)
 	end
-	if not tier then
-		if frame.fpRanked then
-			frame.fpRanked = nil
-			label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	if style then
+		if not frame.fpRankColor then
+			frame.fpRankColor = { label:GetTextColor() }
+			local point, relative, relativePoint, x, y = label:GetPoint(1)
+			if point then
+				frame.fpRankLabelPoint = { point, relative, relativePoint, x, y }
+				label:SetPoint(point, relative, relativePoint, x + RANK_LABEL_INSET, y)
+			end
 		end
-		return
-	end
-	frame.fpRanked = true
-	if place then
-		if not frame.fpPlace then
-			frame.fpPlace = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			frame.fpPlace:SetPoint("RIGHT", label, "LEFT", -2, 0)
+		local color = COLORS[style.tier]
+		label:SetTextColor(unpack(color or frame.fpRankColor))
+		if place then
+			frame.fpPlace:SetFormattedText("%d.", place)
+			frame.fpPlace:SetTextColor(unpack(color))
 		end
-		frame.fpPlace:SetFormattedText("%d.", place)
-		frame.fpPlace:Show()
+	elseif frame.fpRankColor then
+		label:SetTextColor(unpack(frame.fpRankColor))
+		frame.fpRankColor = nil
+		if frame.fpRankLabelPoint then
+			label:SetPoint(unpack(frame.fpRankLabelPoint, 1, 5))
+			frame.fpRankLabelPoint = nil
+		end
 	end
-	if tier == 3 then
-		label:SetTextColor(unpack(BRIGHT))
-	elseif tier == 0 then
-		label:SetTextColor(unpack(GREY))
-	else
-		label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	local rankedIndex = style and style.statIndex
+	if frame.Background and (rankedIndex or frame.fpRankStripe) then
+		local statIndex = rankedIndex or data.statIndex
+		frame.Background:SetShown(statIndex % 2 == 1)
+		frame.fpRankStripe = rankedIndex ~= nil
 	end
 end
-StatRank.OnRow = OnRow
 
-local hooked = false
+local rankedProvider, rankedWeights
 
 function StatRank.Refresh()
 	local pane = CharacterStatsPaneScrollBox
 	local box = pane and pane.ScrollBox
-	if not box or not box.ForEachFrame then
+	if not box or not box.GetDataProvider then
 		return
 	end
-	if not hooked then
-		hooked = true
-		ScrollUtil.AddAcquiredFrameCallback(box, ns.Measured("StatRank: row", OnRow), StatRank)
+	local provider = box:GetDataProvider()
+	if not provider then
+		return
+	end
+	local collection = provider:GetCollection()
+	if #collection == 0 then
+		return
+	end
+	local weights = StatRank.db.enabled and ns.StatWeights() or nil
+	if provider == rankedProvider and weights == rankedWeights then
+		return
+	end
+
+	-- Blizzard keeps the original section order in elementData and gives the provider its own collection.
+	local order
+	order, styles = Presentation(pane.elementData, weights)
+	rankedProvider, rankedWeights = provider, weights
+	for index, data in ipairs(collection) do
+		if order[data] ~= index then
+			provider:Sort(function(a, b)
+				return order[a] < order[b]
+			end)
+			break
+		end
 	end
 	box:ForEachFrame(function(frame, data)
 		OnRow(nil, frame, data)
@@ -163,15 +200,16 @@ function StatRank.Refresh()
 end
 
 function StatRank:OnLogin()
-	if CharacterFrame then
-		CharacterFrame:HookScript("OnShow", ns.Measured("StatRank: window", StatRank.Refresh))
-	end
-	-- Another tree (talents spent, or chosen for the rating): the open window follows.
-	for _, event in ipairs({ "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "TRAIT_CONFIG_UPDATED", "PLAYER_LEVEL_UP" }) do
-		self:RegisterEvent(event, function()
-			ns.After("StatRank: refresh", 0.2, StatRank.Refresh)
-		end)
-	end
+	ns.OnAddOnLoaded("Blizzard_UIPanels_Game", function()
+		local pane = CharacterStatsPaneScrollBox
+		local box = pane and pane.ScrollBox
+		if not box or not box.GetDataProvider then
+			return
+		end
+		hooksecurefunc(box, "SetDataProvider", ns.Measured("StatRank: list", StatRank.Refresh))
+		ScrollUtil.AddInitializedFrameCallback(box, ns.Measured("StatRank: row", OnRow), StatRank)
+		StatRank.Refresh()
+	end)
 end
 
 function StatRank:OnOptionChanged()

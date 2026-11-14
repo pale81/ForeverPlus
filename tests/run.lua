@@ -102,7 +102,7 @@ NewFrame("Button", "ChatFrame1Tab")
 for _, n in ipairs({ "ChatFrameMenuButton", "ChatFrameChannelButton", "QuickJoinToastButton", "Minimap", "MinimapCluster",
 	"ScriptErrorsFrame", "DressUpFrame", "MainMenuBarBackpackButton", "MicroMenuContainer", "BagsBar", "ObjectiveTrackerFrame",
 	"QuestObjectiveTracker", "UIParent", "WorldMapFrame", "GameTooltip", "MainActionBar", "QuestInfoFrame", "MerchantFrame",
-	"ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
+	"ContainerFrame1", "ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
 ContainerFrameContainer = { ContainerFrames = {} }
 WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
 ActionBarButtonEventsFrame.frames = {}
@@ -124,10 +124,14 @@ C_AddOns = { GetAddOnMetadata = function() return "1.0.0" end }
 C_Timer = { NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } if rawget(_G, "RUN_TICKERS") then repeat fn(t) until t.dead end return t end, After = function() end, NewTimer = function() return { Cancel = function() end } end }
 C_Map = { GetBestMapForUnit = function() return 1453 end, GetPlayerMapPosition = function() return nil end,
 	GetMapInfo = function(id) return { mapType = 3, name = "x", mapID = id } end, GetMapChildrenInfo = function() return {} end,
+	GetAreaInfo = function() return nil end,
 	GetMapWorldSize = function() return 1000, 700 end, GetWorldPosFromMapPos = function() return nil end,
 	GetMapPosFromWorldPos = function() return nil end, GetMapRectOnMap = function() return nil end }
 C_ClassColor = { GetClassColor = function(c, t) assert(t == nil, "GetClassColor extra arg") return { GetRGB = function() return 1, 1, 1 end, WrapTextInColorCode = function(_, x) return x end } end }
 Enum = Mock("Enum"); Enum.ItemArmorSubclass = { Cloth = 1, Leather = 2, Mail = 3, Plate = 4 }; Enum.UIMapType = { Zone = 3 }; Enum.ItemQuality = { Poor = 0, Uncommon = 2 }
+Enum.BankType = { Character = 0, Account = 2 }
+Enum.BagIndex.CharacterBankTab_1, Enum.BagIndex.CharacterBankTab_9 = 6, 14
+Enum.BagIndex.Characterbanktab = -2
 GetProfessions = function() return 1, 2 end
 GetProfessionInfo = function(i) return "Prof", 1, 150, 300, 0, 0, i == 1 and 171 or 185 end
 C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true end
@@ -191,6 +195,7 @@ C_AddOns.IsAddOnLoaded = function() return true end
 C_AddOns.GetAddOnInfo = function(i) return i == 1 and "Slow" or "Fast", i == 1 and "|cffff0000Slow|r Addon" or "Fast" end
 issecretvalue = function() return false end
 MerchantSellAllJunkButton = CreateFrame("Button"); MerchantSellAllJunkButton.Icon = MerchantSellAllJunkButton:CreateTexture()
+ProfessionsFrame = false -- profession tests install their own frame
 setmetatable(_G, { __index = function(_, k) return Mock(k) end })
 
 dofile("qdb.lua")
@@ -367,6 +372,44 @@ do
 	local found
 	for _, v in ipairs(vbm[1439] or {}) do if v.npc == 4307 then found = v end end
 	assert(found and found.x == 37 and found.y == 56.4 and #found.items == 4, "bundled vendor on the Darkshore map")
+	local fixtureMap, itemID = 99999, found.items[1]
+	local skill = uv(gv, "RecipeStatus")
+	local skills, recipes = uv(skill, "skills"), uv(skill, "recipes")
+	local profession = recipes[itemID].skill
+	local savedRank, savedMap, savedCount = skills[profession], C_Map.GetBestMapForUnit, C_Item.GetItemCount
+	local savedRefresh, reads = ns.MapSymbols.Refresh, 0
+	vbm[fixtureMap] = {
+		{ npc = 1, team = "N", x = 25, y = 25, items = { itemID } },
+		{ npc = 2, team = "N", x = 50, y = 50, items = { itemID } },
+	}
+	skills[profession] = 60
+	C_Map.GetBestMapForUnit = function() return fixtureMap end
+	local owned = 0
+	C_Item.GetItemCount = function(id)
+		if id == itemID then reads = reads + 1 return owned end
+		return savedCount(id)
+	end
+	local counts
+	local radarSource
+	for _, source in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
+		if uv(source, "GetVendors") == gv then
+			radarSource = source
+			break
+		end
+	end
+	assert(radarSource, "the world map has a radar source")
+	ns.MapSymbols.Refresh = function()
+		counts = 0
+		radarSource(fixtureMap, function() counts = counts + 1 end)
+	end
+	refresh()
+	assert(reads == 1 and counts == 2, "the minimap and world map share one inventory check per recipe")
+	owned = 1
+	refresh()
+	assert(reads == 2 and counts == 0, "the next refresh sees the newly collected recipe")
+	vbm[fixtureMap], skills[profession] = nil, savedRank
+	C_Map.GetBestMapForUnit, C_Item.GetItemCount, ns.MapSymbols.Refresh = savedMap, savedCount, savedRefresh
+	refresh()
 end
 local P = ns.PrintAlways; ns.PrintAlways = function(m, ...) print("  " .. m:format(...)) end; radar:PrintStatus(); ns.PrintAlways = P
 print("radar OK")
@@ -378,6 +421,114 @@ local function upvalue(fn, name)
 		if n == name then return v end
 	end
 end
+;(function()
+	local bankView = ns:GetModule("BankView")
+	local listeners = upvalue(ns.RegisterEvent, "listeners")
+	local buttons = upvalue(bankView.OnOptionChanged, "buttons")
+	local savedBank, savedSlots, savedInfo = C_Bank, C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo
+	local available, loaded, scans = true, false, 0
+	local content = {
+		[6] = { itemID = 2589, stackCount = 19, hyperlink = "|Hitem:2589|h[Leinenstoff]|h", iconFileID = 132889 },
+		[7] = { itemID = 2592, stackCount = 4, itemName = "Wollstoff" },
+		[8] = { itemID = 4306, stackCount = 2, itemName = "Seidenstoff" },
+	}
+	C_Bank = {
+		CanViewBank = function(bankType) return available and bankType == Enum.BankType.Character end,
+		FetchPurchasedBankTabIDs = function() return loaded and { 6, 7, 8 } or { 6, 7 } end,
+		FetchMaxNumBankTabs = function() return 4 end,
+	}
+	C_Container.GetContainerNumSlots = function(bag)
+		scans = scans + 1
+		if bag == 6 then return 88 end
+		return loaded and 4 or 0
+	end
+	C_Container.GetContainerItemInfo = function(bag, slot)
+		if bag == Enum.BagIndex.Characterbanktab and slot == 2 and loaded then
+			return { itemID = 4498, stackCount = 1, itemName = "Brauner Lederranzen" }
+		end
+		return slot == (bag == 6 and 3 or 1) and content[bag] or nil
+	end
+	local function Send(event, ...)
+		local callback = listeners[event] and listeners[event][bankView]
+		if callback then callback(bankView, event, ...) end
+	end
+
+	assert(#buttons == 2 and buttons[1]:IsShown() and buttons[2]:IsShown(), "button in both bag modes")
+	assert(not bankView.cdb.snapshot, "first visit needed")
+	Send("BANKFRAME_OPENED")
+	assert(bankView.cdb.snapshot.items[6][3].count == 19 and not bankView.cdb.snapshot.items[6][1], "main bank preserves empty slots")
+	assert(bankView.cdb.snapshot.sizes[7] == 0, "unequipped bank bag")
+	loaded = true
+	Send("BAG_CONTAINER_UPDATE")
+	assert(bankView.cdb.snapshot.items[7][1].name == "Wollstoff", "equipped bank bag")
+	local before = scans
+	Send("BAG_UPDATE", 0)
+	Send("BAG_UPDATE", 15)
+	assert(scans == before, "bag and account bank changes do not read the character bank")
+	content[6] = nil
+	Send("BAG_UPDATE", 6)
+	assert(scans == before + 1 and #bankView.cdb.snapshot.items[6] == 0, "update only the affected bank bag")
+	available = false
+	Send("BAG_CONTAINER_UPDATE")
+	Send("BANKFRAME_CLOSED")
+	content[7] = nil
+	Send("BAG_UPDATE", 7)
+	assert(bankView.cdb.snapshot.items[7][1].link == "item:2592", "keep the saved contents away from the bank")
+
+	local savedFrame, savedDate = CreateFrame, rawget(_G, "date")
+	local query = ""
+	CreateFrame = function(kind, name, parent, template)
+		local frame = savedFrame(kind, name, parent, template)
+		if template == "SearchBoxTemplate" then
+			frame.GetText = function() return query end
+		elseif template == "BankPageTabTemplate" then
+			frame.SetCustomOnMouseUpHandler = function(self, fn) self.select = fn end
+		elseif kind == "ItemButton" then
+			local normal = frame:CreateTexture()
+			frame.GetNormalTexture = function() return normal end
+			frame.SetMatchesSearch = function(self, matches) self.matches = matches end
+			frame.SetItemButtonCount = function(self, count) self.count = count end
+		end
+		return frame
+	end
+	date = os.date
+	local click = buttons[2]:GetScript("OnClick")
+	local snapshot = bankView.cdb.snapshot
+	bankView.cdb.snapshot = { bags = { 7 }, items = { [7] = snapshot.items[7] }, updated = snapshot.updated }
+	click(buttons[2])
+	local window = ForeverPlusBankView
+	assert(window:IsShown() and window.Slots[1].count == 4, "legacy snapshot still opens")
+	click(buttons[2])
+	bankView.cdb.snapshot = snapshot
+	click(buttons[2])
+	assert(window:IsShown() and window.page == 1 and window.Slots[3].count == 0, "button opens the first page with empty slots")
+	assert(window.Tabs[2]:IsShown() and window.BankBags[4]:IsShown(), "page tabs and bank bag bar")
+	assert(window.BankBags[2].link == "item:4498" and window.BankBags[4].Lock:IsShown(), "equipped bag and locked bag slot")
+	local search = window.Search:GetScript("OnTextChanged")
+	query = " WOLL "
+	search()
+	assert(window.page == 2 and window.Slots[1].matches and window.Slots[1].count == 4, "search goes to the matching page")
+	assert(not window.Slots[5].matches and window.Slots[5].count == 2, "search dims nonmatches in their original slots")
+	window.Tabs[1]:select("LeftButton", true)
+	assert(window.page == 1, "clicking a tab selects its page while searching")
+	click(buttons[2])
+	assert(not window:IsShown(), "button closes the bank view")
+	CreateFrame, date = savedFrame, savedDate
+
+	bankView.db.enabled = false
+	bankView:OnOptionChanged()
+	assert(not buttons[1]:IsShown() and not buttons[2]:IsShown(), "option hides both buttons")
+	available = true
+	Send("BANKFRAME_OPENED")
+	assert(#bankView.cdb.snapshot.items[7] == 1, "disabled option stops recording")
+	bankView.db.enabled = true
+	bankView:OnOptionChanged()
+	assert(#bankView.cdb.snapshot.items[7] == 0, "enabling at the bank refreshes the snapshot")
+	Send("BANKFRAME_CLOSED")
+	bankView.cdb.snapshot = nil
+	C_Bank, C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo = savedBank, savedSlots, savedInfo
+	print("character bank snapshot OK")
+end)()
 local itemsMod = ns:GetModule("Items")
 local UpdateAllBags = upvalue(itemsMod.OnOptionChanged, "UpdateAllBags")
 local UpdateContainerFrame = upvalue(UpdateAllBags, "UpdateContainerFrame")
@@ -390,7 +541,7 @@ local ITEMS = {
 	["equippedBelt"] = { "INVTYPE_WAIST", 4, 2, { RESISTANCE0_NAME = 25 } },
 	["clothBelt"] = { "INVTYPE_WAIST", 4, 1, { RESISTANCE0_NAME = 9, ITEM_MOD_INTELLECT_SHORT = 5 } },
 	["leatherAgi"] = { "INVTYPE_WAIST", 4, 2, { RESISTANCE0_NAME = 30, ITEM_MOD_AGILITY_SHORT = 3 } },
-	["leatherInt"] = { "INVTYPE_WAIST", 4, 2, { RESISTANCE0_NAME = 20, ITEM_MOD_INTELLECT_SHORT = 6 } },
+	["leatherInt"] = { "INVTYPE_WAIST", 4, 2, { RESISTANCE0_NAME = 20, ITEM_MOD_INTELLECT_SHORT = 3 } },
 	["mailBelt"] = { "INVTYPE_WAIST", 4, 3, { RESISTANCE0_NAME = 60, ITEM_MOD_STRENGTH_SHORT = 5 } },
 }
 C_Item.GetItemInfoInstant = function(link) local d = ITEMS[link] return 1, nil, nil, d[1], nil, d[2], d[3] end
@@ -444,10 +595,63 @@ info.db.characters.Forever.Alt = { total = 7200, class = "WARRIOR", level = 30 }
 local uv = function(fn, name) for i = 1, 200 do local n, v = debug.getupvalue(fn, i) if not n then return end if n == name then return v end end end
 local add = uv(info.OnLogin, "AddPlayedLines")
 add()
-local show = uv(uv(info.UpdatePerformance, "CreatePerfFrame"), "ShowCpuTooltip")
+local show = uv(uv(uv(info.UpdatePerformance, "CreatePerfFrame"), "RefreshCpuTooltip"), "fn")
 show(UIParent)
 for _, l in ipairs(lines) do print("  " .. l) end
 print("info OK")
+;(function()
+	-- The CPU tooltip samples only after the world and loading screen are ready.
+	local sampler = uv(uv(info.UpdatePerformance, "SetupProfilerSampler"), "profilerSampler")
+	local event, sample = sampler:GetScript("OnEvent"), sampler:GetScript("OnUpdate")
+	local row = uv(sample, "sessionMetrics").Slow
+	local savedTime, savedMetric = GetTime, C_AddOnProfiler.GetAddOnMetric
+	local now, elapsed = 500, 40
+	GetTime = function() return now end
+	C_AddOnProfiler.GetAddOnMetric = function() return elapsed end
+	sample()
+	assert(row.recentCount == 0, "even a long login has no samples before world entry")
+
+	event(sampler, "PLAYER_ENTERING_WORLD", true, false)
+	now = 510
+	event(sampler, "LOADING_SCREEN_DISABLED")
+	now = 569
+	sample()
+	assert(row.recentCount == 0, "the first loading screen ends before the full startup grace")
+	now, elapsed = 570, 3.3
+	sample()
+	elapsed = 0.07
+	for _ = 1, 60 do sample() end
+	assert(row.peak == 3.3 and row.peakAt == 570 and row.slow == 0 and math.abs(row.recentTotal / row.recentCount - 0.07) < 0.001,
+		"the recent average ages out a peak below the slow-frame threshold")
+
+	now, elapsed = 600, 40
+	event(sampler, "LOADING_SCREEN_ENABLED")
+	event(sampler, "PLAYER_ENTERING_WORLD", false, false)
+	now = 625
+	sample()
+	assert(row.peak == 3.3, "a long zone loading screen suspends sampling")
+	event(sampler, "LOADING_SCREEN_DISABLED")
+	now = 644
+	sample()
+	assert(row.slow == 0, "zone grace runs from the end of the screen")
+	now, elapsed = 645, 6
+	sample()
+	assert(row.peak == 6 and row.slow == 1, "real gameplay spikes still count")
+
+	now, elapsed = 700, 40
+	event(sampler, "LOADING_SCREEN_ENABLED")
+	event(sampler, "LOADING_SCREEN_DISABLED")
+	now = 705
+	event(sampler, "PLAYER_ENTERING_WORLD", false, true)
+	now = 764
+	sample()
+	assert(row.peak == 6 and row.slow == 1, "reload waits a full minute from world entry")
+	now, elapsed = 765, 7
+	sample()
+	assert(row.peak == 7 and row.slow == 2, "sampling resumes after reload grace")
+	GetTime, C_AddOnProfiler.GetAddOnMetric = savedTime, savedMetric
+	print("cpu sampling grace OK")
+end)()
 -- Grey item keep exception
 local itemsM = ns:GetModule("Items")
 C_Container.GetContainerItemInfo = function() return { itemID = 99, hyperlink = "[grey]", quality = 0, stackCount = 1 } end
@@ -572,6 +776,17 @@ q.db.instanceTab = true; q.db.trackerSort = "level"
 sort()
 print("  world tab:", table.concat(watches, ","))
 assert(table.concat(watches, ",") == "14,16,12,11", "class first, instance quest on its own tab")
+do
+	local savedInfo, savedObjectives, savedDistance = C_QuestLog.GetInfo, C_QuestLog.GetQuestObjectives, C_QuestLog.GetDistanceSqToQuest
+	local logReads, objectiveReads, distanceReads = 0, 0, 0
+	C_QuestLog.GetInfo = function(index) logReads = logReads + 1 return savedInfo(index) end
+	C_QuestLog.GetQuestObjectives = function() objectiveReads = objectiveReads + 1 return {} end
+	C_QuestLog.GetDistanceSqToQuest = function() distanceReads = distanceReads + 1 return 0, true end
+	sort()
+	assert(logReads == #log and objectiveReads == 0 and distanceReads == 0,
+		"the stable tracker sort and both tabs share one log read and skip unused keys")
+	C_QuestLog.GetInfo, C_QuestLog.GetQuestObjectives, C_QuestLog.GetDistanceSqToQuest = savedInfo, savedObjectives, savedDistance
+end
 q.cdb.trackerTab = "instance"; sort()
 assert(table.concat(watches, ",") == "15", "instance tab")
 q.cdb.watched[15] = nil; sort()
@@ -588,15 +803,18 @@ q.db.trackerSort = "progress"; sort()
 do
 	local readyID = 12
 	local realReady = ns.IsQuestReady
+	local savedAdd, adds = C_QuestLog.AddQuestWatch, 0
+	C_QuestLog.AddQuestWatch = function(id) adds = adds + 1 return savedAdd(id) end
 	ns.IsQuestReady = function(id) return id == readyID end
 	q.cdb.watched = nil
 	q.db.trackerSort = "default"; q.db.readyOnly = true; sort()
-	assert(table.concat(watches, ",") == "12", "only the ready quest stays tracked")
+	assert(table.concat(watches, ",") == "12" and adds == 0, "filtering out other quests leaves the existing watch in place")
 	readyID = nil; sort()
 	table.sort(watches)
 	assert(table.concat(watches, ",") == "11,12,14,15,16", "nothing ready: all shown again")
 	q.db.readyOnly = false; sort()
 	ns.IsQuestReady = realReady
+	C_QuestLog.AddQuestWatch = savedAdd
 end
 print("sort OK")
 -- Reputation text
@@ -684,24 +902,149 @@ ns:ResetFramePositions()
 assert(entry and not ns:HasSavedPosition(entry))
 assert(next(ns.db.unlocked) == nil, "reset locks again")
 print("mover OK")
--- Trainer spells glow
-local talents = ns:GetModule("Talents")
-local learn = uv(uv(talents.Update, "UpdateSpellsGlow"), "LearnableSpells")
-C_SpellBook.IsSpellKnown = function(id) return id == 101 end; IsPlayerSpell = function(id) return id == 101 end; UnitLevel = function() return 20 end
-local cs = uv(learn, "CollectSpells"); for k, v in pairs(cs()) do print("  lvl", k, #v) end
-local l = learn()
-print("  learnable:", #l, l[1], l[2], C_SpellBook.GetCurrentLevelSpells, GetMaxLevelForPlayerExpansion(), UnitLevel("player"))
-C_Spell.GetSpellName = function(id) return "Spell" .. id end
-C_Spell.GetSpellSubtext = function() return "" end
-C_Spell.GetSpellTexture = function() return 1 end
-l = learn()
-assert(#l == 1 and l[1] == "Spell102|", "learnable spell")
-local tl = uv(cs, "TrainerList")()
-tl[1] = { name = "Future", level = 30, icon = 1 }
-local all = cs()
-assert(all[30] and all[30][1].name == "Future" and #learn() == 1, "trainer future spell")
-talents.cdb.seenSpells = {}
-print("talents glow OK")
+;(function()
+	local talents = ns:GetModule("Talents")
+	local savedBook, savedSpell, savedFrame, savedRegistry = C_SpellBook, C_Spell, CreateFrame, EventRegistry
+	local savedKnown, savedAfter = IsPlayerSpell, C_Timer.After
+	local savedIndex, savedQueue = Enum.SpellBookSkillLineIndex, uv(talents.Update, "queueTrainerBook")
+	local savedTrainer, savedLevel = talents.db.trainer.MAGE, UnitLevel
+	local savedAvailable, savedTrainable, savedColor = SPELLBOOK_AVAILABLE_AT, SPELLBOOK_TRAINABLE, SPELLBOOK_FONT_COLOR
+	Enum.SpellBookSkillLineIndex = { General = 1 }
+	IsPlayerSpell = function() return false end
+	UnitLevel = function() return 20 end
+	SPELLBOOK_AVAILABLE_AT, SPELLBOOK_TRAINABLE = "Level %d", "Trainable"
+	SPELLBOOK_FONT_COLOR = { GetRGB = function() return 0.15, 0.1, 0.05 end }
+
+	local slots = {
+		{ name = "A", spellID = 101 },
+		{ name = "Frost", spellID = 102, subName = "Rank 1" },
+		{ name = "Frost", spellID = 104, subName = "Rank 2" },
+	}
+	C_SpellBook = {
+		GetNumSpellBookSkillLines = function() return 2 end,
+		GetSpellBookSkillLineInfo = function(line)
+			return line == 1 and { name = "General", itemIndexOffset = 0, numSpellBookItems = 1 }
+				or { name = "Frost", itemIndexOffset = 1, numSpellBookItems = 2 }
+		end,
+		GetSpellBookItemInfo = function(slot) return slots[slot] end,
+		IsSpellKnown = function(id) return id == 101 or id == 102 or id == 108 end,
+		GetCurrentLevelSpells = function(level) return level == 10 and { 101, 103, 104, 108 } or {} end,
+	}
+	C_Spell = {
+		GetSpellName = function(id) return ({ [101] = "A", [103] = "C", [104] = "Frost", [108] = "Known" })[id] end,
+		GetSpellSubtext = function(id) return id == 104 and "Rank 2" or "" end,
+		GetSpellTexture = function() return 1 end,
+	}
+	talents.db.trainer.MAGE = {
+		{ name = "B", level = 30, icon = 1 },
+		{ name = "Known", level = 10 },
+		{ name = "Frost", rank = "Rank 2", level = 14, line = "Frost" },
+		{ name = "Frost", rank = "Rank 3", level = 20, line = "Frost" },
+	}
+
+	local frames, onPageChanged, fontWrites, bookScripts = {}, nil, 0, {}
+	CreateFrame = function(kind, name, parent, template)
+		local frame = savedFrame(kind, name, parent, template)
+		frame.SetPoint = function(self, ...) self.testAnchor = { ... } end
+		frame.testTemplate = template
+		if template == "SpellBookItemTemplate" then
+			for _, text in ipairs({ frame.Name, frame.SubName, frame.RequiredLevel }) do
+				text.GetFont = function() return "Font", 14, "OUTLINE" end
+				text.SetFont = function(self, _, _, flags) self.testFlags = flags fontWrites = fontWrites + 1 end
+				text.SetText = function(self, content) self.testText = content end
+			end
+		end
+		frames[#frames + 1] = frame
+		return frame
+	end
+	EventRegistry = { RegisterCallback = function(_, _, fn) onPageChanged = fn end }
+	local category = { skillLineIndex = 1, GetSpellBank = function() return Enum.SpellBookSpellBank.Player end }
+	local view = { GetWidth = function() return 220 end, GetHeight = function() return 130 end }
+	local nativeLayout = { { gridRow = 1, gridColumn = 1, isHeader = true }, { gridRow = 2, gridColumn = 1 } }
+	local pager = {
+		ViewFrames = { view, view }, columnsPerRow = 2, viewsPerPage = 1, xPadding = 10, yPadding = 10,
+		viewDataList = { nativeLayout }, GetFrameLevel = function() return 10 end,
+		PagingControls = NewFrame("Frame"),
+	}
+	pager.PagingControls.GetCurrentPage = function() return 1 end
+	pager.PagingControls.GetMaxPages = function() return 1 end
+	local book = {
+		PagedSpellsFrame = pager, IsVisible = function() return true end,
+		GetActiveCategoryMixin = function() return category end, categoryMixins = { category },
+		OnActiveCategoryChanged = function() end, HookScript = function(_, script, fn) bookScripts[script] = fn end,
+	}
+	uv(talents.OnLogin, "SetupSpellsBook")(book)
+	talents:Update()
+	local row, nextPage, previousPage
+	for _, frame in ipairs(frames) do
+		if frame.testTemplate == "SpellBookItemTemplate" then row = frame end
+		if frame.testTemplate == "PagingControlsNextPageButtonTemplate" then nextPage = frame end
+		if frame.testTemplate == "PagingControlsPrevPageButtonTemplate" then previousPage = frame end
+	end
+	assert(row.fpTrainerEntry.spellID == 103 and row.testAnchor[4] == 115 and row.testAnchor[5] == -70,
+		"the lowest-level preview uses the free cell alongside a native spell")
+	assert(row.Name.testFlags == "" and row.RequiredLevel.testText:find("Trainable", 1, true),
+		"readable text and trainer label")
+	assert(nextPage:IsShown() and #nativeLayout == 2, "overflow uses an arrow and leaves the native page data intact")
+	local refresh, scheduled = nil, 0
+	C_Timer.After = function(_, fn) refresh, scheduled = fn, scheduled + 1 end
+	nextPage:GetScript("OnClick")()
+	nextPage:GetScript("OnClick")()
+	previousPage:GetScript("OnClick")()
+	assert(scheduled == 1, "several page turns in one frame share a refresh")
+	local originalAnchor = row.testAnchor
+	refresh()
+	assert(row.fpTrainerEntry.spellID == 103 and row.testAnchor == originalAnchor and fontWrites == 3,
+		"an unchanged page reuses the anchors and font settings")
+	C_Timer.After = savedAfter
+	nextPage:GetScript("OnClick")()
+	assert(row.fpTrainerEntry.name == "B" and row.testAnchor[4] == 0, "the higher-level preview follows on the next page")
+	assert(row.RequiredLevel.testText == "Level 30", "future entry shows the required level")
+	previousPage:GetScript("OnClick")()
+	assert(row.fpTrainerEntry.spellID == 103 and fontWrites == 3, "previous arrow reuses the existing fonts")
+	local originalEntry = row.fpTrainerEntry
+	bookScripts.OnHide()
+	bookScripts.OnShow()
+	assert(row.fpTrainerEntry == originalEntry, "reopening the book reuses the spell results")
+	pager.viewsPerPage = 2
+	onPageChanged()
+	assert(not nextPage:IsShown(), "the second visible book page also has room for previews")
+	pager.viewsPerPage = 1
+	category.skillLineIndex = 2
+	onPageChanged()
+	assert(row.fpTrainerEntry.rank == "Rank 3" and not nextPage:IsShown(), "native future ranks are skipped in their own category")
+	talents.db.enabled = false
+	talents:Update()
+	assert(not frames[1]:IsShown(), "disabling hides only the preview layer")
+	talents.db.enabled = true
+	talents:Update()
+	assert(frames[1]:IsShown(), "previews reappear in the active category")
+
+	local savedTicker = C_Timer.NewTicker
+	local pending
+	C_Timer.NewTicker = function(_, fn)
+		pending = { Run = fn, Cancel = function(self) self.cancelled = true end }
+		return pending
+	end
+	talents:Update()
+	local oldScan = pending
+	oldScan:Run()
+	bookScripts.OnHide()
+	assert(oldScan.cancelled and not frames[1]:IsShown(), "closing the book cancels an unfinished spell scan")
+	bookScripts.OnShow()
+	assert(pending ~= oldScan and not pending.cancelled, "reopening starts a new scan")
+	talents:Update()
+	assert(pending and not pending.cancelled, "changed spell data replaces the current scan")
+	bookScripts.OnHide()
+	C_Timer.NewTicker = savedTicker
+
+	C_SpellBook, C_Spell, CreateFrame, EventRegistry = savedBook, savedSpell, savedFrame, savedRegistry
+	IsPlayerSpell, UnitLevel = savedKnown, savedLevel
+	SPELLBOOK_AVAILABLE_AT, SPELLBOOK_TRAINABLE, SPELLBOOK_FONT_COLOR = savedAvailable, savedTrainable, savedColor
+	Enum.SpellBookSkillLineIndex, talents.db.trainer.MAGE = savedIndex, savedTrainer
+	setuv(talents.Update, "queueTrainerBook", savedQueue)
+	print("trainer spells in spellbook OK")
+end)()
 -- Helpers: disenchant detection and fishing binding
 local helpers = ns:GetModule("Helpers")
 IsPlayerSpell = function(id) return id == 13262 or id == 7620 end
@@ -781,7 +1124,44 @@ do
 	GameTooltipTextLeft1 = { GetText = function() return "Briefkasten" end, GetTextColor = function() return 1, 0.82, 0 end }
 	GameTooltip.IsForbidden = function() return false end
 	objectCall(GameTooltip)
+
+	-- A readable name can still have secret font measurements after hovering a unit.
+	local frame = uv(objectCall, "GetHover")()
+	local savedSecret, savedSetSize = issecretvalue, frame.SetSize
+	local savedWidth, savedHeight, savedLevelWidth = frame.Name.GetStringWidth, frame.Name.GetStringHeight, frame.Level.GetStringWidth
+	local savedGreyWidth, savedGreyHeight = frame.Grey.GetStringWidth, frame.Grey.GetStringHeight
+	local secret = 9999
+	issecretvalue = function(value) return value == secret end
+	frame.SetSize = function(self, width, height) self.w, self.h = width, height end
+	frame.Name.GetStringWidth = function() return secret end
+	frame.Name.GetStringHeight = function() return secret end
+	objectCall(GameTooltip)
+	assert(frame:IsShown() and not frame.masked and frame.w == 82 and frame.h == 14, "object uses unclipped text measurements")
+
 	UnitExists = function() return true end
+	show()
+	assert(frame.masked and frame.w == 166 and frame.h == 14, "health mask works with secret dimensions on the clipped copy")
+	frame.Grey.GetStringWidth = function() return secret end
+	show()
+	assert(frame:IsShown() and not frame.masked and not frame.Level:IsShown() and frame.w == 1 and frame.h == 13,
+		"secret name width falls back to an unclipped label")
+	frame.Grey.GetStringWidth = savedGreyWidth
+	frame.Grey.GetStringHeight = function() return secret end
+	show()
+	assert(not frame.masked and not frame.Level:IsShown() and frame.w == 1 and frame.h == 13,
+		"secret name height falls back to an unclipped label")
+	frame.Grey.GetStringHeight = savedGreyHeight
+	frame.Level.GetStringWidth = function() return secret end
+	show()
+	assert(frame.masked and not frame.Level:IsShown() and frame.w == 82 and frame.h == 14,
+		"secret level width is excluded from layout")
+	frame.Level.GetStringWidth = savedLevelWidth
+	show()
+	assert(frame.masked and frame.Level:IsShown() and frame.w == 166 and frame.h == 14,
+		"regular layout returns with readable measurements")
+	frame.Name.GetStringWidth, frame.Name.GetStringHeight = savedWidth, savedHeight
+	issecretvalue, frame.SetSize = savedSecret, savedSetSize
+
 	-- the name stays while the tooltip comes and shows, and goes when the game starts fading it out
 	local stays, peak = Tip.ObjectNameStays(false, 0, nil, 0.05)
 	assert(stays, "tooltip not shown yet right after its data: name stays")
@@ -936,12 +1316,12 @@ C_Item.IsItemDataCachedByID = function() return true end
 C_Item.DoesItemExist = function() return true end
 local s1, e1 = compare("hammer")
 print("  no points", s1, e1, select(2, getW()))
-assert(s1 > e1, "hammer better without points")
+assert(s1 > e1 and select(3, getW()) == 2, "hammer better without points, enhancement weights by default")
 spent[11] = 1
 resetWeights()
 local s2, e2 = compare("hammer")
 print("  elemental lvl10", s2, e2, select(2, getW()))
-assert(select(2, getW()) == "Elementar" and s2 > e2, "hammer better for levelling elemental")
+assert(select(2, getW()) == "Elementar" and select(3, getW()) == 1 and s2 > e2, "hammer better for levelling elemental")
 UnitLevel = function() return 60 end
 resetWeights()
 local s3, e3 = compare("hammer")
@@ -954,6 +1334,49 @@ local pat = "^" .. DPS_TEMPLATE:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0"):gsub(
 print("  pattern", pat, ("(7,3 Schaden pro Sekunde)"):match(pat))
 assert(("(7,3 Schaden pro Sekunde)"):match(pat) == "7,3")
 print("upgrade trees OK")
+;(function()
+	local savedProfile = upvalue(getW, "weights")
+	local savedStats, savedInfo = C_Item.GetItemStats, C_Item.GetItemInfoInstant
+	local savedRating = GetCombatRatingBonusForCombatRatingValue
+	local serial = 0
+	local function CheckScore(stats, expected)
+		C_Item.GetItemStats = function() return stats end
+		serial = serial + 1
+		local score = scoreFn("rating-test:" .. serial)
+		assert(math.abs(score - expected) < 0.0001, ("expected %.2f, got %.2f"):format(expected, score))
+	end
+	C_Item.GetItemInfoInstant = function() return nil, nil, nil, nil, nil, Enum.ItemClass.Armor end
+	GetCombatRatingBonusForCombatRatingValue = nil
+	local shared = { ITEM_MOD_HIT_RATING_SHORT = 4, ITEM_MOD_CRIT_RATING_SHORT = 14 }
+	setuv(getW, "weights", { HIT = 15, SHIT = 14, CRIT = 10, SCRIT = 12 })
+	CheckScore(shared, 18)
+	setuv(getW, "weights", { SHIT = 14, SCRIT = 12 })
+	CheckScore(shared, 17.6)
+	CheckScore({ ITEM_MOD_HIT_RANGED_RATING_SHORT = 4 }, 0)
+	setuv(getW, "weights", { SP = 0.85, HEAL = 1, SHASTE = 12 })
+	CheckScore({ ITEM_MOD_HASTE_RATING_SHORT = 5, ITEM_MOD_SPELL_POWER_SHORT = 20, ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = 10 }, 34.5)
+	setuv(getW, "weights", upvalue(getW, "WEIGHTS").MAGE[2])
+	CheckScore({ ITEM_MOD_FIRE_DAMAGE_DONE_SHORT = 10, ITEM_MOD_FROST_DAMAGE_DONE_SHORT = 20 }, 9)
+
+	setuv(getW, "weights", upvalue(getW, "WEIGHTS").PALADIN[2])
+	CheckScore({
+		ITEM_MOD_DEFENSE_SKILL_RATING_SHORT = 4, ITEM_MOD_BLOCK_VALUE_SHORT = 3,
+		ITEM_MOD_BLOCK_RATING_SHORT = 5, ITEM_MOD_DODGE_RATING_SHORT = 12, ITEM_MOD_PARRY_RATING_SHORT = 15,
+		ITEM_MOD_EXPERTISE_RATING_SHORT = 10, ITEM_MOD_HASTE_RATING_SHORT = 10,
+	}, 53.1)
+	local index, value
+	GetCombatRatingBonusForCombatRatingValue = function(ratingIndex, raw)
+		index, value = ratingIndex, raw
+		return 0.2
+	end
+	setuv(getW, "weights", { HIT = 15 })
+	CheckScore({ ITEM_MOD_HIT_RATING_SHORT = 4 }, 3)
+	assert(index == 6 and value == 4, "prefer the client's conversion for the actual rating amount")
+	setuv(getW, "weights", savedProfile)
+	C_Item.GetItemStats, C_Item.GetItemInfoInstant = savedStats, savedInfo
+	GetCombatRatingBonusForCombatRatingValue = savedRating
+	print("forever item rating units OK")
+end)()
 -- Upgrade toast: gain over the worn item, none for an empty slot
 do
 	local items = ns:GetModule("Items")
@@ -1114,6 +1537,44 @@ do
 	assert(ns.ExtraInfoShown(), "option on: shown with Shift")
 	tt.db.shiftInfo = false
 end
+;(function()
+	local onShift = uv(ns:GetModule("Tooltip").OnLogin, "OnShiftChanged")
+	local savedTooltip, savedSecrets, savedSecret = GameTooltip, C_Secrets, issecretvalue
+	local refreshed, restrictedUnit = 0, nil
+	local item = { tooltipData = { lines = {} } }
+	local world = { getterName = "GetWorldCursor", tooltipData = { lines = { { unitToken = "mouseover" } } } }
+	GameTooltip = NewFrame("GameTooltip")
+	GameTooltip.RefreshData = function() refreshed = refreshed + 1 end
+	C_Secrets = { ShouldUnitIdentityBeSecret = function(unit) return unit == restrictedUnit end }
+	issecretvalue = function(value) return value == "secret" end
+
+	GameTooltip.infoList = { item }
+	onShift(nil, nil, "LCTRL")
+	assert(refreshed == 0, "other modifiers do not refresh the tooltip")
+	onShift(nil, nil, "LSHIFT")
+	GameTooltip.infoList = { world }
+	onShift(nil, nil, "RSHIFT")
+	assert(refreshed == 2, "Shift rebuilds readable item and world tooltips")
+
+	GameTooltip.infoList = { item, { tooltipData = { lines = { { unitToken = "secret" } } } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a secret unit line in appended data prevents the rebuild")
+
+	GameTooltip.infoList = { { getterName = "GetUnit", getterArgs = { "secret" }, tooltipData = { lines = {} } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a secret getter argument prevents the rebuild")
+
+	GameTooltip.infoList = { world }
+	restrictedUnit = "mouseover"
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a newly restricted mouseover prevents replaying the world cursor getter")
+	restrictedUnit = nil
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 3, "normal refresh resumes when the unit is readable again")
+
+	GameTooltip, C_Secrets, issecretvalue = savedTooltip, savedSecrets, savedSecret
+	print("Shift tooltip refresh OK")
+end)()
 -- Tracking menu entries
 do
 	local mm = ns:GetModule("Minimap")
@@ -1193,9 +1654,9 @@ print("chat copy OK")
 local vis = ns:GetModule("Visuals")
 local updateWatch = uv(vis.OnOptionChanged, "UpdateAuraWatch")
 local updateAuras = uv(updateWatch, "UpdateActiveAuras")
-local colorBtn = uv(uv(updateAuras, "RecolorAll"), "ColorButton")
+local colorBtn = uv(uv(updateAuras, "RecolorBuffButtons"), "ColorButton")
 vis.db.actionColors, vis.db.colorActiveBuff, vis.db.colorRange = true, true, true
-local auras = { { name = "Siegel der Rechtschaffenheit" } }
+local auras = { { name = "Siegel der Rechtschaffenheit", auraInstanceID = 11 } }
 C_UnitAuras = { GetAuraDataByIndex = function(_, i) return auras[i] end }
 C_Secrets = { ShouldAurasBeSecret = function() return false end }
 C_Spell.IsSelfBuff = function(id) return id == 20154 end
@@ -1204,9 +1665,30 @@ GetActionInfo = function(slot) return "spell", slot == 1 and 20154 or 635 end
 C_ActionBar.IsUsableAction = function() return true end
 local function mkBtn(slot) local b = { action = slot, icon = { SetVertexColor = function(self, r) self.r = r end, SetDesaturated = function(self, d) self.d = d end } } return b end
 local seal, light = mkBtn(1), mkBtn(2)
-updateAuras()
+updateWatch()
 colorBtn(seal); colorBtn(light)
 assert(seal.icon.d == true and not light.icon.d, "active seal greyed")
+do
+	local savedAfter, queued, scheduled, scans = C_Timer.After, nil, 0, 0
+	C_Timer.After = function(_, fn) queued, scheduled = fn, scheduled + 1 end
+	C_UnitAuras.GetUnitAuras = function() scans = scans + 1 return auras end
+	local watcher = uv(updateWatch, "auraWatcher")
+	local onEvent = watcher:GetScript("OnEvent")
+	onEvent(watcher, "UNIT_AURA", "player", { updatedAuraInstanceIDs = { 11 } })
+	onEvent(watcher, "UNIT_AURA", "player", { addedAuras = { { isHelpful = false } }, removedAuraInstanceIDs = { 22 } })
+	assert(scheduled == 0, "refreshes and harmful auras skip the scan")
+	local saved = auras
+	auras = {}
+	onEvent(watcher, "UNIT_AURA", "player", { removedAuraInstanceIDs = { 11 } })
+	onEvent(watcher, "UNIT_AURA", "player", { isFullUpdate = true })
+	assert(scheduled == 1, "helpful removal and full update share a scan")
+	light.icon.r = 0.25
+	queued()
+	assert(scans == 1 and seal.icon.d == false and light.icon.r == 0.25, "one batch read updates the buff button only")
+	C_UnitAuras.GetUnitAuras = nil
+	auras, C_Timer.After = saved, savedAfter
+	updateAuras()
+end
 do
 	C_Secrets.ShouldAurasBeSecret = function() return true end
 	local saved = auras
@@ -1233,16 +1715,53 @@ auras = { { name = "Siegel der Rechtschaffenheit" } }
 updateAuras(); colorBtn(seal)
 assert(not seal.icon.d, "exception keeps seal normal")
 vis.db.activeBuffExceptions = {}
-local timerFn
-C_Timer.NewTimer = function(_, fn) timerFn = fn return { Cancel = function() end } end
-ns.timings["old"] = { max = 1, count = 1, slow = 0 }
-local doneMeasure
-ns.StartTimedMeasure(30, function() doneMeasure = true end)
-assert(ns.measuring and not ns.timings.old, "measuring, old values cleared")
-ns.RecordTiming("X: y", 3)
-timerFn()
-assert(doneMeasure and not ns.measuring and ns.TopTimings(5)[1].name == "X: y", "timed measure")
-print("exceptions/measure OK")
+;(function()
+	local timerFn
+	C_Timer.NewTimer = function(_, fn) timerFn = fn return { Cancel = function() end } end
+	ns.timings["old"] = { max = 1, count = 1, slow = 0 }
+	local doneMeasure
+	ns.StartTimedMeasure(30, function() doneMeasure = true end)
+	assert(ns.measuring and not ns.timings.old, "measuring, old values cleared")
+	local sampleFrame = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
+	local savedMetric = C_AddOnProfiler.GetAddOnMetric
+	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
+	sampleFrame()
+	assert(ns.spikes.samples == 0, "ignore the profiler value from before the current measurement")
+	ns.RecordTiming("X: y", 0.9)
+	ns.RecordTiming("Y: x", 0.4)
+	C_AddOnProfiler.GetAddOnMetric = function() return 5 end
+	sampleFrame()
+	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
+	sampleFrame()
+	assert(ns.spikes.samples == 2 and ns.spikes.count == 1 and ns.spikes.worst == 35 and ns.spikes.name == "X: y",
+		"one slow frame can occur even when every individual call is short")
+	timerFn()
+	assert(doneMeasure and not ns.measuring and ns.TopTimings(5)[1].name == "X: y", "timed measure")
+	local oldFrames = ns.spikes
+	local info = ns:GetModule("Info")
+	local savedResult = info.lastMeasure
+	info.lastMeasure = { calls = ns.TopTimings(5), frames = oldFrames }
+	ns.SetMeasuring(true)
+	sampleFrame()
+	C_AddOnProfiler.GetAddOnMetric = function() return 0.7 end
+	sampleFrame()
+	assert(ns.spikes.worst == 0.7 and ns.spikes.count == 0 and oldFrames.worst == 35,
+		"the next measurement shows a peak below the threshold without overwriting the previous result")
+	ns.SetMeasuring(false)
+	C_AddOnProfiler.GetAddOnMetric = savedMetric
+	local captured = {}
+	local savedTooltip = GameTooltip
+	GameTooltip = NewFrame("Tooltip")
+	GameTooltip.AddLine = function(_, line) captured[line] = true end
+	GameTooltip.AddDoubleLine = function(_, label, value) captured[label] = value end
+	local createPerfFrame = uv(info.UpdatePerformance, "CreatePerfFrame")
+	uv(createPerfFrame, "RefreshCpuTooltip")(UIParent)
+	assert(captured[ns.FormatMeasuredFrames(oldFrames)] and captured["X: y"] == "0.9 ms (1)",
+		"the tooltip shows the finished measurement's frame peak alongside its individual calls")
+	GameTooltip = savedTooltip
+	info.lastMeasure = savedResult
+	print("exceptions/measure OK")
+end)()
 -- Popup list smoke test (layout logic)
 local owner = NewFrame("Button")
 local built = 0
@@ -1665,6 +2184,33 @@ end)()
 	assert(other == 1, "the cooldown sentence is only counted: " .. other)
 	lines = ns.TalentSummary.Build({ "Increases your attack speed by 5%. Reduces threat caused by 10%." }, false)
 	assert(#lines == 2 and lines[1].text == "+5 % Attack speed" and lines[2].text == "-10 % Threat", lines[1].text .. " / " .. lines[#lines].text)
+	local gain = ns.TalentSummary.RankGain
+	local weights = { STA = 1.5, DODGE = 12, DEF = 1.5 }
+	assert(gain("Increases your Defense Skill by 4.", "Increases your Defense Skill by 8.", weights, {}, false) == 6,
+		"score the next rank's increase")
+	assert(gain(nil, "Erhöht Eure Ausdauer um 2%.", weights, { STA = 76 }, true) == 76 * 0.02 * 1.5,
+		"estimate a percentage of the current attribute")
+	local ret = upvalue(getW, "WEIGHTS").PALADIN[3]
+	local stats = { INT = 100, STR = 100 }
+	local intellectGain = gain("Increases your total Intellect by 2%.", "Increases your total Intellect by 4%.", ret, stats, false)
+	assert(intellectGain == 2 * ret.INT and intellectGain > gain(nil, "Increases your Strength by 2%.", ret, stats, false),
+		"recognize Divine Intellect and compare it with Divine Strength using the Retribution weights")
+	assert(gain("Erhöht Eure gesamte Intelligenz um 2%.", "Erhöht deine gesamte Intelligenz um 4%.", ret, stats, true) == intellectGain
+		and gain(nil, "Erhöht deine Stärke um 2%.", ret, stats, true) == 2 * ret.STR,
+		"recognize the localized direct attribute bonuses")
+	assert(gain(nil, "Increases your chance to dodge by an additional 2%.", weights, {}, false) == 24,
+		"score a change in chance in percentage points")
+	local healer = { SP = 0.85, HEAL = 1, HASTE = 2, SHASTE = 6, SCRIT = 7 }
+	assert(gain(nil, "Increases your spell power by 10.", healer, {}, false) == 10,
+		"generic spell power has the same value in talents and in gear")
+	assert(gain(nil, "Increases your melee attack speed by 2%.", healer, {}, false) == 4
+		and gain(nil, "Erhöht Euer Zaubertempo um 2%.", healer, {}, true) == 12,
+		"keep explicitly melee and spell haste talents separate")
+	assert(gain(nil, "Erhöht Eure kritische Trefferchance mit allen Zaubern und Angriffen um 2%.", healer, {}, true) == 14,
+		"use the profile's spell crit weight for a shared crit talent")
+	assert(not gain(nil, "Increases your chance to dodge by 2% for 10 sec.", weights, {}, false)
+		and not gain(nil, "Increases your Stamina by 2% while in Bear Form.", weights, { STA = 76 }, false),
+		"temporary and conditional effects are outside the item model")
 	local classes = 0
 	for class, builds in pairs(ns.TalentPresets) do
 		classes = classes + 1
@@ -1676,6 +2222,11 @@ end)()
 		end
 	end
 	assert(classes == 9, "all nine classes")
+	local retPreset = ns.TalentPresets.PALADIN[3]
+	local retRanks = ns.TalentBuilds.ParseRanks(retPreset.ranks)
+	assert(retPreset.points == "12/8/31" and retRanks[105332] == 5 and retRanks[105638] == 3
+		and retRanks[113630] == 5 and retRanks[105334] == 5 and retRanks[105704] == 2,
+		"use the simulated Retribution secondary talents in Holy and Protection")
 	print("talent summary and presets OK")
 end)()
 ;(function()
@@ -1962,6 +2513,113 @@ end)()
 	end
 end)()
 ;(function()
+	local talents = ns:GetModule("Talents")
+	local menu = uv(uv(uv(talents.OnLogin, "SetupPlanner"), "CreatePlanBar"), "ShowBuildMenu")
+	local buildList, active = uv(menu, "BuildList"), uv(menu, "ActiveBuild")
+	local key = uv(buildList, "PlanKey")()
+	local class = key:match("^[^:]+")
+	local list, original = buildList(), active()
+	local savedCount, savedSeq, savedActive = #list, talents.db.buildSeq, talents.cdb.activeBuild[key]
+	local savedNext = talents.db.planNext
+	local savedFrame, savedTraits, savedSpell, savedLocale, savedStat = PlayerSpellsFrame, C_Traits, C_Spell, GetLocale, UnitStat
+	local savedWeights, savedPresets, savedPrint, savedMenu = ns.StatWeights, ns.TalentPresets, ns.Print, MenuUtil.CreateContextMenu
+	talents.db.planNext = false
+	local buttons, defs = {}, {}
+	local function Add(id, tree, row, column, maxRanks, learned)
+		defs[id] = { ID = id, posX = tree * 1000 + column * 50, posY = row * 100, maxRanks = maxRanks,
+			ranksPurchased = learned or 0, entryIDs = { id }, groupIDs = { tree } }
+		local button = CreateFrame("Button")
+		button.GetNodeID = function() return id end
+		button.GetName = function() return "Talent " .. id end
+		buttons[button] = true
+	end
+	local preset = {}
+	for row = 0, 5 do
+		Add(11 + row, 2, row, row % 3, 5)
+		preset[#preset + 1] = (11 + row) .. ":5"
+	end
+	for row = 0, 3 do
+		Add(1 + row, 1, row, row % 3, 5)
+		preset[#preset + 1] = (1 + row) .. ":5"
+	end
+	Add(17, 2, 6, 0, 1)
+	preset[#preset + 1] = "17:1"
+	defs[11].visibleEdges = { { targetNode = 17, type = Enum.TraitEdgeType.RequiredForAvailability } }
+	Add(18, 2, 0, 1, 5)
+	Add(19, 2, 1, 2, 5)
+	Add(31, 3, 0, 0, 2, 2)
+	ns.TalentPresets = { [class] = {
+		{ de = "Andere", en = "Other", points = "", ranks = "" },
+		{ de = "Schutz", en = "Protection", points = "20/31/0", ranks = table.concat(preset, ",") },
+		{ de = "Dritter Baum", en = "Third tree", points = "", ranks = "" },
+		{ de = "Bär", en = "Bear", points = "20/31/0", ranks = table.concat(preset, ","):gsub("12:5", "19:5") },
+	} }
+	PlayerSpellsFrame = { TalentsFrame = {
+		GetConfigID = function() return 1 end, IsVisible = function() return true end,
+		EnumerateAllTalentButtons = function() return pairs(buttons) end,
+	} }
+	C_Traits = {
+		GetNodeInfo = function(_, id) return CopyTable(defs[id]) end,
+		GetEntryInfo = function(_, id) return { definitionID = id } end,
+		GetDefinitionInfo = function(id) return { spellID = id } end,
+		GetTraitDescription = function(id, rank)
+			if id == 11 or id == 12 then return ("Increases your Defense Skill by %d."):format(rank * 4) end
+			if id == 18 or id == 19 then return ("Increases your chance to dodge by %d%%."):format(rank) end
+			return "Grants a new ability."
+		end,
+	}
+	C_Spell = { IsSpellPassive = function(id) return id ~= 17 end }
+	GetLocale = function() return "enUS" end
+	UnitStat = function() return 50, 50 end
+	local weights = { DODGE = 12, DEF = 1.5 }
+	ns.StatWeights = function() return weights, "Protection", 2 end
+	ns.Print = function() end
+	MenuUtil.CreateContextMenu = function(owner, generate)
+		generate(owner, {
+			CreateTitle = function() end, CreateRadio = function() end, CreateDivider = function() end,
+			CreateButton = function(_, title, action) if title == ns.L.TALENTS_RECOMMEND then action() end end,
+		})
+	end
+	talents:QueuePlanUpdate()
+	menu({})
+	local build = active()
+	assert(build ~= original and ns.TalentBuilds.Points(build) == 51 and #build.order == 49 and build.ranks[31] == 2,
+		"create a full plan with earned points included, leaving the original plan intact")
+	assert(build.ranks[17] == 1 and build.ranks[11] == 5 and not build.ranks[18],
+		"keep the unscored capstone and its required talent")
+	assert(build.ranks[19] == 5 and not build.ranks[12], "prefer the higher-scoring eligible alternative in the same row")
+	local replay = { [31] = 2 }
+	for _, id in ipairs(build.order) do
+		local node, above = defs[id], 0
+		for previous, rank in pairs(replay) do
+			if defs[previous].groupIDs[1] == node.groupIDs[1] and defs[previous].posY < node.posY then
+				above = above + rank
+			end
+		end
+		assert(above >= node.posY / 100 * 5 and (id ~= 17 or replay[11] == 5), "every step can be learned in order")
+		replay[id] = (replay[id] or 0) + 1
+		assert(replay[id] <= node.maxRanks, "respect the talent rank cap")
+	end
+	weights = { DEF = 1.5 }
+	menu({})
+	assert(active().ranks[12] == 5 and not active().ranks[19] and build.ranks[19] == 5,
+		"changing the gear weights changes the recommended allocation")
+	C_Traits.GetTraitDescription = function() return "Grants a new ability." end
+	menu({})
+	assert(ns.TalentBuilds.Points(active()) == 51 and #active().order == 49 and active().ranks[17] == 1,
+		"complete the plan from the template when no effects are directly scoreable")
+	ns.StatWeights = function() return weights, "Bear", 2, 4 end
+	menu({})
+	assert(ns.TalentBuilds.Points(active()) == 51 and #active().order == 49 and active().ranks[19] == 5
+		and not active().ranks[12], "use the selected bear template for the same talent tree")
+	for index = #list, savedCount + 1, -1 do list[index] = nil end
+	talents.db.buildSeq, talents.cdb.activeBuild[key], talents.db.planNext = savedSeq, savedActive, savedNext
+	PlayerSpellsFrame, C_Traits, C_Spell, GetLocale, UnitStat = savedFrame, savedTraits, savedSpell, savedLocale, savedStat
+	ns.StatWeights, ns.TalentPresets, ns.Print, MenuUtil.CreateContextMenu = savedWeights, savedPresets, savedPrint, savedMenu
+	talents:QueuePlanUpdate()
+	print("talent recommendations OK")
+end)()
+;(function()
 	-- Order of the talent plan: steps per point, kept in line with the plan and the rules.
 	local order = ns.TalentOrder
 	local kept, missing = order.Reconcile({ 1, 1, 2, 1, 3 }, { [1] = 2, [2] = 1, [4] = 2 })
@@ -2208,10 +2866,7 @@ end)()
 	assert(alpha == 0.3, "repair without money stays faint")
 	assert(view.buttons[2].enabled == false and view.buttons[3].enabled == true, "train needs a selection, train all is possible (button 1 says goodbye)")
 	GetTrainerServiceItemLink = savedLink
-	-- arrows in front of names in the list of recipes to come; try on only with the modifier
-	local P = ns:GetModule("ProfessionPlan")
-	assert(P.ArrowMarkup(true):find("bags-greenarrow", 1, true) and P.ArrowMarkup("later"):find(":120:120:120", 1, true)
-		and P.ArrowMarkup(false) == "", "arrow markup")
+	-- Try on only with the modifier.
 	local savedModified, savedDress, tried = IsModifiedClick, DressUpItemLink, nil
 	DressUpItemLink = function(link) tried = link return true end
 	IsModifiedClick = function() return false end
@@ -2232,8 +2887,9 @@ end)()
 	local savedLocale = GetLocale
 	GetLocale = function() return "deDE" end
 	assert(radar.WowheadText({ recipes = { { 11, "ok" }, { 12, "low" } } }) == "https://www.wowhead.com/forever/de/item=11\nhttps://www.wowhead.com/forever/de/item=12", "one Wowhead page per recipe")
-	GetLocale = savedLocale
+	GetLocale = function() return "enUS" end
 	assert(ns.WowheadURL("quest", 5) == "https://www.wowhead.com/forever/quest=5", "without a language part in English")
+	GetLocale = savedLocale
 	-- the world map symbol: click opens the links, Shift + click sets the waypoint
 	local click = uv(ns.MapSymbols.AddSource, "sources")
 	local symbol
@@ -2277,6 +2933,53 @@ end)()
 	-- Rating: a chosen talent tree wins over the automatic one, if the class has it.
 	local items = ns:GetModule("Items")
 	assert(items.PickTree(0, 2, 3) == 2 and items.PickTree(3, 2, 3) == 3 and items.PickTree(3, 1, 1) == 1 and items.PickTree(nil, 1, 3) == 1, "chosen or automatic tree")
+	local choices = upvalue(getW, "WEIGHTS")
+	local profileOptions
+	for _, option in ipairs(items.options) do
+		if option.key == "scoreSpec" then profileOptions = option.values end
+	end
+	local savedClass, savedProfile, savedLevel = upvalue(getW, "playerClass"), upvalue(getW, "weights"), UnitLevel
+	local savedTraits, savedChoice = C_Traits, items.cdb.scoreSpec
+	local state, treeName = upvalue(getW, "weightsTree"), upvalue(getW, "weightsName")
+	local preset = upvalue(getW, "weightsPreset")
+	local automatic = 0
+	C_Traits = {
+		GetConfigInfo = function() return { treeIDs = { 77 } } end,
+		GetGroupDisplayInfoByTreeID = function() return { trees[3], trees[1], trees[2] } end,
+		GetGroupCurrencyInfo = function() return { { traitNodeGroupID = 10 + automatic, currencyInfos = { { spent = 5 } } } } end,
+	}
+	UnitLevel = function() return 60 end
+	for class, profiles in pairs(choices) do
+		setuv(getW, "playerClass", class)
+		assert(#profiles == 3 and #profileOptions() == (class == "DRUID" and 5 or 4), "each tree is selectable for " .. class)
+		assert(profiles[1] ~= profiles[2] and profiles[2] ~= profiles[3] and profiles[1] ~= profiles[3], "one profile per " .. class .. " tree")
+		for index = 1, 3 do
+			automatic = index
+			items.cdb.scoreSpec = 0
+			setuv(getW, "weights", nil)
+			local weights, _, tree, plan = ns.StatWeights()
+			assert(weights == profiles[index] and tree == index and plan == index, "automatic profile for " .. class)
+			local override = index % 3 + 1
+			items.cdb.scoreSpec = override
+			setuv(getW, "weights", nil)
+			weights, _, tree, plan = ns.StatWeights()
+			assert(weights == profiles[override] and tree == override and plan == override, "explicit profile for " .. class)
+		end
+	end
+	assert(choices.MAGE[1].INT > choices.MAGE[3].INT and choices.HUNTER[3].DPS > choices.HUNTER[1].DPS
+		and choices.SHAMAN[2].STR > choices.SHAMAN[2].INT, "key Forever specialization differences")
+	setuv(getW, "playerClass", "DRUID")
+	setuv(getW, "weights", nil)
+	items.cdb.scoreSpec = 4
+	local bear, _, bearTree, bearPlan = ns.StatWeights()
+	assert(bear.STA > choices.DRUID[2].STA and bear.ARMOR > choices.DRUID[2].ARMOR and bearTree == 2 and bearPlan == 4,
+		"bear shares the feral tree and uses its own template")
+	setuv(getW, "playerClass", savedClass)
+	setuv(getW, "weights", savedProfile)
+	setuv(getW, "weightsTree", state)
+	setuv(getW, "weightsName", treeName)
+	setuv(getW, "weightsPreset", preset)
+	C_Traits, UnitLevel, items.cdb.scoreSpec = savedTraits, savedLevel, savedChoice
 	print("score tree OK")
 end)()
 ;(function()
@@ -2442,7 +3145,7 @@ end)()
 ;(function()
 	-- The NPC's plate whose fields Blizzard has not filled yet is found by its unit token.
 	local dialog = ns:GetModule("Dialog")
-	local find = uv(uv(uv(dialog.GoBack, "Show"), "Place"), "NpcNameplate")
+	local find = uv(uv(dialog.GoBack, "Show"), "NpcNameplate")
 	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
 	local plate = { IsForbidden = function() return false end } -- no unitToken yet
 	UnitExists = function(token) return token == "nameplate3" end
@@ -2464,75 +3167,99 @@ end)()
 	local bubble = { ClearAllPoints = function() end, SetPoint = function() end, IsShown = function() return false end,
 		SetClampedToScreen = function(_, on) clamped = on end }
 	local savedBubble = uv(place, "bubble")
-	local savedFind = uv(place, "NpcNameplate")
 	setuv(place, "bubble", bubble)
-	setuv(place, "NpcNameplate", function() return nil end)
-	local savedPlates, savedScreen = dialog.db.plates, dialog.db.onScreen
-	dialog.db.plates, dialog.db.onScreen = false, true
-	place()
+	local savedScreen, savedHidePlate = dialog.db.onScreen, dialog.db.hidePlate
+	dialog.db.onScreen, dialog.db.hidePlate = true, false
+	local plate = CreateFrame("Frame")
+	place(plate)
 	assert(clamped == true, "clamped with the option")
 	dialog.db.onScreen = false
-	place()
+	place(plate)
 	assert(clamped == false, "free without it")
-	dialog.db.plates, dialog.db.onScreen = savedPlates, savedScreen
+	dialog.db.onScreen, dialog.db.hidePlate = savedScreen, savedHidePlate
+	dialog.anchorPlate = nil
 	setuv(place, "bubble", savedBubble)
-	setuv(place, "NpcNameplate", savedFind)
 	print("dialog clamp OK")
 end)()
 ;(function()
-	-- The NPC's plate goes away and is given to another unit (the player): the bubble does not stay on it.
+	-- Targeting a player can remove the NPC's plate and leave a stale alias or token behind.
 	local dialog = ns:GetModule("Dialog")
-	local place = uv(uv(dialog.GoBack, "Show"), "Place")
+	local show, hide = uv(dialog.GoBack, "Show"), uv(dialog.Apply, "Hide")
+	hide()
+	local bubble = uv(show, "bubble")
 	local anchored
-	local alpha = 1
-	local bubble = { ClearAllPoints = function() anchored = nil end, SetPoint = function(_, _, to) anchored = to end,
-		SetClampedToScreen = function() end, IsShown = function() return true end,
-		SetAlpha = function(_, value) alpha = value end, Fade = { Stop = function() end } }
-	local plateA, plateB = {}, {}
-	local npcPlate = plateA
-	local saved = { uv(place, "bubble"), uv(place, "NpcNameplate"), uv(dialog.OnPlateAdded, "current"), C_NamePlate,
-		dialog.db.plates, dialog.db.hidePlate }
-	setuv(place, "bubble", bubble)
-	setuv(place, "NpcNameplate", function() return npcPlate end)
-	setuv(dialog.OnPlateAdded, "current", {})
-	C_NamePlate = { GetNamePlates = function() return {} end, GetNamePlateForUnit = function() return plateA end }
-	dialog.db.plates, dialog.db.hidePlate = false, false
-	place()
-	assert(anchored == plateA and dialog.anchorPlate == plateA, "on the NPC's plate")
-	-- removed: the plate still names the NPC at this moment
-	dialog.OnPlateRemoved("nameplate1")
-	assert(anchored == UIParent and dialog.anchorPlate == nil, "off the plate that goes away")
-	assert(alpha == 0 and bubble.lost, "unseen while it waits for the plate: no jump to the top of the screen")
-	-- the frame comes back for the player: not the NPC's plate, the bubble stays where it is
-	npcPlate = nil
-	dialog.OnPlateAdded()
-	assert(anchored == UIParent, "not onto the player")
-	-- the NPC's plate comes back as another frame
-	npcPlate = plateB
-	dialog.OnPlateAdded()
-	assert(anchored == plateB, "back on the NPC")
-	assert(alpha == 1 and not bubble.lost, "seen again on the plate")
-	-- every picture: a plate frame given to another unit without an event is left at once
-	npcPlate = nil
+	local savedPoint, savedClear = bubble.SetPoint, bubble.ClearAllPoints
+	bubble.SetPoint = function(_, _, to) anchored = to end
+	bubble.ClearAllPoints = function() anchored = nil end
+	local plateA, plateB, playerPlate = CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame")
+	local guid = { npc = "Creature-NPC", target = "Creature-NPC", nameplate1 = "Creature-NPC", nameplate3 = "Player-Self" }
+	local plates = { npc = plateA, nameplate1 = plateA, nameplate3 = playerPlate }
+	local saved = { C_NamePlate, UnitExists, UnitGUID, dialog.db.plates, dialog.db.hidePlate, dialog.db.enabled, dialog.db.style }
+	local savedGet, savedSet = GetCVar, SetCVar
+	local cvars = { nameplateShowAll = "0", nameplateShowFriendlyNpcs = "1" }
+	GetCVar = function(cvar) return cvars[cvar] end
+	SetCVar = function(cvar, value) cvars[cvar] = value end
+	UnitExists = function(unit) return guid[unit] ~= nil end
+	UnitGUID = function(unit) return guid[unit] end
+	C_NamePlate = { GetNamePlates = function() return { plateA, playerPlate } end,
+		GetNamePlateForUnit = function(unit)
+			if guid[unit] == "Creature-NPC" and guid.target ~= guid[unit] and cvars.nameplateShowAll == "0" then
+				return nil
+			end
+			return plates[unit]
+		end }
+	local savedGossip = GossipFrame
+	GossipFrame = CreateFrame("Frame")
+	local scale = 1
+	GossipFrame.GetScale = function() return scale end
+	GossipFrame.SetScale = function(_, value) scale = value end
+	dialog.db.plates, dialog.db.hidePlate = true, false
+	dialog.db.enabled, dialog.db.style = true, "PLAYER"
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(anchored == plateA and bubble.Tail:IsShown(), "on the NPC's plate")
+	assert(cvars.nameplateShowAll == "1" and scale == 0.001, "keeps all enabled plates available from opening")
+	guid.target, plates.npc = "Player-Other", playerPlate
 	dialog.WatchPlate()
-	assert(anchored == UIParent and alpha == 0, "the watch takes the bubble off a plate that is no longer the NPC's")
-	-- the plate does not come again: after the wait the bubble shows at the top of the screen
+	assert(anchored == plateA and bubble:IsShown(), "the NPC keeps its plate when a player is selected")
+	dialog.OnPlateRemoved("nameplate1")
+	assert(anchored == nil and dialog.anchorPlate == nil and not bubble:IsShown(), "off the plate that goes away")
+	assert(scale == 0.001, "the native window stays collapsed during the brief wait")
+	dialog.WatchPlate()
+	assert(anchored == nil, "does not reattach while the removed token still reports the NPC")
+	guid.nameplate1 = "Player-Other"
+	dialog.OnPlateAdded("nameplate1")
+	assert(anchored == nil, "does not attach to the selected player's recycled frame")
+	guid.nameplate2, plates.nameplate2 = "Creature-NPC", plateB
+	dialog.OnPlateAdded("nameplate2")
+	assert(anchored == plateB, "back on the NPC")
+	assert(bubble:IsShown() and bubble:GetAlpha() == 1 and bubble.Tail:IsShown(), "seen again on the plate")
+	guid.nameplate2 = "Player-Other"
+	dialog.WatchPlate()
+	assert(anchored == nil and not bubble:IsShown(), "leaves a recycled plate even without a removal event")
 	local savedTime = GetTime
 	GetTime = function() return savedTime() + 1 end
 	dialog.WatchPlate()
 	GetTime = savedTime
-	assert(alpha == 1 and not bubble.lost and anchored == UIParent, "shown at the top after the wait")
-	setuv(place, "bubble", saved[1])
-	setuv(place, "NpcNameplate", saved[2])
-	setuv(dialog.OnPlateAdded, "current", saved[3])
-	C_NamePlate, dialog.db.plates, dialog.db.hidePlate = saved[4], saved[5], saved[6]
-	dialog.anchorPlate = nil
+	assert(not bubble:IsShown() and anchored == nil and GossipFrame:IsShown() and scale == 1
+		and GossipFrame:GetAlpha() == 1, "the native dialog takes over after the wait")
+	assert(cvars.nameplateShowAll == "0", "restores always-show setting after handoff")
+	guid.npc = nil
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(anchored == nil and not bubble:IsShown(), "an already selected player cannot be captured as the speaker")
+	guid.target, guid.nameplate2 = "Creature-NPC", "Creature-NPC"
+	dialog.WatchPlate()
+	assert(anchored == nil, "selecting an NPC later cannot change the speaker either")
+	hide()
+	bubble.SetPoint, bubble.ClearAllPoints = savedPoint, savedClear
+	GossipFrame, GetCVar, SetCVar = savedGossip, savedGet, savedSet
+	C_NamePlate, UnitExists, UnitGUID = unpack(saved, 1, 3)
+	dialog.db.plates, dialog.db.hidePlate, dialog.db.enabled, dialog.db.style = unpack(saved, 4, 7)
 	print("dialog plate reuse OK")
 end)()
 ;(function()
 	-- A plate frame given to another unit still names the old unit token in its field: only the game's answer counts.
 	local dialog = ns:GetModule("Dialog")
-	local find = uv(uv(uv(dialog.GoBack, "Show"), "Place"), "NpcNameplate")
+	local find = uv(uv(dialog.GoBack, "Show"), "NpcNameplate")
 	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
 	local stale = { unitToken = "nameplate1", IsForbidden = function() return false end }
 	local right = { IsForbidden = function() return false end }
@@ -2674,16 +3401,20 @@ end)()
 	assert(way.Linkify("Ich habe 1,5 Gold und 120, 300 Punkte") == "Ich habe 1,5 Gold und 120, 300 Punkte", "a decimal number and big numbers stay text")
 	assert(way.Linkify("Stufe 250, 300") == "Stufe 250, 300", "numbers above 100 are no coordinates")
 	local saved = { C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print }
+	local savedHasWaypoint, savedGetWaypoint = C_Map.HasUserWaypoint, C_Map.GetUserWaypoint
 	local set, tracked, cleared, can = nil, nil, nil, true
 	C_Map.GetBestMapForUnit = function() return 1429 end
 	C_Map.CanSetUserWaypointOnMap = function() return can end
 	C_Map.SetUserWaypoint = function(point) set = point end
-	C_Map.ClearUserWaypoint = function() cleared = true end
-	UiMapPoint = { CreateFromCoordinates = function(mapID, px, py) return { mapID, px, py } end }
+	C_Map.ClearUserWaypoint = function() set, cleared = nil, true end
+	C_Map.HasUserWaypoint = function() return set ~= nil end
+	C_Map.GetUserWaypoint = function() return set end
+	UiMapPoint = { CreateFromCoordinates = function(mapID, px, py) return { uiMapID = mapID, position = { x = px, y = py } } end }
 	C_SuperTrack = { SetSuperTrackedUserWaypoint = function(on) tracked = on end }
 	ns.Print = function() end
-	way.Command("weg 23 34")
-	assert(set and set[1] == 1429 and set[2] == 0.23 and set[3] == 0.34 and tracked == true, "set on the player's map, tracked")
+	way.Command("way 23 34 Schmied")
+	assert(set and set.uiMapID == 1429 and set.position.x == 0.23 and set.position.y == 0.34 and tracked == true, "set on the player's map, tracked")
+	assert(way.Target().name == "Schmied", "reading the game waypoint preserves the name")
 	set = nil
 	way.Command("way quatsch")
 	assert(set == nil, "no numbers: nothing set")
@@ -2703,8 +3434,7 @@ end)()
 	assert(near(distance, 50), "the height of the map counts for north and south")
 	-- the game's waypoint (map, recipe radar) is followed; the player on another map gets no direction
 	local mapPos = { 0.5, 0.5 }
-	C_Map.HasUserWaypoint = function() return true end
-	C_Map.GetUserWaypoint = function() return { uiMapID = 1411, position = { GetXY = function() return 0.3, 0.4 end } } end
+	set = { uiMapID = 1411, position = { x = 0.3, y = 0.4 } }
 	C_Map.GetPlayerMapPosition = function(mapID) return mapID == 1411 and mapPos and { GetXY = function() return mapPos[1], mapPos[2] end } or nil end
 	C_Map.GetMapWorldSize = function() return 1000, 1000 end
 	GetPlayerFacing = function() return 0 end
@@ -2713,20 +3443,24 @@ end)()
 	mapPos = nil
 	local _, goal = way.Where()
 	assert(way.Where() == nil and goal.mapID == 1411, "another map: no distance")
-	C_Map.HasUserWaypoint = function() return false end
 	way.Clear()
 	assert(way.Target() == nil, "cleared")
+	C_Map.HasUserWaypoint, C_Map.GetUserWaypoint = savedHasWaypoint, savedGetWaypoint
 	C_Map.GetBestMapForUnit, C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, UiMapPoint, C_SuperTrack, ns.Print = unpack(saved, 1, 7)
 	print("waypoint OK")
 end)()
 ;(function()
 	-- Level ranges of the zones: Forever's own, after the name of the zone under the mouse, coloured like the game's
 	local worldMap = ns:GetModule("WorldMap")
-	assert(ns.ZoneLevels and ns.ZoneLevels[1429] and ns.ZoneLevels[1429][1] >= 1 and ns.ZoneLevels[1429][2] <= 15, "Elwynn Forest in the data")
+	assert(ns.ZoneLevels[1412][1] == 1 and ns.ZoneLevels[1412][2] == 14, "Mulgore is a starter zone")
+	assert(ns.ZoneLevels[1434][1] == 28 and ns.ZoneLevels[1434][2] == 50, "Stranglethorn covers the full questing range")
+	assert(ns.ZoneLevels[1446] and ns.ZoneLevels[2482] and ns.ZoneLevels[2548] and ns.ZoneLevels[2652], "late-game and new questing zones")
+	assert(not ns.ZoneLevels[1414] and not ns.ZoneLevels[1415] and not ns.ZoneLevels[1453], "no ranges for continents and capitals")
 	for mapID, range in pairs(ns.ZoneLevels) do
 		assert(type(mapID) == "number" and range[1] >= 1 and range[1] <= range[2] and range[2] <= 60, "a range per zone")
 	end
 	local saved = { GetQuestDifficultyColor, QuestDifficultyColors, C_Map.GetMapInfoAtPosition, C_Map.GetMapLevels, worldMap.db.zoneLevels }
+	local savedMapInfo, savedProviders = C_Map.GetMapInfo, WorldMapFrame.dataProviders
 	GetQuestDifficultyColor = function(level) return { r = level, g = 0, b = 0 } end
 	QuestDifficultyColors = { difficult = { r = 1, g = 1, b = 0 } }
 	local text, color = worldMap.LevelText(10, 20, 5)
@@ -2736,8 +3470,12 @@ end)()
 	text, color = worldMap.LevelText(10, 20, 30)
 	assert(color.r == 18, "above: the highest level less two")
 	assert(worldMap.LevelText(7, 7, 1) == "(7)", "one level")
-	local focus = true
-	local map = { IsCanvasMouseFocus = function() return focus end, GetMapID = function() return 1415 end, GetNormalizedCursorPosition = function() return 0.4, 0.6 end }
+	local focus, mapID = true, 1415
+	local map = {
+		IsCanvasMouseFocus = function() return focus end,
+		GetMapID = function() return mapID end,
+		GetNormalizedCursorPosition = function() return 0.4, 0.6 end,
+	}
 	C_Map.GetMapInfoAtPosition = function() return { mapID = 1429, name = "Wald von Elwynn" } end
 	C_Map.GetMapLevels = function() return 0, 0, 0, 0 end
 	worldMap.db.zoneLevels = true
@@ -2745,6 +3483,8 @@ end)()
 	assert(range == ns.ZoneLevels[1429] and name == "Wald von Elwynn", "the zone under the mouse")
 	C_Map.GetMapLevels = function() return 5, 10 end
 	assert(worldMap.HoveredRange(map) == nil, "the game shows a range itself: none of ours")
+	C_Map.GetMapLevels = function() return 5, 0 end
+	assert(worldMap.HoveredRange(map) == ns.ZoneLevels[1429], "a partial client range is not displayed by the game")
 	C_Map.GetMapLevels = function() return 0, 0 end
 	C_Map.GetMapInfoAtPosition = function() return { mapID = 1415, name = "Östliche Königreiche" } end
 	assert(worldMap.HoveredRange(map) == nil, "the map itself is no zone under the mouse")
@@ -2752,8 +3492,32 @@ end)()
 	C_Map.GetMapInfoAtPosition = function() return { mapID = 1429, name = "Wald von Elwynn" } end
 	assert(worldMap.HoveredRange(map) == nil, "mouse not on the map")
 	focus = true
+	mapID = 2521
+	C_Map.GetMapInfoAtPosition = function() return nil end
+	C_Map.GetMapInfo = function(id) return { mapID = id, name = "Zephras Isle" } end
+	local label = NewFrame("Frame")
+	local labelName = ""
+	label.Name.GetText = function() return labelName end
+	label.labelInfoByType, label.fpLevels = {}, false
+	label.dataProvider = { GetMap = function() return map end }
+	WorldMapFrame.dataProviders = { [label.dataProvider] = true }
+	label.dataProvider.Label = label
+	assert(worldMap.HookAreaLabel() == label, "the world map provider is hooked")
+	local levels = label.fpLevels
+	levels.SetText = function(self, value) self.text = value end
+	local update = label:GetScript("OnUpdate")
+	update(label)
+	assert(levels:IsShown() and levels.text == "Zephras Isle (1-12)", "the opened zone has a label on empty map space")
+	labelName = "Valanaar"
+	update(label)
+	assert(not levels:IsShown(), "an area's own label does not get the whole zone's range")
+	labelName = "Zephras Isle"
+	update(label)
+	assert(levels:IsShown() and levels.text == "(1-12)", "add just the range when the game displays the zone name")
 	worldMap.db.zoneLevels = false
-	assert(worldMap.HoveredRange(map) == nil, "option off")
+	update(label)
+	assert(not levels:IsShown(), "option off")
+	C_Map.GetMapInfo, WorldMapFrame.dataProviders = savedMapInfo, savedProviders
 	GetQuestDifficultyColor, QuestDifficultyColors, C_Map.GetMapInfoAtPosition, C_Map.GetMapLevels, worldMap.db.zoneLevels = unpack(saved, 1, 5)
 	print("zone levels OK")
 end)()
@@ -2801,42 +3565,129 @@ end)()
 	print("moments OK")
 end)()
 ;(function()
-	-- Attributes by importance: compared within their group; the rows of the window are marked and given back
+	-- The stats pane rebuilds a provider from its original rows and reuses frames for new rows.
 	local rank = ns:GetModule("StatRank")
-	local melee = rank.Tiers({ STR = 2, AGI = 1.2, STA = 0.3, AP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01 })
-	assert(melee.STRENGTH == 3 and melee.AGILITY == 2 and melee.STAMINA == 1 and melee.INTELLECT == 0 and melee.SPIRIT == 0, "warrior: base attributes")
-	assert(melee.ATTACK_AP == 3 and melee.SPELLPOWER == 0, "attack power, no spell power")
-	assert(melee.HITCHANCE_MELEE == 3 and melee.CRITCHANCE == 3 and melee.HITCHANCE_SPELL == 0 and melee.DODGE == 0, "hit and crit")
-	assert(melee.ARMOR == 1 and melee.DEFENSE == 0 and melee.MANAREGEN == 0, "rows that stand alone")
-	local tank = rank.Tiers({ STR = 1, AGI = 1, STA = 1.5, DEF = 1.5, DODGE = 12, PARRY = 12, BLOCK = 8, HIT = 8, CRIT = 4, ARMOR = 0.1 })
-	assert(tank.STAMINA == 3 and tank.STRENGTH == 2 and tank.DEFENSE == 3 and tank.ARMOR == 3, "tank: stamina, defense, armor")
-	assert(tank.DODGE == 3 and tank.BLOCK == 2 and tank.CRITCHANCE == 1, "tank: avoidance before crit")
-	local healer = rank.Tiers({ INT = 1, SPI = 0.6, STA = 0.3, SP = 0.8, HEAL = 1, SCRIT = 8, MP5 = 2 })
-	assert(healer.INTELLECT == 3 and healer.SPIRIT == 2 and healer.SPELLHEALING == 3 and healer.MANAREGEN == 3 and healer.CRITCHANCE == 3, "healer")
-	local places = rank.Places({ STR = 2, AGI = 1.2, STA = 1.2, AP = 1, HIT = 15, CRIT = 10, ARMOR = 0.01 })
-	assert(places.STRENGTH == 1 and places.AGILITY == 2 and places.STAMINA == 2 and places.INTELLECT == nil, "places in the group, equal weights share one")
-	assert(places.ATTACK_AP == 1 and places.HITCHANCE == 1 and places.CRITCHANCE == 4 and places.ARMOR == nil, "hit rows first, alone rows without a number: " .. tostring(places.CRITCHANCE))
 	local savedWeights, savedEnabled = ns.StatWeights, rank.db.enabled
-	ns.StatWeights = function() return { STR = 2, AGI = 1.2, STA = 0.3 } end
-	local color, number, shown
-	local placeText = { SetPoint = function() end, SetFormattedText = function(_, f, n) number = f:format(n) end, Show = function() shown = true end, SetShown = function(_, on) shown = on end }
-	local row = { Label = { SetFontObject = function() error("no other font") end, SetTextColor = function(_, r, g, b) color = { r, g, b } end },
-		CreateFontString = function() return placeText end }
+	local savedPane, savedScrollUtil, savedHook = CharacterStatsPaneScrollBox, ScrollUtil, hooksecurefunc
+	local weights = CopyTable(upvalue(savedWeights, "WEIGHTS").PALADIN[2])
+	weights.HIT, weights.CRIT = 8, 4
+	ns.StatWeights = function() return weights end
+
+	local function Stat(name, index)
+		return { name = name, unit = "player", statIndex = index }
+	end
+	local health, strength, agility, stamina = Stat("HEALTH", 1), Stat("STRENGTH", 1), Stat("AGILITY", 2), Stat("STAMINA", 3)
+	local intellect, spirit = Stat("INTELLECT", 4), Stat("SPIRIT", 5)
+	local hit, crit, spell = Stat("HITCHANCE", 1), Stat("CRITCHANCE", 2), Stat("SPELLPOWER", 3)
+	local defense, dodge, parry = Stat("DEFENSE", 1), Stat("DODGE", 2), Stat("PARRY", 3)
+	local block, armor = Stat("BLOCK", 4), Stat("ARMOR", 5)
+	local rows = {
+		{ isHeader = true }, health,
+		{ isHeader = true }, strength, agility, stamina, intellect, spirit,
+		{ isHeader = true }, hit, crit, spell,
+		{ isHeader = true }, defense, dodge, parry, block, armor,
+	}
+	local frames, initialized, provider = {}, nil, nil
+	local function NewRow()
+		local row = { color = { 1, 0.82, 0 }, value = "76", labelX = 11 }
+		row.Label = {
+			GetPoint = function() return "LEFT", row, "LEFT", row.labelX, 0 end,
+			SetPoint = function(_, _, _, _, x) row.labelX = x end,
+			GetTextColor = function() return unpack(row.color) end,
+			SetTextColor = function(_, ...) row.color = { ... } end,
+		}
+		row.Background = { SetShown = function(_, on) row.stripe = on end }
+		row.CreateFontString = function()
+			return {
+				SetPoint = function() end,
+				SetFormattedText = function(_, f, n) row.number = f:format(n) end,
+				SetTextColor = function(_, ...) row.numberColor = { ... } end,
+				SetShown = function(_, on) row.numberShown = on end,
+			}
+		end
+		return row
+	end
+	local box = {
+		GetDataProvider = function() return provider end,
+		ForEachFrame = function(_, fn)
+			for index, data in ipairs(provider.collection) do
+				fn(frames[index], data)
+			end
+		end,
+	}
+	local function Draw()
+		for index, data in ipairs(provider.collection) do
+			frames[index] = frames[index] or (data.isHeader and {} or NewRow())
+			initialized(nil, frames[index], data)
+		end
+	end
+	function box:SetDataProvider(new)
+		provider = new
+		Draw()
+	end
+	hooksecurefunc = function(object, method, fn)
+		local original = object[method]
+		object[method] = function(...)
+			original(...)
+			fn(...)
+		end
+	end
+	ScrollUtil = { AddInitializedFrameCallback = function(_, fn) initialized = fn end }
+	CharacterStatsPaneScrollBox = { ScrollBox = box, elementData = rows }
 	rank.db.enabled = true
-	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
-	assert(color[1] == 1 and color[3] == 1 and number == "1." and shown and row.fpRanked, "the most important row: bright, number 1")
-	rank.OnRow(nil, row, { name = "STAMINA", unit = "player" })
-	assert(number == "3." and color[3] ~= 1, "a minor row: its number, the usual colour")
-	rank.OnRow(nil, row, { name = "INTELLECT", unit = "player" })
-	assert(color[1] == 0.5 and shown == false, "useless: grey, no number")
-	rank.OnRow(nil, row, { name = "HEALTH", unit = "player" })
-	assert(color[1] ~= 0.5 and not row.fpRanked and shown == false, "a row without rank gets the game's look back")
-	color = nil
-	rank.OnRow(nil, row, { name = "STRENGTH", unit = "pet" })
+	rank:OnLogin()
+	local function Rebuild()
+		local collection = {}
+		for index, data in ipairs(rows) do collection[index] = data end
+		box:SetDataProvider({
+			collection = collection,
+			GetCollection = function() return collection end,
+			Sort = function(_, cmp) table.sort(collection, cmp); Draw() end,
+		})
+	end
+	Rebuild()
+	local collection = provider.collection
+	assert(rows[4] == strength and collection[4] == stamina and collection[5] == strength and collection[6] == agility,
+		"sort the visible primary stats, preserving Blizzard's order for ties")
+	assert(frames[4].number == "1." and frames[5].number == "2." and frames[6].number == "2." and frames[7].number == "4.",
+		"equal positive weights share a place")
+	assert(frames[4].labelX == 19 and frames[7].labelX == 19 and frames[8].labelX == 19 and frames[2].labelX == 11,
+		"leave room before the labels for the rank numbers and align unweighted attributes")
+	assert(frames[4].color[1] < 0.5 and frames[4].color[3] == 1 and frames[4].numberColor[1] == frames[4].color[1],
+		"highest tier and its number use the same turquoise")
+	assert(frames[5].color[1] == 1 and frames[7].color[1] < 1 and not frames[8].numberShown and frames[8].color[1] == frames[8].color[3],
+		"separate colours for useful, minor and unweighted stats")
+	assert(frames[4].stripe and not frames[5].stripe and frames[6].stripe and frames[4].value == "76",
+		"row striping follows the new order and the stat value is untouched")
+	assert(frames[10].number == "1." and frames[11].number == "2.", "rank visible hit and crit independently of hidden variants")
+	assert(collection[15] == block and collection[16] == dodge and collection[17] == parry
+		and frames[15].number == "1." and frames[16].number == "2." and frames[17].number == "2.",
+		"rank block ahead of dodge and parry using the protection paladin item weights")
+	assert(not frames[14].numberShown and frames[14].color[3] == 0 and frames[14].labelX == 19
+		and not frames[18].numberShown and frames[18].color[3] == 0 and frames[18].labelX == 19,
+		"weighted defense and armor are aligned and use the original label color")
+
+	local items = ns:GetModule("Items")
+	local onTalentChange = upvalue(ns.RegisterEvent, "listeners").TRAIT_CONFIG_UPDATED[items]
+	local savedAfter = ns.After
+	ns.After = function(_, _, fn) fn() end
+	weights = { INT = 1, SPI = 0.6, STA = 0.3, SP = 0.8 }
+	onTalentChange()
+	ns.After = savedAfter
+	assert(collection[4] == intellect and collection[5] == spirit and collection[6] == stamina and collection[7] == strength,
+		"changing the talent weights reorders the open pane")
+	assert(collection[9].isHeader and collection[12] == spell and not frames[7].numberShown,
+		"categories and incomparable rows retain their slots")
+
+	Rebuild()
+	assert(provider.collection[4] == intellect, "a newly built provider is also sorted")
 	rank.db.enabled = false
-	rank.OnRow(nil, row, { name = "STRENGTH", unit = "player" })
-	assert(color == nil and shown == false, "not for the pet, not with the option off")
+	rank:OnOptionChanged()
+	assert(provider.collection[4] == strength and provider.collection[6] == stamina and frames[4].color[1] == 1
+		and frames[4].color[3] == 0 and not frames[4].numberShown and frames[4].stripe and frames[4].labelX == 11,
+		"disabling restores the stock rows")
 	ns.StatWeights, rank.db.enabled = savedWeights, savedEnabled
+	CharacterStatsPaneScrollBox, ScrollUtil, hooksecurefunc = savedPane, savedScrollUtil, savedHook
 	print("stat rank OK")
 end)()
 ;(function()
@@ -2990,6 +3841,26 @@ end)()
 		local first, second = wrapped:match("^(.-)\n(.*)$")
 		assert(first and second:sub(1, 6) == "      ", "continuation indented by the timestamp: " .. wrapped)
 		assert(not indent.Wrap({ GetWidth = function() return 400 end, GetFontObject = function() return nil end }, message), "short text unchanged")
+		local savedAfter, enabled = C_Timer.After, indent.db.enabled
+		local nextMessage = message .. " mmmm nnnn oooo"
+		local history, queued, timers, scans = { message, nextMessage, message }, nil, 0, 0
+		C_Timer.After = function(_, fn) queued, timers = fn, timers + 1 end
+		frame.TransformMessages = function(_, predicate, transform)
+			scans = scans + 1
+			for i, text in ipairs(history) do
+				if predicate(text) then
+					history[i] = transform(text)
+				end
+			end
+		end
+		local add = uv(uv(indent.Apply, "Hook"), "OnAddMessage")
+		indent.db.enabled = true
+		for _, text in ipairs(history) do add(frame, text) end
+		assert(timers == 1 and scans == 0, "the burst queues one history pass")
+		queued()
+		assert(scans == 1 and history[1] == wrapped and history[3] == wrapped and history[2] == indent.Wrap(frame, nextMessage),
+			"the single history pass wraps both distinct messages and the duplicate")
+		C_Timer.After, indent.db.enabled = savedAfter, enabled
 		print("chat indent OK")
 	else
 		error("chat indent: no wrap")
@@ -3088,6 +3959,32 @@ end)()
 	r.cdb.items = {}
 	setuv(MoveOne, "run", nil)
 	setuv(MoveOne, "atBank", false)
+	local update = uv(r.OnLogin, "PostUpdateItems")
+	local savedItemID, itemIDReads = C_Container.GetContainerItemID, 0
+	C_Container.GetContainerItemID = function()
+		itemIDReads = itemIDReads + 1
+		return 2589
+	end
+	local textures, atlasUpdates = {}, 0
+	local button = NewFrame("Button")
+	button.GetBagID, button.GetID = function() return 0 end, function() return 1 end
+	button.CreateTexture = function()
+		local texture = NewFrame("Texture")
+		texture.SetAtlas = function() atlasUpdates = atlasUpdates + 1 end
+		textures[#textures + 1] = texture
+		return texture
+	end
+	local frame = { EnumerateValidItems = function() return ipairs({ button }) end }
+	update(frame)
+	assert(itemIDReads == 0 and button:GetScript("OnMouseUp"), "empty restock list still hooks marking without reading slots")
+	r.cdb.items[2589] = true
+	update(frame)
+	update(frame)
+	assert(itemIDReads == 2 and textures[1]:IsShown() and atlasUpdates == 1, "the same mark keeps its existing texture")
+	r.cdb.items[2589] = nil
+	update(frame)
+	assert(itemIDReads == 2 and not textures[1]:IsShown() and not textures[2]:IsShown(), "removing the last mark clears its textures")
+	C_Container.GetContainerItemID = savedItemID
 	print("restock OK")
 end)()
 ;(function()
@@ -3184,7 +4081,7 @@ end)()
 		return override or 1415, CreateVector2D(1.5, 1.5) -- outside the map
 	end
 	C_Map.GetAreaInfo = function(id) return id == 87 and "Goldhain" or id == 1519 and "Sturmwind" or "" end
-	Enum.UIMapType = { Continent = 2 }
+	Enum.UIMapType = { World = 1, Continent = 2, Zone = 3 }
 	ns:GetModule("RecipeRadar").db.worldMap = false
 	-- The earlier world map test set up the layer on its own map mock.
 	local refresh = S.Refresh
@@ -3229,6 +4126,25 @@ end)()
 			assert(k.raid and k.dungeon and symbol.atlas == "dungeon", "Blackrock Depths and Molten Core share a symbol")
 		end
 	end
+	local savedLocale, savedLocales = GetLocale, {}
+	for _, key in ipairs({ "WORLDMAP_FLIGHT", "WORLDMAP_FLIGHT_LOCATION", "WORLDMAP_FLIGHT_PLACES",
+		"WORLDMAP_FLIGHT_TITLES", "WORLDMAP_FLIGHT_MASTERS" }) do
+		savedLocales[key] = ns.L[key]
+	end
+	local german = { L = {} }
+	GetLocale = function() return "deDE" end
+	assert(loadfile(root .. "/Locales/deDE.lua"))("ForeverPlus", german)
+	for key in pairs(savedLocales) do ns.L[key] = german.L[key] end
+	local savedMapInfo, savedAreaInfo = C_Map.GetMapInfo, C_Map.GetAreaInfo
+	C_Map.GetMapInfo = function(id) return id == 1425 and { name = "Hinterland", mapType = 3 } or savedMapInfo(id) end
+	C_Map.GetAreaInfo = function(id) return id == 348 and "Nistgipfel" or savedAreaInfo(id) end
+	local bundledFlights = uv(uv(refresh, "BuildNpcs"), "BundledFlights")
+	local guthrum = bundledFlights("A")[1425][1]
+	assert(guthrum.name == "Guthrum Thunderfist" and guthrum.title == "Greifenmeister"
+		and guthrum.node == "Nistgipfel, Hinterland", "German flight tooltip uses localized role, settlement and zone")
+	assert(bundledFlights("H")[1441][1].title == "Windreitermeisterin", "German title for Nyse")
+	GetLocale, C_Map.GetMapInfo, C_Map.GetAreaInfo = savedLocale, savedMapInfo, savedAreaInfo
+	for key, value in pairs(savedLocales) do ns.L[key] = value end
 	mapID = 1429
 	draw()
 	list = active()
@@ -3271,7 +4187,7 @@ end)()
 	-- Buff reminder: a missing buff waits while the power for it is lacking.
 	local buffs = ns:GetModule("Buffs")
 	local update = uv(buffs.OnLogin, "Update")
-	local evaluate = uv(update, "Evaluate")
+	local evaluate = uv(uv(update, "EvaluateOwn"), "Evaluate")
 	setuv(uv(evaluate, "PickSpell"), "classDB", {})
 	local reminder = { key = "intellect", auras = { 1459 }, cast = { 1459 } }
 	IsPlayerSpell = function() return true end
@@ -3351,6 +4267,76 @@ end)()
 	update()
 	first = uv(update, "buttons")[1]
 	assert(first and first.shown and first.targetName == "Brann", "button buffs the target, named below")
+
+	local savedDescription, savedAura, savedClock = C_Spell.GetSpellDescription, C_UnitAuras.GetAuraDataBySpellName, GetServerTime
+	local savedAfter, savedTimer, savedRange = ns.After, ns.NewTimer, buffs.db.targetRange
+	local savedAttribute, attributes = first.SetAttribute, {}
+	first.SetAttribute = function(_, key, value) attributes[key] = value end
+	local now, targetMissing, auraDuration = 10000, true
+	local scheduled, nextUpdate
+	GetServerTime = function() return now end
+	ns.After = function(_, _, fn) fn() end
+	ns.NewTimer = function(_, delay, fn)
+		scheduled, nextUpdate = delay, fn
+		return { Cancel = function() end }
+	end
+	buffs.db.targetRange = false
+	C_Spell.GetSpellDescription = function(id)
+		if id == 1459 then
+			return GetLocale() == "deDE" and "Hält 30 Min. lang an." or "Lasts 30 min."
+		end
+	end
+	C_UnitAuras.GetAuraDataBySpellName = function(_, name)
+		if name == "Spell1459" and auraDuration then return { duration = auraDuration } end
+	end
+	setuv(evaluate, "FindAura", function(_, unit)
+		if unit == "target" and not targetMissing then return 0 end
+	end)
+	update()
+	local click = first:GetScript("PostClick")
+	click(first, "MiddleButton", false)
+	assert(not next(buffs.cdb.mutedUntil) and attributes["*type3"] == nil, "target click does not mute")
+	targetMissing = false
+	update()
+	assert(attributes.type == "spell" and attributes["*type3"] == "", "only the secure middle click action is blocked")
+	click(first, "LeftButton", false)
+	click(first, "MiddleButton", true)
+	assert(first.spellID == 1459 and not next(buffs.cdb.mutedUntil), "mute only on middle button release")
+	click(first, "MiddleButton", false)
+	assert(buffs.cdb.mutedUntil.intellect == now + 1800 and scheduled == 1800.5, "mute for the full tooltip duration")
+	assert(first.shown and first.spellID == 6117, "other self buffs still show")
+	targetMissing = true
+	update()
+	assert(first.targetName == "Brann" and first.spellID == 1459 and scheduled == 1800.5,
+		"target stays eligible and the own reminder's timer is still scheduled")
+	targetMissing = false
+	now = now + 1800
+	nextUpdate()
+	assert(first.shown and first.spellID == 1459 and not buffs.cdb.mutedUntil.intellect, "reminder returns at expiry")
+	auraDuration = 3600
+	click(first, "MiddleButton", false)
+	assert(buffs.cdb.mutedUntil.intellect == now + 3600, "the active aura's full duration takes precedence")
+	now = now + 3600
+	nextUpdate()
+	auraDuration = 0
+	click(first, "MiddleButton", false)
+	assert(buffs.cdb.mutedUntil.intellect == now + 1800, "an unlimited aura is muted for 30 minutes")
+	now = now + 1800
+	nextUpdate()
+	auraDuration = nil
+	C_Spell.GetSpellDescription = function() return "" end
+	click(first, "MiddleButton", false)
+	assert(buffs.cdb.mutedUntil.intellect == now + 1800 and first.spellID == 6117, "a buff without a duration is muted for 30 minutes")
+	buffs.db.middleClickMute = false
+	buffs:OnOptionChanged("middleClickMute")
+	assert(first.spellID == 1459 and not next(buffs.cdb.mutedUntil), "disabling mute restores the reminder")
+	assert(attributes["*type3"] == nil, "disabling mute restores the original middle click action")
+	buffs.db.middleClickMute = true
+	buffs.db.targetRange = savedRange
+	first.SetAttribute = savedAttribute
+	ns.After, ns.NewTimer = savedAfter, savedTimer
+	C_Spell.GetSpellDescription, C_UnitAuras.GetAuraDataBySpellName, GetServerTime = savedDescription, savedAura, savedClock
+
 	IsResting = savedResting
 	C_Minimap.GetNumTrackingTypes = savedTracking
 	UnitExists, UnitIsPlayer, UnitIsUnit, UnitCanAssist, UnitIsDeadOrGhost, UnitIsConnected, UnitName = unpack(saved)
@@ -3626,14 +4612,56 @@ end)()
 		{ 1411, 0.50, 0.50, 1437, 0.3, 0.3, 120 }, { "x" } })
 	assert(#docks[1411] == 1 and #docks[1411][1].routes == 2, "one dock, two destinations")
 	assert(#docks[1411][1].routes[1].seconds == 2, "the same route twice")
-	-- the stops of the game data: a loop of three stops gives three routes, a stop off every map is left out
-	local placed = { [5] = { 1437, 0.1, 0.6 }, [6] = { 1424, 0.5, 0.5 }, [7] = { 1439, 0.36, 0.45 } }
-	local pathRides = T.PathRides({ { { 0, 5, 0 }, { 0, 6, 0 }, { 1, 7, 0 } }, { { 0, 5, 0 }, { 9, 9, 0 } } },
-		function(_, x) local p = placed[x]; if p then return p[1], p[2], p[3] end end)
-	assert(#pathRides == 3 and pathRides[3][1] == 1439 and pathRides[3][4] == 1437 and pathRides[1][7] == nil, "path loop")
+	local pathRides = T.PathRides(ns.TransportPaths)
+	assert(#pathRides == 25, "shipped ship, zeppelin and airship legs")
+	pathRides[#pathRides + 1] = { 1429, 0.055, 0.31, 1439, 0.31, 0.41, 123 }
 	docks = T.BuildDocks(pathRides)
-	assert(#docks[1437] == 1 and #docks[1437][1].routes == 1 and #docks[1437][1].routes[1].seconds == 0, "route without time")
-	assert(ns.TransportPaths and #ns.TransportPaths >= 10, "shipped paths")
+	local stormwind = docks[1453][1]
+	assert(stormwind.kind == "ship" and #stormwind.routes == 1 and stormwind.routes[1].seconds[1] == 123 and not docks[1429],
+		"recordings on the surrounding zone match the same harbor")
+	local wetlands = docks[1437][2].routes[1]
+	assert(wetlands.to.mapID == 1424 and wetlands.following[1][2][1] == 1439 and #wetlands.seconds == 0,
+		"Menethil departs for Southshore, then Auberdine")
+	local source
+	for _, provider in ipairs(uv(uv(ns.MapSymbols.Count, "Collect"), "sources")) do
+		if uv(provider, "DockTooltip") then source = provider break end
+	end
+	assert(source, "transport map source registered")
+	local savedInfo, savedArea, savedDocks = C_Map.GetMapInfo, C_Map.GetAreaInfo, T.db.docks
+	C_Map.GetMapInfo = function(id)
+		return { mapID = id, mapType = id == 947 and 1 or (id == 1414 or id == 1415) and 2 or 3, name = tostring(id) }
+	end
+	local names = { [150] = "Hafen von Menethil", [271] = "Süderstade", [442] = "Auberdine" }
+	C_Map.GetAreaInfo = function(id) return names[id] end
+	T.db.docks, T.docks = true, nil
+	local function MapDocks(mapID)
+		local symbols = {}
+		source(mapID, function(x, y, symbol)
+			assert(x >= 0 and x <= 1 and y >= 0 and y <= 1 and not symbol.atlas, "transport uses its own texture")
+			symbols[#symbols + 1] = symbol
+		end)
+		return symbols
+	end
+	local zone = MapDocks(1437)
+	assert(#zone == 2 and zone[2].data.kind == "ship", "both piers show on the Wetlands zone map")
+	local lines = {}
+	zone[2].tooltip({ AddLine = function(_, line) lines[#lines + 1] = line end }, zone[2])
+	assert(lines[1] == ns.L.TRANSPORTS_SHIP and lines[2] == names[150]
+		and lines[3] == ns.L.TRANSPORTS_TO_KNOWN:format(names[271])
+		and lines[4] == ns.L.TRANSPORTS_THEN:format(names[442]), "tooltip shows the type and the stops in order")
+	local capital, zeppelins, island = MapDocks(1453), MapDocks(1411), MapDocks(2521)
+	assert(#capital == 1 and #MapDocks(1429) == 1, "the harbor is on both city and zone maps")
+	assert(#zeppelins == 1 and #zeppelins[1].routes == 2 and zeppelins[1].texture ~= capital[1].texture,
+		"the Zeppelin tower shares its destinations and has a different icon")
+	assert(#island == 2 and #MapDocks(1414) > 0 and #MapDocks(947) > 0, "island, continent and world map")
+	local menethil
+	for _, symbol in ipairs(MapDocks(1415)) do
+		if symbol.data.area == 150 then menethil = symbol end
+	end
+	assert(menethil and #menethil.routes == 2, "overview groups both Menethil piers and lists both departures")
+	T.db.docks = false
+	assert(#MapDocks(1437) == 0, "transport filter hides docks")
+	C_Map.GetMapInfo, C_Map.GetAreaInfo, T.db.docks, T.docks = savedInfo, savedArea, savedDocks, nil
 	local text = T.ExportText({ { 1411, 0.5, 0.5, 1420, 0.6, 0.4, 240 } })
 	assert(text:find("{ 1411, 0.5000, 0.5000, 1420, 0.6000, 0.4000, 240 },", 1, true), "export line")
 	print("transports OK")
@@ -3788,8 +4816,14 @@ end)()
 	local F = A.Filter
 	local prices = { [9001] = 100, [9002] = 50, [9003] = 0 }
 	C_Item.GetItemInfo = function(id) return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, prices[id] end
-	local timers, savedAfter = {}, C_Timer.After
-	C_Timer.After = function(_, fn) timers[#timers + 1] = fn end
+	local timers, refreshes, savedAfter = {}, {}, C_Timer.After
+	C_Timer.After = function(delay, fn)
+		local queue = delay >= 10 and timers or refreshes
+		queue[#queue + 1] = fn
+	end
+	local function FlushRefreshes()
+		while #refreshes > 0 do table.remove(refreshes, 1)() end
+	end
 	local uncached = { [9004] = true, [9005] = true }
 	C_Item.IsItemDataCachedByID = function(id) return not uncached[id] end
 	local requested = {}
@@ -3808,12 +4842,13 @@ end)()
 	assert(F.Profitable(row(9004, 1)) == nil, "an unknown merchant price is neither yes nor no")
 	-- the view onto a list, growing with the pages
 	local provider
+	local redraws = 0
 	local scrollEnd = 0
 	local frame = { browseResults = { row(9001, 10), row(9001, 500), row(9002, 20) }, IsShown = function() return true end,
 		ItemList = { getNumEntries = function() return 0 end, searchStartedFunc = function() return true end,
 			ScrollBox = { GetDataIndexEnd = function() return scrollEnd end },
 			SetDataProvider = function(_, started, entry, count, hasFull) provider = { started = started, entry = entry, count = count, hasFull = hasFull } end,
-			RefreshScrollFrame = function() end } }
+			RefreshScrollFrame = function() redraws = redraws + 1 end } }
 	AuctionHouseFrame = { BrowseResultsFrame = frame }
 	F.Apply()
 	F.Provider(frame, true)
@@ -3831,17 +4866,30 @@ end)()
 	prices[9005] = 20
 	uncached[9005] = nil
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 9005)
+	assert(provider.count() == 4, "late verdicts wait for the batched refresh")
+	FlushRefreshes()
 	assert(provider.count() == 6, "both rows of the item judged")
 	assert(provider.entry(4) == frame.browseResults[5] and provider.entry(5) == frame.browseResults[6] and provider.entry(6) == frame.browseResults[7], "late rows land in order")
 	-- many rows are judged in portions
 	local big = {}
-	for i = 1, 400 do big[i] = row(9001, 10) end
+	for i = 1, 400 do big[i] = row(9001, i == 400 and 10 or 500) end
 	frame.browseResults = big
 	F.Apply() -- (a new search resets the view through the query hook)
+	redraws = 0
 	provider.count()
-	assert(F.State.judged < 400, "a portion per call")
-	provider.count(); provider.count()
-	assert(F.State.judged == 400 and provider.count() == 400, "all judged after a few calls")
+	local judged = F.State.judged
+	assert(judged > 0 and judged < 400 and #refreshes == 1, "one portion, then a queued slice")
+	provider.count(); F.Page(frame)
+	assert(F.State.judged == judged, "provider and paging calls share the pending slice")
+	full = true
+	FlushRefreshes()
+	assert(F.State.judged == 400 and provider.count() == 1 and redraws == 1, "only the slice with a new hit redraws")
+	full = false
+	big[400] = row(9001, 500)
+	F.Apply()
+	more, redraws = 0, 0
+	FlushRefreshes()
+	assert(provider.count() == 0 and more == 1 and redraws == 0, "an empty filtered page keeps paging without a redraw")
 	frame.browseResults = { row(9001, 500) }
 	more = 0
 	F.Apply()
@@ -3866,6 +4914,7 @@ end)()
 	F.Page(frame)
 	assert(more == 1 and #timers >= 1 and provider.hasFull() == false, "searching, timer set")
 	for _, fn in ipairs(timers) do fn() end
+	FlushRefreshes()
 	assert(provider.hasFull() == true, "given up: the list says no results instead of searching")
 	F.Page(frame)
 	assert(more == 1, "no more pages by itself after giving up")
@@ -3882,12 +4931,16 @@ end)()
 ;(function()
 	local items = ns:GetModule("Items")
 	local SortOnOpen = uv(uv(items.OnLogin, "QueueSort"), "SortOnOpen")
+	local OnBagLayoutChanged = uv(items.OnLogin, "OnBagLayoutChanged")
 	assert(SortOnOpen, "sort function")
 	local saved = { C_Container.SortBags, C_Container.GetContainerItemInfo, C_Container.GetContainerNumSlots, C_Timer.NewTicker, GetTime, InCombatLockdown, GetCursorInfo }
-	local sorts, locked, now, ticker, itemId = 0, false, 100, nil, 1
+	local sorts, locked, now, ticker, itemId, slotReads = 0, false, 100, nil, 1, 0
 	C_Container.SortBags = function() sorts = sorts + 1 end
 	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and 2 or 0 end
-	C_Container.GetContainerItemInfo = function(bag, slot) return bag == 0 and slot == 1 and { isLocked = locked, itemID = itemId, stackCount = 1 } or nil end
+	C_Container.GetContainerItemInfo = function(bag, slot)
+		slotReads = slotReads + 1
+		return bag == 0 and slot == 1 and { isLocked = locked, itemID = itemId, stackCount = 1 } or nil
+	end
 	C_Timer.NewTicker = function(_, fn) ticker = { fn = fn, Cancel = function(self) self.dead = true end } return ticker end
 	GetTime = function() return now end
 	InCombatLockdown = function() return false end
@@ -3913,6 +4966,7 @@ end)()
 	assert(ticker.dead, "over after two quiet looks")
 	now = 125
 	locked = true
+	OnBagLayoutChanged(nil, nil, 0)
 	SortOnOpen()
 	assert(sorts == 1, "no sort while an item is locked")
 	locked = false
@@ -3921,9 +4975,23 @@ end)()
 	assert(sorts == 1, "no sort at a merchant")
 	MerchantFrame = false
 	now = 130
+	slotReads = 0
 	SortOnOpen()
 	assert(sorts == 1, "no new sort while the sorted bags are unchanged (the junk must not jump to and fro)")
+	assert(slotReads == 2, "locks and the unchanged layout are checked in a single slot pass")
+	slotReads = 0
+	SortOnOpen()
+	assert(slotReads == 0, "the confirmed layout is reused until a bag event arrives")
 	itemId = 2
+	OnBagLayoutChanged(nil, nil, 0)
+	local savedAfter, pending = C_Timer.After
+	C_Timer.After = function(_, fn) pending = fn end
+	SortOnOpen()
+	assert(pending and sorts == 1, "the game sort runs after the inspection frame")
+	OnBagLayoutChanged(nil, nil, 0)
+	pending()
+	assert(sorts == 1, "a bag change between inspection and execution cancels the stale sort")
+	C_Timer.After = savedAfter
 	SortOnOpen()
 	assert(sorts == 2, "next sort afterwards")
 	items.db.autoSort = false
@@ -3985,16 +5053,42 @@ end)()
 -- Speech bubbles
 ;(function()
 	local sb = ns:GetModule("SpeechBubbles")
-	UnitExists = function() return false end
-	C_NamePlate = { GetNamePlateForUnit = function() return nil end }
+	local saved = { UnitExists, UnitGUID, C_NamePlate, sb.db.fallback }
+	local guid = { npc = "Creature-NPC", nameplate1 = "Creature-NPC" }
+	local plate, playerPlate = CreateFrame("Frame"), CreateFrame("Frame")
+	local plates = { npc = plate, nameplate1 = plate }
+	UnitExists = function(unit) return guid[unit] ~= nil end
+	UnitGUID = function(unit) return guid[unit] end
+	C_NamePlate = { GetNamePlateForUnit = function(unit) return plates[unit] end }
 	sb.db.fallback = true
 	sb.Show("Willkommen, Reisender.")
-	assert(sb.Show and sb.Hide, "bubble functions")
+	local bubble = uv(sb.Show, "speechBubble")
+	local anchored
+	bubble.SetPoint = function(_, _, to) anchored = to end
+	sb.Show("Willkommen, Reisender.")
+	assert(bubble:IsShown() and anchored == plate and bubble.Tail:IsShown(), "speech starts on the NPC's plate")
+	guid.target, plates.npc = "Player-Other", playerPlate
+	local watch = bubble:GetScript("OnUpdate")
+	watch()
+	assert(anchored == plate, "speech stays with the NPC when targeting a player")
+	uv(sb.Apply, "OnPlateRemoved")(nil, nil, "nameplate1")
+	watch()
+	assert(anchored == UIParent and not bubble.Tail:IsShown(), "speech leaves a removed plate immediately")
+	guid.nameplate1 = "Player-Other"
+	uv(sb.Apply, "OnPlateAdded")(nil, nil, "nameplate1")
+	assert(anchored == UIParent, "speech ignores the player on the recycled plate")
+	guid.nameplate2, plates.nameplate2 = "Creature-NPC", plate
+	uv(sb.Apply, "OnPlateAdded")(nil, nil, "nameplate2")
+	assert(anchored == plate and bubble.Tail:IsShown(), "speech returns to the NPC")
 	sb.Hide()
 	sb.db.fallback = false
 	sb.Show("Kein Platz am Bildschirm.")
+	guid.nameplate2 = "Player-Other"
+	watch()
+	assert(not bubble:IsShown(), "speech hides when the NPC loses its plate and fallback is off")
 	sb.Hide()
-	UnitExists = function() return true end
+	bubble.SetPoint = nil
+	UnitExists, UnitGUID, C_NamePlate, sb.db.fallback = unpack(saved, 1, 4)
 	print("speech bubbles OK")
 end)()
 -- Diagnosis report
@@ -4340,16 +5434,21 @@ end)()
 	assert(D.OpenReady(0.5, 0), "at the latest")
 	assert(D.ScaleMoved(0.89, 0.90) and not D.ScaleMoved(0.95, 0.951), "small steps do not count")
 	assert(D.ScaleMoved(nil, 0.5) and not D.ScaleMoved(nil, nil), "a plate that comes moves")
-	local getCVar, setCVar, value = GetCVar, SetCVar, "0"
-	GetCVar = function() return value end
-	SetCVar = function(_, v) value = v end
+	local getCVar, setCVar = GetCVar, SetCVar
+	local values = { nameplateShowFriendlyNpcs = "0", nameplateShowAll = "1" }
+	GetCVar = function(cvar) return values[cvar] end
+	SetCVar = function(cvar, value) values[cvar] = value end
 	ns.ShowFriendlyPlates(true, "dialog")
 	ns.ShowFriendlyPlates(true, "speech")
-	assert(value == "1", "plates on")
+	assert(values.nameplateShowFriendlyNpcs == "1" and values.nameplateShowAll == "1", "plates on")
 	ns.ShowFriendlyPlates(false, "speech")
-	assert(value == "1", "the gossip ends, the conversation goes on: plates stay")
+	assert(values.nameplateShowFriendlyNpcs == "1", "the gossip ends, the conversation goes on: plates stay")
 	ns.ShowFriendlyPlates(false, "dialog")
-	assert(value == "0", "restored by the last one")
+	assert(values.nameplateShowFriendlyNpcs == "0" and values.nameplateShowAll == "1", "each setting is restored")
+	values.nameplateShowAll = "0"
+	ns.ShowFriendlyPlates(true, "dialog")
+	uv(ns.RegisterEvent, "listeners").PLAYER_LOGOUT["NPC bubble nameplates"]()
+	assert(values.nameplateShowFriendlyNpcs == "0" and values.nameplateShowAll == "0", "restores both settings on reload")
 	GetCVar, SetCVar = getCVar, setCVar
 	print("opening OK")
 end)()
@@ -4403,6 +5502,52 @@ end)()
 		"filter status while searching and after")
 	assert(A.FilterStatusText(3, 2, false) == nil, "hits shown: no status line")
 	GetMoneyString = money
+	local savedAPI, savedStore, savedAfter, savedTime, savedProfile = C_AuctionHouse, ns.db.auctionPrices, C_Timer.After, time, debugprofilestop
+	local timers, reads, now, ticks = {}, 0, 1000, 0
+	C_Timer.After = function(_, fn) timers[#timers + 1] = fn end
+	time = function() return now end
+	debugprofilestop = function() ticks = ticks + 1 return ticks * 0.15 end
+	ns.db.auctionPrices = {}
+	local function result(id, price) return { itemKey = { itemID = id }, minPrice = price } end
+	C_AuctionHouse = {
+		GetBrowseResults = function()
+			reads = reads + 1
+			return { result(1, 100), result(2, 200), result(3, 300), result(4, 400), result(5, 500) }
+		end,
+		GetCommoditySearchResultInfo = function() return { unitPrice = 150 } end,
+	}
+	local browse = uv(A.OnLogin, "OnBrowseResults")
+	browse(A, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+	browse(A, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", { result(1, 80), result(6, 600) })
+	do
+		local frame = { UpdateBrowseResults = function() end, browseResults = { result(7, 700) } }
+		local savedHook, queue, unregistered = hooksecurefunc, nil, 0
+		hooksecurefunc = function(target, name, fn)
+			assert(target == frame and name == "UpdateBrowseResults")
+			queue = fn
+		end
+		A.UnregisterEvent = function() unregistered = unregistered + 1 end
+		uv(A.OnLogin, "HookBrowsePrices")(frame)
+		A.UnregisterEvent, hooksecurefunc = nil, savedHook
+		assert(unregistered == 2, "the Blizzard hook replaces both browse event listeners")
+		queue(frame)
+		queue(frame, { result(7, 650) })
+	end
+	now = now + 1800
+	uv(A.OnLogin, "OnCommodityResults")(A, "COMMODITY_SEARCH_RESULTS_UPDATED", 1)
+	assert(reads == 1 and #timers == 1 and next(ns.db.auctionPrices) == nil, "pages queue together and additions use the payload")
+	table.remove(timers, 1)()
+	assert(ns.db.auctionPrices[1] and not ns.db.auctionPrices[5] and #timers == 1, "the first price slice yields at its budget")
+	while #timers > 0 do table.remove(timers, 1)() end
+	assert(ns.db.auctionPrices[1][1] == 150 and ns.db.auctionPrices[1][2] == now and ns.db.auctionPrices[6][1] == 600,
+		"queued snapshots preserve order and the time of each event")
+	assert(ns.db.auctionPrices[7][1] == 650, "the Blizzard snapshot and appended page are saved without another read")
+	browse(A, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", { result(8, 800) })
+	uv(A.OnLogin, "SaveQueuedPrices")(true)
+	assert(ns.db.auctionPrices[8][1] == 800, "logout saves the queued prices before the next frame")
+	table.remove(timers, 1)()
+	assert(#timers == 0, "a timer left after the flush has nothing to do")
+	C_AuctionHouse, ns.db.auctionPrices, C_Timer.After, time, debugprofilestop = savedAPI, savedStore, savedAfter, savedTime, savedProfile
 	print("craft prices OK")
 end)()
 ;(function()
@@ -4420,23 +5565,16 @@ end)()
 	for _, row in ipairs(rows) do names[#names + 1] = row.entry.name .. (row.now and "+" or "") end
 	assert(table.concat(names, ",") == "Geselle+,Grobes Schleifmittel,Experte", table.concat(names, ","))
 	assert(#P.Upcoming(nil, {}, 0, 1) == 0, "no list")
-	-- the elements below Blizzard's recipes: divider, title, per skill a heading, the recipes
-	local elements = P.Elements("Schmiedekunst", list, { ["Kupferkettenhose"] = true }, 60, 12)
-	assert(elements[1].isDivider and elements[2].fpPlan == "title", "divider and title first")
-	local kinds = {}
-	for i = 3, #elements do kinds[#kinds + 1] = elements[i].fpPlan .. (elements[i].now and "+" or "") end
-	assert(table.concat(kinds, ",") == "skill,recipe+,skill,recipe,skill,recipe", table.concat(kinds, ","))
-	for _, element in ipairs(elements) do
-		assert(element.dividerHeight and not element.recipeInfo and not element.categoryInfo, "plain elements, no recipe of the game")
-	end
-	assert(P.Elements("Schmiedekunst", nil, {}, 1, 1)[3].fpPlan == "note", "no trainer list yet: a note")
-	-- added to the list Blizzard shows, taken out again when switched off
-	-- Blizzard sorts the top of its list on every insert by `group`, then by the category (its SortRootData): one
-	-- element of ours stands there, with a group behind Blizzard's, and carries the others below it.
-	local roots, children, removed = {}, 0, 0
+	-- Blizzard sorts the divider and the native skill headers with the learned categories.
+	local roots = {}
 	local function Node(data)
-		return { data = data, GetData = function(self) return self.data end,
-			Insert = function(_, childData) children = children + 1 return Node(childData) end }
+		return { data = data, children = {}, GetData = function(self) return self.data end,
+			SetCollapsed = function(self, value) self.collapsed = value end,
+			Insert = function(self, childData)
+				local child = Node(childData)
+				self.children[#self.children + 1] = child
+				return child
+			end }
 	end
 	local function SortRoot(lhs, rhs)
 		local left, right = lhs:GetData(), rhs:GetData()
@@ -4447,23 +5585,324 @@ end)()
 	end
 	roots[1] = Node({ group = 2, categoryInfo = { uiOrder = 1 } })
 	roots[2] = Node({ group = 1, categoryInfo = { uiOrder = 2 } })
-	local provider = { Insert = function(_, data) local node = Node(data) roots[#roots + 1] = node table.sort(roots, SortRoot) return node end,
-		Remove = function() removed = removed + 1 end }
-	local savedFrame, savedTradeSkill = ProfessionsFrame, C_TradeSkillUI
-	ProfessionsFrame = { CraftingPage = { RecipeList = { ScrollBox = { GetDataProvider = function() return provider end },
-		SearchBox = { HasText = function() return false end } } } }
+	local provider = {
+		Insert = function(_, data)
+			local node = Node(data)
+			roots[#roots + 1] = node
+			table.sort(roots, SortRoot)
+			return node
+		end,
+		Remove = function(_, node)
+			for i, root in ipairs(roots) do
+				if root == node then return table.remove(roots, i) end
+			end
+		end,
+	}
+	local savedFrame, savedTradeSkill, savedLevel = ProfessionsFrame, C_TradeSkillUI, UnitLevel
+	local searching, collapses = false, {}
+	ProfessionsFrame = { CraftingPage = { GetCollapses = function() return collapses end,
+		RecipeList = { ScrollBox = { GetDataProvider = function() return provider end },
+			SearchBox = { HasText = function() return searching end } } } }
+	local recipeScans = 0
 	C_TradeSkillUI = { GetBaseProfessionInfo = function() return { professionName = "Schmiedekunst", skillLevel = 60 } end,
-		GetAllRecipeIDs = function() return {} end }
+		GetAllRecipeIDs = function() recipeScans = recipeScans + 1 return { 1 } end,
+		GetRecipeInfo = function() return { name = "Kupferkettenhose", learned = true } end }
+	UnitLevel = function() return 12 end
 	P.cdb.trainers["Schmiedekunst"] = list
 	P.db.upcoming = true
 	P.Inject()
-	assert(#roots == 3 and roots[3]:GetData().fpPlan and roots[3]:GetData().isDivider, "one element at the top level, behind Blizzard's")
-	assert(children >= 7, "the others below it: " .. children)
+	assert(recipeScans == 1, "check learned recipes for a saved trainer list")
+	assert(#roots == 6 and roots[3].data.isDivider, "divider and three skill categories after the learned categories")
+	local requirements = { 50, 75, 125 }
+	for i, required in ipairs(requirements) do
+		local category = roots[3 + i]
+		local children = category.children
+		assert(category.data.categoryInfo.name == ns.L.PROFPLAN_SKILL:format(required), "native categories in skill order")
+		assert(#children == 3 and children[1].data.topPadding and children[3].data.bottomPadding, "native category spacing")
+		assert(children[2].data.fpPlan == "recipe" and not children[2].data.recipeInfo, "upcoming recipes stay out of crafting selection")
+	end
+	assert(roots[4].children[2].data.right == ns.L.PROFPLAN_NOW, "learnable recipe keeps its status")
+	assert(roots[6].children[2].data.right == ns.L.PROFPLAN_LEVEL:format(20), "level requirement stays visible")
+	collapses[roots[4].data.categoryInfo.categoryID] = true
+	P.Inject()
+	assert(#roots == 6 and roots[4].collapsed, "refresh restores collapsed categories without duplicates")
+	searching = true
+	P.Inject()
+	assert(#roots == 2 and recipeScans == 2, "search removes all upcoming categories without scanning")
+	searching = false
+	P.cdb.trainers["Schmiedekunst"] = nil
+	P.Inject()
+	assert(#roots == 3 and roots[3].children[1].data.fpPlan == "note" and recipeScans == 2,
+		"no trainer list yet: show a note without scanning")
 	P.db.upcoming = false
 	P.Inject()
-	assert(removed == 1, "taken out when switched off")
-	ProfessionsFrame, C_TradeSkillUI = savedFrame, savedTradeSkill
+	assert(#roots == 2, "taken out when switched off")
+	-- Hover a future recipe from an old saved trainer list, which had neither an item link nor a recipe ID.
+	local savedSpell, savedTooltip, savedTitle, savedLine = C_Spell, GameTooltip, GameTooltip_SetTitle, GameTooltip_AddNormalLine
+	local savedPreview, frame, shown, title = P.db.preview, NewFrame("Frame"), nil, nil
+	local savedTimer, savedTicker, savedUpgrade = C_Timer.NewTimer, C_Timer.NewTicker, ns.RecipeUpgradeState
+	local savedTooltipInfo = C_TooltipInfo
+	local tooltipTimer, arrowTicker, schematicReads = nil, nil, 0
+	C_Timer.NewTimer = function(delay, fn)
+		tooltipTimer = { delay = delay, Run = fn, Cancel = function(self) self.cancelled = true end }
+		return tooltipTimer
+	end
+	C_Timer.NewTicker = function(_, fn)
+		arrowTicker = { Run = fn, Cancel = function(self) self.cancelled = true end }
+		return arrowTicker
+	end
+	local lines = {}
+	frame.GetObjectType = function() return "Frame" end
+	setmetatable(frame, { __index = function(self, key)
+		if key:sub(1, 2) ~= "fp" then return frameMeta.__index(self, key) end
+	end })
+	C_Spell = { GetSpellIDForSpellIdentifier = function(name) return name == "Bronzener Kriegshammer" and 9985 or nil end }
+	C_TradeSkillUI.GetProfessionInfoByRecipeID = function() return { parentProfessionName = "Schmiedekunst" } end
+	C_TradeSkillUI.GetRecipeSchematic = function(id)
+		schematicReads = schematicReads + 1
+		return id == 9985 and { outputItemID = 7958 } or {}
+	end
+	local cachedItemData = { lines = {} }
+	C_TooltipInfo = { GetHyperlink = function(link)
+		assert(link == "item:7958")
+		return cachedItemData
+	end }
+	GameTooltip = NewFrame("Tooltip")
+	GameTooltip.SetOwner = function(self, owner) self.owner = owner end
+	GameTooltip.IsOwned = function(self, owner) return self.owner == owner end
+	GameTooltip.ProcessInfo = function(self, info)
+		shown = info
+		info.tooltipPostCall(self)
+		return true
+	end
+	GameTooltip_SetTitle = function(_, name) title = name end
+	GameTooltip_AddNormalLine = function(_, line) lines[#lines + 1] = line end
+	P.db.preview = false
+	local acquired = uv(P.HookList, "OnAcquired")
+	local function hover(entry)
+		shown, title, lines = nil, nil, {}
+		acquired(nil, frame, Node({ fpPlan = "recipe", entry = entry, profession = "Schmiedekunst" }))
+		frame:GetScript("OnEnter")(frame)
+	end
+	local hammer = { name = "Bronzener Kriegshammer", skill = 100, cost = 250 }
+	hover(hammer)
+	assert(tooltipTimer.delay > 0)
+	frame:GetScript("OnLeave")(frame)
+	assert(tooltipTimer.cancelled and schematicReads == 0 and not shown, "passing over a row skips the tooltip and schematic")
+	hover(hammer)
+	tooltipTimer:Run()
+	assert(not shown and tooltipTimer.delay == 0, "tooltip data is prepared before rendering")
+	tooltipTimer:Run()
+	assert(shown and shown.getterName == "GetHyperlink" and shown.getterArgs[1] == "item:7958" and title == nil,
+		"an old entry shows the native item tooltip even with recipe preview disabled")
+	assert(shown.tooltipData == cachedItemData, "the renderer reuses the data read in the previous frame")
+	assert(lines[1] == ns.L.PROFPLAN_SKILL:format(100) and lines[2] == GetMoneyString(250, true), "training details follow the item stats")
+	hover(hammer)
+	tooltipTimer:Run()
+	tooltipTimer:Run()
+	assert(schematicReads == 1, "repeated item tooltips reuse the output link")
+	hover({ name = "Verzauberung", skill = 120, recipeID = 2000 })
+	tooltipTimer:Run()
+	tooltipTimer:Run()
+	assert(shown and shown.getterName == "GetSpellByID" and shown.getterArgs[1] == 2000, "a recipe with no output item shows its spell")
+	hover({ name = "Unbekannt", skill = 125 })
+	tooltipTimer:Run()
+	assert(shown == nil and title == "Unbekannt" and lines[1] == ns.L.PROFPLAN_SKILL:format(125), "no match: show the saved training details")
+	P.db.preview = true
+	ns.RecipeUpgradeState = function(link) return link == "item:7958" end
+	hover(hammer)
+	assert(not frame.fpArrow, "the list can draw before an arrow is checked")
+	arrowTicker:Run()
+	assert(frame.fpArrow:IsShown() and schematicReads == 2, "the deferred arrow uses the same cached output link")
+	tooltipTimer:Run()
+	acquired(nil, frame, Node({ bottomPadding = true }))
+	assert(tooltipTimer.cancelled and not shown and not frame.fpText:IsShown() and not frame.fpArrow:IsShown()
+		and not frame.fpHighlight:IsShown() and not frame.fpData,
+		"a recipe frame recycled as padding clears its visuals and tooltip data")
+	if not arrowTicker.cancelled then arrowTicker:Run() end
+	P.db.preview = savedPreview
+	C_Timer.NewTimer, C_Timer.NewTicker, ns.RecipeUpgradeState = savedTimer, savedTicker, savedUpgrade
+	C_TooltipInfo = savedTooltipInfo
+	C_Spell, GameTooltip, GameTooltip_SetTitle, GameTooltip_AddNormalLine = savedSpell, savedTooltip, savedTitle, savedLine
+	ProfessionsFrame, C_TradeSkillUI, UnitLevel = savedFrame, savedTradeSkill, savedLevel
 	print("profession plan OK")
+end)()
+;(function()
+	local plan, auction = ns:GetModule("ProfessionPlan"), ns:GetModule("Auction")
+	local savedAuction, savedVendor = ns.db.auctionPrices, auction.cdb.vendorBuyPrices
+	local savedCount, savedMerchant, savedItemID = GetMerchantNumItems, C_MerchantFrame, GetMerchantItemID
+	ns.db.auctionPrices = { [101] = { 10, 1 }, [102] = { 55, 1 }, [105] = { 60, 1 } }
+	auction.cdb.vendorBuyPrices = {}
+	local offers = {
+		{ price = 250, stackCount = 5, numAvailable = -1, isPurchasable = true },
+		{ price = 1, stackCount = 1, numAvailable = 1, isPurchasable = true },
+		{ price = 1, stackCount = 1, numAvailable = -1, isPurchasable = true, hasExtendedCost = true },
+	}
+	GetMerchantNumItems = function() return #offers end
+	GetMerchantItemID = function(index) return ({ 105, 104, 103 })[index] end
+	C_MerchantFrame = { GetItemInfo = function(index) return offers[index] end }
+	uv(auction.OnLogin, "RecordMerchantPrices")()
+	assert(auction.ReagentPrice(105) == 50 and not auction.ReagentPrice(104) and not auction.ReagentPrice(103),
+		"only unlimited gold offers count and merchant stacks are priced per unit")
+	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemID = savedCount, savedMerchant, savedItemID
+
+	local attached, redraws = true, 0
+	local function Redraw()
+		if attached then redraws = redraws + 1 end
+	end
+	local function Node(data)
+		local node = { data = data, children = {}, GetData = function(self) return self.data end }
+		function node:InsertNode(child)
+			child.parent = self
+			self.children[#self.children + 1] = child
+			Redraw()
+			return child
+		end
+		function node:Insert(childData) return self:InsertNode(Node(childData)) end
+		function node:Remove(child, skipInvalidation)
+			for index, current in ipairs(self.children) do
+				if child == current then
+					local removed = table.remove(self.children, index)
+					if not skipInvalidation then Redraw() end
+					return removed
+				end
+			end
+		end
+		return node
+	end
+	local root = Node()
+	local provider = {
+		GetRootNode = function() return root end,
+		GetChildrenNodes = function() return root.children end,
+		Insert = function(_, data) return root:Insert(data) end,
+		Remove = function(_, node) return node.parent:Remove(node) end,
+		IsEmpty = function() return #root.children == 0 end,
+		EnumerateEntireRange = function()
+			local nodes = {}
+			for _, category in ipairs(root.children) do
+				for _, recipe in ipairs(category.children) do nodes[#nodes + 1] = recipe end
+			end
+			return ipairs(nodes)
+		end,
+	}
+	local savedFrame, savedAPI, savedProfessions = ProfessionsFrame, C_TradeSkillUI, Professions
+	local savedDifficulty, savedOption = Enum.TradeskillRelativeDifficulty, plan.db.efficientSkillUps
+	local savedTicker, savedProfile, savedAfter = C_Timer.NewTicker, debugprofilestop, C_Timer.After
+	local scan, clock, selectRecommended
+	C_Timer.After = function(_, fn) selectRecommended = fn end
+	C_Timer.NewTicker = function(_, fn)
+		scan = { Run = fn, Cancel = function(self) self.cancelled = true end }
+		return scan
+	end
+	clock = 0
+	debugprofilestop = function() clock = clock + 0.3 return clock end
+	local function FinishScan()
+		for _ = 1, 20 do
+			if scan.cancelled then return end
+			scan:Run()
+		end
+		error("recipe scan did not finish")
+	end
+	local noResults, skill, skillUpOnly = NewFrame("FontString"), 25, true
+	local selected
+	local view = {
+		DetachDataProviderCallbacks = function() assert(attached) attached = false end,
+		AttachDataProviderCallbacks = function() assert(not attached) attached = true end,
+		DataProviderContentsChanged = Redraw,
+	}
+	ProfessionsFrame = { CraftingPage = { RecipeList = { NoResultsText = noResults,
+		ScrollBox = { GetDataProvider = function() return provider end, GetView = function() return view end },
+		selectionBehavior = {
+			GetFirstSelectedElementData = function() return selected end,
+			DeselectElementData = function(_, node) assert(selected == node) selected = nil end,
+		},
+		SelectRecipe = function(_, info)
+			for _, node in provider:EnumerateEntireRange() do
+				if node.data.recipeInfo == info then selected = node return node end
+			end
+		end,
+	} } }
+	local rankedReads = 0
+	Professions = { InLocalCraftingMode = function() return true end, GetHighestLearnedRecipe = function(recipe)
+		assert(recipe.recipeID == 3)
+		rankedReads = rankedReads + 1
+		return { recipeID = 7, canSkillUp = true, numSkillUps = 1, relativeDifficulty = 2 }
+	end }
+	Enum.TradeskillRelativeDifficulty = { Optimal = 0, Medium = 1, Easy = 2, Trivial = 3 }
+	local category = root:Insert({ group = 1, categoryInfo = { uiOrder = 1 } })
+	for id = 1, 6 do
+		category:Insert({ recipeInfo = { recipeID = id, learned = true, canSkillUp = id ~= 3, numSkillUps = 1,
+			relativeDifficulty = 0, nextRecipeID = id == 3 and 7 or nil, disabled = id == 6 } })
+	end
+	local reads = 0
+	C_TradeSkillUI = {
+		GetOnlyShowSkillUpRecipes = function() return skillUpOnly end,
+		GetBaseProfessionInfo = function() return { skillLevel = skill, maxSkillLevel = 75 } end,
+		GetRecipeSchematic = function(id)
+			reads = reads + 1
+			assert(id ~= 3, "use the highest learned rank's schematic")
+			id = id == 7 and 3 or id
+			local quantity = ({ 8, 2, 1, 1, 1 })[id]
+			return { reagentSlotSchematics = {
+				{ required = true, quantityRequired = quantity, reagents = { { itemID = id == 3 and 102 or id + 100 } } },
+				{ required = false, quantityRequired = 10, reagents = {} },
+			} }
+		end,
+	}
+	local function Recommendations()
+		return root.children[1].children
+	end
+	plan.db.efficientSkillUps = true
+	selected, redraws = category.children[6], 0
+	plan.Inject()
+	assert(reads == 0 and root.children[1] == category, "the list hook leaves expensive recipe reads for later frames")
+	scan:Run()
+	assert(reads == 1 and root.children[1] == category and redraws == 0, "a scan slice yields before changing the visible list")
+	FinishScan()
+	local rows = Recommendations()
+	assert(attached and redraws == 1 and not selected and selectRecommended, "the list redraws once before loading a new recipe")
+	selectRecommended()
+	assert(selected == rows[1], "the first available recipe is selected after the redraw")
+	assert(#rows == 3 and rows[1].data.recipeInfo.recipeID == 5 and rows[2].data.recipeInfo.recipeID == 2
+		and rows[3].data.recipeInfo.recipeID == 1, "top three balance reagent cost, reagent count and skill chance")
+	assert(rows[1].data.fpSkillUp.cost == 50 and rows[2].data.fpSkillUp.units == 2 and reads == 5,
+		"optional reagents and disabled recipes do not affect the ranking")
+	assert(rankedReads == 1, "rank lookup is reserved for recipes with ranks")
+
+	ns.db.auctionPrices = {}
+	plan.Inject()
+	FinishScan()
+	rows = Recommendations()
+	assert(rows[2].data.recipeInfo.recipeID == 4 and rows[2].data.fpSkillUp.cost == nil,
+		"missing prices fall back to materials per skill point")
+
+	selected, skillUpOnly = rows[1], false
+	plan.Inject()
+	assert(root.children[1] == category and #category.children == 6, "turning off the native filter restores the original tree")
+	assert(selected == category.children[5], "the selected recipe is restored to its original row")
+	skillUpOnly = true
+	plan.Inject()
+	scan:Run()
+	local obsoleteScan = scan
+	skillUpOnly = false
+	plan.Inject()
+	assert(obsoleteScan.cancelled and root.children[1] == category, "changing the filter cancels a pending scan")
+
+	selected, skillUpOnly, skill = nil, true, 75
+	root:Remove(category)
+	noResults:Show()
+	reads = 0
+	plan.Inject()
+	assert(reads == 0 and Recommendations()[1].data.text == ns.L.PROFPLAN_SKILL_CAP and not noResults:IsShown(),
+		"at the cap the empty list shows a single message without reading recipes")
+	plan.db.efficientSkillUps = false
+	plan.Inject()
+	assert(provider:IsEmpty() and noResults:IsShown(), "turning off the addon filter restores Blizzard's empty state")
+	plan.db.efficientSkillUps = savedOption
+	C_Timer.NewTicker, debugprofilestop, C_Timer.After = savedTicker, savedProfile, savedAfter
+	Enum.TradeskillRelativeDifficulty, ProfessionsFrame, C_TradeSkillUI, Professions = savedDifficulty, savedFrame, savedAPI, savedProfessions
+	ns.db.auctionPrices, auction.cdb.vendorBuyPrices = savedAuction, savedVendor
+	print("profession skill-up filter OK")
 end)()
 ;(function()
 	-- Core helpers

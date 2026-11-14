@@ -300,8 +300,53 @@ end
 -- Name colour and the desaturated copy underneath it.
 local function ApplyNameColor(frame, r, g, b)
 	frame.Name:SetTextColor(r, g, b)
-	local grey = max(MIN_GREY, 0.3 * r + 0.59 * g + 0.11 * b)
+	if not frame.masked then
+		return
+	end
+	local grey = MIN_GREY
+	if not Secret(r) and not Secret(g) and not Secret(b) then
+		grey = max(MIN_GREY, 0.3 * r + 0.59 * g + 0.11 * b)
+	end
 	frame.Grey:SetTextColor(grey, grey, grey)
+end
+
+local function LayoutHoverText(frame, name, level, showHealth)
+	frame.Name:SetText(name)
+	frame.Level:SetText(level or "")
+	frame.Clip:ClearAllPoints()
+	frame.Name:ClearAllPoints()
+
+	-- The health texture can make the clipped copy's dimensions secret.
+	-- Measure the copy anchored directly to the box.
+	local width, height
+	if not Secret(name) then
+		frame.Grey:SetText(name)
+		width = ns.Number(frame.Grey:GetStringWidth())
+		height = ns.Number(frame.Grey:GetStringHeight())
+	end
+	local hasSize = width ~= nil and height ~= nil
+	local levelWidth = hasSize and level and ns.Number(frame.Level:GetStringWidth())
+	frame.Level:SetShown(not not levelWidth)
+	frame.masked = hasSize and showHealth
+	frame.Grey:SetShown(frame.masked)
+	frame.Clip:SetClipsChildren(frame.masked)
+
+	if hasSize then
+		width, height = width + 2, height + 2
+		frame.Name:SetPoint("LEFT", frame.Box, "LEFT", 1, 0)
+	else
+		width, height = 1, NAME_SIZE
+		frame.Name:SetPoint("CENTER", frame.Box)
+	end
+	frame.Box:SetSize(width, height)
+	frame:SetSize(width + (levelWidth and levelWidth + 4 or 0), height)
+
+	if frame.masked then
+		frame.Clip:SetPoint("TOPLEFT", frame.Box, "TOPLEFT")
+		frame.Clip:SetPoint("BOTTOMRIGHT", frame.Bar:GetStatusBarTexture(), "BOTTOMRIGHT")
+	else
+		frame.Clip:SetAllPoints(frame.Box)
+	end
 end
 
 local function Layout(frame)
@@ -338,34 +383,8 @@ local function Layout(frame)
 	if tree and tree.icon then
 		name = ("|T%d:0|t "):format(tree.icon) .. name
 	end
-	frame.Name:SetText(name)
-	local showLevel = Tooltip.db.hoverLevel and not Secret(level)
-	frame.Level:SetText(showLevel and (level and level > 0 and level or "??") or "")
-	-- Clipping needs the width of the name; a protected name is shown plainly.
-	frame.masked = not Secret(name)
-	if not frame.masked then
-		frame.Level:SetText("") -- the box is 1 px wide then; the level would cover the name
-	end
-	frame.Clip:ClearAllPoints()
-	frame.Clip:SetClipsChildren(frame.masked and Tooltip.db.hoverHealth)
-	if frame.masked then
-		local width, height = frame.Name:GetStringWidth() + 2, frame.Name:GetStringHeight() + 2
-		frame.Box:SetSize(width, height)
-		frame.Grey:SetText(name)
-		frame.Grey:SetShown(Tooltip.db.hoverHealth)
-		frame.Clip:SetPoint("TOPLEFT", frame.Box, "TOPLEFT")
-		if Tooltip.db.hoverHealth then
-			frame.Clip:SetPoint("BOTTOMRIGHT", frame.Bar:GetStatusBarTexture(), "BOTTOMRIGHT")
-		else
-			frame.Clip:SetPoint("BOTTOMRIGHT", frame.Box, "BOTTOMRIGHT")
-		end
-		frame:SetSize(width + (showLevel and frame.Level:GetStringWidth() + 4 or 0), height)
-	else
-		frame.Grey:Hide()
-		frame.Box:SetSize(1, NAME_SIZE)
-		frame.Clip:SetAllPoints(frame.Box)
-		frame:SetSize(1, NAME_SIZE)
-	end
+	local levelText = Tooltip.db.hoverLevel and not Secret(level) and (level and level > 0 and level or "??")
+	LayoutHoverText(frame, name, levelText, Tooltip.db.hoverHealth)
 	ApplyNameColor(frame, r, g, b)
 	UpdateHealthMask(frame)
 end
@@ -385,7 +404,6 @@ local function CreateHover()
 	frame.Clip = CreateFrame("Frame", nil, frame)
 	frame.Clip:SetFrameLevel(frame.Box:GetFrameLevel() + 2)
 	frame.Name = frame.Clip:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	frame.Name:SetPoint("LEFT", frame.Box, "LEFT", 1, 0)
 	frame.Level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	frame.Level:SetPoint("LEFT", frame.Box, "RIGHT", 3, 0)
 	frame.Level:SetTextColor(0.8, 0.8, 0.8)
@@ -457,22 +475,6 @@ local function ShowHoverName()
 	UpdateHover(frame, 0)
 end
 
--- The name of an object under the cursor (sign, mailbox, node, chest) in the
--- colour of its tooltip's first line.
-local function LayoutObject(frame, name, r, g, b)
-	frame.Name:SetText(name)
-	frame.Name:SetTextColor(r, g, b)
-	frame.Grey:Hide()
-	frame.Level:SetText("")
-	frame.masked = false
-	frame.Clip:SetClipsChildren(false)
-	frame.Clip:ClearAllPoints()
-	frame.Clip:SetAllPoints(frame.Box)
-	local width, height = frame.Name:GetStringWidth() + 2, frame.Name:GetStringHeight() + 2
-	frame.Box:SetSize(width, height)
-	frame:SetSize(width, height)
-end
-
 -- The tooltip of an object hangs at the cursor, where the name is: it goes
 -- back to the corner the game puts unit tooltips in.
 local CORNERS = { BOTTOMRIGHT = true, BOTTOMLEFT = true, TOPRIGHT = true, TOPLEFT = true }
@@ -509,7 +511,8 @@ local function OnObjectTooltip(tooltip)
 	frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)
 	frame.objectSince = GetTime()
 	MoveToCorner(tooltip)
-	LayoutObject(frame, name, r or 1, g or 1, b or 1)
+	LayoutHoverText(frame, name, nil, false)
+	frame.Name:SetTextColor(r or 1, g or 1, b or 1)
 	frame:Show()
 	UpdateHover(frame, 0)
 end
@@ -853,10 +856,45 @@ local function ShowTrainerCompare(tooltip, index)
 	end
 end
 
--- Pressing or releasing Shift rebuilds the open tooltip.
+local function CanRefreshTooltip(tooltip)
+	-- RefreshData replays every entry, including appended data. Its line rules cannot
+	-- pass a secret unit token to unit APIs when the rebuild came from an addon.
+	for _, info in ipairs(tooltip.infoList or {}) do
+		local data = info.tooltipData
+		if data then
+			if Secret(data.guid) then
+				return false
+			end
+			for _, line in ipairs(data.lines or {}) do
+				if Secret(line.unitToken) then
+					return false
+				end
+			end
+		end
+		for _, arg in pairs(info.getterArgs or {}) do
+			if Secret(arg) then
+				return false
+			end
+		end
+		-- These getters can see a different unit or secrecy state when replayed.
+		local unit
+		if info.getterName == "GetWorldCursor" then
+			unit = "mouseover"
+		elseif info.getterName == "GetUnit" and info.getterArgs then
+			unit = info.getterArgs[1]
+		end
+		if unit and C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret and C_Secrets.ShouldUnitIdentityBeSecret(unit) then
+			return false
+		end
+	end
+	return true
+end
+
+-- Pressing or releasing Shift rebuilds the open tooltip if its data can be replayed.
 local function OnShiftChanged(_, _, key)
-	if (key == "LSHIFT" or key == "RSHIFT") and GameTooltip:IsShown() and not GameTooltip:IsForbidden() then
-		GameTooltip:RefreshData()
+	local tooltip = GameTooltip
+	if (key == "LSHIFT" or key == "RSHIFT") and tooltip:IsShown() and not tooltip:IsForbidden() and CanRefreshTooltip(tooltip) then
+		tooltip:RefreshData()
 	end
 end
 

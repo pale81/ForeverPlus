@@ -332,6 +332,7 @@ local outOfRange = setmetatable({}, { __mode = "k" })
 -- player's helpful auras, refreshed on UNIT_AURA for the player.
 local activeAuras = {}
 local selfBuffCache = {}
+local buffButtons = {}
 local desaturated = setmetatable({}, { __mode = "k" })
 
 -- Weapon imbues are self-buffs too, but the client does not classify every
@@ -366,24 +367,25 @@ local function ActiveAuraForItem(itemID)
 	end
 end
 
-local function IsActiveSelfBuff(action)
-	local actionType, id = GetActionInfo(action)
+local function IsActiveSelfBuff(button)
+	local actionType, id = GetActionInfo(button.action)
 	if type(id) ~= "number" then
+		buffButtons[button] = nil
 		return false
 	end
-	if actionType == "spell" then
-		if not IsSelfBuff(id) then
-			return false
-		end
-		local name = C_Spell.GetSpellName(id)
-		return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+	local name
+	if actionType == "spell" and IsSelfBuff(id) then
+		buffButtons[button] = true
+		name = next(activeAuras) and C_Spell.GetSpellName(id)
 	elseif actionType == "item" then
 		-- Weapon oils, poisons and similar consumables are items on the bar;
 		-- their active effect is exposed as a helpful player aura.
-		local name = ActiveAuraForItem(id)
-		return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
+		buffButtons[button] = true
+		name = next(activeAuras) and ActiveAuraForItem(id)
+	else
+		buffButtons[button] = nil
 	end
-	return false
+	return name and activeAuras[name] and not Visuals.db.activeBuffExceptions[name] or false
 end
 
 -- Self buffs on the action bars, for the exception menu (by name, sorted).
@@ -433,7 +435,7 @@ local function ColorButton(button)
 		icon:SetVertexColor(0.8, 0.1, 0.1)
 		return
 	end
-	local activeBuff = enabled and db.colorActiveBuff and IsActiveSelfBuff(button.action)
+	local activeBuff = enabled and db.colorActiveBuff and IsActiveSelfBuff(button)
 	SetGreyed(button, icon, activeBuff)
 	if activeBuff then
 		icon:SetVertexColor(0.7, 0.7, 0.7)
@@ -480,6 +482,14 @@ end
 local function RecolorAll()
 	for button in pairs(actionButtons) do
 		ColorButton(button)
+	end
+end
+
+local function RecolorBuffButtons()
+	for button in pairs(buffButtons) do
+		if not (Visuals.db.colorRange and outOfRange[button]) then
+			ColorButton(button)
+		end
 	end
 end
 
@@ -590,6 +600,11 @@ end
 -- Rebuilds the aura name set; recolours only when it changed.
 local auraWatcher
 local auraIDs = {} -- auraInstanceID -> name, from the last readable look at the auras
+local auraReadable = false
+
+local function AurasAreSecret()
+	return C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()
+end
 
 -- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
 -- until the fight ended. A removed aura ends its greying; when the removal cannot be read, all greying ends
@@ -599,7 +614,7 @@ local function ForgetRemovedAuras(updateInfo)
 		return
 	end
 	local ok, result = pcall(function()
-		if not updateInfo or updateInfo.isFullUpdate then
+		if not updateInfo or ns.Secret(updateInfo.isFullUpdate) or updateInfo.isFullUpdate then
 			return "all"
 		end
 		local changed = false
@@ -618,45 +633,64 @@ local function ForgetRemovedAuras(updateInfo)
 	if not ok or result == "all" then
 		wipe(activeAuras)
 		wipe(auraIDs)
-		RecolorAll()
+		RecolorBuffButtons()
 	elseif result then
-		RecolorAll()
+		RecolorBuffButtons()
 	end
 end
 
 Visuals.ForgetRemovedAuras = ForgetRemovedAuras
-local function UpdateActiveAuras()
-	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then
-		return
-	end
-	-- Secret auras (combat, restricted areas) cannot be read by addons: keep
-	-- the last set and read again once they are readable.
-	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
-		auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-		return
-	end
-	auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
+local function ScanActiveAuras()
+	local auras = C_UnitAuras.GetUnitAuras and C_UnitAuras.GetUnitAuras("player", "HELPFUL")
 	local names, ids = {}, {}
-	local index = 1
+	local index, complete = 1, true
 	while true do
-		local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL")
-		if not ok then
-			auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-			return
+		local aura
+		if auras then
+			aura = auras[index]
+		else
+			aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL")
 		end
 		if not aura then
 			break
 		end
 		local name = aura.name
-		if name and not ns.Secret(name) then
+		local id = aura.auraInstanceID
+		local knownName = name and not ns.Secret(name)
+		if knownName then
 			names[name] = true
-			local id = aura.auraInstanceID
-			if id and not ns.Secret(id) then
-				ids[id] = name
-			end
+		end
+		if knownName and id and not ns.Secret(id) then
+			ids[id] = name
+		else
+			complete = false
 		end
 		index = index + 1
 	end
+	return names, ids, complete
+end
+
+local function WaitForReadableAuras()
+	auraReadable = false
+	auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
+local function UpdateActiveAuras()
+	if not (C_UnitAuras and (C_UnitAuras.GetUnitAuras or C_UnitAuras.GetAuraDataByIndex)) then
+		return
+	end
+	-- Keep the last known set while auras are restricted.
+	if AurasAreSecret() then
+		WaitForReadableAuras()
+		return
+	end
+	local ok, names, ids, complete = pcall(ScanActiveAuras)
+	if not ok then
+		WaitForReadableAuras()
+		return
+	end
+	auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	auraReadable = complete
 	auraIDs = ids
 	local changed = false
 	for name in pairs(names) do
@@ -675,8 +709,28 @@ local function UpdateActiveAuras()
 	end
 	if changed then
 		activeAuras = names
-		RecolorAll()
+		RecolorBuffButtons()
 	end
+end
+
+-- Timer refreshes and stack changes keep the same aura instance and name.
+-- Harmful additions and removals outside our helpful set can be ignored.
+local function AuraNamesMayChange(updateInfo)
+	if not updateInfo or ns.Secret(updateInfo.isFullUpdate) or updateInfo.isFullUpdate then
+		return true
+	end
+	for _, aura in ipairs(updateInfo.addedAuras or {}) do
+		local helpful = aura.isHelpful
+		if ns.Secret(helpful) or helpful ~= false then
+			return true
+		end
+	end
+	for _, id in ipairs(updateInfo.removedAuraInstanceIDs or {}) do
+		if ns.Secret(id) or auraIDs[id] then
+			return true
+		end
+	end
+	return false
 end
 
 -- UNIT_AURA comes in bursts: one rebuild per frame.
@@ -686,7 +740,9 @@ local function QueueAuraUpdate()
 		auraUpdatePending = true
 		ns.After("Visuals: QueueAuraUpdate (timer)", 0, function()
 			auraUpdatePending = false
-			UpdateActiveAuras()
+			if Visuals.db.actionColors and Visuals.db.colorActiveBuff then
+				UpdateActiveAuras()
+			end
 		end)
 	end
 end
@@ -696,8 +752,20 @@ local function UpdateAuraWatch()
 	if enabled and not auraWatcher then
 		auraWatcher = CreateFrame("Frame")
 		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
-			if event == "UNIT_AURA" and C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() then
-				ForgetRemovedAuras(updateInfo)
+			if AurasAreSecret() then
+				if event == "UNIT_AURA" then
+					ForgetRemovedAuras(updateInfo)
+				end
+				if auraReadable or not auraWatcher:IsEventRegistered("PLAYER_REGEN_ENABLED") then
+					WaitForReadableAuras()
+				end
+				return
+			end
+			if event == "UNIT_AURA" and auraReadable then
+				local ok, changed = pcall(AuraNamesMayChange, updateInfo)
+				if ok and not changed then
+					return
+				end
 			end
 			QueueAuraUpdate()
 		end))
@@ -711,8 +779,10 @@ local function UpdateAuraWatch()
 			auraWatcher:UnregisterEvent("UNIT_AURA")
 			auraWatcher:UnregisterEvent("UNIT_INVENTORY_CHANGED")
 			auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			auraReadable = false
 			wipe(activeAuras)
-			RecolorAll()
+			wipe(auraIDs)
+			wipe(buffButtons)
 		end
 	end
 end
@@ -794,8 +864,8 @@ end
 local function StripSpellBookItem(item)
 	for _, key in ipairs({ "Name", "SubName", "RequiredLevel" }) do
 		local text = item[key]
-		if text and text.GetTextColor then
-			StripDarkText(text)
+		if text and text.GetFont then
+			RemoveOutline(text)
 		end
 	end
 end

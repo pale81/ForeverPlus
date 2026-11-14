@@ -20,6 +20,7 @@ local Auction = ns:NewModule("Auction", {
 	},
 	charDefaults = {
 		crafted = {}, -- itemID -> true: made by a recipe this character knows (read when a profession is opened)
+		vendorBuyPrices = {}, -- itemID -> observed unit purchase price at a merchant with unlimited stock
 	},
 })
 
@@ -107,6 +108,14 @@ local function ShowVendorProfit(cell)
 end
 
 local function SetCellProfit(cell, itemID, unitPrice, quantity)
+	cell.foreverPlusVendorProfit = nil
+	if not Auction.db.vendorProfit or not itemID or not unitPrice then
+		return
+	end
+	local vendor = VendorPrice(itemID)
+	if not vendor or vendor <= unitPrice then
+		return
+	end
 	if not profitHooks[cell] then
 		cell:HookScript("OnEnter", ShowVendorProfit)
 		cell:HookScript("OnLeave", function(self)
@@ -115,14 +124,6 @@ local function SetCellProfit(cell, itemID, unitPrice, quantity)
 			end
 		end)
 		profitHooks[cell] = true
-	end
-	cell.foreverPlusVendorProfit = nil
-	if not Auction.db.vendorProfit or not itemID or not unitPrice then
-		return
-	end
-	local vendor = VendorPrice(itemID)
-	if not vendor or vendor <= unitPrice then
-		return
 	end
 	local perItem = vendor - unitPrice
 	quantity = quantity and quantity > 1 and quantity or nil
@@ -134,16 +135,18 @@ local function SetCellProfit(cell, itemID, unitPrice, quantity)
 end
 
 local function OnUnitPriceCell(cell, rowData)
-	local show = Auction.db.vendorWarning and rowData and IsBelowVendor(ItemIDOf(rowData), rowData.unitPrice)
+	local itemID = rowData and ItemIDOf(rowData)
+	local show = Auction.db.vendorWarning and rowData and IsBelowVendor(itemID, rowData.unitPrice)
 	SetCellWarning(cell, show and true or false)
-	SetCellProfit(cell, rowData and ItemIDOf(rowData), rowData and rowData.unitPrice)
+	SetCellProfit(cell, itemID, rowData and rowData.unitPrice)
 end
 
 local function OnMinPriceCell(cell, rowData)
+	local itemID = rowData and ItemIDOf(rowData)
 	local show = Auction.db.vendorWarning and rowData and rowData.totalQuantity ~= 0
-		and IsBelowVendor(ItemIDOf(rowData), rowData.minPrice)
+		and IsBelowVendor(itemID, rowData.minPrice)
 	SetCellWarning(cell, show and true or false)
-	SetCellProfit(cell, rowData and ItemIDOf(rowData), rowData and rowData.minPrice)
+	SetCellProfit(cell, itemID, rowData and rowData.minPrice)
 end
 
 local function OnBuyoutCell(cell, rowData)
@@ -151,8 +154,9 @@ local function OnBuyoutCell(cell, rowData)
 	if rowData and rowData.buyoutAmount and not rowData.isVirtualEntry then
 		local quantity = rowData.quantity and rowData.quantity > 0 and rowData.quantity or 1
 		local unitPrice = floor(rowData.buyoutAmount / quantity)
-		show = Auction.db.vendorWarning and IsBelowVendor(ItemIDOf(rowData), unitPrice)
-		SetCellProfit(cell, ItemIDOf(rowData), unitPrice, quantity)
+		local itemID = ItemIDOf(rowData)
+		show = Auction.db.vendorWarning and IsBelowVendor(itemID, unitPrice)
+		SetCellProfit(cell, itemID, unitPrice, quantity)
 	else
 		SetCellProfit(cell, rowData and ItemIDOf(rowData), nil)
 	end
@@ -172,8 +176,8 @@ local FILTER_AUTO_PAGES = 20  -- pages requested by itself per search
 local FILTER_AUTO_SECONDS = 10 -- seconds after which the search for the first hits is given up
 local FILTER_NEAR_END = 8     -- rows before the end of the view that ask for more
 local FILTER_RETRY = 2        -- seconds until a request without an answer is repeated
-local FILTER_BATCH = 150      -- rows judged per call at most; the rest follows on the next frame
-local FILTER_BUDGET = 3       -- milliseconds per call
+local FILTER_BATCH = 150      -- rows judged per slice at most; the rest follows on the next frame
+local FILTER_BUDGET = 0.5     -- milliseconds per slice
 
 local filter = {
 	source = nil,      -- Blizzard's results table the view was built from
@@ -218,79 +222,70 @@ end
 local function ResetFilter()
 	filter.source, filter.verdict, filter.judged, filter.list = nil, {}, 0, {}
 	filter.rebuild, filter.waiting = false, {}
+	filter.scanPending = false
 	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
 	filter.searchId, filter.timerStarted = (filter.searchId or 0) + 1, false
 end
 
-local refreshQueued = false
-local UpdateFilterStatus -- below, after the paging
-
--- Redraws Blizzard's list from the view, a moment later so that several
--- changes (arriving item data, remaining rows) cost one redraw.
-local function QueueRefresh(delay)
-	if refreshQueued then
-		return
-	end
-	refreshQueued = true
-	ns.After("Auction: QueueRefresh (timer)", delay, function()
-		refreshQueued = false
-		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
-		local itemList = browseFrame and browseFrame.ItemList
-		if Auction.db.vendorBuyFilter and itemList and itemList.RefreshScrollFrame then
-			itemList:RefreshScrollFrame()
-		end
-		UpdateFilterStatus(browseFrame)
-	end)
-end
+local QueueRefresh -- below, after the paging
 
 -- Judges the rows that arrived since the last call (a part of them per call).
-local function SyncFilter(browseFrame)
+local function SyncFilter(browseFrame, applyLateVerdicts)
 	local rows = browseFrame.browseResults
 	if type(rows) ~= "table" then
 		return
 	end
 	if rows ~= filter.source then
-		-- A new table: a new search (the query hook resets before) or Blizzard's
-		-- copy of the same list; the verdicts stay when it is at least as long.
+		-- Blizzard replaces the table on an update and appends to it on paging.
+		-- Verdicts and waiting indexes belong to the original table.
 		if #rows < filter.judged then
 			ResetFilter()
+		else
+			filter.verdict, filter.waiting, filter.list, filter.judged = {}, {}, {}, 0
+			filter.rebuild, filter.scanPending = false, false
 		end
 		filter.source = rows
-		filter.rebuild = true
 	end
-	local last = min(#rows, filter.judged + FILTER_BATCH)
-	local started = debugprofilestop()
-	for i = filter.judged + 1, last do
-		if i % 10 == 0 and debugprofilestop() - started > FILTER_BUDGET then
-			last = i - 1
-			break
-		end
-		local verdict, itemID = Profitable(rows[i])
-		if verdict == nil then
-			local waiting = filter.waiting[itemID]
-			if not waiting then
-				waiting = {}
-				filter.waiting[itemID] = waiting
+	if not filter.scanPending and filter.judged < #rows then
+		local last = min(#rows, filter.judged + FILTER_BATCH)
+		local deadline = debugprofilestop() + FILTER_BUDGET
+		for i = filter.judged + 1, last do
+			local verdict, itemID = Profitable(rows[i])
+			if verdict == nil then
+				local waiting = filter.waiting[itemID]
+				if not waiting then
+					waiting = {}
+					filter.waiting[itemID] = waiting
+				end
+				waiting[#waiting + 1] = i
+			else
+				filter.verdict[i] = verdict
+				if verdict and not filter.rebuild then
+					filter.list[#filter.list + 1] = rows[i]
+				end
 			end
-			waiting[#waiting + 1] = i
-		else
-			filter.verdict[i] = verdict
-			if verdict and not filter.rebuild then
-				filter.list[#filter.list + 1] = rows[i]
+			if debugprofilestop() >= deadline then
+				last = i
+				break
 			end
 		end
+		filter.judged = last
 	end
-	filter.judged = last
 	if filter.rebuild then
-		local list = {}
-		for i = 1, last do
-			if filter.verdict[i] then
-				list[#list + 1] = rows[i]
+		if applyLateVerdicts then
+			local list = {}
+			for i = 1, filter.judged do
+				if filter.verdict[i] then
+					list[#list + 1] = rows[i]
+				end
 			end
+			filter.list, filter.rebuild = list, false
+		else
+			QueueRefresh(0.25)
 		end
-		filter.list, filter.rebuild = list, false
 	end
-	if last < #rows then
+	if filter.judged < #rows and not filter.scanPending then
+		filter.scanPending = true
 		QueueRefresh(0)
 	end
 end
@@ -356,20 +351,24 @@ function Auction.FilterStatusText(pages, hits, done)
 	return L.AUCTION_FILTER_STATUS:format(pages, FILTER_AUTO_PAGES, FILTER_AUTO_SECONDS)
 end
 
-function UpdateFilterStatus(browseFrame)
+local function UpdateFilterStatus(browseFrame)
 	local itemList = browseFrame and browseFrame.ItemList
 	if not (itemList and itemList.CreateFontString) then
 		return
 	end
 	local status = itemList.fpFilterStatus
+	local text = Auction.db.vendorBuyFilter and Auction.FilterStatusText(filter.requests + 1, #filter.list,
+		filter.capped or C_AuctionHouse.HasFullBrowseResults()) or nil
+	if itemList.fpFilterStatusText == text then
+		return
+	end
+	itemList.fpFilterStatusText = text
 	if not status then
 		status = itemList:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		status:SetPoint("TOP", itemList.LoadingSpinner or itemList, itemList.LoadingSpinner and "BOTTOM" or "CENTER", 0, -24)
 		status:SetWidth(360)
 		itemList.fpFilterStatus = status
 	end
-	local text = Auction.db.vendorBuyFilter and Auction.FilterStatusText(filter.requests + 1, #filter.list,
-		filter.capped or C_AuctionHouse.HasFullBrowseResults())
 	status:SetText(text or "")
 	status:SetShown(text ~= nil)
 end
@@ -387,8 +386,8 @@ function PageFilterStep(browseFrame)
 		return
 	end
 	SyncFilter(browseFrame)
-	if filter.judged < #browseFrame.browseResults then
-		return -- the rest is judged first (a redraw is queued)
+	if not filter.source or filter.judged < #filter.source then
+		return -- the next slice finishes judging the rows first
 	end
 	local itemList = browseFrame.ItemList
 	local shown = itemList and itemList.ScrollBox and itemList.ScrollBox.GetDataIndexEnd and itemList.ScrollBox:GetDataIndexEnd() or 0
@@ -405,26 +404,61 @@ function PageFilterStep(browseFrame)
 			ns.After("Auction: PageFilter (timer)", FILTER_AUTO_SECONDS, function()
 				if searchId == filter.searchId and not filter.capped and Auction.db.vendorBuyFilter then
 					filter.capped = true
-					QueueRefresh(0)
+					QueueRefresh(0, #filter.list == 0)
 				end
 			end)
 		end
 		if filter.capped or filter.requests >= FILTER_AUTO_PAGES then
 			if not filter.capped then
 				filter.capped = true
-				QueueRefresh(0)
+				QueueRefresh(0, #filter.list == 0)
 			end
 			return
 		end
 	end
 	-- one request at a time: wait for new rows, repeat after a while
-	local count = #browseFrame.browseResults
+	local count = #filter.source
 	if count == filter.requestedAt and GetTime() - filter.requestTime < FILTER_RETRY then
 		return
 	end
 	filter.requestedAt, filter.requestTime = count, GetTime()
 	filter.requests = filter.requests + 1
 	C_AuctionHouse.RequestMoreBrowseResults()
+end
+
+local refreshQueued, refreshNeeded = false, false
+
+-- Continue the scan independently of Blizzard's redraw. A slice with no new
+-- hits can keep paging without rebuilding the scroll box.
+function QueueRefresh(delay, redraw)
+	refreshNeeded = refreshNeeded or redraw
+	if refreshQueued then
+		return
+	end
+	refreshQueued = true
+	ns.After("Auction: QueueRefresh (timer)", delay, function()
+		refreshQueued = false
+		local needsRedraw = refreshNeeded
+		refreshNeeded = false
+		filter.scanPending = false
+		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
+		if not (Auction.db.vendorBuyFilter and browseFrame) then
+			return
+		end
+		if not browseFrame:IsShown() then
+			UpdateFilterStatus(browseFrame)
+			return
+		end
+		local list, count = filter.list, #filter.list
+		SyncFilter(browseFrame, true)
+		local itemList = browseFrame.ItemList
+		-- If Blizzard has already scheduled a refresh, let it pick up the new view.
+		if itemList and itemList.RefreshScrollFrame and not itemList.scrollFrameDirty
+			and (needsRedraw or list ~= filter.list or count ~= #filter.list) then
+			itemList:RefreshScrollFrame()
+		end
+		PageFilter(browseFrame)
+	end)
 end
 
 local function ApplyBuyFilter()
@@ -666,21 +700,127 @@ local function PriceStore()
 	return ns.db.auctionPrices
 end
 
+function Auction.ReagentPrice(itemID)
+	local store = ns.db.auctionPrices
+	local entry = type(store) == "table" and store[itemID]
+	local auction = type(entry) == "table" and ns.Number(entry[1])
+	local vendor = ns.Number(Auction.cdb.vendorBuyPrices[itemID])
+	if auction and auction > 0 then
+		return vendor and math.min(auction, vendor) or auction
+	end
+	return vendor
+end
+
+local function RecordMerchantPrices()
+	local prices = Auction.cdb.vendorBuyPrices
+	for index = 1, GetMerchantNumItems() or 0 do
+		local info = C_MerchantFrame.GetItemInfo(index)
+		if info and info.isPurchasable and not info.hasExtendedCost and not info.currencyID and info.numAvailable == -1 then
+			local price, count = ns.Number(info.price, 0), ns.Number(info.stackCount, 0)
+			if price > 0 and count > 0 then
+				local itemID = ns.Number(GetMerchantItemID(index))
+				if itemID and itemID > 0 then
+					local unit = price / count
+					prices[itemID] = math.min(prices[itemID] or unit, unit)
+				end
+			end
+		end
+	end
+end
+
 local function Plain(value)
 	return not ns.Secret(value) and value or nil
 end
 
-local function OnBrowseResults()
-	local store, now = PriceStore(), time()
-	for _, result in ipairs(C_AuctionHouse.GetBrowseResults() or {}) do
-		local key = result.itemKey
-		Auction.RecordPrice(store, key and Plain(key.itemID), Plain(result.minPrice), now)
+local PRICE_BATCH = 150
+local PRICE_BUDGET = 0.4 -- milliseconds per slice
+local priceBatches, firstBatch, lastBatch = {}, 1, 0
+
+-- Keep snapshots in event order, even if the next search starts before the
+-- first one has been saved. At logout, finish before saved variables are written.
+local function SaveQueuedPrices(flush)
+	if firstBatch > lastBatch then
+		return
+	end
+	local deadline = not flush and debugprofilestop() + PRICE_BUDGET
+	local store = PriceStore()
+	local remaining = PRICE_BATCH
+	while true do
+		local batch = priceBatches[firstBatch]
+		local itemID, price = batch.read(batch.index)
+		Auction.RecordPrice(store, itemID, price, batch.now)
+		if batch.index < batch.count then
+			batch.index = batch.index + 1
+		else
+			priceBatches[firstBatch] = nil
+			if firstBatch == lastBatch then
+				firstBatch, lastBatch = 1, 0
+				return
+			end
+			firstBatch = firstBatch + 1
+		end
+		if not flush then
+			remaining = remaining - 1
+			if remaining == 0 or debugprofilestop() >= deadline then
+				return
+			end
+		end
+	end
+end
+
+local function SavePriceSlice()
+	SaveQueuedPrices(false)
+	if firstBatch <= lastBatch then
+		ns.After("Auction: note prices", 0, SavePriceSlice)
+	end
+end
+
+local function QueuePrices(count, read)
+	if count == 0 then
+		return
+	end
+	lastBatch = lastBatch + 1
+	priceBatches[lastBatch] = { count = count, read = read, index = 1, now = time() }
+	if firstBatch == lastBatch then
+		ns.After("Auction: note prices", 0, SavePriceSlice)
+	end
+end
+
+local function QueueBrowsePrices(rows)
+	if rows then
+		QueuePrices(#rows, function(index)
+			local result = rows[index]
+			local key = result.itemKey
+			return key and Plain(key.itemID), Plain(result.minPrice)
+		end)
+	end
+end
+
+local function OnBrowseResults(_, _, addedResults)
+	QueueBrowsePrices(addedResults or C_AuctionHouse.GetBrowseResults())
+end
+
+local function HookBrowsePrices(frame)
+	if not (frame and frame.UpdateBrowseResults) then
+		return
+	end
+	-- Blizzard already fetched the full snapshot, or received just the new page.
+	hooksecurefunc(frame, "UpdateBrowseResults", ns.Measured("Auction: queue browse prices", function(browseFrame, addedResults)
+		QueueBrowsePrices(addedResults or browseFrame.browseResults)
+	end))
+	Auction:UnregisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+	Auction:UnregisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+end
+
+local function QueuePrice(itemID, price)
+	if itemID and price then
+		QueuePrices(1, function() return itemID, price end)
 	end
 end
 
 local function OnCommodityResults(_, _, itemID)
 	local info = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1)
-	Auction.RecordPrice(PriceStore(), itemID, info and Plain(info.unitPrice), time())
+	QueuePrice(Plain(itemID), info and Plain(info.unitPrice))
 end
 
 local function OnItemResults(_, _, itemKey)
@@ -696,7 +836,7 @@ local function OnItemResults(_, _, itemKey)
 			lowest = lowest and math.min(lowest, unit) or unit
 		end
 	end
-	Auction.RecordPrice(PriceStore(), Plain(itemKey.itemID), lowest, time())
+	QueuePrice(Plain(itemKey.itemID), lowest)
 end
 
 -- What the recipes of this character make (a profession window lists them while it is open).
@@ -769,10 +909,14 @@ end
 function Auction:OnLogin()
 	self:ApplyDuration()
 	-- Auction prices are noted on every look (also with the tooltip line switched off: they are there when it is on).
-	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnBrowseResults))
-	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", ns.Measured("Auction: note prices", OnBrowseResults))
-	self:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnCommodityResults))
-	self:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", ns.Measured("Auction: note prices", OnItemResults))
+	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", OnBrowseResults)
+	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", OnBrowseResults)
+	self:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", OnCommodityResults)
+	self:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", OnItemResults)
+	self:RegisterEvent("PLAYER_LOGOUT", function() SaveQueuedPrices(true) end)
+	local recordMerchant = ns.Measured("Auction: merchant prices", RecordMerchantPrices)
+	self:RegisterEvent("MERCHANT_SHOW", recordMerchant)
+	self:RegisterEvent("MERCHANT_UPDATE", recordMerchant)
 	self:RegisterEvent("TRADE_SKILL_LIST_UPDATE", ns.Measured("Auction: crafted items", ReadCrafted))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Auction: craft prices", OnCraftTooltip))
 	-- The filter's switch in Blizzard's search filter menu.
@@ -798,6 +942,7 @@ function Auction:OnLogin()
 			end
 		end
 		if AuctionHouseFrame then
+			HookBrowsePrices(AuctionHouseFrame.BrowseResultsFrame)
 			HookBuyFilter()
 			HookSellFrames()
 			hooksecurefunc(AuctionHouseFrame, "OnShow", ApplyStartTab)

@@ -193,19 +193,42 @@ local function TrackAddon(name)
 	if name and not sessionMetrics[name] then
 		sampledAddons[#sampledAddons + 1] = name
 		sessionMetrics[name] = {
-			peak = 0, slow = 0, average = 0,
+			peak = 0, slow = 0,
 			recent = {}, recentIndex = 1, recentCount = 0, recentTotal = 0,
 		}
 	end
 end
 
--- Loading peaks (login, loading screens) are not counted: the list should show
--- what the addons cost while playing, not how long they took to load.
 local LOGIN_GRACE, ZONE_GRACE = 60, 20 -- seconds
-local ignoreUntil = GetTime() + LOGIN_GRACE
+local ignoreUntil -- starts with the first PLAYER_ENTERING_WORLD, not when the file loads
+local loadingScreen = false
+local screenGrace = LOGIN_GRACE
+
+local function OnProfilerEvent(_, event, arg1, arg2)
+	if event == "ADDON_LOADED" then
+		TrackAddon(arg1)
+	elseif event == "LOADING_SCREEN_ENABLED" then
+		loadingScreen = true
+		screenGrace = ignoreUntil and ZONE_GRACE or LOGIN_GRACE
+	elseif event == "LOADING_SCREEN_DISABLED" then
+		loadingScreen = false
+		if ignoreUntil then
+			ignoreUntil = math.max(ignoreUntil, GetTime() + screenGrace)
+		end
+		screenGrace = ZONE_GRACE
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		local grace = (not ignoreUntil or arg1 or arg2) and LOGIN_GRACE or ZONE_GRACE
+		ignoreUntil = math.max(ignoreUntil or 0, GetTime() + grace)
+		if loadingScreen then
+			screenGrace = math.max(screenGrace, grace)
+		end
+	end
+end
 
 local function SampleAddonMetrics()
-	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) or GetTime() < ignoreUntil then
+	local now = GetTime()
+	if loadingScreen or not ignoreUntil or now < ignoreUntil
+		or not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
 		return
 	end
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
@@ -220,10 +243,10 @@ local function SampleAddonMetrics()
 		end
 		entry.recent[index] = elapsed
 		entry.recentTotal = entry.recentTotal + elapsed
-		entry.average = entry.recentTotal / entry.recentCount
 		entry.recentIndex = index % 60 + 1
 		if elapsed > entry.peak then
 			entry.peak = elapsed
+			entry.peakAt = now
 		end
 		if elapsed > ns.SLOW_MS then
 			entry.slow = entry.slow + 1
@@ -236,13 +259,9 @@ local function SetupProfilerSampler(enabled)
 		profilerSampler = CreateFrame("Frame")
 		profilerSampler:RegisterEvent("ADDON_LOADED")
 		profilerSampler:RegisterEvent("PLAYER_ENTERING_WORLD")
-		profilerSampler:SetScript("OnEvent", function(_, event, name)
-			if event == "PLAYER_ENTERING_WORLD" then
-				ignoreUntil = math.max(ignoreUntil, GetTime() + ZONE_GRACE)
-			else
-				TrackAddon(name)
-			end
-		end)
+		profilerSampler:RegisterEvent("LOADING_SCREEN_ENABLED")
+		profilerSampler:RegisterEvent("LOADING_SCREEN_DISABLED")
+		profilerSampler:SetScript("OnEvent", OnProfilerEvent)
 		for i = 1, C_AddOns.GetNumAddOns() do
 			if C_AddOns.IsAddOnLoaded(i) then
 				TrackAddon(C_AddOns.GetAddOnInfo(i))
@@ -292,14 +311,23 @@ local function AddMeasureLines()
 		GameTooltip_AddNormalLine(GameTooltip, L.INFO_MEASURE_RUNNING:format(math.max(0, ns.measureUntil - GetTime())))
 		return
 	end
-	local list = Info.lastMeasure
-	if not list then
+	local result = Info.lastMeasure
+	if not result then
 		return
 	end
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	GameTooltip_AddNormalLine(GameTooltip, L.INFO_MEASURE_RESULT)
+	local stats = result.frames
+	local frameColor = PeakColor(stats.worst, stats.count)
+	GameTooltip:AddLine(ns.FormatMeasuredFrames(stats), frameColor.r, frameColor.g, frameColor.b, true)
+	if stats.count > 0 and stats.name then
+		GameTooltip:AddLine(L.TIMINGS_SPIKES:format(stats.name), 0.62, 0.62, 0.62, true)
+	end
+	local list = result.calls
 	if #list == 0 then
 		GameTooltip_AddHighlightLine(GameTooltip, L.TIMINGS_EMPTY)
+	else
+		GameTooltip:AddLine(L.INFO_MEASURE_CALLS, 0.62, 0.62, 0.62, true)
 	end
 	for _, item in ipairs(list) do
 		local color = PeakColor(item.entry.max)
@@ -313,16 +341,18 @@ local function StartMeasure()
 	end
 	ns.PrintAlways(L.INFO_MEASURE_STARTED:format(MEASURE_SECONDS))
 	ns.StartTimedMeasure(MEASURE_SECONDS, function()
-		Info.lastMeasure = ns.TopTimings(MEASURE_LINES)
+		Info.lastMeasure = { calls = ns.TopTimings(MEASURE_LINES), frames = ns.spikes }
 	end)
 end
 
 local function ShowCpuTooltip(owner)
-	lastCpuTooltipUpdate = GetTime()
+	local now = GetTime()
+	lastCpuTooltipUpdate = now
 	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
 	GameTooltip_SetTitle(GameTooltip, L.INFO_CPU_TITLE)
 	if not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
 		GameTooltip_AddNormalLine(GameTooltip, L.INFO_CPU_DISABLED)
+		AddMeasureLines()
 		GameTooltip:Show()
 		return
 	end
@@ -331,11 +361,12 @@ local function ShowCpuTooltip(owner)
 	for i = 1, C_AddOns.GetNumAddOns() do
 		if C_AddOns.IsAddOnLoaded(i) then
 			local name, title = C_AddOns.GetAddOnInfo(i)
+			local metrics = sessionMetrics[name]
 			list[#list + 1] = {
 				title = StripColors(title or name),
-				ms = sessionMetrics[name] and sessionMetrics[name].average or 0,
-				peak = sessionMetrics[name] and sessionMetrics[name].peak or 0,
-				slow = sessionMetrics[name] and sessionMetrics[name].slow or 0,
+				ms = metrics and metrics.recentCount > 0 and max(0, metrics.recentTotal / metrics.recentCount) or 0,
+				peak = metrics and metrics.peak or 0,
+				slow = metrics and metrics.slow or 0,
 			}
 		end
 	end
@@ -344,8 +375,10 @@ local function ShowCpuTooltip(owner)
 	end)
 	-- Sections: explanation, table (names white, values coloured), total, measurement, hints.
 	GameTooltip:AddLine(L.INFO_CPU_COLUMNS, 0.62, 0.62, 0.62, true)
-	if GetTime() < ignoreUntil then
-		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WARMUP:format(math.ceil(ignoreUntil - GetTime())))
+	if loadingScreen or not ignoreUntil then
+		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WAIT_WORLD)
+	elseif now < ignoreUntil then
+		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WARMUP:format(math.ceil(ignoreUntil - now)))
 	end
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_HEADER_ADDON, L.INFO_CPU_HEADER_VALUES, 0.62, 0.62, 0.62, 0.62, 0.62, 0.62)
@@ -357,6 +390,10 @@ local function ShowCpuTooltip(owner)
 		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			color.r, color.g, color.b)
+	end
+	local own = sessionMetrics[ns.name]
+	if own and own.peakAt then
+		GameTooltip:AddLine(L.INFO_CPU_PEAK_AGE:format(SecondsToTime(now - own.peakAt)), 0.62, 0.62, 0.62, true)
 	end
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	local color = CpuColor(total)
@@ -391,6 +428,8 @@ local function ValueColor(value, poor, bad, lowIsBad)
 	return ClassColor(playerClass)
 end
 
+local RefreshCpuTooltip = ns.Measured("Info: CPU tooltip", ShowCpuTooltip)
+
 local function UpdatePerformance()
 	local _, _, latencyHome, latencyWorld = GetNetStats()
 	local label = NORMAL_FONT_COLOR
@@ -410,7 +449,7 @@ local function CreatePerfFrame()
 	frame:SetFrameLevel(Minimap:GetFrameLevel() + 5)
 	frame.Text = frame:CreateFontString(nil, "OVERLAY")
 	frame.Text:SetPoint("CENTER")
-	frame:SetScript("OnEnter", ShowCpuTooltip)
+	frame:SetScript("OnEnter", RefreshCpuTooltip)
 	frame:SetScript("OnLeave", GameTooltip_Hide)
 	-- Middle click or Shift + left click: 30 s measurement of ForeverPlus.
 	frame:SetScript("OnMouseUp", function(_, button)
@@ -431,15 +470,15 @@ function Info:UpdateFont()
 end
 
 function Info:UpdatePerformance()
+	-- Track world entry even if the display is only enabled later.
+	SetupProfilerSampler(self.db.performance)
 	if self.db.performance then
-		SetupProfilerSampler(true)
 		perfFrame = perfFrame or CreatePerfFrame()
 		self:UpdateFont()
 		perfFrame:Show()
 		perfTicker = perfTicker or ns.NewTicker("Info: UpdatePerformance", PERF_INTERVAL, UpdatePerformance)
 		UpdatePerformance()
 	elseif perfFrame then
-		SetupProfilerSampler(false)
 		perfFrame:Hide()
 		if perfTicker then
 			perfTicker:Cancel()

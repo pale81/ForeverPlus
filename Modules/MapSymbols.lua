@@ -191,17 +191,34 @@ local function AddNpc(list, lib, npc, id, faction)
 	end
 end
 
--- Flight masters of the player's faction and neutral ones from the shipped
--- data (Data/Points.lua); by map: { x, y, name, title, node, faction }.
+local function LocalFlightNode(flight, nodeID)
+	local area = flight[9] and Text(C_Map.GetAreaInfo(flight[9])) or L.WORLDMAP_FLIGHT_PLACES[nodeID]
+	local info = C_Map.GetMapInfo(flight[2])
+	local zone = info and Text(info.name)
+	if area and zone and area ~= zone then
+		return L.WORLDMAP_FLIGHT_LOCATION:format(area, zone)
+	end
+	return area or zone
+end
+
+-- Flight masters of the player's faction and neutral ones from Data/Points.lua.
 local function BundledFlights(letter)
 	local list = {}
-	for _, flight in pairs(ns.Points and ns.Points.flights or {}) do
+	local german = GetLocale() == "deDE"
+	for nodeID, flight in pairs(ns.Points and ns.Points.flights or {}) do
 		local team = flight[5]
 		if team == "N" or team == letter then
 			local uiMapID = flight[2]
+			local name, title, node = flight[6] or flight[1], flight[7], flight[1]
+			if german then
+				local special = L.WORLDMAP_FLIGHT_MASTERS[flight[8]]
+				name = special and special[1] or flight[6]
+				title = special and special[2] or L.WORLDMAP_FLIGHT_TITLES[title]
+				node = LocalFlightNode(flight, nodeID)
+			end
 			list[uiMapID] = list[uiMapID] or {}
-			tinsert(list[uiMapID], { x = flight[3], y = flight[4], name = flight[6] or flight[1], title = flight[7] or nil,
-				node = flight[1], faction = team == "N" and "AH" or team })
+			tinsert(list[uiMapID], { x = flight[3], y = flight[4], name = name, title = title,
+				node = node, faction = team == "N" and "AH" or team })
 		end
 	end
 	return list
@@ -342,8 +359,12 @@ local function EntranceTooltip(tooltip, symbol)
 end
 
 local function NpcTooltip(tooltip, symbol)
-	tooltip:AddLine(symbol.data.name or symbol.fallback, 1, 1, 1)
-	tooltip:AddLine(symbol.data.title or symbol.fallback, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	local name = symbol.data.name or symbol.fallback
+	local title = symbol.data.title or symbol.fallback
+	tooltip:AddLine(name, 1, 1, 1)
+	if title ~= name then
+		tooltip:AddLine(title, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	end
 	if symbol.data.node then
 		tooltip:AddLine(symbol.data.node, 0.8, 0.8, 0.8)
 	end
@@ -719,6 +740,7 @@ local function Setup(frame, symbol)
 		frame.Icon:SetAtlas(symbol.atlas)
 	else
 		frame.Icon:SetTexture(symbol.texture)
+		frame.Icon:SetTexCoord(0, 1, 0, 1)
 	end
 	if symbol.round then
 		frame.Icon:AddMaskTexture(frame.Mask)

@@ -276,8 +276,8 @@ GUIDES = {
                         ('Siegel des Befehls', 1), ('Überzeugung', 3), ('Streben nach Gerechtigkeit', 2),
                         ('Zweihandwaffen-Spezialisierung', 3), ('Heiliger Richter', 1), ('Rache', 3), ('Buße', 1),
                         ('Rechtschaffene Schwächung', 1), ('Champion des Lichts', 5), ('Entfesselter Zorn', 1)],
-            'fill': {0: 20}, 'fill_priorities': {0: ['Göttliche Stärke', 'Verbesserte Siegel',
-                                                      'Healing Light', 'Spiritual Focus']}},
+            'fill': {0: 12, 1: 8}, 'fill_priorities': {0: ['Göttliche Stärke', 'Verbesserte Siegel', 'Holy Conduit'],
+                                                     1: ['Göttliche Weisheit', 'Precision']}},
     },
 }
 for _class, _builds in GUIDES.items():

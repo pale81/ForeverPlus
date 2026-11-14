@@ -249,9 +249,11 @@ function Capture.DiagnoseText()
 	for _, item in ipairs(ns.TopTimings(12)) do
 		timings[#timings + 1] = ("%s: %.1f ms (%d / %d)"):format(item.name, item.entry.max, item.entry.slow, item.entry.count)
 	end
-	if ns.spikes and ns.spikes.count > 0 then
-		timings[#timings + 1] = ("frames over 4 ms: %d, worst %.1f ms (measured %.1f ms, %s)"):format(
-			ns.spikes.count, ns.spikes.worst, ns.spikes.measured, tostring(ns.spikes.name))
+	if ns.spikes.samples > 0 then
+		timings[#timings + 1] = ns.FormatMeasuredFrames(ns.spikes)
+		if ns.spikes.count > 0 and ns.spikes.name then
+			timings[#timings + 1] = L.TIMINGS_SPIKES:format(ns.spikes.name)
+		end
 	end
 	Section("Longest calls", table.concat(timings, "\n"))
 	local status = {}

@@ -168,39 +168,121 @@ local ARMOR_TYPE = {
 	PRIEST = { ARMOR.Cloth }, MAGE = { ARMOR.Cloth }, WARLOCK = { ARMOR.Cloth },
 }
 
--- Stat weights per point, derived from the classic game mechanics (e.g. 1
--- strength = 2 attack power for warriors, 1 % hit/crit ≈ 15 attack power,
--- 1 weapon DPS ≈ 14 attack power). Rough on purpose: they only have to
--- tell useful from useless stats for the specialization.
-local MELEE = { STR = 2, AGI = 1.2, STA = 0.3, AP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01, DPS = 14, RDPS = 2 }
-local AGI_MELEE = { STR = 1, AGI = 1.8, STA = 0.3, AP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01, DPS = 14, RDPS = 2 }
-local TANK = { STR = 1, AGI = 1, STA = 1.5, AP = 0.4, HIT = 8, CRIT = 4, DEF = 1.5, DODGE = 12, PARRY = 12, BLOCK = 8, BVAL = 0.5, ARMOR = 0.1, DPS = 5, RDPS = 1 }
-local HEALER = { INT = 1, SPI = 0.6, STA = 0.3, SP = 0.8, HEAL = 1, SCRIT = 8, MP5 = 2, ARMOR = 0.005 }
-local CASTER = { INT = 0.6, SPI = 0.3, STA = 0.3, SP = 1, SHIT = 14, SCRIT = 12, MP5 = 1, ARMOR = 0.005 }
-local WEIGHTS = {
-	WARRIOR = { MELEE, MELEE, TANK },
-	PALADIN = { HEALER, { STA = 1.5, STR = 0.8, AGI = 0.8, INT = 0.5, SP = 0.8, DEF = 1.5, DODGE = 12, PARRY = 12, BLOCK = 8, BVAL = 0.5, ARMOR = 0.1, DPS = 5 },
-		{ STR = 2, AGI = 1, STA = 0.3, INT = 0.3, AP = 1, SP = 0.3, HIT = 15, CRIT = 15, ARMOR = 0.01, DPS = 14 } },
-	HUNTER = { AGI = 2, STA = 0.3, INT = 0.4, AP = 0.2, RAP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01, DPS = 3, RDPS = 14 },
-	ROGUE = AGI_MELEE,
-	PRIEST = { HEALER, HEALER, { INT = 0.6, SPI = 0.4, STA = 0.4, SP = 1, SHIT = 12, SCRIT = 8, MP5 = 1 } },
-	SHAMAN = { { INT = 0.7, SPI = 0.1, STA = 0.3, SP = 1, SHIT = 12, SCRIT = 12, MP5 = 1.5, ARMOR = 0.005 },
-		{ STR = 2, AGI = 1.3, STA = 0.3, INT = 0.3, AP = 1, HIT = 15, CRIT = 15, ARMOR = 0.01, DPS = 14 },
-		{ INT = 1, SPI = 0.2, STA = 0.3, SP = 0.8, HEAL = 1, SCRIT = 8, MP5 = 2, ARMOR = 0.005 } },
-	MAGE = CASTER,
-	WARLOCK = { INT = 0.4, SPI = 0.2, STA = 0.6, SP = 1, SHIT = 14, SCRIT = 8 },
-	DRUID = { CASTER, { STR = 2, AGI = 1.5, STA = 0.8, AP = 1, HIT = 15, CRIT = 15, DEF = 0.5, DODGE = 10, ARMOR = 0.05 }, HEALER },
+-- PvE defaults for Forever. Flat stats and weapon DPS are weighted per point.
+-- Combat chances and haste are weighted per percentage point (see RATING_STATS).
+-- Damage profiles use rounded reference-build EP and leveling allowances. Healing
+-- and mitigation weights are estimates based on the priorities in DATA-SOURCES.md.
+local PROTECTION_SPELL_POWER = 0.8
+local PROTECTION_PALADIN = {
+	STA = 1.5, STR = 0.8, AGI = 0.8, INT = 0.5, SP = PROTECTION_SPELL_POWER,
+	DEF = 1.5, DODGE = 8, PARRY = 8, BLOCK = 12, BVAL = 0.5, ARMOR = 0.1, DPS = 5, HOLY = PROTECTION_SPELL_POWER,
+	HIT = 21 * PROTECTION_SPELL_POWER, SHIT = 9 * PROTECTION_SPELL_POWER, CRIT = 12 * PROTECTION_SPELL_POWER,
+	EXPERTISE = 15 * PROTECTION_SPELL_POWER, HASTE = 7 * PROTECTION_SPELL_POWER,
 }
--- Specialization used before talents are chosen (low level).
-local DEFAULT_SPEC = { WARRIOR = 1, PALADIN = 3, PRIEST = 3, SHAMAN = 2, DRUID = 1 }
+local FERAL_BEAR = {
+	AGI = 1.3, STA = 1.8, STR = 0.9, AP = 0.45, ARMOR = 0.16, DEF = 1.5, DODGE = 9,
+	DPS = 8, HIT = 9, EXPERTISE = 16, CRIT = 8, HASTE = 5, ARP = 0.08,
+}
+-- Left to right, matching the game's talent groups and the standard plans.
+local WEIGHTS = {
+	WARRIOR = {
+		-- Arms
+		{ STR = 2, AGI = 1.7, STA = 0.3, AP = 0.9, DPS = 14, RDPS = 1,
+			HIT = 22, CRIT = 30, EXPERTISE = 21, HASTE = 17, ARP = 0.4, ARMOR = 0.01 },
+		-- Fury
+		{ STR = 2, AGI = 1.6, STA = 0.3, AP = 0.9, DPS = 14, RDPS = 1,
+			HIT = 27, CRIT = 29, EXPERTISE = 31, HASTE = 17, ARP = 0.4, ARMOR = 0.01 },
+		-- Protection
+		{ STA = 1.7, AGI = 1.15, STR = 0.95, AP = 0.45, ARMOR = 0.13, DEF = 1.25,
+			DODGE = 9, PARRY = 9, BLOCK = 7, BVAL = 0.65, DPS = 6,
+			HIT = 12, EXPERTISE = 16, CRIT = 9, HASTE = 6, ARP = 0.15 },
+	},
+	PALADIN = {
+		-- Holy
+		{ HEAL = 1, SP = 0.85, INT = 0.85, SPI = 0.55, MP5 = 0.5, SCRIT = 6, SHASTE = 4, STA = 0.3, ARMOR = 0.005 },
+		PROTECTION_PALADIN,
+		-- Retribution
+		{ STR = 2, AGI = 2.5, INT = 2.9, SP = 3.8, HOLY = 3.8, AP = 0.8, STA = 0.3, DPS = 14,
+			HIT = 21, SHIT = 8, EXPERTISE = 50, CRIT = 44, HASTE = 26, ARP = 0.2, ARMOR = 0.01 },
+	},
+	HUNTER = {
+		-- Beast Mastery
+		{ AGI = 2, INT = 1.2, STR = 0.2, STA = 0.3, RAP = 0.6, AP = 0.2, MP5 = 0.5,
+			HIT = 28, CRIT = 25, HASTE = 8, EXPERTISE = 14, ARP = 0.25, RDPS = 14, DPS = 3, ARMOR = 0.01 },
+		-- Marksmanship
+		{ AGI = 2, INT = 1.15, STR = 0.2, STA = 0.3, RAP = 0.6, AP = 0.2, MP5 = 0.4,
+			HIT = 22, CRIT = 24, HASTE = 8, EXPERTISE = 6, ARP = 0.25, RDPS = 15, DPS = 3, ARMOR = 0.01 },
+		-- Survival, assumes a mix of melee and ranged attacks
+		{ AGI = 2, INT = 1.35, STR = 0.35, STA = 0.3, RAP = 0.4, AP = 0.3, MP5 = 0.75,
+			HIT = 24, CRIT = 22, HASTE = 8, EXPERTISE = 12, ARP = 0.25, RDPS = 12, DPS = 11, ARMOR = 0.01 },
+	},
+	ROGUE = {
+		-- Assassination
+		{ AGI = 2.05, STR = 1.1, STA = 0.3, AP = 1, DPS = 14, HIT = 19, CRIT = 26, EXPERTISE = 30, HASTE = 14, ARP = 0.42, ARMOR = 0.01 },
+		-- Combat
+		{ AGI = 1.8, STR = 1.1, STA = 0.3, AP = 1, DPS = 14, HIT = 23, CRIT = 19, EXPERTISE = 28, HASTE = 16, ARP = 0.35, ARMOR = 0.01 },
+		-- Subtlety
+		{ AGI = 1.9, STR = 1.1, STA = 0.3, AP = 1, DPS = 14, HIT = 21, CRIT = 22, EXPERTISE = 26, HASTE = 15, ARP = 0.26, ARMOR = 0.01 },
+	},
+	PRIEST = {
+		-- Discipline
+		{ HEAL = 1, SP = 0.9, MP5 = 0.8, SPI = 0.65, INT = 0.55, SCRIT = 5, SHASTE = 4, STA = 0.3, ARMOR = 0.005 },
+		-- Holy
+		{ HEAL = 1, SP = 0.85, MP5 = 0.75, SPI = 0.7, INT = 0.5, SCRIT = 4, SHASTE = 3, STA = 0.3, ARMOR = 0.005 },
+		-- Shadow
+		{ SP = 1, SHADOW = 1, SHIT = 12, SCRIT = 13, SHASTE = 6.5, INT = 0.3, SPI = 0.35, STA = 0.4, MP5 = 0.25, ARMOR = 0.005 },
+	},
+	SHAMAN = {
+		-- Elemental
+		{ SP = 1, NATURE = 0.9, SHIT = 13, SCRIT = 10, SHASTE = 9.5, INT = 0.35, SPI = 0.15, MP5 = 0.35, STA = 0.3, ARMOR = 0.005 },
+		-- Enhancement, adjusted for the November 10 Mental Dexterity and Windfury changes
+		{ STR = 2.2, AGI = 1.4, INT = 1.15, STA = 0.3, AP = 1, SP = 0.65, DPS = 14,
+			HIT = 18, SHIT = 12, CRIT = 22, HASTE = 20, EXPERTISE = 36, ARP = 0.35, ARMOR = 0.01 },
+		-- Restoration
+		{ HEAL = 1, SP = 0.85, INT = 0.62, SPI = 0.42, MP5 = 0.45, SCRIT = 10, SHASTE = 5, STA = 0.3, ARMOR = 0.005 },
+	},
+	MAGE = {
+		-- Arcane
+		{ SP = 1, ARCANE = 0.9, SHIT = 18, SCRIT = 11, SHASTE = 6.5, INT = 1, SPI = 0.35, MP5 = 0.45, STA = 0.3, ARMOR = 0.005 },
+		-- Fire
+		{ SP = 1, FIRE = 0.9, ARCANE = 0.1, SHIT = 15, SCRIT = 11, SHASTE = 3, INT = 0.5, SPI = 0.3, MP5 = 0.25, STA = 0.3, ARMOR = 0.005 },
+		-- Frost
+		{ SP = 1, FROST = 0.8, ARCANE = 0.2, SHIT = 16, SCRIT = 9.5, SHASTE = 12, INT = 0.25, SPI = 0.25, MP5 = 0.15, STA = 0.3, ARMOR = 0.005 },
+	},
+	WARLOCK = {
+		-- Affliction
+		{ SP = 1, SHADOW = 1, SHIT = 8, SCRIT = 9.5, SHASTE = 3, INT = 0.2, SPI = 0.3, MP5 = 0.1, STA = 0.45, ARMOR = 0.005 },
+		-- Demonology
+		{ SP = 1, SHADOW = 0.8, FIRE = 0.2, SHIT = 13, SCRIT = 11, SHASTE = 9, INT = 0.45, SPI = 0.3, MP5 = 0.25, STA = 0.5, ARMOR = 0.005 },
+		-- Destruction
+		{ SP = 1, FIRE = 0.75, SHADOW = 0.55, SHIT = 12, SCRIT = 12, SHASTE = 8, INT = 0.5, SPI = 0.28, MP5 = 0.3, STA = 0.4, ARMOR = 0.005 },
+	},
+	DRUID = {
+		-- Balance
+		{ SP = 1, ARCANE = 0.65, NATURE = 0.35, SHIT = 11, SCRIT = 9.5, SHASTE = 8.5, INT = 0.3, SPI = 0.3, MP5 = 0.2, STA = 0.3, ARMOR = 0.005 },
+		-- Feral (cat)
+		{ AGI = 2, STR = 1.8, STA = 0.45, AP = 0.72, DPS = 14,
+			HIT = 14, CRIT = 22, EXPERTISE = 14, HASTE = 11, ARP = 0.25, ARMOR = 0.02 },
+		-- Restoration
+		{ HEAL = 1, SP = 0.85, INT = 0.7, SPI = 0.6, MP5 = 0.5, SCRIT = 5, SHASTE = 3.5, STA = 0.3, ARMOR = 0.005 },
+	},
+}
+-- Before spending points, use an entry suitable for leveling.
+local DEFAULT_SPEC = { WARRIOR = 1, PALADIN = 3, HUNTER = 1, ROGUE = 2, PRIEST = 3, SHAMAN = 2, MAGE = 3, WARLOCK = 1, DRUID = 1 }
+local FERAL_TREE, BEAR_PROFILE = 2, 4
 
 -- Maps the keys of C_Item.GetItemStats to the short names above.
 local STAT_PATTERNS = {
 	{ "RESISTANCE0", "ARMOR" }, { "DAMAGE_PER_SECOND", "DPS" },
 	{ "STRENGTH", "STR" }, { "AGILITY", "AGI" }, { "STAMINA", "STA" }, { "INTELLECT", "INT" }, { "SPIRIT", "SPI" },
 	{ "RANGED_ATTACK_POWER", "RAP" }, { "ATTACK_POWER", "AP" },
-	{ "HEALING", "HEAL" }, { "SPELL_POWER", "SP" }, { "SPELL_DAMAGE", "SP" },
+	{ "HEALING", "HEAL" }, { "SPELL_POWER", "SP" }, { "SPELL_DAMAGE", "SD" },
+	{ "HOLY_DAMAGE_DONE", "HOLY" }, { "FIRE_DAMAGE_DONE", "FIRE" }, { "NATURE_DAMAGE_DONE", "NATURE" },
+	{ "FROST_DAMAGE_DONE", "FROST" }, { "SHADOW_DAMAGE_DONE", "SHADOW" }, { "ARCANE_DAMAGE_DONE", "ARCANE" },
+	{ "EXTRA_ARMOR", "ARMOR" },
 	{ "HIT_SPELL", "SHIT" }, { "CRIT_SPELL", "SCRIT" }, { "HIT", "HIT" }, { "CRIT", "CRIT" },
+	{ "EXPERTISE", "EXPERTISE" }, { "HASTE_SPELL", "SHASTE" }, { "SPELL_HASTE", "SHASTE" }, { "HASTE", "HASTE" },
+	{ "ARMOR_PENETRATION", "ARP" }, { "ARMORPENETRATION", "ARP" },
 	{ "MANA_REGENERATION", "MP5" }, { "POWER_REGEN0", "MP5" },
 	{ "DEFENSE", "DEF" }, { "DODGE", "DODGE" }, { "PARRY", "PARRY" }, { "BLOCK_VALUE", "BVAL" }, { "BLOCK", "BLOCK" },
 }
@@ -221,8 +303,32 @@ local function StatName(key)
 	return name
 end
 
+-- Camelot combat rating indices and the Forever rating cost of one percentage point.
+local RATING_STATS = {
+	DODGE = { 3, 12 }, PARRY = { 4, 15 }, BLOCK = { 5, 5 },
+	HIT = { 6, 10 }, SHIT = { 8, 10 }, CRIT = { 9, 14 }, SCRIT = { 11, 14 },
+	HASTE = { 18, 10 }, SHASTE = { 20, 10 }, EXPERTISE = { 24, 10 },
+}
+local SHARED_WEIGHT = { HIT = "SHIT", CRIT = "SCRIT", HASTE = "SHASTE", SP = "HEAL" }
+
+function ns.SharedStatWeight(weights, name)
+	local other = SHARED_WEIGHT[name]
+	return math.max(weights[name] or 0, other and weights[other] or 0)
+end
+
+local function RatingPercent(rating, value)
+	if value ~= 0 and type(GetCombatRatingBonusForCombatRatingValue) == "function" then
+		local ok, percent = pcall(GetCombatRatingBonusForCombatRatingValue, rating[1], math.abs(value))
+		percent = ok and ns.Number(percent, 0) or 0
+		if percent > 0 then
+			return value > 0 and percent or -percent
+		end
+	end
+	return value / rating[2]
+end
+
 local weights -- of the current class/specialization, cleared on spec change
-local weightsName -- talent tree the weights belong to (nil = default)
+local weightsName, weightsTree, weightsPreset
 local _, playerClass = UnitClass("player")
 
 -- Forever has one specialization per class (C_SpecializationInfo); the three
@@ -271,22 +377,35 @@ end
 
 -- The tree chosen in the options when this class has it, else the automatic one.
 function Items.PickTree(choice, auto, count)
-	if choice and choice >= 1 and choice <= count then
+	if type(choice) == "number" and choice >= 1 and choice <= count and choice % 1 == 0 then
 		return choice
 	end
 	return auto
+end
+
+local function ScoreTreeName(index, trees)
+	local tree = trees and trees[index]
+	local displayName = tree and tree.displayName
+	if type(displayName) == "string" and not ns.Secret(displayName) and displayName ~= "" then
+		return displayName
+	end
+	local presets = ns.TalentPresets and ns.TalentPresets[playerClass]
+	local preset = presets and presets[index]
+	return preset and (GetLocale() == "deDE" and preset.de or preset.en) or L.ITEMS_SCORE_SPEC_TREE:format(index)
 end
 
 -- Choices for the rating: automatic, then the talent trees of the class (names from the talent data when known).
 local function ScoreSpecValues()
 	local values = { { 0, L.ITEMS_SCORE_SPEC_AUTO } }
 	local classWeights = WEIGHTS[playerClass]
-	if classWeights and classWeights[1] then
+	if classWeights then
 		local _, _, trees = TalentTree()
 		for index = 1, #classWeights do
-			local tree = trees and trees[index]
-			values[#values + 1] = { index, tree and tree.displayName or L.ITEMS_SCORE_SPEC_TREE:format(index) }
+			values[#values + 1] = { index, ScoreTreeName(index, trees) }
 		end
+	end
+	if playerClass == "DRUID" then
+		values[#values + 1] = { BEAR_PROFILE, L.ITEMS_SCORE_SPEC_BEAR }
 	end
 	return values
 end
@@ -299,33 +418,29 @@ local LEVELLING_FULL, LEVELLING_NONE = 20, 40
 
 local function GetWeights()
 	if weights then
-		return weights, weightsName
+		return weights, weightsName, weightsTree, weightsPreset
 	end
-	local classWeights = WEIGHTS[playerClass] or MELEE
-	weightsName = nil
-	if classWeights[1] then
-		local index, name, trees = TalentTree()
-		if not index then
-			index = DEFAULT_SPEC[playerClass] or 1
-		end
-		local chosen = Items.PickTree(Items.cdb and Items.cdb.scoreSpec, index, #classWeights)
-		if chosen ~= index then
-			index = chosen
-			name = trees and trees[index] and trees[index].displayName or L.ITEMS_SCORE_SPEC_TREE:format(index)
-		end
-		weightsName = name
-		classWeights = classWeights[index] or classWeights[1]
+	local classWeights = WEIGHTS[playerClass] or WEIGHTS.WARRIOR
+	local index, _, trees = TalentTree()
+	local profile = Items.PickTree(Items.cdb and Items.cdb.scoreSpec, index or DEFAULT_SPEC[playerClass] or 1,
+		playerClass == "DRUID" and BEAR_PROFILE or #classWeights)
+	weightsPreset = profile
+	if profile == BEAR_PROFILE then
+		weights, weightsName, weightsTree = FERAL_BEAR, L.ITEMS_SCORE_SPEC_BEAR, FERAL_TREE
+		return weights, weightsName, weightsTree, weightsPreset
 	end
+	weightsName, weightsTree = ScoreTreeName(profile, trees), profile
+	classWeights = classWeights[profile]
 	if LEVELLING_MELEE[playerClass] and not classWeights.DPS then
 		local level = UnitLevel("player")
 		local share = math.min(1, math.max(0, (LEVELLING_NONE - level) / (LEVELLING_NONE - LEVELLING_FULL)))
 		if share > 0 then
 			classWeights = CopyTable(classWeights)
-			classWeights.DPS = MELEE.DPS * share
+			classWeights.DPS = WEIGHTS.WARRIOR[1].DPS * share
 		end
 	end
 	weights = classWeights
-	return weights, weightsName
+	return weights, weightsName, weightsTree, weightsPreset
 end
 ns.StatWeights = GetWeights -- for the ranking of the attributes in the character window
 
@@ -359,8 +474,19 @@ local function Score(link, ranged)
 				name = "RDPS"
 			end
 		end
-		if name and w[name] then
-			score = score + w[name] * value
+		local weight = name and w[name]
+		if name == "SD" then
+			weight = w.SP
+		elseif SHARED_WEIGHT[name] and not key:find("_MELEE", 1, true) and not key:find("_RANGED", 1, true) then
+			-- Weigh a shared gear bonus once, using the stronger contribution.
+			weight = ns.SharedStatWeight(w, name)
+		end
+		if weight and weight > 0 then
+			local rating = RATING_STATS[name]
+			if rating and key:find("_RATING", 1, true) then
+				value = RatingPercent(rating, value)
+			end
+			score = score + weight * value
 		end
 	end
 	if not hasDPS and select(6, C_Item.GetItemInfoInstant(link)) == Enum.ItemClass.Weapon then
@@ -1012,7 +1138,12 @@ local function UpdateAllBags()
 	end
 end
 
--- Talent and level changes come in bursts: one refresh a moment after the last one.
+local function UsesGearScores()
+	local db = Items.db
+	return db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
+end
+
+-- Coalesce bursts of talent and level changes.
 local weighRefreshQueued = false
 local function QueueWeighRefresh()
 	if weighRefreshQueued then
@@ -1023,7 +1154,13 @@ local function QueueWeighRefresh()
 		weighRefreshQueued = false
 		weights = nil
 		ClearWeighCaches()
-		UpdateAllBags()
+		local statRank = ns:GetModule("StatRank")
+		if statRank and statRank.db.enabled then
+			statRank.Refresh()
+		end
+		if UsesGearScores() then
+			UpdateAllBags()
+		end
 	end)
 end
 
@@ -1190,7 +1327,8 @@ end
 -- settings that concern the bags.
 ---------------------------------------------------------------------------
 local MENU_SECTIONS_BAG = {
-	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "Items", "moneyPickup", "ITEMS_MONEY_PICKUP" } } },
+	{ L.ITEMS_BAGS, { { "Items", "autoSort", "ITEMS_AUTOSORT" }, { "Items", "moneyPickup", "ITEMS_MONEY_PICKUP" },
+		{ "BankView", "enabled", "BANKVIEW_ENABLE" } } },
 	{ L.ITEMS_DISPLAY, {
 		{ "Items", "upgradeArrow", "ITEMS_UPGRADE" }, { "Items", "rewardUpgrade", "ITEMS_REWARD_UPGRADE" }, { "Items", "upgradeScore", "ITEMS_SCORE" },
 		{ "Items", "upgradePopup", "ITEMS_UPGRADE_POPUP" },
@@ -1679,8 +1817,19 @@ local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the ba
 local lastSort, sortQueued, sorting = 0, false, false
 -- Layout of the bags after the last finished sort (items and counts). While it is unchanged, opening the bags sorts
 -- nothing.
-local sortedLayout
+local sortedLayout, sortedRevision
+local bagRevision = 0
 local RecordLayout -- below
+
+local function OnBagLayoutChanged(_, _, bag)
+	if type(bag) == "number" and bag >= BACKPACK_CONTAINER and bag <= NUM_TOTAL_EQUIPPED_BAG_SLOTS then
+		bagRevision = bagRevision + 1
+	end
+end
+
+local function InvalidateBagLayout()
+	bagRevision = bagRevision + 1
+end
 
 -- Windows in which items are moved by other things: no sorting in them.
 local TRADE_WINDOWS = { "MerchantFrame", "MailFrame", "TradeFrame", "BankFrame", "GuildBankFrame", "AuctionHouseFrame",
@@ -1696,17 +1845,25 @@ local function OtherWindowOpen()
 	return false
 end
 
--- An item is locked (grey) while the game moves it.
-local function AnyLocked()
+-- Read locks and, when needed, the layout in a single pass over the bags.
+local function ReadBagLayout(withSignature, stopWhenLocked)
+	local parts = withSignature and {} or nil
+	local locked = false
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			if info and info.isLocked then
-				return true
+				if stopWhenLocked then
+					return nil, true
+				end
+				locked = true
+			end
+			if parts then
+				parts[#parts + 1] = info and (tostring(info.itemID) .. "x" .. tostring(info.stackCount)) or "-"
 			end
 		end
 	end
-	return false
+	return parts and table.concat(parts, ","), locked
 end
 
 -- The game's cleanup works in bursts with pauses (the server moves the items); "no bag update for a moment" took
@@ -1717,19 +1874,21 @@ local settle = { signature = nil, since = 0, checked = 0, result = false }
 
 local function ResetSettle()
 	settle.signature, settle.since, settle.checked, settle.result = nil, GetTime(), 0, false
+	settle.revision = nil
 end
 
 local function LayoutSettled(need)
 	local now = GetTime()
-	if now - settle.checked < SETTLE_LOOK and not need then
+	if now - settle.checked < SETTLE_LOOK and settle.revision == bagRevision and not need then
 		return settle.result
 	end
 	settle.checked = now
-	local signature = Items.LayoutSignature()
+	local signature, locked = ReadBagLayout(true)
+	settle.revision = bagRevision
 	if signature ~= settle.signature then
 		settle.signature, settle.since = signature, now
 	end
-	settle.result = now - settle.since >= (need or SETTLE) and not AnyLocked()
+	settle.result = now - settle.since >= (need or SETTLE) and not locked
 	return settle.result
 end
 
@@ -1743,54 +1902,76 @@ local function WatchSort()
 	ResetSettle()
 	ns.NewTicker("Items: WatchSort (timer)", SORT_CHECK, function(ticker)
 		waited = waited + SORT_CHECK
-		if LayoutSettled() or waited >= SORT_MAX then
+		local settled = LayoutSettled()
+		if settled or waited >= SORT_MAX then
 			Items.Trace("Sortieren beendet nach %.1f s (%s)", waited, waited >= SORT_MAX and "Zeitgrenze" or "Belegung ruhig")
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
-			RecordLayout()
+			RecordLayout(settled and settle.signature)
 		end
 	end)
 end
 
-local function SortOnOpen()
-	sortQueued = false
-	-- Not while selling, in combat, with an item on the cursor, in a window that moves items or during a sort.
-	if not Items.db.autoSort or InCombatLockdown() or sellTicker or GetCursorInfo() or sorting or OtherWindowOpen() then
+local function CanSortOnOpen()
+	return Items.db.autoSort and not InCombatLockdown() and not sellTicker and not GetCursorInfo() and not sorting and not OtherWindowOpen()
+end
+
+local function StartAutomaticSort(revision)
+	if revision ~= bagRevision or not CanSortOnOpen() then
 		return
 	end
-	local now = GetTime()
-	if now - lastSort < SORT_PAUSE or AnyLocked() then
-		Items.Trace("Öffnen: nicht sortiert (Pause oder Gegenstand gesperrt)")
-		return
-	end
-	if Items.db.sortSkip and sortedLayout and sortedLayout == Items.LayoutSignature() then
-		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
-		return
-	end
-	lastSort = now
+	lastSort = GetTime()
 	Items.sortSource = "Addon beim Öffnen"
 	C_Container.SortBags()
 	Items.sortSource = nil
 	WatchSort()
 end
 
-function Items.LayoutSignature()
-	local parts = {}
-	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, C_Container.GetContainerNumSlots(bag) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			parts[#parts + 1] = info and (tostring(info.itemID) .. "x" .. tostring(info.stackCount)) or "-"
-		end
+local function SortOnOpen()
+	sortQueued = false
+	-- Not while selling, in combat, with an item on the cursor, in a window that moves items or during a sort.
+	if not CanSortOnOpen() then
+		return
 	end
-	return table.concat(parts, ",")
+	local now = GetTime()
+	if now - lastSort < SORT_PAUSE then
+		Items.Trace("Öffnen: nicht sortiert (Pause)")
+		return
+	end
+	local compare = Items.db.sortSkip and sortedLayout
+	if compare and sortedRevision == bagRevision then
+		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
+		return
+	end
+	local signature, locked = ReadBagLayout(compare, true)
+	if locked then
+		Items.Trace("Öffnen: nicht sortiert (Gegenstand gesperrt)")
+		return
+	end
+	if signature and sortedLayout == signature then
+		sortedRevision = bagRevision
+		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
+		return
+	end
+	local revision = bagRevision
+	sortQueued = true
+	ns.After("Items: start game bag sort", 0, function()
+		sortQueued = false
+		StartAutomaticSort(revision)
+	end)
+end
+
+function Items.LayoutSignature()
+	return (ReadBagLayout(true))
 end
 
 -- Called when a sort is over.
-function RecordLayout()
+function RecordLayout(signature)
 	if not sorting and not InCombatLockdown() then
 		Items.Trace("Stand gemerkt")
-		sortedLayout = Items.LayoutSignature()
+		sortedLayout = signature or Items.LayoutSignature()
+		sortedRevision = bagRevision
 	end
 end
 
@@ -1804,8 +1985,17 @@ end
 local sortOverlay
 
 local function BagsUnchanged()
-	return Items.db.sortSkip and sortedLayout and not sorting and not InCombatLockdown()
-		and sortedLayout == Items.LayoutSignature()
+	if not (Items.db.sortSkip and sortedLayout and not sorting and not InCombatLockdown()) then
+		return false
+	end
+	if sortedRevision == bagRevision then
+		return true
+	end
+	if sortedLayout == Items.LayoutSignature() then
+		sortedRevision = bagRevision
+		return true
+	end
+	return false
 end
 
 local function UpdateSortOverlay()
@@ -2370,17 +2560,10 @@ function Items:Refresh()
 			upgradeFrame:Hide()
 		end
 	end
-	local weighs = db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
-	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", weighs, function()
+	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", UsesGearScores(), function()
 		ClearWeighCaches()
 		UpdateAllBags()
 	end)
-	-- Level, specialization and talent changes alter the stat weights.
-	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
-		if C_EventUtils.IsEventValid(event) then
-			self:ToggleEvent(event, weighs, QueueWeighRefresh)
-		end
-	end
 end
 
 function Items:OnInitialize()
@@ -2409,9 +2592,16 @@ function Items:OnLogin()
 	UpdateSortOverlay()
 	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
 	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
+	self:RegisterEvent("BAG_UPDATE", OnBagLayoutChanged)
+	self:RegisterEvent("ITEM_LOCK_CHANGED", InvalidateBagLayout)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateBagLayout)
 	hooksecurefunc("QuestInfo_Display", MarkBestReward)
 	hooksecurefunc("QuestInfo_Display", MarkRewardUpgrades)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
+	-- The character window also uses these weights, even with all item ratings switched off.
+	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
+		self:RegisterEvent(event, QueueWeighRefresh)
+	end
 	self:Refresh()
 end
 

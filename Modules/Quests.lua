@@ -517,9 +517,14 @@ local function IsInstanceQuest(questID)
 	return tag and INSTANCE_TAGS[tag.tagID] or false
 end
 
-local function QuestFacts()
+local function QuestFacts(sorting, countingTabs)
+	local db, wanted = Quests.db, Quests.cdb.watched
+	local progress = sorting and db.trackerSort == "progress"
+	local ready = progress or (sorting and db.readyOnly)
+	local distance = sorting and db.trackerSort == "distance"
+	local instances = countingTabs or (sorting and (db.instanceTab or db.regionOnly))
 	local facts, zone = {}, ""
-	local currentZone = GetZoneText()
+	local currentZone = sorting and GetZoneText()
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
 		if info then
@@ -528,21 +533,30 @@ local function QuestFacts()
 			elseif info.questID then
 				local questID = info.questID
 				questHeaders[questID] = zone
-				local done, total = 0, 0
-				for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
-					done = done + min(objective.numFulfilled or 0, objective.numRequired or 0)
-					total = total + (objective.numRequired or 0)
-				end
-				local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
-				facts[questID] = {
+				local fact = {
 					index = index, level = info.level or 0, title = info.title or "", zone = zone,
 					here = zone == currentZone,
 					class = zone == playerClassName,
-					instance = IsInstanceQuest(questID),
-					ready = ns.IsQuestReady(questID, index),
-					progress = total > 0 and done / total or 0,
-					distance = onContinent and distance or math.huge,
 				}
+				facts[questID] = fact
+				if not wanted or wanted[questID] then
+					fact.instance = instances and IsInstanceQuest(questID) or false
+					if ready then
+						fact.ready = ns.IsQuestReady(questID, index)
+					end
+					if progress then
+						local done, total = 0, 0
+						for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
+							done = done + min(objective.numFulfilled or 0, objective.numRequired or 0)
+							total = total + (objective.numRequired or 0)
+						end
+						fact.progress = total > 0 and done / total or 0
+					end
+					if distance then
+						local distanceSq, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+						fact.distance = onContinent and distanceSq or math.huge
+					end
+				end
 			end
 		end
 	end
@@ -616,12 +630,27 @@ local function SameOrder(a, b, reversed)
 end
 
 local function WriteWatches(current, sorted)
+	local nextToKeep = 1
+	for _, questID in ipairs(current) do
+		if questID == sorted[nextToKeep] then
+			nextToKeep = nextToKeep + 1
+		end
+	end
+	local onlyRemoving = nextToKeep > #sorted
 	-- Removing the watch of the super tracked quest also ends its navigation.
 	local superTracked = C_SuperTrack.GetSuperTrackedQuestID()
 	writing = true
 	local ok, err = pcall(function()
+		nextToKeep = 1
 		for _, questID in ipairs(current) do
-			C_QuestLog.RemoveQuestWatch(questID)
+			if onlyRemoving and questID == sorted[nextToKeep] then
+				nextToKeep = nextToKeep + 1
+			else
+				C_QuestLog.RemoveQuestWatch(questID)
+			end
+		end
+		if onlyRemoving then
+			return
 		end
 		local first, last, step = 1, #sorted, 1
 		if addsOnTop then
@@ -639,6 +668,7 @@ local function WriteWatches(current, sorted)
 		and C_SuperTrack.GetSuperTrackedQuestID() ~= superTracked then
 		C_SuperTrack.SetSuperTrackedQuestID(superTracked)
 	end
+	return onlyRemoving
 end
 
 -- Something to manage at all; otherwise Blizzard's tracker stays untouched.
@@ -647,11 +677,11 @@ local function IsManaging()
 	return db.trackerSort ~= "default" or db.classFirst or db.instanceTab or db.regionOnly or db.readyOnly
 end
 
-local function WantedList(facts)
+local function WantedList(facts, current)
 	local cdb = Quests.cdb
 	if not cdb.watched then
 		cdb.watched = {}
-		for _, questID in ipairs(CurrentWatches(facts)) do
+		for _, questID in ipairs(current or CurrentWatches(facts)) do
 			cdb.watched[questID] = true
 		end
 	end
@@ -666,10 +696,10 @@ local function WantedList(facts)
 	return cdb.watched
 end
 
-local function TabCounts()
-	local facts = QuestFacts()
+local function TabCounts(facts, wanted)
+	facts = facts or QuestFacts(false, true)
 	local world, instance = 0, 0
-	for questID in pairs(WantedList(facts)) do
+	for questID in pairs(wanted or WantedList(facts)) do
 		if facts[questID] then
 			if facts[questID].instance then
 				instance = instance + 1
@@ -683,9 +713,8 @@ end
 
 -- The selected tab, or the other one while the selected tab has no quest:
 -- an empty tracker would hide its header and with it the tabs.
-local function EffectiveTab()
+local function EffectiveTab(world, instance)
 	local tab = Quests.cdb.trackerTab
-	local world, instance = TabCounts()
 	if tab == "instance" and instance == 0 then
 		return "world"
 	elseif tab ~= "instance" and world == 0 and instance > 0 then
@@ -711,12 +740,10 @@ local function Passes(questID, fact, tab, everything)
 end
 
 -- Watches that should be shown, in order.
-local function DesiredWatches(facts)
+local function DesiredWatches(facts, wanted, tab)
 	local compare = COMPARE[Quests.db.trackerSort] or COMPARE.default
 	local classFirst = Quests.db.classFirst
 	local list = {}
-	local tab = Quests.db.instanceTab and EffectiveTab()
-	local wanted = WantedList(facts)
 	for questID in pairs(wanted) do
 		local fact = facts[questID]
 		if fact and Passes(questID, fact, tab) then
@@ -748,17 +775,14 @@ end
 local SortTracker
 
 -- Checks the result once; a reversed list means new watches land on top.
-local function VerifyOrder(sorted, retried)
+local function VerifyOrder(sorted)
 	if InCombatLockdown() then
 		return
 	end
 	local current = CurrentWatches(QuestFacts())
-	if not retried and not SameOrder(current, sorted) and SameOrder(current, sorted, true) then
+	if not SameOrder(current, sorted) and SameOrder(current, sorted, true) then
 		addsOnTop = not addsOnTop
 		WriteWatches(current, sorted)
-		ns.After("Quests: VerifyOrder (timer)", VERIFY_DELAY, function()
-			VerifyOrder(sorted, true)
-		end)
 	end
 end
 
@@ -770,22 +794,32 @@ function SortTracker()
 		ns.RunOutOfCombat(QueueSort) -- the tracker is not touched in combat; sort afterwards
 		return
 	end
-	if UpdateTabs then
-		UpdateTabs()
-	end
 	if not IsManaging() then
+		if UpdateTabs then
+			UpdateTabs()
+		end
 		return
 	end
-	local facts = QuestFacts()
+	local facts = QuestFacts(true)
 	local current = CurrentWatches(facts)
-	local desired = DesiredWatches(facts)
+	local wanted = WantedList(facts, current)
+	local world, instance, tab
+	if Quests.db.instanceTab then
+		world, instance = TabCounts(facts, wanted)
+		tab = EffectiveTab(world, instance)
+	end
+	if UpdateTabs then
+		UpdateTabs(world, instance, tab)
+	end
+	local desired = DesiredWatches(facts, wanted, tab)
 	if SameOrder(current, desired) then
 		return
 	end
-	WriteWatches(current, desired)
-	ns.After("Quests: SortTracker (timer)", VERIFY_DELAY, function()
-		VerifyOrder(desired)
-	end)
+	if not WriteWatches(current, desired) then
+		ns.After("Quests: SortTracker (timer)", VERIFY_DELAY, function()
+			VerifyOrder(desired)
+		end)
+	end
 end
 
 function QueueSort()
@@ -898,7 +932,7 @@ local function UpdateReadyButton()
 	readyButton.Icon:SetVertexColor((on and NORMAL_FONT_COLOR or GRAY_FONT_COLOR):GetRGB())
 end
 
-function UpdateTabs()
+function UpdateTabs(world, instance, selected)
 	if not tabs then
 		return
 	end
@@ -908,8 +942,10 @@ function UpdateTabs()
 	if not shown then
 		return
 	end
-	local world, instance = TabCounts()
-	local selected = EffectiveTab()
+	if not world then
+		world, instance = TabCounts()
+	end
+	selected = selected or EffectiveTab(world, instance)
 	for key, tab in pairs({ world = tabs.world, instance = tabs.instance }) do
 		local count = key == "world" and world or instance
 		tab:SetText(("%s (%d)"):format(key == "world" and L.QUESTS_TAB_WORLD or L.QUESTS_TAB_INSTANCE, count))
@@ -938,7 +974,9 @@ local function CreateTab(header, key)
 			return
 		end
 		Quests.cdb.trackerTab = key
-		UpdateTabs()
+		if InCombatLockdown() then
+			UpdateTabs(world, instance)
+		end
 		SortTracker()
 	end)
 	return tab

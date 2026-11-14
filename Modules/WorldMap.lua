@@ -26,6 +26,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		labelsMovable = false,
 		labelOffsets = {}, -- "map:name" -> { dx, dy } in parts of the canvas
 		questStarts = true,
+		questTurnIns = true,
 		filterMenu = true,
 		zoneLevels = true, -- the level range after the name of the zone under the mouse
 	},
@@ -240,7 +241,8 @@ function WorldMap:Apply()
 		Draw()
 	end
 	local db = self.db
-	if (db.entrances or db.flightPoints or db.inns or db.weaponMasters or db.places or db.questStarts) and WorldMapFrame then
+	if (db.entrances or db.flightPoints or db.inns or db.weaponMasters or db.places or db.questStarts or db.questTurnIns)
+		and WorldMapFrame then
 		ns.MapSymbols.Setup()
 	end
 	ns.MapSymbols.Refresh()
@@ -270,6 +272,7 @@ ns.AddMapFilterEntry(function(root)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_PLACE_INFO, "WorldMap", "placeInfo", L.WORLDMAP_PLACE_INFO_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_AREA_INFO, "WorldMap", "areaInfo", L.WORLDMAP_AREA_INFO_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_QUEST_STARTS, "WorldMap", "questStarts", L.WORLDMAP_QUEST_STARTS_DESC)
+	ns.CreateOptionCheckbox(root, L.WORLDMAP_QUEST_TURN_INS, "WorldMap", "questTurnIns", L.WORLDMAP_QUEST_TURN_INS_DESC)
 	ns.CreateSizeMenu(root, L.WORLDMAP_SYMBOL_SCALE, "WorldMap", "symbolScale")
 	ns.CreateSizeMenu(root, L.WORLDMAP_LABEL_SCALE, "WorldMap", "labelScale")
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_LABELS_MOVABLE, "WorldMap", "labelsMovable", L.WORLDMAP_LABELS_MOVABLE_DESC)
@@ -438,6 +441,7 @@ WorldMap.options = {
 	{ key = "placeInfo", type = "toggle", name = L.WORLDMAP_PLACE_INFO, desc = L.WORLDMAP_PLACE_INFO_DESC, parent = "places", new = true },
 	{ key = "areaInfo", type = "toggle", name = L.WORLDMAP_AREA_INFO, desc = L.WORLDMAP_AREA_INFO_DESC, parent = "placeInfo", new = true },
 	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
+	{ key = "questTurnIns", type = "toggle", name = L.WORLDMAP_QUEST_TURN_INS, desc = L.WORLDMAP_QUEST_TURN_INS_DESC, new = true },
 	{ key = "zoneLevels", type = "toggle", name = L.WORLDMAP_ZONE_LEVELS, desc = L.WORLDMAP_ZONE_LEVELS_DESC, new = true },
 	{ key = "symbolScale", type = "slider", name = L.WORLDMAP_SYMBOL_SCALE, desc = L.WORLDMAP_SYMBOL_SCALE_DESC, min = 50, max = 200, step = 5, new = true,
 		format = function(value)

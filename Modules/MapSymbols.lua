@@ -501,6 +501,83 @@ Symbols.AddSource(function(mapID, add)
 	end)
 end)
 
+local function QuestTurnInTooltip(tooltip, symbol)
+	tooltip:AddLine(L.QUEST_PREVIEW_TURNIN_NOW, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	for _, title in ipairs(symbol.data) do
+		tooltip:AddLine(title, 1, 1, 1, true)
+	end
+end
+
+Symbols.AddSource(function(mapID, add)
+	-- Blizzard draws its own hand-in pins while its quest objectives filter is on.
+	if not Options().questTurnIns or GetCVarBool("questPOI") then
+		return
+	end
+	local ready = {}
+	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
+		local info = C_QuestLog.GetInfo(index)
+		local id = info and ns.Number(info.questID, 0) or 0
+		if id > 0 and not (info.isHeader or info.isHidden or info.isAutoComplete) and ns.IsQuestReady(id, index) then
+			ready[id] = info
+		end
+	end
+	if not next(ready) then
+		return
+	end
+
+	local bundled = ns.QuestieDB.Bundled()
+	local pins = {}
+	local function AddPoint(id, x, y)
+		x, y = ns.Number(x), ns.Number(y)
+		if not (x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1) or (x == 0 and y == 0) then
+			return false
+		end
+		local key = ("%.5f:%.5f"):format(x, y)
+		local pin = pins[key]
+		if not pin then
+			pin = { x = x, y = y, titles = {}, quests = {} }
+			pins[key] = pin
+		end
+		if not pin.quests[id] then
+			pin.quests[id] = true
+			local title = Text(ready[id].title) or ns.QuestieDB.QuestName(bundled, id) or ("Quest %d"):format(id)
+			pin.titles[#pin.titles + 1] = title
+		end
+		return true
+	end
+
+	local fromClient = {}
+	local clientPoints = C_QuestLog.GetQuestsOnMap and C_QuestLog.GetQuestsOnMap(mapID)
+	for _, point in ipairs(clientPoints or {}) do
+		local id = ns.Number(point.questID)
+		if ready[id] and not (point.isQuestStart or point.isMapIndicatorQuest) and AddPoint(id, point.x, point.y) then
+			fromClient[id] = true
+		end
+	end
+	-- The bundled hand-in locations also work for quests missing from the client POIs.
+	if bundled then
+		local continent = IsContinent(mapID)
+		for id in pairs(ready) do
+			if not fromClient[id] then
+				for _, point in ipairs(bundled.Quest.Get(id, "turnInPoint") or {}) do
+					local zone, x, y = point[1], point[2] / 100, point[3] / 100
+					local rect = continent and zone ~= mapID and Rect(zone, mapID)
+					if zone == mapID then
+						AddPoint(id, x, y)
+					elseif rect and rect[1] < rect[2] and rect[3] < rect[4] then
+						AddPoint(id, rect[1] + x * (rect[2] - rect[1]), rect[3] + y * (rect[4] - rect[3]))
+					end
+				end
+			end
+		end
+	end
+	for _, pin in pairs(pins) do
+		table.sort(pin.titles)
+		add(pin.x, pin.y, { kind = "questTurnIn", atlas = "QuestTurnin", size = 20, data = pin.titles,
+			tooltip = QuestTurnInTooltip })
+	end
+end)
+
 Symbols.AddSource(function(mapID, add)
 	if not (Options().flightPoints and npcs) then
 		return
@@ -939,14 +1016,20 @@ function Symbols.Setup()
 			hooksecurefunc(WorldMapFrame, method, fn)
 		end
 	end
-	WorldMapFrame:HookScript("OnShow", Symbols.Refresh)
+	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: show", Symbols.Refresh))
 	WorldMapFrame:HookScript("OnShow", HookAreaLabel)
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
+	events:RegisterEvent("QUEST_POI_UPDATE")
+	events:RegisterEvent("CVAR_UPDATE")
 	-- The quest log changes in bursts: one refresh after the last change, not one per event.
 	local queued = false
-	events:SetScript("OnEvent", ns.Measured("Map symbols: quest event", function()
+	events:SetScript("OnEvent", ns.Measured("Map symbols: quest event", function(_, event, cvar)
+		if (event == "QUEST_POI_UPDATE" or event == "CVAR_UPDATE")
+			and (not Options().questTurnIns or (event == "CVAR_UPDATE" and cvar ~= "questPOI")) then
+			return
+		end
 		if queued or not WorldMapFrame:IsShown() then
 			return
 		end

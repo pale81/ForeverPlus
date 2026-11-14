@@ -4279,6 +4279,71 @@ end)()
 	print("world map symbols OK")
 end)()
 ;(function()
+	local map = ns:GetModule("WorldMap")
+	local collect = uv(ns.MapSymbols.Count, "Collect")
+	local savedLog, savedCVar, savedBundled = C_QuestLog, GetCVarBool, ns.QuestieDB.Bundled
+	local blizzard, open, ready = false, true, true
+	local quests = {
+		{ questID = 1, title = "Ready A" }, { questID = 2, title = "Ready B" }, { questID = 3, title = "In progress" },
+		{ questID = 4, title = "Failed" }, { questID = 5, title = "Fallback" }, { questID = 6, title = "Talk to someone" },
+		{ questID = 7, title = "Remote turn-in", isAutoComplete = true },
+	}
+	C_QuestLog = {
+		GetNumQuestLogEntries = function() return #quests end,
+		GetInfo = function(index) if index ~= 1 or open then return quests[index] end end,
+		ReadyForTurnIn = function(id) return id ~= 3 and (id ~= 1 or ready) end,
+		IsFailed = function(id) return id == 4 end,
+		GetQuestsOnMap = function(mapID)
+			if mapID == 1436 then
+				return {
+					{ questID = 1, x = 0.3, y = 0.4 }, { questID = 2, x = 0.3, y = 0.4 },
+					{ questID = 3, x = 0.5, y = 0.4 }, { questID = 4, x = 0.5, y = 0.4 },
+					{ questID = 5, x = 0, y = 0 }, { questID = 6, x = 0.6, y = 0.6 },
+					{ questID = 7, x = 0.5, y = 0.4 }, { questID = 2, x = 0.5, y = 0.4, isQuestStart = true },
+					{ questID = 2, x = 0.5, y = 0.4, isMapIndicatorQuest = true },
+				}
+			end
+		end,
+		IsQuestFlaggedCompleted = function() return false end,
+		GetLogIndexForQuestID = function() return nil end,
+	}
+	ns.QuestieDB.Bundled = function()
+		return { Quest = { Get = function(id, field)
+			assert(field == "turnInPoint", "only hand-in data may supply the fallback")
+			if id == 1 or id == 5 then return { { 1436, 70, 80 }, { 1436, 70, 80 } } end
+		end } }
+	end
+	GetCVarBool = function(key) return key == "questPOI" and blizzard end
+	local savedBoards, savedOption = GetNumQuestLeaderBoards, map.db.questTurnIns
+	GetNumQuestLeaderBoards = function(index) return index ~= 6 and 1 or 0 end
+	local function pins(mapID)
+		local result = {}
+		for _, pin in ipairs(collect(mapID)) do
+			if pin.kind == "questTurnIn" then result[#result + 1] = pin end
+		end
+		table.sort(result, function(a, b) return a.x < b.x end)
+		return result
+	end
+	assert(savedOption, "the filter is on by default")
+	local list = pins(1436)
+	assert(#list == 2 and list[1].atlas == "QuestTurnin" and list[1].x == 0.3 and list[1].y == 0.4
+		and table.concat(list[1].data, ", ") == "Ready A, Ready B", "client coordinates and one pin per shared hand-in location")
+	assert(list[2].x == 0.7 and list[2].y == 0.8 and table.concat(list[2].data) == "Fallback", "only the missing client point uses the bundled fallback")
+	list = pins(1415)
+	assert(#list == 1 and math.abs(list[1].x - 0.47) < 1e-9 and math.abs(list[1].y - 0.78) < 1e-9, "zone point on continent map")
+	ready = false
+	assert(table.concat(pins(1436)[1].data) == "Ready B", "the pin clears when the objectives are no longer complete")
+	ready, open = true, false
+	assert(table.concat(pins(1436)[1].data) == "Ready B", "the pin clears when the quest leaves the log")
+	blizzard = true
+	assert(#pins(1436) == 0, "Blizzard's quest filter avoids a duplicate overlay")
+	blizzard, map.db.questTurnIns = false, false
+	assert(#pins(1436) == 0, "the hand-in filter can be turned off independently")
+	map.db.questTurnIns, GetNumQuestLeaderBoards = savedOption, savedBoards
+	C_QuestLog, GetCVarBool, ns.QuestieDB.Bundled = savedLog, savedCVar, savedBundled
+	print("quest turn-in pins OK")
+end)()
+;(function()
 	-- Buff reminder: a missing buff waits while the power for it is lacking.
 	local buffs = ns:GetModule("Buffs")
 	local update = uv(buffs.OnLogin, "Update")

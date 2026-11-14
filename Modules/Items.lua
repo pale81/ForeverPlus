@@ -150,8 +150,8 @@ function ns.EquipSlots(equipLoc)
 end
 
 local upgradeCache = {}    -- hyperlink -> bool
-local scoreCache = {}      -- hyperlink (+ ranged) -> weighted value; weapons need a tooltip for it
-local equippedCache = {}   -- inventory slot -> weighted value of the worn item
+local scoreCache = {}      -- hyperlink (+ ranged) -> base score and bonus against Humanoids
+local equippedCache = {}   -- inventory slot -> base score and bonus against Humanoids
 
 -- Profession tools (fishing poles, mining picks, …) are never shown as upgrades.
 local IGNORED_WEAPONS = {
@@ -174,7 +174,7 @@ local ARMOR_TYPE = {
 -- and mitigation weights are estimates based on the priorities in DATA-SOURCES.md.
 local PROTECTION_SPELL_POWER = 0.8
 local PROTECTION_PALADIN = {
-	STA = 1.5, STR = 0.8, AGI = 0.8, INT = 0.5, SP = PROTECTION_SPELL_POWER,
+	STA = 1.5, STR = 0.8, AP = 0.35, AGI = 0.8, INT = 0.5, SP = PROTECTION_SPELL_POWER,
 	DEF = 1.5, DODGE = 8, PARRY = 8, BLOCK = 12, BVAL = 0.5, ARMOR = 0.1, DPS = 5, HOLY = PROTECTION_SPELL_POWER,
 	HIT = 21 * PROTECTION_SPELL_POWER, SHIT = 9 * PROTECTION_SPELL_POWER, CRIT = 12 * PROTECTION_SPELL_POWER,
 	EXPERTISE = 15 * PROTECTION_SPELL_POWER, HASTE = 7 * PROTECTION_SPELL_POWER,
@@ -275,7 +275,6 @@ local FERAL_TREE, BEAR_PROFILE = 2, 4
 local STAT_PATTERNS = {
 	{ "RESISTANCE0", "ARMOR" }, { "DAMAGE_PER_SECOND", "DPS" },
 	{ "STRENGTH", "STR" }, { "AGILITY", "AGI" }, { "STAMINA", "STA" }, { "INTELLECT", "INT" }, { "SPIRIT", "SPI" },
-	{ "RANGED_ATTACK_POWER", "RAP" }, { "ATTACK_POWER", "AP" },
 	{ "HEALING", "HEAL" }, { "SPELL_POWER", "SP" }, { "SPELL_DAMAGE", "SD" },
 	{ "HOLY_DAMAGE_DONE", "HOLY" }, { "FIRE_DAMAGE_DONE", "FIRE" }, { "NATURE_DAMAGE_DONE", "NATURE" },
 	{ "FROST_DAMAGE_DONE", "FROST" }, { "SHADOW_DAMAGE_DONE", "SHADOW" }, { "ARCANE_DAMAGE_DONE", "ARCANE" },
@@ -286,16 +285,23 @@ local STAT_PATTERNS = {
 	{ "MANA_REGENERATION", "MP5" }, { "POWER_REGEN0", "MP5" },
 	{ "DEFENSE", "DEF" }, { "DODGE", "DODGE" }, { "PARRY", "PARRY" }, { "BLOCK_VALUE", "BVAL" }, { "BLOCK", "BLOCK" },
 }
+-- Specific creature bonuses must never fall through to unconditional attack power.
+local ATTACK_POWER_KEYS = {
+	ITEM_MOD_ATTACK_POWER_SHORT = "AP", ITEM_MOD_ATTACK_POWER = "AP",
+	ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "RAP", ITEM_MOD_RANGED_ATTACK_POWER = "RAP",
+}
 local statNames = {} -- GetItemStats key -> short name (false = unweighted)
 
 local function StatName(key)
 	local name = statNames[key]
 	if name == nil then
-		name = false
-		for _, entry in ipairs(STAT_PATTERNS) do
-			if key:find(entry[1], 1, true) then
-				name = entry[2]
-				break
+		name = ATTACK_POWER_KEYS[key] or false
+		if not name then
+			for _, entry in ipairs(STAT_PATTERNS) do
+				if key:find(entry[1], 1, true) then
+					name = entry[2]
+					break
+				end
 			end
 		end
 		statNames[key] = name
@@ -453,24 +459,44 @@ ns.StatWeights = GetWeights -- for the ranking of the attributes in the characte
 -- Weapon DPS from the tooltip line, for clients whose item stats lack it.
 local DPS_PATTERN = type(DPS_TEMPLATE) == "string" and "^" .. DPS_TEMPLATE:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0"):gsub("%%%%%%%.1f", "([%%d%%.,]+)") .. "$"
 
-local function TooltipDPS(link)
-	local data = DPS_PATTERN and C_TooltipInfo.GetHyperlink(link)
+local equipPattern = ns.FormatToPattern(L.ITEMS_EQUIP_EFFECT, true).pattern
+local attackPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP, true).pattern
+local attackPowerLongPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_LONG, true).pattern
+local humanoidPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_HUMANOID, true).pattern
+local equipLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnEquip
+
+local function TooltipStats(link, readDPS, readAP)
+	local data = type(C_TooltipInfo.GetHyperlink) == "function" and C_TooltipInfo.GetHyperlink(link)
+	local dps, ap, humanoidAP = nil, 0, 0
 	for _, line in ipairs(data and data.lines or {}) do
-		local value = line.leftText and line.leftText:match(DPS_PATTERN)
-		if value then
-			return tonumber((value:gsub(",", ".")))
+		local value = line.leftText
+		if not ns.Secret(value) and type(value) == "string" then
+			if readDPS and not dps then
+				local number = value:match(DPS_PATTERN)
+				dps = number and tonumber((number:gsub(",", ".")))
+			end
+			if readAP then
+				local plain = value:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+$", "")
+				local effect = plain:match(equipPattern) or (equipLineType and line.type == equipLineType and plain)
+				if effect then
+					effect = effect:gsub("%.?%s*$", "")
+					ap = ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
+					humanoidAP = humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+				end
+			end
 		end
 	end
+	return dps, ap, humanoidAP
 end
 
 local function Score(link, ranged)
 	local cacheKey = ranged and link .. "#r" or link
 	local cached = scoreCache[cacheKey]
 	if cached then
-		return cached
+		return cached[1], cached[2]
 	end
 	local w = GetWeights()
-	local score, hasDPS = 0, false
+	local score, humanoidBonus, hasDPS, hasAP = 0, 0, false, false
 	for key, value in pairs(C_Item.GetItemStats(link) or {}) do
 		local name = StatName(key)
 		if name == "DPS" then
@@ -478,6 +504,8 @@ local function Score(link, ranged)
 			if ranged then
 				name = "RDPS"
 			end
+		elseif name == "AP" and value ~= 0 then
+			hasAP = true
 		end
 		local weight = name and w[name]
 		if name == "SD" then
@@ -494,15 +522,24 @@ local function Score(link, ranged)
 			score = score + weight * value
 		end
 	end
-	if not hasDPS and select(6, C_Item.GetItemInfoInstant(link)) == Enum.ItemClass.Weapon then
-		local dps = TooltipDPS(link)
-		local weight = w[ranged and "RDPS" or "DPS"]
-		if dps and weight then
-			score = score + weight * dps
+	local dpsWeight = w[ranged and "RDPS" or "DPS"]
+	local readDPS = not hasDPS and DPS_PATTERN and dpsWeight
+		and select(6, C_Item.GetItemInfoInstant(link)) == Enum.ItemClass.Weapon
+	local readAP = w.AP and w.AP > 0
+	if readDPS or readAP then
+		local dps, ap, humanoidAP = TooltipStats(link, readDPS, readAP)
+		if dps then
+			score = score + dpsWeight * dps
+		end
+		if readAP then
+			if not hasAP then
+				score = score + w.AP * ap
+			end
+			humanoidBonus = w.AP * humanoidAP
 		end
 	end
-	scoreCache[cacheKey] = score
-	return score
+	scoreCache[cacheKey] = { score, humanoidBonus }
+	return score, humanoidBonus
 end
 
 local function IsRed(color)
@@ -574,15 +611,18 @@ end
 local function EquippedScore(invSlot)
 	local cached = equippedCache[invSlot]
 	if cached then
-		return cached
+		return cached[1], cached[2]
 	end
 	local link = EquippedLink(invSlot)
 	if link == false then
 		return false
 	end
-	local value = link and Score(link, invSlot == INVSLOT_RANGED) or 0
-	equippedCache[invSlot] = value
-	return value
+	local value, bonus = 0, 0
+	if link then
+		value, bonus = Score(link, invSlot == INVSLOT_RANGED)
+	end
+	equippedCache[invSlot] = { value, bonus }
+	return value, bonus
 end
 
 -- Everything that depends on what is worn or on the stat weights.
@@ -601,7 +641,8 @@ end
 -- weighted value (stats of the current specialization) than the weakest
 -- equipped item it could replace. Unknown data never shows an arrow.
 -- Returns the weighted value of the item and of the weakest equipped item it
--- could replace; false if it never counts as an upgrade, nil while loading.
+-- could replace, with a second comparison against Humanoids when different.
+-- False if it never counts as an upgrade, nil while loading.
 local function CompareScores(link)
 	local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(link)
 	local slots = ns.EquipSlots(equipLoc)
@@ -613,30 +654,39 @@ local function CompareScores(link)
 		return nil
 	end
 
-	local equippedScore
+	local equippedScore, equippedHumanoidScore
 	if equipLoc == "INVTYPE_2HWEAPON" then
 		-- Replaces main and off hand together.
-		local mainScore = EquippedScore(INVSLOT_MAINHAND)
-		local offScore = EquippedScore(INVSLOT_OFFHAND)
+		local mainScore, mainBonus = EquippedScore(INVSLOT_MAINHAND)
+		local offScore, offBonus = EquippedScore(INVSLOT_OFFHAND)
 		if mainScore == false or offScore == false then
 			return nil
 		end
 		equippedScore = mainScore + offScore
+		equippedHumanoidScore = equippedScore + mainBonus + offBonus
 	elseif slots[1] == INVSLOT_OFFHAND and IsTwoHand(EquippedLink(INVSLOT_MAINHAND)) then
 		-- No off hand next to a two-hand weapon.
 		return false
 	else
 		for _, invSlot in ipairs(slots) do
-			local value = EquippedScore(invSlot)
+			local value, bonus = EquippedScore(invSlot)
 			if value == false then
 				return nil
 			end
 			if not equippedScore or value < equippedScore then
 				equippedScore = value
 			end
+			local humanoidValue = value + bonus
+			if not equippedHumanoidScore or humanoidValue < equippedHumanoidScore then
+				equippedHumanoidScore = humanoidValue
+			end
 		end
 	end
-	return Score(link, slots[1] == INVSLOT_RANGED), equippedScore
+	local score, bonus = Score(link, slots[1] == INVSLOT_RANGED)
+	if bonus ~= 0 or equippedScore ~= equippedHumanoidScore then
+		return score, equippedScore, score + bonus, equippedHumanoidScore
+	end
+	return score, equippedScore
 end
 
 -- An upgrade is the best armor type for the class, usable, and has a higher
@@ -713,16 +763,23 @@ function ns.RecipeUpgradeState(link)
 	return result
 end
 
--- The rating line of a recipe's product in another tooltip (trainer, list of recipes), as on items.
+local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
+	local _, treeName = GetWeights()
+	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+	if humanoidScore then
+		tooltip:AddLine(L.ITEMS_SCORE_HUMANOID_LINE:format(humanoidScore, equippedHumanoidScore), 0.5, 0.7, 1)
+	end
+end
+
+-- The rating of a recipe's product in another tooltip (trainer, list of recipes), as on items.
 function ns.AddRecipeScoreLine(tooltip, link)
 	if not (Items.db and Items.db.upgradeScore) or type(link) ~= "string" or ns.Secret(link)
 		or not C_Item.IsEquippableItem(link) then
 		return
 	end
-	local score, equippedScore = CompareScores(link)
+	local score, equippedScore, humanoidScore, equippedHumanoidScore = CompareScores(link)
 	if score then
-		local _, treeName = GetWeights()
-		tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+		AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	end
 end
 
@@ -756,12 +813,11 @@ local function AddScoreLine(tooltip)
 	if not link or ns.Secret(link) or not C_Item.IsEquippableItem(link) then
 		return
 	end
-	local score, equippedScore = CompareScores(link)
+	local score, equippedScore, humanoidScore, equippedHumanoidScore = CompareScores(link)
 	if not score then
 		return
 	end
-	local _, treeName = GetWeights()
-	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+	AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	tooltip:Show()
 end
 

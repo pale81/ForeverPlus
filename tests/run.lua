@@ -140,6 +140,7 @@ GetProfessionInfo = function(i) return "Prof", 1, 150, 300, 0, 0, i == 1 and 171
 C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true end
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
 C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end }
+Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45 }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
 GetCVar = function() return "1" end
@@ -1445,6 +1446,66 @@ print("upgrade trees OK")
 	C_Item.GetItemStats, C_Item.GetItemInfoInstant = savedStats, savedInfo
 	GetCombatRatingBonusForCombatRatingValue = savedRating
 	print("forever item rating units OK")
+end)()
+;(function()
+	local savedProfile = upvalue(getW, "weights")
+	local savedEquipped, savedTooltip = GetInventoryItemLink, C_TooltipInfo.GetHyperlink
+	local savedEquippable, savedEnabled = C_Item.IsEquippableItem, itemsMod.db.upgradeScore
+	local clear = uv(uv(itemsMod.OnOptionChanged, "QueueWeighRefresh"), "ClearWeighCaches")
+	local de = GetLocale() == "deDE"
+	local flat = de and "Anlegen: +3 Angriffskraft" or "Equip: +3 Attack Power"
+	local against = de and "Anlegen: +4 Angriffskraft gegen Humanoide." or "Equip: +4 Attack Power against Humanoids."
+	local baseStats = { RESISTANCE0_NAME = 15, ITEM_MOD_STAMINA_SHORT = 2 }
+	local cloak, defender, situational = "catacombCloak", "shadowDefenderCloak", "situationalCloak"
+	ITEMS[cloak] = { "INVTYPE_CLOAK", 4, 1, baseStats }
+	ITEMS[defender] = { "INVTYPE_CLOAK", 4, 1, { RESISTANCE0_NAME = 17, ITEM_MOD_STAMINA_SHORT = 2, RESISTANCE5_NAME = 2 } }
+	ITEMS[situational] = { "INVTYPE_CLOAK", 4, 1, { RESISTANCE0_NAME = 14, ITEM_MOD_STAMINA_SHORT = 2 } }
+	local equipped = cloak
+	GetInventoryItemLink = function(_, slot) return slot == 15 and equipped or nil end
+	C_Item.IsEquippableItem = function() return true end
+	C_TooltipInfo.GetHyperlink = function(link)
+		local effects = {}
+		if link == cloak then
+			effects = {
+				{ leftText = flat },
+				{ type = 45, leftText = "|cff00ff00" .. against .. "|r" },
+				{ leftText = de and "Benutzen: +99 Angriffskraft" or "Use: +99 Attack Power" },
+			}
+		elseif link == situational then
+			effects = { { type = 45, leftText = against:match(": (.+)") } }
+		end
+		return { lines = effects }
+	end
+	setuv(getW, "weights", upvalue(getW, "WEIGHTS").PALADIN[2])
+	clear()
+	local score, worn, humanoid, wornHumanoid = compare(defender)
+	assert(math.abs(score - 4.7) < 0.001 and math.abs(worn - 5.55) < 0.001, "flat attack power beats two additional armor")
+	assert(humanoid == score and math.abs(wornHumanoid - 6.95) < 0.001, "equipped cloak gains only four more AP against Humanoids")
+	assert(not IsUpgrade(0, 1, defender), "the Defender Cloak is no upgrade over the Catacomb Cloak")
+
+	local lines = {}
+	local tip = { AddLine = function(_, line) lines[#lines + 1] = line end }
+	itemsMod.db.upgradeScore = true
+	ns.AddRecipeScoreLine(tip, defender)
+	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_HUMANOID_LINE:format(humanoid, wornHumanoid),
+		"the tooltip shows both items' rating against Humanoids even if only the equipped one has the bonus")
+
+	clear()
+	baseStats.ITEM_MOD_ATTACK_POWER_SHORT = 3
+	local apiScore, apiBonus = scoreFn(cloak)
+	assert(apiScore == worn and math.abs(apiBonus - 1.4) < 0.001, "do not double count flat AP reported by the client")
+	equipped = defender
+	local conditional, normal, againstHumanoid, wornAgainst = compare(situational)
+	assert(conditional < normal and againstHumanoid > wornAgainst, "a situational cloak can win the Humanoid comparison")
+	assert(not IsUpgrade(0, 1, situational), "the generic arrow does not use the situational rating")
+
+	clear()
+	ITEMS[cloak], ITEMS[defender], ITEMS[situational] = nil, nil, nil
+	itemsMod.db.upgradeScore = savedEnabled
+	C_Item.IsEquippableItem = savedEquippable
+	GetInventoryItemLink, C_TooltipInfo.GetHyperlink = savedEquipped, savedTooltip
+	setuv(getW, "weights", savedProfile)
+	print("protection paladin attack power and humanoid cloak comparison OK")
 end)()
 -- Upgrade toast: gain over the worn item, none for an empty slot
 do

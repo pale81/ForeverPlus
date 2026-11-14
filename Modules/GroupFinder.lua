@@ -8,6 +8,7 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 	order = 5.25,
 	defaults = {
 		composition = true,
+		dungeonLevels = true,
 		questButton = true, -- a small button at group, elite and dungeon quests: lists the player for it
 		tank5 = 1, healer5 = 1, dps5 = 3,
 		tank10 = 2, healer10 = 2, dps10 = 6,
@@ -24,8 +25,90 @@ local ROLE_ATLAS = {
 	DAMAGER = "groupfinder-icon-role-micro-dps",
 }
 local ROLE_SORT = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+local DUNGEON_CATEGORY, RAID_CATEGORY, QUEST_CATEGORY = 2, 114, 116
 local ICON_SIZE = 16
 local displays = {} -- search entry -> our display
+local levelLabels = setmetatable({}, { __mode = "k" })
+
+local function DungeonLevels(activity)
+	if not activity or activity.categoryID ~= DUNGEON_CATEGORY then
+		return
+	end
+	local low, high = activity.minLevelSuggestion or 0, activity.maxLevelSuggestion or 0
+	if low <= 0 then
+		low = activity.minLevel or 0
+	end
+	if low <= 0 or high < low then
+		return
+	end
+	return low == high and ("(%d)"):format(low) or ("(%d–%d)"):format(low, high)
+end
+
+local function SetLevelText(label, name, levels)
+	label:SetFontObject(name:GetFontObject())
+	label:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+	label:SetText(levels)
+end
+
+local function InitActivityLevel(button, description)
+	if not GroupFinder.db.dungeonLevels or not button.fontString then
+		return
+	end
+	local activityID = ns.Number(description:GetData())
+	local levels = activityID and DungeonLevels(C_LFGList.GetActivityInfoTable(activityID))
+	if levels then
+		local label = button:AttachFontString()
+		label:SetPoint("LEFT", button.fontString, "RIGHT", 5, 0)
+		label:SetSize(0, button.fontString:GetHeight())
+		SetLevelText(label, button.fontString, levels)
+	end
+end
+
+local initActivityLevel = ns.Measured("GroupFinder: dungeon selection row", InitActivityLevel)
+
+local function AddActivityLevels(_, menu)
+	for _, description in menu:EnumerateElementDescriptions() do
+		if description:IsCheckbox() then
+			description:AddInitializer(initActivityLevel)
+		end
+		AddActivityLevels(nil, description)
+	end
+end
+
+local function ResultDungeonLevels(info, text)
+	if not info or info.hasSelf or ns.Secret(text) or not text then
+		return
+	end
+	-- Blizzard can show one matching activity even when a listing covers several.
+	for _, id in ipairs(info.activityIDs or {}) do
+		local activityID = ns.Number(id)
+		local activity = activityID and C_LFGList.GetActivityInfoTable(activityID)
+		if activity and text == LFGUtil_GetActivityInfoName(activity) then
+			return DungeonLevels(activity)
+		end
+	end
+end
+
+local function UpdateResultLevel(entry, info)
+	local label = levelLabels[entry]
+	local name = entry.ActivityName
+	local levels = GroupFinder.db.dungeonLevels and name and ResultDungeonLevels(info, name:GetText())
+	if not levels then
+		if label then
+			label:Hide()
+		end
+		return
+	end
+	if not label then
+		label = entry:CreateFontString(nil, "OVERLAY")
+		label:SetPoint("LEFT", name, "RIGHT", 5, 0)
+		levelLabels[entry] = label
+	end
+	SetLevelText(label, name, levels)
+	local nameRight = name:GetRight()
+	local limit = entry.DataDisplay and entry.DataDisplay:GetLeft()
+	label:SetShown(not nameRight or not limit or nameRight + 5 + label:GetStringWidth() <= limit)
+end
 
 local function GroupSize(activityIDs)
 	local size = 0
@@ -84,12 +167,14 @@ local seen = setmetatable({}, { __mode = "k" }) -- every list entry that was bui
 
 local function UpdateEntry(entry)
 	seen[entry] = true
-	local info = GroupFinder.db.composition and entry.resultID and C_LFGList.GetSearchResultInfo(entry.resultID)
+	local db = GroupFinder.db
+	local info = (db.composition or db.dungeonLevels) and entry.resultID and C_LFGList.GetSearchResultInfo(entry.resultID)
 	-- Results can be protected while chat messaging is locked down.
-	if info and (ns.Secret(info.numMembers) or ns.Secret(info.hasSelf)) then
+	if ns.Secret(info) or (info and (ns.Secret(info.numMembers) or ns.Secret(info.hasSelf) or ns.Secret(info.activityIDs))) then
 		info = nil
 	end
-	local expected = info and not info.hasSelf and info.numMembers > 1 and Expected(GroupSize(info.activityIDs))
+	UpdateResultLevel(entry, info)
+	local expected = db.composition and info and not info.hasSelf and info.numMembers > 1 and Expected(GroupSize(info.activityIDs))
 	if not expected then
 		Hide(entry)
 		return
@@ -157,7 +242,6 @@ end
 -- name: the dungeon (all its wings: "Scarlet Monastery" lists Graveyard, Library, Armory and Cathedral) or,
 -- for an elite quest outside, its zone under "Quests & Zones".
 ---------------------------------------------------------------------------
-local DUNGEON_CATEGORY, RAID_CATEGORY, QUEST_CATEGORY = 2, 114, 116
 local CATEGORIES = { dungeon = { DUNGEON_CATEGORY, RAID_CATEGORY }, raid = { RAID_CATEGORY, DUNGEON_CATEGORY },
 	elite = { QUEST_CATEGORY, DUNGEON_CATEGORY } }
 local DUNGEON_TAGS = { [81] = true, [85] = true }
@@ -430,8 +514,11 @@ end
 
 function GroupFinder:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_GroupFinder_VanillaStyle", function()
+		if Menu and Menu.ModifyMenu then
+			Menu.ModifyMenu("MENU_LFG_BROWSE_ACTIVITY", ns.Measured("GroupFinder: dungeon selection", AddActivityLevels))
+		end
 		if LFGBrowseSearchEntry_Update then
-			hooksecurefunc("LFGBrowseSearchEntry_Update", UpdateEntry)
+			hooksecurefunc("LFGBrowseSearchEntry_Update", ns.Measured("GroupFinder: search results", UpdateEntry))
 		end
 		-- The window sets the roles saved by the game when it loads: ours after it.
 		GroupFinder.ApplyRoles()
@@ -487,6 +574,7 @@ end
 
 GroupFinder.options = {
 	{ key = "composition", type = "toggle", name = L.GROUPFINDER_COMPOSITION, desc = L.GROUPFINDER_COMPOSITION_DESC },
+	{ key = "dungeonLevels", type = "toggle", name = L.GROUPFINDER_DUNGEON_LEVELS, desc = L.GROUPFINDER_DUNGEON_LEVELS_DESC, new = true },
 	{ key = "questButton", type = "toggle", name = L.GROUPQUEST_OPTION, desc = L.GROUPQUEST_OPTION_DESC, new = true },
 	{ key = "presetRoles", type = "toggle", name = L.GROUPFINDER_ROLES, desc = L.GROUPFINDER_ROLES_DESC, new = true },
 	{ key = "roleTank", type = "toggle", name = TANK, parent = "presetRoles" },

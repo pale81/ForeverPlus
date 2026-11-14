@@ -22,6 +22,8 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 ## Sources reviewed
 
+**Group finder dungeon levels.** The dungeon filter and search results read the recommended levels from the Forever client's `C_LFGList.GetActivityInfoTable`. Each wing uses its own activity ID.
+
 **Dungeon journal.** `Data/DungeonJournal.lua` lists the 30 dungeon maps and 12 raid maps in `GroupFinderActivity` for Forever build `1.60.1.70938`. Wings that share a map ID appear together. The activity suggestions supply the displayed level ranges. Names, encounter order and banner textures come from the game's [Map](https://wago.tools/db2/Map?build=1.60.1.70938), [DungeonEncounter](https://wago.tools/db2/DungeonEncounter?build=1.60.1.70938) and [LoadingScreens](https://wago.tools/db2/LoadingScreens?build=1.60.1.70938) tables. Dungeon encounters use the normal and shared difficulty rows. The Molten Core completion record is omitted from the boss list.
 
 The journal references Blizzard textures by file ID. Classic floor plans use paths catalogued in the [wowdev community listfile](https://github.com/wowdev/wow-listfile). The other maps use the Forever WDT minimap grid. Blank borders are cropped, and disconnected regions are shown on separate pages. Classic layouts can differ from Forever. A minimap view can leave out underground rooms or upper floors. Entrance maps reuse the existing world map entrance data. Boss locations are unavailable in these sources.

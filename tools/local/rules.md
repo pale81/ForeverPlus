@@ -29,7 +29,7 @@ Harness: unbekannte Globale sind nachsichtige Platzhalter, die nicht in `_G` lan
 
 ## Git
 - Commits als EphemeraCore, ohne Co-Autor- oder Sitzungszeilen. Keine KI-Erwähnung in Commits, Pull Requests, Code oder Doku.
-- Zweig `main`; Änderungen über Pull Request, Squash-Merge.
+- Für Commit und direkten Push auf `main` gilt die Projektregel in `AGENTS.md`.
 
 ## Im Spiel testen
 - Der Ordner liegt im AddOns-Verzeichnis; nach Änderungen `/rl`.

@@ -5490,6 +5490,80 @@ end)()
 	print("loot sources OK")
 end)()
 ;(function()
+	local loot, items = ns:GetModule("LootSources"), ns:GetModule("Items")
+	local savedSources, savedCount, savedMerged = ns.db.lootSources, loot.count, loot.merged
+	local savedRecord, savedFastLoot, savedToggle = loot.db.record, items.db.fastLoot, loot.ToggleEvent
+	local savedNum, savedType, savedLink, savedSource = GetNumLootItems, GetLootSlotType, GetLootSlotLink, GetLootSourceInfo
+	local savedFishing, savedSlot, savedCVar, savedClick = IsFishingLoot, LootSlot, GetCVarBool, IsModifiedClick
+	local savedGUID, savedName, savedSecret = UnitGUID, UnitName, issecretvalue
+	local observations = ns:GetModule("Observations")
+	local savedCreature, observed = observations.Creature, 0
+	observations.Creature = function() observed = observed + 1 end
+	ns.db.lootSources, loot.count, loot.merged = {}, 0, nil
+	loot.db.record, items.db.fastLoot = true, true
+	local handlers = {}
+	loot.ToggleEvent = function(_, event, _, fn) handlers[event] = fn end
+	loot:Apply()
+	loot.ToggleEvent = savedToggle
+	local first = "Creature-0-1-2-3-999981-0001"
+	local second = "Creature-0-1-2-3-999981-0002"
+	local third = "Creature-0-1-2-3-999982-0001"
+	local key = "npc:999981"
+	local window = { { 1, "item:35", first, 2, second, 1 }, { 1, "item:35", first, 1 }, { 2, nil, second, 15 } }
+	GetNumLootItems = function() return #window end
+	GetLootSlotType = function(i) return window[i][1] end
+	GetLootSlotLink = function(i) return window[i][2] end
+	GetLootSourceInfo = function(i)
+		local slot = window[i]
+		return unpack(slot, 3, slot[5] and 6 or 4)
+	end
+	IsFishingLoot = function() return false end
+	GetCVarBool = function() return true end
+	IsModifiedClick = function() return false end
+	UnitGUID = function(unit) return unit == "mouseover" and first end
+	UnitName = function() return "Wolf" end
+	issecretvalue = function(v) return v == "secret" end
+	LootSlot = function(i)
+		assert(ns.db.lootSources[key] and ns.db.lootSources[key].windows == 2, "fast loot records every corpse before looting")
+		table.remove(window, i)
+	end
+	items:LOOT_READY()
+	local entry = ns.db.lootSources[key]
+	assert(#window == 0 and entry.items[35] == 2 and entry.name == "Wolf" and observed == 2,
+		"shared and duplicate item slots count once per corpse")
+	handlers.LOOT_OPENED()
+	window = { { 1, "item:35", first, 1 } }
+	handlers.LOOT_OPENED()
+	assert(entry.windows == 2, "reopening the same corpse and overlapping loot events do not double count")
+	items.db.fastLoot = false
+	window = { { 1, "secret", third, 1 } }
+	handlers.LOOT_READY()
+	window = { { 1, "item:25", third, 1 } }
+	assert(not ns.db.lootSources["npc:999982"], "a protected item leaves the snapshot available to retry")
+	handlers.UNIT_SPELLCAST_SENT(nil, nil, "player", nil, "skinning", 8613)
+	handlers.LOOT_READY()
+	assert(not ns.db.lootSources["npc:999982"], "skinning does not count as corpse loot")
+	handlers.UNIT_SPELLCAST_INTERRUPTED(nil, nil, "player", "skinning")
+	handlers.LOOT_OPENED(nil, nil, false, true)
+	assert(not ns.db.lootSources["npc:999982"], "opening a bag item does not record a corpse")
+	handlers.LOOT_OPENED()
+	assert(ns.db.lootSources["npc:999982"].items[25] == 1, "manual opening retries once loot is readable")
+	window = { { 2, nil, "Creature-0-1-2-3-999982-0002", 40 } }
+	handlers.LOOT_READY()
+	assert(ns.db.lootSources["npc:999982"].windows == 2, "a money-only corpse counts toward the number of windows")
+	loot.db.record = false
+	window = { { 1, "item:25", "Creature-0-1-2-3-999983-0001", 1 } }
+	loot.CaptureWindow()
+	assert(not ns.db.lootSources["npc:999983"], "recording off leaves the saved data alone")
+	assert(ns:GetModule("DataCapture").DiagnoseText():find(ns.L.LOOTSRC_STATUS:format(NO, 2, 4), 1, true), "diagnosis shows saved loot counts")
+	GetNumLootItems, GetLootSlotType, GetLootSlotLink, GetLootSourceInfo = savedNum, savedType, savedLink, savedSource
+	IsFishingLoot, LootSlot, GetCVarBool, IsModifiedClick = savedFishing, savedSlot, savedCVar, savedClick
+	UnitGUID, UnitName, issecretvalue, observations.Creature = savedGUID, savedName, savedSecret, savedCreature
+	loot.db.record, items.db.fastLoot = savedRecord, savedFastLoot
+	ns.db.lootSources, loot.count, loot.merged = savedSources, savedCount, savedMerged
+	print("loot capture before fast loot OK")
+end)()
+;(function()
 	local loot, tooltipModule = ns:GetModule("LootSources"), ns:GetModule("Tooltip")
 	local onShift = uv(tooltipModule.OnLogin, "OnShiftChanged")
 	local onUnit
@@ -5531,6 +5605,7 @@ end)()
 	shift = true
 	onShift(nil, nil, "LSHIFT")
 	assert(lines[2] == ns.L.LOOTSRC_UNIT_HEADER and #drops == 3, "pressing Shift adds loot independently of the global Shift setting")
+	assert(lines[3] == ns.L.LOOTSRC_UNIT_OWN_WINDOWS:format(1), "local windows are visible separately")
 	assert(drops[1][1] == "Drop 3" and drops[1][2] == ns.L.LOOTSRC_UNIT_COUNT:format(2100, 2001), "multiple slots show counts")
 	assert(drops[2][1] == "Drop 1" and drops[2][2]:find("751", 1, true), "common drops first with both sets of records")
 	assert(requests == 1 and drops[3][1] == ns.L.LOOTSRC_UNIT_ITEM:format(2)

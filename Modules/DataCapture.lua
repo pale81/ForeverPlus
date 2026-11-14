@@ -265,6 +265,7 @@ function Capture.DiagnoseText()
 			end))
 		end
 	end
+	status[#status + 1] = CapturePrints(function() ns:GetModule("LootSources"):PrintStatus() end)
 	Section("Status", table.concat(status, "\n"))
 	local addons = {}
 	for i = 1, C_AddOns.GetNumAddOns() do

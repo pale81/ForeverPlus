@@ -1,5 +1,5 @@
--- Loot sources: where items drop. Every loot window of a corpse or a node
--- counts for its source (kills) and for each item in it (drops); item tooltips
+-- Loot sources: where items drop. Every loot window counts once per source
+-- (corpse or node) and once per item found there; item tooltips
 -- show the best sources with their share. Data from the open Efficient Games
 -- recordings (Data/LootEG.lua) plus the player's own windows, which can be
 -- exported (/fp daten export) to complete a later update.
@@ -23,6 +23,9 @@ local TOOLTIP_SOURCES = 3
 local TOOLTIP_DROPS = 20
 local MIN_WINDOWS = 2      -- sources with fewer windows are not shown as a share
 local creatureDrops = {}
+local NON_CORPSE_SPELLS = { [921] = true, [8613] = true, [8617] = true, [8618] = true, [10768] = true }
+local CAST_GRACE = 6
+local lastNonCorpseCast, lastLootCastGUID
 
 ---------------------------------------------------------------------------
 -- Recording
@@ -49,26 +52,43 @@ end
 
 local opened = {} -- GUIDs counted in this session
 
--- The items of the open loot window by the one source that holds them.
-local function ReadWindow()
-	local sourceGUID, items = nil, {}
-	for slot = 1, ns.Number(GetNumLootItems(), 0) do
-		local guid1, _, guid2 = GetLootSourceInfo(slot)
-		if guid2 or not guid1 then
-			return -- several sources (area loot) or none: not attributable
+local function ReadSlotSources(sources, itemID, ...)
+	if select("#", ...) == 0 then
+		return false
+	end
+	for i = 1, select("#", ...), 2 do
+		local guid = select(i, ...)
+		local key = LootSources.SourceKey(guid)
+		if not key then
+			return false
 		end
-		if sourceGUID and sourceGUID ~= guid1 then
-			return
+		local source = sources[guid]
+		if not source then
+			source = { key = key, items = {} }
+			sources[guid] = source
 		end
-		sourceGUID = guid1
-		if GetLootSlotType(slot) == Enum.LootSlotType.Item then
-			local id = ItemID(GetLootSlotLink(slot))
-			if id then
-				items[#items + 1] = id
-			end
+		if itemID then
+			source.items[#source.items + 1] = itemID
 		end
 	end
-	return sourceGUID, items
+	return true
+end
+
+-- An unreadable slot could hide a drop, so discard the whole incomplete snapshot.
+local function ReadWindow()
+	local sources = {}
+	for slot = 1, ns.Number(GetNumLootItems(), 0) do
+		local slotType = ns.Number(GetLootSlotType(slot))
+		if not slotType or slotType == Enum.LootSlotType.None then
+			return
+		end
+		local isItem = slotType == Enum.LootSlotType.Item
+		local itemID = isItem and ItemID(GetLootSlotLink(slot))
+		if (isItem and not itemID) or not ReadSlotSources(sources, itemID, GetLootSourceInfo(slot)) then
+			return
+		end
+	end
+	return next(sources) and sources
 end
 
 function LootSources.Record(guid, key, items, name)
@@ -91,8 +111,10 @@ function LootSources.Record(guid, key, items, name)
 	for _ in pairs(entry.items) do
 		known = known + 1
 	end
+	local seen = {}
 	for _, id in ipairs(items) do
-		if entry.items[id] or known < MAX_ITEMS then
+		if not seen[id] and (entry.items[id] or known < MAX_ITEMS) then
+			seen[id] = true
 			if not entry.items[id] then
 				known = known + 1
 			end
@@ -137,29 +159,68 @@ local function OnMouseoverChanged()
 	LearnName("mouseover")
 end
 
-local function OnLootOpened()
-	if not GetLootSourceInfo or IsFishingLoot() then
+local function OnSpellSent(_, _, unit, _, castGUID, spellID)
+	if not ns.Secret(unit) and unit == "player" then
+		local id = ns.Number(spellID)
+		lastNonCorpseCast = id and NON_CORPSE_SPELLS[id] and GetTime() or nil
+		lastLootCastGUID = lastNonCorpseCast and not ns.Secret(castGUID) and castGUID or nil
+	end
+end
+
+local function OnSpellFailed(_, _, unit, castGUID)
+	if lastLootCastGUID and not ns.Secret(unit) and unit == "player" and not ns.Secret(castGUID) and castGUID == lastLootCastGUID then
+		lastNonCorpseCast, lastLootCastGUID = nil, nil
+	end
+end
+
+-- Fast loot calls this before taking slots. The two loot events cover manual
+-- looting, the game's auto-loot, and clients whose slots only appear on opening.
+function LootSources.CaptureWindow()
+	if not LootSources.db.record or not GetLootSourceInfo then
 		return
 	end
-	local guid, items = ReadWindow()
-	local key = guid and LootSources.SourceKey(guid)
-	if not key or opened[guid] then
+	local fishing = IsFishingLoot and IsFishingLoot()
+	if ns.Secret(fishing) or fishing then
 		return
 	end
-	local name
+	-- A restricted loot API call must not interrupt fast loot.
+	local ok, sources = pcall(ReadWindow)
+	if not ok or not sources then
+		return
+	end
+	-- Pick Pocket and Skinning open loot on the same GUID as ordinary corpse loot.
+	local nonCorpseLoot = lastNonCorpseCast and GetTime() - lastNonCorpseCast <= CAST_GRACE
 	for _, unit in ipairs({ "target", "mouseover" }) do
-		local unitGuid = UnitGUID(unit)
-		if not name and not ns.Secret(unitGuid) and unitGuid == guid then
-			name = UnitName(unit)
-			if type(name) ~= "string" or ns.Secret(name) then
-				name = nil
+		local guid = UnitGUID(unit)
+		local source = not ns.Secret(guid) and sources[guid]
+		if source and not source.name then
+			local name = UnitName(unit)
+			if type(name) == "string" and not ns.Secret(name) and name ~= "" then
+				source.name = name
 			end
 		end
 	end
-	LootSources.Record(guid, key, items, name)
-	local npcID = tonumber(key:match("^npc:(%d+)$"))
-	if npcID then
-		ns:GetModule("Observations").Creature(npcID)
+	for guid, source in pairs(sources) do
+		local npcID = tonumber(source.key:match("^npc:(%d+)$"))
+		if not opened[guid] and not (npcID and nonCorpseLoot) then
+			LootSources.Record(guid, source.key, source.items, source.name)
+			if npcID then
+				ns:GetModule("Observations").Creature(npcID)
+			end
+		end
+	end
+end
+
+local function OnLootReady()
+	-- Fast loot takes the snapshot itself, before mutating any of the slots.
+	if not ns:GetModule("Items").db.fastLoot then
+		LootSources.CaptureWindow()
+	end
+end
+
+local function OnLootOpened(_, _, _, isFromItem)
+	if not ns.Secret(isFromItem) and not isFromItem then
+		LootSources.CaptureWindow()
 	end
 end
 
@@ -316,6 +377,7 @@ local function CreatureDrops(key)
 		return a.id < b.id
 	end)
 	rows.windows = (shipped and shipped.windows or 0) + (own and own.windows or 0)
+	rows.ownWindows = own and own.windows or 0
 	creatureDrops[key] = rows
 	return rows
 end
@@ -399,6 +461,9 @@ local function OnUnitTooltip(tooltip, data)
 		tooltip:AddLine(L.LOOTSRC_UNIT_EMPTY, 0.7, 0.7, 0.7)
 		return
 	end
+	if rows.ownWindows > 0 then
+		tooltip:AddLine(L.LOOTSRC_UNIT_OWN_WINDOWS:format(rows.ownWindows), 0.7, 0.7, 0.7)
+	end
 	for i = 1, math.min(TOOLTIP_DROPS, #rows) do
 		local row = rows[i]
 		local name, _, quality = C_Item.GetItemInfo(row.id)
@@ -462,6 +527,13 @@ end)
 ---------------------------------------------------------------------------
 function LootSources:Apply()
 	self:ToggleEvent("LOOT_OPENED", self.db.record, OnLootOpened)
+	self:ToggleEvent("LOOT_READY", self.db.record, OnLootReady)
+	self:ToggleEvent("UNIT_SPELLCAST_SENT", self.db.record, OnSpellSent)
+	self:ToggleEvent("UNIT_SPELLCAST_FAILED", self.db.record, OnSpellFailed)
+	self:ToggleEvent("UNIT_SPELLCAST_INTERRUPTED", self.db.record, OnSpellFailed)
+	if not self.db.record then
+		lastNonCorpseCast, lastLootCastGUID = nil, nil
+	end
 	self:ToggleEvent("PLAYER_TARGET_CHANGED", self.db.record, OnTargetChanged)
 	self:ToggleEvent("UPDATE_MOUSEOVER_UNIT", self.db.record, OnMouseoverChanged)
 	self:ToggleEvent("ITEM_DATA_LOAD_RESULT", self.db.unitLoot, OnItemData)
@@ -489,6 +561,14 @@ end
 
 function LootSources:OnOptionChanged()
 	self:Apply()
+end
+
+function LootSources:PrintStatus()
+	local windows = 0
+	for _, source in pairs(ns.db.lootSources) do
+		windows = windows + source.windows
+	end
+	ns.PrintAlways(L.LOOTSRC_STATUS, self.db.record and YES or NO, self.count, windows)
 end
 
 LootSources.options = {

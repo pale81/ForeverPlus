@@ -2231,6 +2231,7 @@ end
 local lastLoot = 0
 
 function Items:LOOT_READY()
+	ns:GetModule("LootSources").CaptureWindow()
 	local now = GetTime()
 	if now - lastLoot < 0.3 then
 		return

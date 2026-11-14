@@ -310,6 +310,7 @@ read_globals = {
 	"Settings",
 	"SettingsPanel",
 	"StanceBar",
+	"GetNumShapeshiftForms",
 	"TRACKER_HEADER_QUESTS",
 	"TooltipDataProcessor",
 	"UIParent", "HideUIPanel", "GeneralDockManager", "CharacterFrame",

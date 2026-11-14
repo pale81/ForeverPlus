@@ -297,7 +297,7 @@ local PAGES = {
 	{ group = 1, title = L.PAGE_BARS,
 		{ "QoL", header = L.QOL_ACTIONBAR_HEADER, keys = Keys("actionText", "hideHotkeys", "hideMacroNames", "autoPlace") },
 		{ "QoL", header = L.QOL_RANK_UP_HEADER, keys = Keys("rankUp") },
-		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft", "buffExceptions") },
+		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable", "colorActiveBuff", "castsLeft", "paladinRecommendations", "buffExceptions") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
 	},
 	{ group = 3, title = L.PAGE_COMBAT,

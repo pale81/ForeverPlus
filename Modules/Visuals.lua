@@ -17,6 +17,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorMana = true,
 		colorUnusable = true,
 		colorActiveBuff = true,
+		paladinRecommendations = true,
 		castsLeft = false,
 		auraActionFrame = true,
 		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
@@ -606,6 +607,172 @@ local function AurasAreSecret()
 	return C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()
 end
 
+---------------------------------------------------------------------------
+-- Paladin self-buff recommendations on the action bars and the aura bar.
+---------------------------------------------------------------------------
+local MIGHT, WISDOM, KINGS = { 19740, 25782 }, { 19742, 25894 }, { 20217, 25898 }
+local DEVOTION, RETRIBUTION, CONCENTRATION = { 465 }, { 7294 }, { 19746 }
+local PALADIN_RECOMMENDATIONS = {
+	{ blessings = { WISDOM, KINGS, MIGHT }, auras = { CONCENTRATION, DEVOTION } }, -- Holy
+	{ blessings = { KINGS, WISDOM, MIGHT }, auras = { DEVOTION } }, -- Protection
+	{ blessings = { MIGHT, KINGS, WISDOM }, auras = { RETRIBUTION, DEVOTION } }, -- Retribution
+}
+
+-- Names match all trained ranks. The normal and greater blessing satisfy the same recommendation.
+local function FirstKnownFamily(families)
+	for _, family in ipairs(families) do
+		local names, known = {}, false
+		for _, spellID in ipairs(family) do
+			local name = C_Spell.GetSpellName(spellID)
+			if name then
+				names[name] = true
+				known = known or C_SpellBook.IsSpellKnown(spellID) or C_SpellBook.FindSpellBookSlotForSpell(name) ~= nil
+			end
+		end
+		if known then
+			return names
+		end
+	end
+end
+
+local function IsMissing(names)
+	if not names then
+		return false
+	end
+	for name in pairs(names) do
+		local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
+		if not ok or ns.Secret(aura) or aura then
+			return false
+		end
+	end
+	return true
+end
+
+local paladinGlows = setmetatable({}, { __mode = "k" })
+
+local function ShowPaladinGlow(button)
+	local glow = paladinGlows[button]
+	if not glow then
+		glow = button:CreateTexture(nil, "OVERLAY", nil, 7)
+		glow:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+		glow:SetBlendMode("ADD")
+		glow:SetVertexColor(0.2, 0.65, 1)
+		glow:SetPoint("CENTER")
+		local width, height = button:GetSize()
+		glow:SetSize(width * 1.8, height * 1.8)
+		glow.pulse = glow:CreateAnimationGroup()
+		glow.pulse:SetLooping("BOUNCE")
+		local fade = glow.pulse:CreateAnimation("Alpha")
+		fade:SetFromAlpha(1)
+		fade:SetToAlpha(0.55)
+		fade:SetDuration(0.85)
+		paladinGlows[button] = glow
+	end
+	glow:Show()
+	glow.pulse:Play()
+end
+
+local paladinWatch, paladinUpdatePending
+local paladinBlessing, paladinAura
+local blessingMissing, auraMissing
+local refreshPaladinSpells, refreshPaladinButtons
+
+local function UpdatePaladinHighlights()
+	paladinUpdatePending = false
+	local enabled = Visuals.db.paladinRecommendations
+	if not enabled then
+		paladinBlessing, paladinAura = nil, nil
+	elseif refreshPaladinSpells then
+		local _, _, tree = ns.TalentTreeOf()
+		local profile = PALADIN_RECOMMENDATIONS[tree] or PALADIN_RECOMMENDATIONS[3]
+		paladinBlessing = FirstKnownFamily(profile.blessings)
+		paladinAura = FirstKnownFamily(profile.auras)
+	end
+	local readable = enabled and not AurasAreSecret()
+	local missingBlessing = readable and IsMissing(paladinBlessing)
+	local missingAura = readable and IsMissing(paladinAura)
+	local updateButtons = refreshPaladinButtons or missingBlessing ~= blessingMissing or missingAura ~= auraMissing
+	refreshPaladinSpells, refreshPaladinButtons = false, false
+	blessingMissing, auraMissing = missingBlessing, missingAura
+	if not updateButtons then
+		return
+	end
+	for _, glow in pairs(paladinGlows) do
+		glow.pulse:Stop()
+		glow:Hide()
+	end
+	if not (missingBlessing or missingAura) then
+		return
+	end
+	for _, button in pairs(ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames or {}) do
+		local slot = ns.Number(button.action)
+		local spellID = slot and ActionSpell(slot)
+		local name = spellID and C_Spell.GetSpellName(spellID)
+		if name and ((missingBlessing and paladinBlessing[name]) or (missingAura and paladinAura[name])) then
+			ShowPaladinGlow(button)
+		end
+	end
+	if missingAura and StanceBar and StanceBar.actionButtons then
+		for index = 1, GetNumShapeshiftForms() do
+			local button = StanceBar.actionButtons[index]
+			local info = button and button:GetActionButtonInfo()
+			local spellID = info and ns.Number(info.id)
+			local name = spellID and C_Spell.GetSpellName(spellID)
+			if name and paladinAura[name] then
+				ShowPaladinGlow(button)
+			end
+		end
+	end
+end
+
+local PALADIN_BUTTON_EVENTS = {
+	ACTIONBAR_SLOT_CHANGED = true, ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true,
+	UPDATE_MACROS = true, UPDATE_SHAPESHIFT_FORMS = true, UPDATE_SHAPESHIFT_FORM = true,
+}
+local PALADIN_SPELL_EVENTS = {
+	PLAYER_ENTERING_WORLD = true, SPELLS_CHANGED = true, ACTIVE_TALENT_GROUP_CHANGED = true,
+	PLAYER_SPECIALIZATION_CHANGED = true, TRAIT_CONFIG_UPDATED = true, TRAIT_TREE_CURRENCY_INFO_UPDATED = true,
+}
+
+local function UpdatePaladinWatch()
+	if select(2, UnitClass("player")) ~= "PALADIN" then
+		return
+	end
+	if Visuals.db.paladinRecommendations then
+		if not paladinWatch then
+			paladinWatch = CreateFrame("Frame")
+			paladinWatch:SetScript("OnEvent", ns.Measured("Visuals: paladin recommendation event", function(_, event)
+				if PALADIN_SPELL_EVENTS[event] then
+					refreshPaladinSpells, refreshPaladinButtons = true, true
+				elseif PALADIN_BUTTON_EVENTS[event] then
+					refreshPaladinButtons = true
+				elseif event == "UNIT_AURA" and not blessingMissing and not auraMissing and AurasAreSecret() then
+					return
+				end
+				if not paladinUpdatePending then
+					paladinUpdatePending = true
+					ns.After("Visuals: paladin recommendations", 0, UpdatePaladinHighlights)
+				end
+			end))
+		end
+		for event in pairs(PALADIN_BUTTON_EVENTS) do
+			paladinWatch:RegisterEvent(event)
+		end
+		for event in pairs(PALADIN_SPELL_EVENTS) do
+			if C_EventUtils.IsEventValid(event) then
+				paladinWatch:RegisterEvent(event)
+			end
+		end
+		paladinWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
+		paladinWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+		paladinWatch:RegisterUnitEvent("UNIT_AURA", "player")
+	elseif paladinWatch then
+		paladinWatch:UnregisterAllEvents()
+	end
+	refreshPaladinSpells, refreshPaladinButtons = true, true
+	UpdatePaladinHighlights()
+end
+
 -- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
 -- until the fight ended. A removed aura ends its greying; when the removal cannot be read, all greying ends
 -- (a usable spell shown grey is worse than an active one shown normal).
@@ -1085,6 +1252,7 @@ function Visuals:OnLogin()
 	UpdateAuraWatch()
 	RecolorAll()
 	UpdateCastWatch()
+	UpdatePaladinWatch()
 	StyleUnitBars()
 	ApplyPlayerDragon()
 end
@@ -1120,6 +1288,8 @@ function Visuals:OnOptionChanged(key)
 		ApplyPlayerDragon()
 	elseif key == "castsLeft" then
 		UpdateCastWatch()
+	elseif key == "paladinRecommendations" then
+		UpdatePaladinWatch()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
 			StyleUnitBars()
@@ -1164,6 +1334,8 @@ Visuals.options = {
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
 	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
+	{ key = "paladinRecommendations", type = "toggle", name = L.VISUALS_PALADIN_RECOMMENDATIONS,
+		desc = L.VISUALS_PALADIN_RECOMMENDATIONS_DESC, new = true },
 	{ key = "buffExceptions", type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
 		Visuals:ShowBuffExceptions(button)
 	end },

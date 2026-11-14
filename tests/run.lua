@@ -4844,6 +4844,88 @@ end)()
 	print("active buff combat OK")
 end)()
 ;(function()
+	local visuals = ns:GetModule("Visuals")
+	local savedClass, savedTree, savedSpellBook = UnitClass, ns.TalentTreeOf, C_SpellBook
+	local savedAuras, savedSecrets, savedEvents = C_UnitAuras, C_Secrets, C_EventUtils
+	local savedName, savedAction, savedMacro = C_Spell.GetSpellName, GetActionInfo, GetMacroSpell
+	local savedFrames, savedStance, savedForms = ActionBarButtonEventsFrame.frames, StanceBar, GetNumShapeshiftForms
+	local savedOption = visuals.db.paladinRecommendations
+	local tree, restricted = 1, false
+	local names = {
+		[19740] = "Might", [19742] = "Wisdom", [19854] = "Wisdom", [25894] = "Greater Wisdom",
+		[20217] = "Kings", [465] = "Devotion", [19746] = "Concentration", [7294] = "Retribution",
+	}
+	local known = { [19740] = true, [19742] = true, [20217] = true, [465] = true, [19746] = true, [7294] = true }
+	local active = {}
+	local spells = { 19854, 19740, 20217, 25894 }
+	local function Button(slot)
+		local button = CreateFrame("Button")
+		button.action = slot
+		button.CreateTexture = function(self)
+			self.glow = CreateFrame("Texture")
+			return self.glow
+		end
+		return button
+	end
+	local wisdom, might, kings, greater = Button(1), Button(2), Button(3), Button(4)
+	local concentration, devotion, retribution = Button(), Button(), Button()
+	concentration.GetActionButtonInfo = function() return { id = 19746 } end
+	devotion.GetActionButtonInfo = function() return { id = 465 } end
+	retribution.GetActionButtonInfo = function() return { id = 7294 } end
+	ActionBarButtonEventsFrame.frames = { wisdom, might, kings, greater }
+	StanceBar = { actionButtons = { concentration, devotion, retribution } }
+	GetNumShapeshiftForms = function() return 3 end
+	C_Spell.GetSpellName = function(id) return names[id] end
+	GetActionInfo = function(slot) return slot == 4 and "macro" or "spell", spells[slot] end
+	GetMacroSpell = function(id) return id end
+	C_SpellBook = { IsSpellKnown = function(id) return known[id] end, FindSpellBookSlotForSpell = function() end }
+	C_UnitAuras = { GetAuraDataBySpellName = function(_, name) return active[name] end }
+	C_Secrets = { ShouldAurasBeSecret = function() return restricted end }
+	C_EventUtils = { IsEventValid = function() return true end }
+	ns.TalentTreeOf = function() return nil, nil, tree end
+	UnitClass = function() return "Paladin", "PALADIN" end
+	assert(savedOption, "paladin recommendations start enabled")
+	visuals:OnOptionChanged("paladinRecommendations")
+	local watcher = uv(uv(visuals.OnLogin, "UpdatePaladinWatch"), "paladinWatch")
+	local function Fire(event) watcher.scripts.OnEvent(watcher, event) end
+	local function Lit(button) return rawget(button, "glow") and button.glow:IsShown() end
+	assert(Lit(wisdom) and Lit(greater) and Lit(concentration), "Holy recommends Wisdom across ranks and Concentration")
+	assert(not Lit(might) and not Lit(devotion), "only the recommended spell families glow")
+	active["Greater Wisdom"], active.Concentration = {}, {}
+	Fire("UNIT_AURA")
+	assert(not Lit(wisdom) and not Lit(greater) and not Lit(concentration), "active greater blessing and aura clear their glows")
+	active["Greater Wisdom"], active.Concentration = nil, nil
+	Fire("UNIT_AURA")
+	assert(Lit(wisdom) and Lit(concentration), "glows return when buffs expire")
+	tree = 2
+	Fire("TRAIT_CONFIG_UPDATED")
+	assert(Lit(kings) and Lit(devotion) and not Lit(wisdom) and not Lit(concentration), "Protection takes over after a talent change")
+	restricted = true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(not Lit(kings) and not Lit(devotion), "restricted aura data hides both recommendations")
+	restricted = false
+	Fire("PLAYER_REGEN_ENABLED")
+	assert(Lit(kings) and Lit(devotion), "restored aura data restores recommendations")
+	tree, known[7294] = 3, nil
+	Fire("ACTIVE_TALENT_GROUP_CHANGED")
+	assert(Lit(might) and Lit(devotion) and not Lit(kings), "Retribution falls back to Devotion until its aura is learned")
+	known[7294] = true
+	Fire("SPELLS_CHANGED")
+	assert(Lit(retribution) and not Lit(devotion), "newly learned aura replaces the fallback")
+	might.action, wisdom.action = 1, 2
+	Fire("ACTIONBAR_PAGE_CHANGED")
+	assert(Lit(wisdom) and not Lit(might), "the glow follows the spell to the new button")
+	visuals.db.paladinRecommendations = false
+	visuals:OnOptionChanged("paladinRecommendations")
+	assert(not Lit(wisdom) and not Lit(retribution), "turning the option off clears all glows")
+	visuals.db.paladinRecommendations = savedOption
+	UnitClass, ns.TalentTreeOf, C_SpellBook = savedClass, savedTree, savedSpellBook
+	C_UnitAuras, C_Secrets, C_EventUtils = savedAuras, savedSecrets, savedEvents
+	C_Spell.GetSpellName, GetActionInfo, GetMacroSpell = savedName, savedAction, savedMacro
+	ActionBarButtonEventsFrame.frames, StanceBar, GetNumShapeshiftForms = savedFrames, savedStance, savedForms
+	print("paladin action bar recommendations OK")
+end)()
+;(function()
 	-- Casts left: mana divided by the spell's cost.
 	local vis = ns:GetModule("Visuals")
 	local update = uv(uv(vis.OnLogin, "UpdateCastWatch"), "UpdateAllCasts")

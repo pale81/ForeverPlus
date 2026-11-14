@@ -135,6 +135,8 @@ L.VISUALS_ACTION_COLORS_DESC = "Colours the icons of all action bar buttons."
 L.VISUALS_COLOR_RANGE = "Out of range: red"
 L.VISUALS_COLOR_MANA = "Not enough mana: blue"
 L.VISUALS_COLOR_UNUSABLE = "Not usable: grey"
+L.VISUALS_PALADIN_RECOMMENDATIONS = "Suggest a paladin blessing and aura"
+L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "Adds a blue glow to the recommended blessing and aura on your action bars and aura bar while the buffs are missing. The recommendation follows your active talent tree."
 
 L.RADAR_TITLE = "Recipe radar"
 L.RADAR_ENABLE = "Show recipe vendors"

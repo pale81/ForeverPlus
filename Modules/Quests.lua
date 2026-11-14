@@ -454,6 +454,7 @@ local SORT_DELAY = 1
 local DISTANCE_INTERVAL = 10
 local VERIFY_DELAY = 0.5
 local SORT_MODES = { "default", "level", "zone", "distance", "name", "progress" }
+local SORT_TABS = { "world", "instance" }
 local INSTANCE_TAGS = { [81] = true, [62] = true, [85] = true, [88] = true, [89] = true }
 local MAX_WATCHES = Constants and Constants.QuestWatchConsts and Constants.QuestWatchConsts.MAX_QUEST_WATCHES or 25
 local sortPending, sortTicker
@@ -937,8 +938,11 @@ function UpdateTabs(world, instance, selected)
 		return
 	end
 	local shown = Quests.db.instanceTab
-	tabs.world:SetShown(shown)
-	tabs.instance:SetShown(shown)
+	if shown ~= tabs.shown then
+		tabs.shown = shown
+		tabs.world:SetShown(shown)
+		tabs.instance:SetShown(shown)
+	end
 	if not shown then
 		return
 	end
@@ -946,14 +950,21 @@ function UpdateTabs(world, instance, selected)
 		world, instance = TabCounts()
 	end
 	selected = selected or EffectiveTab(world, instance)
-	for key, tab in pairs({ world = tabs.world, instance = tabs.instance }) do
+	for _, key in ipairs(SORT_TABS) do
+		local tab = tabs[key]
 		local count = key == "world" and world or instance
-		tab:SetText(("%s (%d)"):format(key == "world" and L.QUESTS_TAB_WORLD or L.QUESTS_TAB_INSTANCE, count))
-		tab:SetWidth(tab:GetTextWidth() + 10)
-		local color = key == selected and NORMAL_FONT_COLOR or GRAY_FONT_COLOR
-		tab:GetFontString():SetTextColor(color:GetRGB())
-		tab.Underline:SetShown(key == selected)
+		if tab.count ~= count then
+			tab.count = count
+			tab:SetText(("%s (%d)"):format(key == "world" and L.QUESTS_TAB_WORLD or L.QUESTS_TAB_INSTANCE, count))
+			tab:SetWidth(tab:GetTextWidth() + 10)
+		end
+		if selected ~= tabs.selected then
+			local color = key == selected and NORMAL_FONT_COLOR or GRAY_FONT_COLOR
+			tab:GetFontString():SetTextColor(color:GetRGB())
+			tab.Underline:SetShown(key == selected)
+		end
 	end
+	tabs.selected = selected
 end
 
 local function CreateTab(header, key)

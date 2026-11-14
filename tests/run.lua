@@ -21,7 +21,10 @@ frameMeta.__index = function(t, k)
 	local methods = {
 		SetScript = function(self, s, fn) self.scripts[s] = fn end,
 		GetScript = function(self, s) return self.scripts[s] end,
-		HookScript = function(self, s, fn) self.scripts[s] = fn end,
+		HookScript = function(self, s, fn)
+			local previous = self.scripts[s]
+			self.scripts[s] = previous and function(...) previous(...) fn(...) end or fn
+		end,
 		Show = function(self) self.shown = true end, Hide = function(self) self.shown = false end,
 		SetShown = function(self, v) self.shown = v and true or false end,
 		IsShown = function(self) return self.shown end, IsVisible = function(self) return self.shown end,
@@ -601,9 +604,13 @@ for _, l in ipairs(lines) do print("  " .. l) end
 print("info OK")
 ;(function()
 	-- The CPU tooltip samples only after the world and loading screen are ready.
-	local sampler = uv(uv(info.UpdatePerformance, "SetupProfilerSampler"), "profilerSampler")
-	local event, sample = sampler:GetScript("OnEvent"), sampler:GetScript("OnUpdate")
-	local row = uv(sample, "sessionMetrics").Slow
+	local setup = uv(info.UpdatePerformance, "SetupProfilerSampler")
+	local sampler = uv(setup, "profilerSampler")
+	local event = sampler:GetScript("OnEvent")
+	local sample = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
+	local session = uv(setup, "SampleAddonMetrics")
+	local metrics = uv(session, "sessionMetrics")
+	local row = metrics.Slow
 	local savedTime, savedMetric = GetTime, C_AddOnProfiler.GetAddOnMetric
 	local now, elapsed = 500, 40
 	GetTime = function() return now end
@@ -649,6 +656,48 @@ print("info OK")
 	now, elapsed = 765, 7
 	sample()
 	assert(row.peak == 7 and row.slow == 2, "sampling resumes after reload grace")
+
+	-- The session remembers a spike before a later explicit measurement begins.
+	event(sampler, "ADDON_LOADED", ns.name)
+	local own = metrics[ns.name]
+	local savedClock = debugprofilestop
+	local clock = 0
+	debugprofilestop = function() return clock end
+	local slow = ns.Measured("Test: session spike", function() clock = clock + 31 end)
+	slow() -- this frame was already sampled before the callback ran
+	now, elapsed = 766, 33.3
+	ns.Measured("Test: next frame", function() clock = clock + 40 end)()
+	sample()
+	assert(own.peak == 33.3 and own.peakCall == "Test: session spike" and own.peakCallTime == 31,
+		"a larger callback from the current frame does not label the previous frame's spike")
+	assert(not ns.timings["Test: session spike"], "session attribution does not collect detailed call statistics")
+	debugprofilestop = savedClock
+
+	local perf = uv(info.UpdatePerformance, "perfFrame")
+	local added = GameTooltip.AddLine
+	local peakLine = ns.L.INFO_CPU_PEAK_CALL:format("Test: session spike", 31)
+	local sawPeak = false
+	GameTooltip.AddLine = function(_, line) sawPeak = sawPeak or line == peakLine end
+	perf:GetScript("OnEnter")(perf)
+	GameTooltip.AddLine = added
+	assert(sawPeak, "the session peak call is visible without starting a measurement")
+	local mouseUp = perf:GetScript("OnMouseUp")
+	local savedShift = IsShiftKeyDown
+	local savedResult = info.lastMeasure
+	info.lastMeasure = {}
+	IsShiftKeyDown = function() return true end
+	mouseUp(perf, "LeftButton")
+	assert(row.peak == 0 and row.slow == 0 and row.recentCount == 0 and row.recentTotal == 0
+		and own.peak == 0 and not own.peakAt and not own.peakCall and info.lastMeasure and not ns.measureUntil,
+		"shift-left-click resets the session only")
+	now = 767
+	sample()
+	assert(row.recentCount == 0 and own.peak == 0, "the last frame from before reset is discarded")
+	now, elapsed = 768, 0.4
+	sample()
+	assert(row.recentCount == 1 and row.recentTotal == 0.4 and own.peak == 0.4, "sampling restarts immediately")
+	IsShiftKeyDown, info.lastMeasure = savedShift, savedResult
+	event(sampler, "LOADING_SCREEN_ENABLED")
 	GetTime, C_AddOnProfiler.GetAddOnMetric = savedTime, savedMetric
 	print("cpu sampling grace OK")
 end)()
@@ -789,6 +838,26 @@ do
 end
 q.cdb.trackerTab = "instance"; sort()
 assert(table.concat(watches, ",") == "15", "instance tab")
+do
+	local updateTabs = uv(sort, "UpdateTabs")
+	local savedTabs = uv(updateTabs, "tabs")
+	local textWrites, highlightWrites = 0, 0
+	local function Tab()
+		local tab = NewFrame("Button")
+		tab.SetText = function() textWrites = textWrites + 1 end
+		tab.GetTextWidth = function() return 40 end
+		tab.GetFontString = function() return NewFrame("FontString") end
+		tab.Underline = { SetShown = function() highlightWrites = highlightWrites + 1 end }
+		return tab
+	end
+	setuv(updateTabs, "tabs", { world = Tab(), instance = Tab() })
+	updateTabs(4, 1, "world")
+	updateTabs(4, 1, "world")
+	assert(textWrites == 2 and highlightWrites == 2, "unchanged tracker tabs do not rewrite their UI")
+	updateTabs(3, 1, "instance")
+	assert(textWrites == 3 and highlightWrites == 4, "changed count and selection refresh independently")
+	setuv(updateTabs, "tabs", savedTabs)
+end
 q.cdb.watched[15] = nil; sort()
 print("  instance tab without instance quests:", table.concat(watches, ","))
 assert(table.concat(watches, ",") == "14,16,12,11", "empty instance tab falls back to world")
@@ -1718,31 +1787,36 @@ vis.db.activeBuffExceptions = {}
 ;(function()
 	local timerFn
 	C_Timer.NewTimer = function(_, fn) timerFn = fn return { Cancel = function() end } end
+	local savedTime = GetTime
+	local now = 800
+	GetTime = function() return now end
 	ns.timings["old"] = { max = 1, count = 1, slow = 0 }
-	local doneMeasure
-	ns.StartTimedMeasure(30, function() doneMeasure = true end)
+	local info = ns:GetModule("Info")
+	local savedResult = info.lastMeasure
+	local perf = uv(info.UpdatePerformance, "perfFrame")
+	perf:GetScript("OnMouseUp")(perf, "MiddleButton")
 	assert(ns.measuring and not ns.timings.old, "measuring, old values cleared")
 	local sampleFrame = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
 	local savedMetric = C_AddOnProfiler.GetAddOnMetric
 	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
 	sampleFrame()
 	assert(ns.spikes.samples == 0, "ignore the profiler value from before the current measurement")
-	ns.RecordTiming("X: y", 0.9)
-	ns.RecordTiming("Y: x", 0.4)
+	now = 801
 	C_AddOnProfiler.GetAddOnMetric = function() return 5 end
 	sampleFrame()
+	ns.RecordTiming("X: y", 0.9)
+	ns.RecordTiming("Y: x", 0.4)
+	now = 802
 	C_AddOnProfiler.GetAddOnMetric = function() return 35 end
 	sampleFrame()
 	assert(ns.spikes.samples == 2 and ns.spikes.count == 1 and ns.spikes.worst == 35 and ns.spikes.name == "X: y",
 		"one slow frame can occur even when every individual call is short")
 	timerFn()
-	assert(doneMeasure and not ns.measuring and ns.TopTimings(5)[1].name == "X: y", "timed measure")
+	assert(info.lastMeasure.frames == ns.spikes and not ns.measuring and ns.TopTimings(5)[1].name == "X: y", "timed measure")
 	local oldFrames = ns.spikes
-	local info = ns:GetModule("Info")
-	local savedResult = info.lastMeasure
-	info.lastMeasure = { calls = ns.TopTimings(5), frames = oldFrames }
 	ns.SetMeasuring(true)
 	sampleFrame()
+	now = 803
 	C_AddOnProfiler.GetAddOnMetric = function() return 0.7 end
 	sampleFrame()
 	assert(ns.spikes.worst == 0.7 and ns.spikes.count == 0 and oldFrames.worst == 35,
@@ -1760,6 +1834,7 @@ vis.db.activeBuffExceptions = {}
 		"the tooltip shows the finished measurement's frame peak alongside its individual calls")
 	GameTooltip = savedTooltip
 	info.lastMeasure = savedResult
+	GetTime = savedTime
 	print("exceptions/measure OK")
 end)()
 -- Popup list smoke test (layout logic)
@@ -4976,8 +5051,9 @@ end)()
 	SortOnOpen()
 	assert(sorts == 1, "no second sort while the first is watched")
 	locked = true
+	slotReads = 0
 	ticker.fn(ticker); ticker.fn(ticker); ticker.fn(ticker)
-	assert(not ticker.dead, "still running while items are locked")
+	assert(not ticker.dead and slotReads == 2, "still running while locked, with one read for unchanged slots")
 	locked = false
 	now = 120
 	SortOnOpen()
@@ -5963,7 +6039,7 @@ end)()
 	local spikeFrame = uv(ns.SetMeasuring, "spikeFrame")
 	assert(spikeFrame.shown == true or spikeFrame:IsShown() == true, "spike counter runs while measuring")
 	ns.SetMeasuring(false)
-	assert(not ns.measuring and spikeFrame:IsShown() ~= true, "spike counter rests")
+	assert(not ns.measuring and spikeFrame:IsShown(), "session sampling continues after detailed measurement stops")
 	C_Timer.After, C_Timer.NewTimer, C_Timer.NewTicker = savedAfter, savedTimer, savedTicker
 	-- No timer bypasses the measurement
 	for line in io.lines(root .. "/ForeverPlus.toc") do

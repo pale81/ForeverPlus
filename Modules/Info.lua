@@ -188,14 +188,20 @@ local lastCpuTooltipUpdate = 0
 local profilerSampler
 local sampledAddons = {}
 local sessionMetrics = {}
+local skipNextSample = false
+
+local function ResetMetrics(entry)
+	entry.peak, entry.slow = 0, 0
+	entry.peakAt, entry.peakCall, entry.peakCallTime = nil, nil, nil
+	entry.recentIndex, entry.recentCount, entry.recentTotal = 1, 0, 0
+end
 
 local function TrackAddon(name)
 	if name and not sessionMetrics[name] then
 		sampledAddons[#sampledAddons + 1] = name
-		sessionMetrics[name] = {
-			peak = 0, slow = 0,
-			recent = {}, recentIndex = 1, recentCount = 0, recentTotal = 0,
-		}
+		local entry = { recent = {} }
+		ResetMetrics(entry)
+		sessionMetrics[name] = entry
 	end
 end
 
@@ -225,15 +231,23 @@ local function OnProfilerEvent(_, event, arg1, arg2)
 	end
 end
 
-local function SampleAddonMetrics()
-	local now = GetTime()
+local function SampleAddonMetrics(now, peakCall, peakCallTime)
+	if skipNextSample then
+		skipNextSample = false
+		return
+	end
 	if loadingScreen or not ignoreUntil or now < ignoreUntil
 		or not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
 		return
 	end
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
+	local ownElapsed
 	for _, name in ipairs(sampledAddons) do
 		local elapsed = C_AddOnProfiler.GetAddOnMetric(name, lastTime) or 0
+		local own = name == ns.name
+		if own then
+			ownElapsed = elapsed
+		end
 		local entry = sessionMetrics[name]
 		local index = entry.recentIndex
 		if entry.recentCount == 60 then
@@ -247,11 +261,15 @@ local function SampleAddonMetrics()
 		if elapsed > entry.peak then
 			entry.peak = elapsed
 			entry.peakAt = now
+			if own then
+				entry.peakCall, entry.peakCallTime = peakCall, peakCallTime
+			end
 		end
 		if elapsed > ns.SLOW_MS then
 			entry.slow = entry.slow + 1
 		end
 	end
+	return ownElapsed
 end
 
 local function SetupProfilerSampler(enabled)
@@ -268,7 +286,7 @@ local function SetupProfilerSampler(enabled)
 			end
 		end
 	end
-	profilerSampler:SetScript("OnUpdate", enabled and SampleAddonMetrics or nil)
+	ns.SetSessionProfiler(enabled and SampleAddonMetrics or nil)
 end
 
 local function CpuColor(ms)
@@ -356,7 +374,7 @@ local function ShowCpuTooltip(owner)
 		GameTooltip:Show()
 		return
 	end
-	-- Sample LastTime locally so all three values start fresh after /reload.
+	-- Sample LastTime locally so the values can be reset independently of the client.
 	local list = {}
 	for i = 1, C_AddOns.GetNumAddOns() do
 		if C_AddOns.IsAddOnLoaded(i) then
@@ -364,6 +382,7 @@ local function ShowCpuTooltip(owner)
 			local metrics = sessionMetrics[name]
 			list[#list + 1] = {
 				title = StripColors(title or name),
+				own = name == ns.name,
 				ms = metrics and metrics.recentCount > 0 and max(0, metrics.recentTotal / metrics.recentCount) or 0,
 				peak = metrics and metrics.peak or 0,
 				slow = metrics and metrics.slow or 0,
@@ -386,7 +405,7 @@ local function ShowCpuTooltip(owner)
 	for _, addon in ipairs(list) do
 		total = total + addon.ms
 		local color = PeakColor(addon.peak, addon.slow)
-		local own = addon.title == "ForeverPlus"
+		local own = addon.own
 		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(addon.ms, addon.peak, addon.slow),
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			color.r, color.g, color.b)
@@ -394,6 +413,11 @@ local function ShowCpuTooltip(owner)
 	local own = sessionMetrics[ns.name]
 	if own and own.peakAt then
 		GameTooltip:AddLine(L.INFO_CPU_PEAK_AGE:format(SecondsToTime(now - own.peakAt)), 0.62, 0.62, 0.62, true)
+		if own.peak >= ns.SLOW_MS then
+			local line = own.peakCall and L.INFO_CPU_PEAK_CALL:format(own.peakCall, own.peakCallTime)
+				or L.INFO_CPU_PEAK_UNATTRIBUTED
+			GameTooltip:AddLine(line, 0.62, 0.62, 0.62, true)
+		end
 	end
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	local color = CpuColor(total)
@@ -439,7 +463,7 @@ local function UpdatePerformance()
 		label:WrapTextInColorCode("MS"), ValueColor(ms, MS_POOR, MS_BAD, false):WrapTextInColorCode(("%d"):format(ms)))
 	perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
 	if GameTooltip:GetOwner() == perfFrame and GetTime() - lastCpuTooltipUpdate >= CPU_TOOLTIP_INTERVAL then
-		ShowCpuTooltip(perfFrame)
+		RefreshCpuTooltip(perfFrame)
 	end
 end
 
@@ -451,12 +475,19 @@ local function CreatePerfFrame()
 	frame.Text:SetPoint("CENTER")
 	frame:SetScript("OnEnter", RefreshCpuTooltip)
 	frame:SetScript("OnLeave", GameTooltip_Hide)
-	-- Middle click or Shift + left click: 30 s measurement of ForeverPlus.
-	frame:SetScript("OnMouseUp", function(_, button)
-		if button == "MiddleButton" or (button == "LeftButton" and IsShiftKeyDown()) then
+	frame:SetScript("OnMouseUp", ns.Measured("Info: performance click", function(self, button)
+		if button == "MiddleButton" then
 			StartMeasure()
+		elseif button == "LeftButton" and IsShiftKeyDown() then
+			for _, entry in pairs(sessionMetrics) do
+				ResetMetrics(entry)
+			end
+			skipNextSample = true -- LastTime still refers to a frame from before the reset.
+			if GameTooltip:GetOwner() == self then
+				RefreshCpuTooltip(self)
+			end
 		end
-	end)
+	end))
 	ns:RegisterDisplay(frame, "Performance", function(self)
 		self:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 14)
 	end, Minimap)

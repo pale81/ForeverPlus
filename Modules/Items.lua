@@ -1816,7 +1816,6 @@ end
 local SORT_PAUSE = 3 -- seconds between automatic sorts
 local SORT_CHECK = 0.4 -- seconds between looks at the bags while a sort runs
 local SETTLE = 1.5 -- seconds the layout of the bags must stay the same (and unlocked) for a sort to count as over
-local SETTLE_LOOK = 0.25 -- seconds between two looks at the layout
 local SORT_MAX = 15 -- seconds after which a sort counts as over whatever the bags show
 local lastSort, sortQueued, sorting = 0, false, false
 -- Layout of the bags after the last finished sort (items and counts). While it is unchanged, opening the bags sorts
@@ -1874,26 +1873,24 @@ end
 -- such a pause for the end and the marked items were placed in a half-finished layout, which the rest of the cleanup
 -- then undid a few seconds later. A layout counts as settled when it has not changed for SETTLE seconds and no
 -- item is locked.
-local settle = { signature = nil, since = 0, checked = 0, result = false }
+local settle = {}
 
 local function ResetSettle()
-	settle.signature, settle.since, settle.checked, settle.result = nil, GetTime(), 0, false
-	settle.revision = nil
+	settle.signature, settle.since, settle.revision = nil, GetTime(), nil
 end
 
-local function LayoutSettled(need)
+local function LayoutSettled()
 	local now = GetTime()
-	if now - settle.checked < SETTLE_LOOK and settle.revision == bagRevision and not need then
-		return settle.result
+	-- Bag and lock events invalidate the observation. Recheck once more before accepting a quiet layout.
+	if settle.revision == bagRevision and now - (settle.locked and settle.checked or settle.since) < SETTLE then
+		return false
 	end
-	settle.checked = now
 	local signature, locked = ReadBagLayout(true)
-	settle.revision = bagRevision
+	settle.revision, settle.locked, settle.checked = bagRevision, locked, now
 	if signature ~= settle.signature then
 		settle.signature, settle.since = signature, now
 	end
-	settle.result = now - settle.since >= (need or SETTLE) and not locked
-	return settle.result
+	return now - settle.since >= SETTLE and not locked
 end
 
 -- The game sorts in steps over a while. A new sort before it is over (or
@@ -1912,7 +1909,7 @@ local function WatchSort()
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
-			RecordLayout(settled and settle.signature)
+			RecordLayout(settle.signature)
 		end
 	end)
 end

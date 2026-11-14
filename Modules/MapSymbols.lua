@@ -175,6 +175,17 @@ local function BuildEntrances(lib)
 	end
 end
 
+function Symbols.GetEntrance(instanceID)
+	if not entrances then BuildEntrances(ns.QuestieDB.Get()) end
+	for mapID, entries in pairs(entrances) do
+		for _, entrance in ipairs(entries) do
+			for _, entry in ipairs(entrance.names) do
+				if entry[3] == instanceID then return mapID, entrance.x / 100, entrance.y / 100 end
+			end
+		end
+	end
+end
+
 local function HasFlag(flags, flag)
 	return type(flags) == "number" and math.floor(flags / flag) % 2 == 1
 end
@@ -356,6 +367,27 @@ local function EntranceTooltip(tooltip, symbol)
 		end
 	end
 	tooltip:AddLine(L.WORLDMAP_ENTRANCE, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	if symbol.click then GameTooltip_AddInstructionLine(tooltip, L.JOURNAL_ENTRANCE_CLICK) end
+end
+
+local function OpenEntrance(symbol, button)
+	if button ~= "LeftButton" then return end
+	local journal = ns:GetModule("DungeonJournal")
+	local names = symbol.data.names
+	local function Open(entry)
+		GameTooltip:Hide()
+		journal.Open(entry[3], symbol.mapID, symbol.data.x / 100, symbol.data.y / 100)
+	end
+	if #names == 1 then
+		Open(names[1])
+	else
+		MenuUtil.CreateContextMenu(WorldMapFrame, function(_, root)
+			root:CreateTitle(L.JOURNAL_TITLE)
+			for _, entry in ipairs(names) do
+				root:CreateButton(entry[1], Open, entry)
+			end
+		end)
+	end
 end
 
 local function NpcTooltip(tooltip, symbol)
@@ -375,13 +407,16 @@ Symbols.AddSource(function(mapID, add)
 		return
 	end
 	ForZones(mapID, function(zoneMapID, toMap)
+		local journal = ns:GetModule("DungeonJournal")
+		local clickable = journal and journal.IsEnabled()
 		for _, entrance in ipairs(entrances[zoneMapID] or {}) do
 			local raid = true
 			for _, entry in ipairs(entrance.names) do
 				raid = raid and entry[2] == "raid"
 			end
 			local x, y = toMap(entrance.x, entrance.y)
-			add(x, y, { kind = "entrance", atlas = raid and "raid" or "dungeon", size = ENTRANCE_SIZE, data = entrance, tooltip = EntranceTooltip })
+			add(x, y, { kind = "entrance", atlas = raid and "raid" or "dungeon", size = ENTRANCE_SIZE,
+				data = entrance, mapID = zoneMapID, tooltip = EntranceTooltip, click = clickable and OpenEntrance or nil })
 		end
 	end)
 end)

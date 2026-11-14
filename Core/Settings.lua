@@ -317,6 +317,7 @@ local PAGES = {
 		{ "Minimap", keys = Keys("worldMapCoords") },
 		{ "Library", header = L.LIBRARY_TITLE },
 		{ "InstanceStats", header = L.INSTSTATS_TITLE },
+		{ "DungeonJournal", header = L.JOURNAL_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Waypoint", header = L.WAYPOINT_TITLE },
 		{ "Innkeepers", header = L.INNS_TITLE },

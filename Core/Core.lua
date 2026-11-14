@@ -763,6 +763,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Loot"):PrintStatus()
 	elseif msg == "karte" or msg == "map" then
 		ns:GetModule("WorldMap"):PrintStatus()
+	elseif msg == "dungeon" or msg == "journal" then
+		ns:GetModule("DungeonJournal").Toggle()
 	elseif msg == "mausrad" or msg == "wheel" then
 		ns.StartWheelCheck()
 	elseif msg == "schrift" or msg == "font" then

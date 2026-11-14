@@ -32,6 +32,7 @@ Modules\Teleports.lua
 Modules\InstanceStats.lua
 Data\MapOverlays.lua
 Data\Instances.lua
+Data\DungeonJournal.lua
 Data\Places.lua
 Data\PlaceInfo.lua
 Data\EditModeLayouts.lua
@@ -49,6 +50,7 @@ Data\WeaponMasters.lua
 Data\ZoneLevels.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
+Modules\DungeonJournal.lua
 Modules\Items.lua
 Modules\BankView.lua
 Modules\Restock.lua

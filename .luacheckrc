@@ -319,6 +319,7 @@ read_globals = {
 	"UnitClass",
 	"UnitFactionGroup",
 	"GetRealZoneText",
+	"QuestMapFrame_OpenToQuestDetails",
 	"SpellBookItemMixin",
 	"BankFrame",
 	"BuyTrainerService",

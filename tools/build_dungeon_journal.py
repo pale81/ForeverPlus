@@ -3,6 +3,8 @@
 Usage: python3 tools/build_dungeon_journal.py CLIENT_DIR ATT_QUESTS LISTFILE BUILD
 CLIENT_DIR contains Map, Map-deDE, LoadingScreens, GroupFinderActivity, QuestV2,
 DungeonEncounter and DungeonEncounter-deDE as CSV and wdt/<WdtFileDataID>.
+Also supply tiles/<FileDataID> (BLP) for the exported minimap regions. Pillow
+reads the minimap images to remove blank tiles and crop the empty margins.
 ATT_QUESTS is the output of tools/dungeon_quests.lua; LISTFILE is the wowdev
 community listfile (file IDs and paths). Only texture references are written.
 """
@@ -13,6 +15,8 @@ import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,6 +31,19 @@ LEGACY = {
     289: ("scholomanceold", 4), 329: ("stratholme", 2), 349: ("maraudon", 2),
     389: ("ragefire", 1), 409: ("moltencore", 1), 429: ("diremaul", 6),
     469: ("blackwinglair", 4), 531: ("ahnqiraj", 3), 533: ("naxxramas", 6),
+}
+
+# Quest ID, faction, minimum level and English fallback. See DATA-SOURCES.md.
+EXTRA_QUESTS = {
+    2875: [(86971, "-", 0, "Curious Karazhan Curios!")],
+    3001: [
+        (95790, "A", 55, "Digestible Research"),
+        (95924, "A", 55, "Panic at the Digsite"),
+        (95925, "A", 55, "Mapping the Way Forward"),
+        (95926, "H", 55, "The Dark Crystal"),
+        (95928, "H", 55, "Crystalline Elements"),
+        (97049, "H", 55, "Essence of Seeping Slimes"),
+    ],
 }
 
 
@@ -84,8 +101,24 @@ def minimap(path):
     return {}
 
 
-def minimap_sections(tiles):
+def tile_bounds(path):
+    with Image.open(path) as source:
+        image = source.convert("RGB").resize((256, 256), Image.Resampling.BOX)
+    edges = (image.crop((0, 0, 256, 1)), image.crop((0, 255, 256, 256)),
+             image.crop((0, 0, 1, 256)), image.crop((255, 0, 256, 256)))
+    # One flat grey/black background point per edge is enough for the crop.
+    bg = tuple(int(channel) for channel in ImageStat.Stat(edges[0]).median)
+    if max(bg) - min(bg) > 6 or not (bg[0] <= 8 or 100 <= bg[0] <= 132):
+        return 0, 0, 256, 256
+    if sum(max(abs(a - b) for a, b in zip(bg, ImageStat.Stat(edge).median)) <= 6 for edge in edges) < 2:
+        return 0, 0, 256, 256
+    difference = ImageChops.difference(image, Image.new("RGB", image.size, bg)).convert("L")
+    return difference.point(lambda value: 255 if value > 20 else 0).getbbox()
+
+
+def minimap_sections(tiles, folder):
     """Keep disconnected regions separate, to avoid tiny maps inside a huge empty area."""
+    bounds = {index: tile_bounds(folder / str(file)) for index, file in tiles.items()}
     sections = []
     remaining = set(tiles)
     while remaining:
@@ -100,11 +133,15 @@ def minimap_sections(tiles):
                     pending.append(near)
                     component.add(near)
                     remaining.remove(near)
-        left, right = min(i % 64 for i in component), max(i % 64 for i in component)
-        top, bottom = min(i // 64 for i in component), max(i // 64 for i in component)
-        ids = [tiles[i] if i in component else 0 for y in range(top, bottom + 1)
-               for x in range(left, right + 1) for i in (y * 64 + x,)]
-        sections.append((len(component), [right - left + 1, bottom - top + 1, *ids]))
+        visible = {index: bounds[index] for index in component if bounds[index]}
+        if not visible:
+            continue
+        left = min((i % 64) * 256 + b[0] for i, b in visible.items()) - 12
+        top = min((i // 64) * 256 + b[1] for i, b in visible.items()) - 12
+        right = max((i % 64) * 256 + b[2] for i, b in visible.items()) + 12
+        bottom = max((i // 64) * 256 + b[3] for i, b in visible.items()) + 12
+        refs = [lua_list((tiles[i], (i % 64) * 256 - left, (i // 64) * 256 - top)) for i in sorted(visible)]
+        sections.append((len(visible), lua_list((right - left, bottom - top, lua_list(refs)))))
     return [group for _, group in sorted(sections, key=lambda group: -group[0])]
 
 
@@ -122,6 +159,12 @@ def build(client, att_quests, listfile, version):
         if map_id in activities and quest_id in quest_ids:
             data = (faction, int(level), tuple(map(int, classes.split(","))) if classes != "-" else ())
             quests[map_id].setdefault(quest_id, []).append(data)
+    fallbacks = {}
+    for map_id, entries in EXTRA_QUESTS.items():
+        for quest_id, side, level, title in entries:
+            if quest_id in quest_ids:
+                quests[map_id].setdefault(quest_id, [(side, level, ())])
+                fallbacks[quest_id] = title
 
     de_bosses = {int(row["ID"]): row["Name_lang"] for row in rows(client / "DungeonEncounter-deDE.csv")}
     de_maps = {int(row["ID"]): row["MapName_lang"] for row in rows(client / "Map-deDE.csv")}
@@ -150,12 +193,13 @@ def build(client, att_quests, listfile, version):
         names = f"{quote(en)}, {quote(de) if de and de != en else 'false'}"
         image = loading.get(row["LoadingScreenID"], 0)
         out.append(f'\t\t[{map_id}] = {{ name = {{ {names} }}, kind = "{kind}", min = {low}, max = {high}, art = {image},')
-        panes = minimap_sections(minimap(client / "wdt" / row["WdtFileDataID"]))
         floors = legacy_floors(map_id, art)
         if floors:
             out.append("\t\t\tfloors = " + lua_list(lua_list(floor) for floor in floors) + ",")
-        elif panes:
-            out.append("\t\t\tminimap = " + lua_list(lua_list(pane) for pane in panes) + ",")
+        else:
+            panes = minimap_sections(minimap(client / "wdt" / row["WdtFileDataID"]), client / "tiles")
+            if panes:
+                out.append("\t\t\tminimap = " + lua_list(panes) + ",")
         out.append("\t\t\tbosses = {")
         # A 5-player journal uses current normal encounters (0 = shared, 1 = normal),
         # skipping the separate seasonal/raid versions of e.g. BFD, Gnomeregan and ST.
@@ -164,6 +208,8 @@ def build(client, att_quests, listfile, version):
             picked = encounters[map_id]
         for boss in sorted(picked, key=lambda b: (int(b["OrderIndex"]), int(b["ID"]))):
             boss_id = int(boss["ID"])
+            if boss_id == 3018:  # Completion record for Molten Core itself.
+                continue
             name = boss["Name_lang"]
             german = de_bosses.get(boss_id)
             out.append(f"\t\t\t\t{{ {boss_id}, {quote(name)}"
@@ -178,6 +224,9 @@ def build(client, att_quests, listfile, version):
             extras = f", {quote(faction)}, {level}" if faction != "-" or level or classes else ""
             if classes:
                 extras += ", " + lua_list(classes)
+            if quest_id in fallbacks:
+                extras = f", {quote(faction)}, {level}, " + (lua_list(classes) if classes else "false")
+                extras += ", " + quote(fallbacks[quest_id])
             qs.append(f"{{ {quest_id}{extras} }}")
         if qs:
             batches = [", ".join(qs[i:i + 6]) + "," for i in range(0, len(qs), 6)]

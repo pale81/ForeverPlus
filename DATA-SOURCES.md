@@ -99,7 +99,7 @@ The Shift mouseover block for enemies uses the existing creature records in `Dat
 
 ## Paladin blessings
 
-The buff reminder uses an add-on rule of recipient level 10 for Blessing of Kings. The automatic tank order prioritizes the attributes from Kings and the mana regeneration from Wisdom. Blizzard's class overview describes the Protection Paladin's Holy threat and mana mechanics and the move of Kings to the baseline spellbook. [Blizzard's Forever Paladin overview](https://worldofwarcraft.blizzard.com/en-gb/news/24302099/world-of-warcraft-forever-class-deep-dives-paladin)
+The buff reminder uses an add-on rule of recipient level 10 for Blessing of Kings. Below level 10, it casts rank 1 of the replacement by spell ID. The Wisdom cutoff of level 4 follows the Classic recipient rule for Wisdom rank 1, learned at 14, and has yet to be checked in the Forever client. [Classic Wisdom rank 1 and recipient level report](https://www.wowhead.com/classic/spell=19742/blessing-of-wisdom) The automatic tank order prioritizes the attributes from Kings and the mana regeneration from Wisdom. Blizzard's class overview describes the Protection Paladin's Holy threat and mana mechanics and the move of Kings to the baseline spellbook. [Blizzard's Forever Paladin overview](https://worldofwarcraft.blizzard.com/en-gb/news/24302099/world-of-warcraft-forever-class-deep-dives-paladin)
 
 ## Talent presets
 

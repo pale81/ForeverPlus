@@ -4535,12 +4535,12 @@ end)()
 	local savedLevel, savedRole, savedClass, savedTree = UnitLevel, rawget(_G, "UnitGroupRolesAssigned"), UnitClass, ns.TalentTreeOf
 	local savedKnown, savedAura = C_SpellBook.IsSpellKnown, C_UnitAuras.GetAuraDataBySpellName
 	local savedFindSlot, savedTrace = C_SpellBook.FindSpellBookSlotForSpell, buffs.lastBlessingTrace
-	local level, role, tree = 9, "NONE", 2
-	local known = { [19740] = true, [19742] = true, [20217] = true }
+	local level, role, tree, targetClass = 9, "NONE", 2, "PALADIN"
+	local known = { [19740] = true, [19742] = true, [20217] = true, [19977] = true }
 	local auras = {}
 	UnitLevel = function() return level end
 	UnitGroupRolesAssigned = function() return role end
-	UnitClass = function() return "Paladin", "PALADIN" end
+	UnitClass = function(unit) return nil, unit == "target" and targetClass or "PALADIN" end
 	ns.TalentTreeOf = function() return "Protection", nil, tree end
 	C_SpellBook.IsSpellKnown = function(id) return known[id] or false end
 	C_SpellBook.FindSpellBookSlotForSpell = function() return nil end
@@ -4552,9 +4552,44 @@ end)()
 	local function ownSpell()
 		return select(5, evaluate(reminder, 60))
 	end
-	assert(targetSpell() == 19742, "level 9 target: Wisdom instead of Kings")
+	for _, class in ipairs({ "WARRIOR", "ROGUE", "HUNTER", "MAGE", "PRIEST", "WARLOCK", "PALADIN", "SHAMAN", "DRUID" }) do
+		targetClass = class
+		local fallback = (class == "WARRIOR" or class == "ROGUE") and 19740 or 19742
+		for lowLevel = 1, 3 do
+			level = lowLevel
+			assert(targetSpell() == 19740, class .. ": levels 1 to 3 get rank 1 Might")
+		end
+		level = 4
+		assert(targetSpell() == fallback, class .. ": first level eligible for rank 1 Wisdom")
+		level = 9
+		assert(targetSpell() == fallback, class .. ": level 9 gets a class-appropriate replacement")
+		level = 10
+		assert(targetSpell() == 20217, class .. ": level 10 can get Kings")
+	end
+	targetClass = "MAGE"
+	level = 9
+	known[19742] = nil
+	assert(targetSpell() == 19740, "unknown Wisdom: low-level caster gets Might")
+	known[19742] = true
+	auras.Spell19742 = { expirationTime = GetTime() + 300, sourceUnit = "party1" }
+	assert(targetSpell() == 19740, "Wisdom from another Paladin: low-level caster gets the other blessing")
+	auras.Spell19740 = { expirationTime = GetTime() + 300, sourceUnit = "party2" }
+	assert(not targetSpell(), "both replacements are active: no duplicate or higher-level blessing")
+	auras.Spell19740, auras.Spell19742 = nil, nil
+
+	local setupButton = uv(update, "SetupButton")
+	local button, attributes = CreateFrame("CheckButton"), {}
+	button.SetAttribute = function(_, key, value) attributes[key] = value end
+	assert(setupButton(button, reminder, "target", targetSpell()))
+	assert(attributes.spell == 19742 and attributes.unit == "target", "the target button casts the exact low-level rank")
+	level = 1
+	assert(setupButton(button, reminder, "target", targetSpell()))
+	assert(attributes.spell == 19740 and attributes.unit == "target", "the other replacement also casts by rank ID")
 	level = 10
-	assert(targetSpell() == 20217, "level 10 target: Kings allowed")
+	assert(setupButton(button, reminder, "target", targetSpell()))
+	assert(attributes.spell == "Spell20217", "regular target still casts by spell name")
+
+	targetClass = "PALADIN"
 	level = 9
 	auras.Spell25898 = { expirationTime = GetTime() + 30, sourceUnit = "player" }
 	assert(targetSpell() == 19742, "expiring Greater Kings on level 9 target: choose an eligible blessing")
@@ -4568,7 +4603,7 @@ end)()
 	choices.blessingChoice = 19740
 	assert(ownSpell() == 19740, "own manual Might is respected")
 
-	known[20217], known[19742] = nil, nil
+	known[20217], known[19742], known[19977] = nil, nil, nil
 	choices.blessingChoice = 0
 	assert(ownSpell() == nil, "automatic Protection skips Might when it is the only known blessing")
 	tree = 3

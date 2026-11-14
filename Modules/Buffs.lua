@@ -32,7 +32,12 @@ local SPACING = 4
 local UPDATE_DELAY = 0.1
 local DEFAULT_MUTE_DURATION = 30 * 60
 local KINGS_MIN_LEVEL = 10
+local WISDOM_MIN_LEVEL = 4
 local RIGHTEOUS_FURY = 25780
+
+local function IsLowLevel(level)
+	return level > 0 and level < KINGS_MIN_LEVEL
+end
 
 -- auras: spell IDs whose buff satisfies the reminder.
 -- cast: spells offered for casting (first known one when set to automatic).
@@ -399,7 +404,9 @@ local function SetupButton(button, reminder, unit, chosen)
 			return false
 		end
 		button:SetAttribute("type", "spell")
-		button:SetAttribute("spell", SpellName(spellID))
+		-- For low-level recipients, cast the chosen rank instead of resolving the name to a higher rank.
+		local lowLevelBlessing = reminder.blessings and IsLowLevel(ns.Number(UnitLevel(unit or "player"), 0))
+		button:SetAttribute("spell", lowLevelBlessing and spellID or SpellName(spellID))
 		button:SetAttribute("item", nil)
 		button:SetAttribute("target-slot", nil)
 		button:SetAttribute("unit", unit or "player")
@@ -492,7 +499,7 @@ end
 
 -- Paladin blessings by kind: the normal and the greater one count the same. Each paladin gives a target one
 -- blessing; two paladins give two different kinds. Order per class of the target (classic guides): Kings for
--- eligible targets first, then what the class gets from it. Tanking paladins skip automatic Might.
+-- eligible targets first, then what the class gets from it. Below level 10 only rank 1 Wisdom and Might are offered.
 local BLESSING_KINDS = {
 	kings = { 20217, 25898 }, might = { 19740, 25782 }, wisdom = { 19742, 25894 }, salvation = { 1038, 25895 },
 	light = { 19977, 25890 }, sanctuary = { 20911, 25899 },
@@ -512,6 +519,8 @@ local MANA_CLASSES = { MAGE = true, PRIEST = true, WARLOCK = true, PALADIN = tru
 	HUNTER = true }
 local NO_MANA_CLASSES = { WARRIOR = true, ROGUE = true }
 local TANK_PALADIN_ORDER = { "kings", "wisdom", "light" }
+local LOW_LEVEL_MANA_ORDER = { "wisdom", "might" }
+local LOW_LEVEL_MELEE_ORDER = { "might" }
 
 -- Whether a player of this class has mana (another class: what the game says, usesMana).
 function Buffs.HasMana(class, usesMana)
@@ -524,6 +533,10 @@ function Buffs.HasMana(class, usesMana)
 end
 
 local function CanSuggestBlessing(kind, level, paladinTank, preferred)
+	if IsLowLevel(level) then
+		-- Classic allows Wisdom rank 1, learned at 14, on recipients from level 4.
+		return kind == "might" or (kind == "wisdom" and level >= WISDOM_MIN_LEVEL)
+	end
 	return (kind ~= "kings" or level >= KINGS_MIN_LEVEL)
 		and (kind ~= "might" or not paladinTank or preferred == "might")
 end
@@ -545,8 +558,13 @@ function Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold, level
 	if preferred and known[preferred] and not onTarget[preferred] and CanSuggestBlessing(preferred, level, paladinTank, preferred) then
 		return preferred, false
 	end
-	local order = paladinTank and TANK_PALADIN_ORDER or BLESSING_ORDER[class]
-		or (Buffs.HasMana(class, usesMana) and { "kings", "wisdom", "light" } or { "kings", "might", "light" })
+	local order
+	if IsLowLevel(level) then
+		order = Buffs.HasMana(class, usesMana) and LOW_LEVEL_MANA_ORDER or LOW_LEVEL_MELEE_ORDER
+	else
+		order = paladinTank and TANK_PALADIN_ORDER or BLESSING_ORDER[class]
+			or (Buffs.HasMana(class, usesMana) and { "kings", "wisdom", "light" } or { "kings", "might", "light" })
+	end
 	for _, kind in ipairs(order) do
 		if known[kind] and not onTarget[kind] and CanSuggestBlessing(kind, level, paladinTank, preferred) then
 			return kind, false

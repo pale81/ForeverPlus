@@ -5,6 +5,7 @@
 -- exported (/fp daten export) to complete a later update.
 local _, ns = ...
 local L = ns.L
+local decimalComma = GetLocale() == "deDE"
 
 local LootSources = ns:NewModule("LootSources", {
 	title = L.LOOTSRC_TITLE,
@@ -12,13 +13,16 @@ local LootSources = ns:NewModule("LootSources", {
 	defaults = {
 		record = true,
 		tooltip = true,
+		unitLoot = true,
 	},
 })
 
 local MAX_SOURCES = 3000   -- recorded sources
 local MAX_ITEMS = 80       -- items per source
 local TOOLTIP_SOURCES = 3
+local TOOLTIP_DROPS = 20
 local MIN_WINDOWS = 2      -- sources with fewer windows are not shown as a share
+local creatureDrops = {}
 
 ---------------------------------------------------------------------------
 -- Recording
@@ -96,6 +100,7 @@ function LootSources.Record(guid, key, items, name)
 		end
 	end
 	LootSources.merged = nil
+	creatureDrops[key] = nil
 end
 
 local MAX_NAMES = 2000  -- learned names
@@ -270,6 +275,152 @@ ns.AddItemSection(20, function(data)
 end)
 
 ---------------------------------------------------------------------------
+-- Loot of the creature under the cursor
+---------------------------------------------------------------------------
+local shippedByCreature
+
+local function CreatureDrops(key)
+	if creatureDrops[key] then
+		return creatureDrops[key]
+	end
+	if not shippedByCreature then
+		shippedByCreature = {}
+		for item, rows in pairs(ns.LootData and ns.LootData.items or {}) do
+			for _, row in ipairs(rows) do
+				local source = row[1]
+				if source:sub(1, 4) == "npc:" then
+					local entry = shippedByCreature[source] or { windows = row[3], items = {} }
+					entry.items[item] = row[2]
+					shippedByCreature[source] = entry
+				end
+			end
+		end
+	end
+	local shipped, own = shippedByCreature[key], ns.db.lootSources[key]
+	if not shipped and not (own and next(own.items)) then
+		return
+	end
+	local rows = {}
+	for item, drops in pairs(shipped and shipped.items or {}) do
+		rows[#rows + 1] = { id = item, drops = drops + (own and own.items[item] or 0) }
+	end
+	for item, drops in pairs(own and own.items or {}) do
+		if not shipped or not shipped.items[item] then
+			rows[#rows + 1] = { id = item, drops = drops }
+		end
+	end
+	table.sort(rows, function(a, b)
+		if a.drops ~= b.drops then
+			return a.drops > b.drops
+		end
+		return a.id < b.id
+	end)
+	rows.windows = (shipped and shipped.windows or 0) + (own and own.windows or 0)
+	creatureDrops[key] = rows
+	return rows
+end
+
+local function MouseoverCreatureKey(data)
+	local guid = data and data.guid
+	local kind, id = ns.GuidParts(guid)
+	if kind ~= "Creature" or not id then
+		return
+	end
+	local mouseover = UnitGUID("mouseover")
+	if ns.Secret(mouseover) or mouseover ~= guid then
+		return
+	end
+	local attackable = UnitCanAttack("player", "mouseover")
+	if not ns.Secret(attackable) and attackable == true then
+		return "npc:" .. id
+	end
+end
+
+local requestedItems, pendingItems = {}, {}
+local lootTooltipData, itemRefreshQueued
+
+function LootSources.ShouldRefreshUnitLoot(data)
+	return not ns.Secret(data) and data
+		and (data == lootTooltipData or LootSources.db.unitLoot and MouseoverCreatureKey(data) ~= nil)
+end
+
+local function RefreshLoadedItems()
+	itemRefreshQueued = false
+	local tooltip = GameTooltip
+	if not LootSources.db.unitLoot or not IsShiftKeyDown() or not tooltip:IsShown() or tooltip:IsForbidden() then
+		return
+	end
+	local data = tooltip:GetPrimaryTooltipData()
+	if not ns.Secret(data) and lootTooltipData == data and MouseoverCreatureKey(data) then
+		ns.RefreshGameTooltip()
+	end
+end
+
+local function OnItemData(_, _, itemID, success)
+	if ns.Number(itemID) and pendingItems[itemID] then
+		pendingItems[itemID] = nil
+		if not ns.Secret(success) and success and not itemRefreshQueued then
+			itemRefreshQueued = true
+			ns.After("LootSources: loaded item names", 0, RefreshLoadedItems)
+		end
+	end
+end
+
+local function DropRate(drops, windows)
+	-- The source can count several slots for one item in the same window.
+	if drops > windows then
+		return L.LOOTSRC_UNIT_COUNT:format(drops, windows)
+	elseif windows < MIN_WINDOWS then
+		return L.LOOTSRC_ONCE
+	end
+	local rate = drops / windows * 100
+	local share = rate < 0.1 and L.LOOTSRC_UNIT_BELOW or L.LOOTSRC_UNIT_PERCENT:format(rate)
+	if decimalComma then
+		share = share:gsub("%.", ",")
+	end
+	return L.LOOTSRC_SHARE:format(share, drops, windows)
+end
+
+local function OnUnitTooltip(tooltip, data)
+	if not LootSources.db.unitLoot or tooltip ~= GameTooltip or tooltip:IsForbidden()
+		or not IsShiftKeyDown() or ns.Secret(data) or data ~= tooltip:GetPrimaryTooltipData() then
+		return
+	end
+	local key = MouseoverCreatureKey(data)
+	if not key then
+		return
+	end
+	lootTooltipData = data
+	wipe(pendingItems)
+	local rows = CreatureDrops(key)
+	ns.AddTooltipSeparator(tooltip)
+	tooltip:AddLine(L.LOOTSRC_UNIT_HEADER, 1, 0.82, 0)
+	if not rows then
+		tooltip:AddLine(L.LOOTSRC_UNIT_EMPTY, 0.7, 0.7, 0.7)
+		return
+	end
+	for i = 1, math.min(TOOLTIP_DROPS, #rows) do
+		local row = rows[i]
+		local name, _, quality = C_Item.GetItemInfo(row.id)
+		if type(name) ~= "string" or ns.Secret(name) or name == "" then
+			name = L.LOOTSRC_UNIT_ITEM:format(row.id)
+			pendingItems[row.id] = true
+			if not requestedItems[row.id] then
+				requestedItems[row.id] = true
+				C_Item.RequestLoadItemDataByID(row.id)
+			end
+		end
+		quality = ns.Number(quality)
+		local color = quality and ITEM_QUALITY_COLORS[quality]
+		tooltip:AddDoubleLine(name, DropRate(row.drops, rows.windows), color and color.r or 1, color and color.g or 1,
+			color and color.b or 1, 0.7, 0.7, 0.7)
+	end
+	if #rows > TOOLTIP_DROPS then
+		tooltip:AddLine(L.LOOTSRC_UNIT_MORE:format(#rows - TOOLTIP_DROPS), 0.7, 0.7, 0.7)
+	end
+end
+
+---------------------------------------------------------------------------
 -- Export
 ---------------------------------------------------------------------------
 function LootSources.ExportText(sources)
@@ -303,6 +454,7 @@ end, function()
 	LootSources.nameCount = 0
 	LootSources.count = 0
 	LootSources.merged = nil
+	wipe(creatureDrops)
 end)
 
 ---------------------------------------------------------------------------
@@ -312,6 +464,7 @@ function LootSources:Apply()
 	self:ToggleEvent("LOOT_OPENED", self.db.record, OnLootOpened)
 	self:ToggleEvent("PLAYER_TARGET_CHANGED", self.db.record, OnTargetChanged)
 	self:ToggleEvent("UPDATE_MOUSEOVER_UNIT", self.db.record, OnMouseoverChanged)
+	self:ToggleEvent("ITEM_DATA_LOAD_RESULT", self.db.unitLoot, OnItemData)
 end
 
 function LootSources:OnInitialize()
@@ -327,6 +480,7 @@ function LootSources:OnInitialize()
 		count = count + 1
 	end
 	self.count = count
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("LootSources: unit tooltip", OnUnitTooltip))
 end
 
 function LootSources:OnLogin()
@@ -339,5 +493,6 @@ end
 
 LootSources.options = {
 	{ key = "tooltip", type = "toggle", name = L.LOOTSRC_TOOLTIP, desc = L.LOOTSRC_TOOLTIP_DESC },
+	{ key = "unitLoot", type = "toggle", name = L.LOOTSRC_UNIT_TOOLTIP, desc = L.LOOTSRC_UNIT_TOOLTIP_DESC },
 	{ key = "record", type = "toggle", name = L.LOOTSRC_RECORD, desc = L.LOOTSRC_RECORD_DESC },
 }

@@ -890,17 +890,28 @@ local function CanRefreshTooltip(tooltip)
 	return true
 end
 
+function ns.RefreshGameTooltip()
+	local tooltip = GameTooltip
+	if tooltip:IsShown() and not tooltip:IsForbidden() and CanRefreshTooltip(tooltip) then
+		tooltip:RefreshData()
+	end
+end
+
 -- Pressing or releasing Shift rebuilds the open tooltip if its data can be replayed.
 local function OnShiftChanged(_, _, key)
 	local tooltip = GameTooltip
-	if (key == "LSHIFT" or key == "RSHIFT") and tooltip:IsShown() and not tooltip:IsForbidden() and CanRefreshTooltip(tooltip) then
-		tooltip:RefreshData()
+	if (key ~= "LSHIFT" and key ~= "RSHIFT") or not tooltip:IsShown() or tooltip:IsForbidden() then
+		return
+	end
+	if Tooltip.db.shiftInfo or tooltip:IsTooltipType(Enum.TooltipDataType.Unit)
+		and ns:GetModule("LootSources").ShouldRefreshUnitLoot(tooltip:GetPrimaryTooltipData()) then
+		ns.RefreshGameTooltip()
 	end
 end
 
 function Tooltip:OnLogin()
 	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
-	self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
+	self:RegisterEvent("MODIFIER_STATE_CHANGED", OnShiftChanged)
 	self:ToggleEvent("INSPECT_READY", self.db.talentTree or self.db.hoverTalentIcon, OnInspectReady)
 end
 
@@ -910,9 +921,6 @@ function Tooltip:OnOptionChanged(key)
 	end
 	if key == "talentTree" or key == "hoverTalentIcon" then
 		self:ToggleEvent("INSPECT_READY", self.db.talentTree or self.db.hoverTalentIcon, OnInspectReady)
-	end
-	if key == "shiftInfo" then
-		self:ToggleEvent("MODIFIER_STATE_CHANGED", self.db.shiftInfo, OnShiftChanged)
 	end
 end
 

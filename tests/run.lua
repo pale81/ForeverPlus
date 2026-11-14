@@ -1607,8 +1607,11 @@ do
 	tt.db.shiftInfo = false
 end
 ;(function()
-	local onShift = uv(ns:GetModule("Tooltip").OnLogin, "OnShiftChanged")
+	local module = ns:GetModule("Tooltip")
+	local onShift = uv(module.OnLogin, "OnShiftChanged")
 	local savedTooltip, savedSecrets, savedSecret = GameTooltip, C_Secrets, issecretvalue
+	local savedShiftInfo = module.db.shiftInfo
+	module.db.shiftInfo = true
 	local refreshed, restrictedUnit = 0, nil
 	local item = { tooltipData = { lines = {} } }
 	local world = { getterName = "GetWorldCursor", tooltipData = { lines = { { unitToken = "mouseover" } } } }
@@ -1642,6 +1645,7 @@ end
 	assert(refreshed == 3, "normal refresh resumes when the unit is readable again")
 
 	GameTooltip, C_Secrets, issecretvalue = savedTooltip, savedSecrets, savedSecret
+	module.db.shiftInfo = savedShiftInfo
 	print("Shift tooltip refresh OK")
 end)()
 -- Tracking menu entries
@@ -5308,6 +5312,89 @@ end)()
 	assert(all:find("^%-%- @fp%-export 1 build=") and all:find("-- @fp inns", 1, true) and all:find("issues/new", 1, true), "export header and section tag")
 	ns.db.innkeepers = {}
 	print("loot sources OK")
+end)()
+;(function()
+	local loot, tooltipModule = ns:GetModule("LootSources"), ns:GetModule("Tooltip")
+	local onShift = uv(tooltipModule.OnLogin, "OnShiftChanged")
+	local onUnit
+	for _, callback in ipairs(TEST_POSTCALLS) do
+		local fn = uv(callback, "fn")
+		if fn and uv(fn, "MouseoverCreatureKey") then onUnit = callback break end
+	end
+	assert(onUnit, "loot is registered for unit tooltips")
+	local savedTooltip, savedItem, savedGUID, savedAttack, savedShift = GameTooltip, C_Item, UnitGUID, UnitCanAttack, IsShiftKeyDown
+	local savedItems, savedSources, savedCount, savedMerged = ns.LootData.items, ns.db.lootSources, loot.count, loot.merged
+	local savedShiftInfo, savedUnitLoot = tooltipModule.db.shiftInfo, loot.db.unitLoot
+	local guid = "Creature-0-1-2-3-999987-0001"
+	local data = { guid = guid, lines = {} }
+	local shift, attackable, mouseover, requests = false, true, guid, 0
+	local lines, drops = {}, {}
+	GameTooltip = NewFrame("GameTooltip")
+	GameTooltip.infoList = { { tooltipData = data } }
+	GameTooltip.GetPrimaryTooltipData = function() return data end
+	GameTooltip.IsTooltipType = function(_, kind) return kind == Enum.TooltipDataType.Unit end
+	GameTooltip.AddLine = function(_, line) lines[#lines + 1] = line end
+	GameTooltip.AddDoubleLine = function(_, name, rate) drops[#drops + 1] = { name, rate } end
+	GameTooltip.RefreshData = function()
+		wipe(lines)
+		wipe(drops)
+		onUnit(GameTooltip, data)
+	end
+	UnitGUID = function() return mouseover end
+	UnitCanAttack = function() return attackable end
+	IsShiftKeyDown = function() return shift end
+	local loaded = false
+	C_Item = { GetItemInfo = function(id) if id ~= 2 or loaded then return "Drop " .. id, nil, 2 end end,
+		RequestLoadItemDataByID = function(id) assert(id == 2) requests = requests + 1 end }
+	local key = "npc:999987"
+	ns.LootData.items = { [1] = { { key, 750, 2000 } }, [3] = { { key, 2100, 2000 } } }
+	ns.db.lootSources = { [key] = { windows = 1, items = { [1] = 1, [2] = 1 } } }
+	tooltipModule.db.shiftInfo, loot.db.unitLoot = false, true
+	onUnit(GameTooltip, data)
+	assert(#lines == 0 and requests == 0, "without Shift the creature tooltip does no loot work")
+	shift = true
+	onShift(nil, nil, "LSHIFT")
+	assert(lines[2] == ns.L.LOOTSRC_UNIT_HEADER and #drops == 3, "pressing Shift adds loot independently of the global Shift setting")
+	assert(drops[1][1] == "Drop 3" and drops[1][2] == ns.L.LOOTSRC_UNIT_COUNT:format(2100, 2001), "multiple slots show counts")
+	assert(drops[2][1] == "Drop 1" and drops[2][2]:find("751", 1, true), "common drops first with both sets of records")
+	assert(requests == 1 and drops[3][1] == ns.L.LOOTSRC_UNIT_ITEM:format(2)
+		and drops[3][2] == ns.L.LOOTSRC_SHARE:format(ns.L.LOOTSRC_UNIT_BELOW, 1, 2001), "local-only drop uses all windows")
+	local callbacks = {}
+	local savedToggle, savedAfter = loot.ToggleEvent, ns.After
+	loot.ToggleEvent = function(_, event, _, callback) callbacks[event] = callback end
+	loot:Apply()
+	loot.ToggleEvent = savedToggle
+	local refresh
+	ns.After = function(_, _, fn) refresh = fn end
+	loaded = true
+	callbacks.ITEM_DATA_LOAD_RESULT(nil, nil, 2, true)
+	refresh()
+	ns.After = savedAfter
+	assert(drops[3][1] == "Drop 2" and requests == 1, "item data refreshes the visible name without repeating the request")
+	loot.Record("tooltip-test", key, { 1 }, nil)
+	GameTooltip:RefreshData()
+	assert(drops[2][2]:find("752", 1, true), "new loot updates the cached list")
+	shift = false
+	onShift(nil, nil, "RSHIFT")
+	assert(#lines == 0 and #drops == 0, "releasing Shift clears the section")
+	shift, attackable = true, false
+	onUnit(GameTooltip, data)
+	assert(#lines == 0, "friendly creatures do not get the loot section")
+	attackable, mouseover = true, "Creature-0-1-2-3-999986-0001"
+	onUnit(GameTooltip, data)
+	assert(#lines == 0, "another unit's tooltip does not get the mouseover loot")
+	data.guid = mouseover
+	onUnit(GameTooltip, data)
+	assert(lines[3] == ns.L.LOOTSRC_UNIT_EMPTY, "missing data shows a clear message")
+	loot.db.unitLoot = false
+	GameTooltip:RefreshData()
+	assert(#lines == 0, "loot option can be disabled")
+	ns.LootData.items, ns.db.lootSources, loot.count, loot.merged = savedItems, savedSources, savedCount, savedMerged
+	local onUnitTooltip = uv(onUnit, "fn")
+	setuv(uv(onUnitTooltip, "CreatureDrops"), "shippedByCreature", nil)
+	tooltipModule.db.shiftInfo, loot.db.unitLoot = savedShiftInfo, savedUnitLoot
+	GameTooltip, C_Item, UnitGUID, UnitCanAttack, IsShiftKeyDown = savedTooltip, savedItem, savedGUID, savedAttack, savedShift
+	print("enemy loot tooltip OK")
 end)()
 -- Observations
 ;(function()

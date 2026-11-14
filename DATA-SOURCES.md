@@ -83,6 +83,7 @@ Observation capture is off by default. `/fp daten an` saves client-visible quest
 
 The validator checks sorted unique IDs, row shapes, counts, source metadata, response hashes, and that quest point lists contain valid map coordinates. Lua syntax and the addon's host API still need separate checks; no live-client test is implied by a successful data build.
 
+The Shift mouseover block for enemies uses the existing creature records in `Data/LootEG.lua` and adds local observations. Its percentages are recorded item drops divided by the number of recorded loot windows for that creature. The imported counts can include several slots for one item in a window. When the count exceeds the number of windows, the tooltip shows the raw counts. The figures describe the observed loot windows and can vary with group loot and active quests. [Efficient Games loot dataset](https://github.com/JIVESCORP/eg-link-output-wowf/blob/main/DATASETS.md#loot)
 
 ## Place texts
 

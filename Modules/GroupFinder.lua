@@ -9,6 +9,7 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 	defaults = {
 		composition = true,
 		dungeonLevels = true,
+		journalButton = true,
 		questButton = true, -- a small button at group, elite and dungeon quests: lists the player for it
 		tank5 = 1, healer5 = 1, dps5 = 3,
 		tank10 = 2, healer10 = 2, dps10 = 6,
@@ -234,6 +235,93 @@ local function RefreshAll()
 			UpdateEntry(entry)
 		end
 	end
+end
+
+local journalButtons = {}
+
+function GroupFinder.RefreshJournalButtons()
+	local journal = ns:GetModule("DungeonJournal")
+	for _, button in ipairs(journalButtons) do
+		button:SetShown(GroupFinder.db.journalButton and journal.IsEnabled()
+			and ns.Number(button.getCategory()) == DUNGEON_CATEGORY)
+	end
+end
+
+local function BrowseJournalActivities()
+	local selection = LFGBrowseFrame.selectionBehavior
+	local selected = selection and selection:GetSelectedElementData()[1]
+	local node = selected and not ns.Secret(selected) and selected.data
+	local id = node and not ns.Secret(node) and ns.Number(node.resultID)
+	local result = id and C_LFGList.GetSearchResultInfo(id)
+	if not ns.Secret(result) and result and not ns.Secret(result.activityIDs) then
+		return result.activityIDs
+	end
+	return LFGBrowseFrame.ActivityDropdown.selectedValues
+end
+
+local function ListingJournalActivities()
+	local ids = {}
+	for id, selected in pairs(LFGListingFrame.activities or {}) do
+		if selected then ids[#ids + 1] = id end
+	end
+	table.sort(ids)
+	return ids
+end
+
+local function OpenJournal(button, activities)
+	local journal = ns:GetModule("DungeonJournal")
+	if not journal.IsEnabled() then return end
+	local maps, seenMaps = {}, {}
+	for _, value in ipairs(activities or {}) do
+		local id = ns.Number(value)
+		local activity = id and C_LFGList.GetActivityInfoTable(id)
+		local mapID = not ns.Secret(activity) and activity and ns.Number(activity.mapID)
+		if mapID and not seenMaps[mapID] and journal.HasDungeon(mapID) then
+			seenMaps[mapID] = true
+			maps[#maps + 1] = mapID
+		end
+	end
+	if #maps == 0 then
+		journal.OpenDungeons()
+	elseif #maps == 1 then
+		journal.Open(maps[1])
+	else
+		MenuUtil.CreateContextMenu(button, function(_, root)
+			for _, mapID in ipairs(maps) do
+				root:CreateButton(journal.InstanceName(mapID), journal.Open, mapID)
+			end
+		end)
+	end
+end
+
+local function CreateJournalButton(parent, name, anchor, category, activities)
+	local button = CreateFrame("Button", name, parent, "UIPanelButtonTemplate")
+	button:SetSize(142, 28)
+	button:SetPoint("BOTTOM", anchor:GetParent(), "BOTTOM", 0, 16)
+	button:SetText(L.JOURNAL_TITLE)
+	button.getCategory = category
+	button:SetScript("OnClick", ns.Measured("GroupFinder: open dungeon journal", function(self)
+		OpenJournal(self, activities())
+	end))
+	journalButtons[#journalButtons + 1] = button
+end
+
+local function SetupJournalButtons()
+	local update = ns.Measured("GroupFinder: journal button visibility", GroupFinder.RefreshJournalButtons)
+	local browse = LFGBrowseFrame
+	if browse and browse.CategoryDropdown and browse.SendMessageButton then
+		CreateJournalButton(browse, "ForeverPlusBrowseJournalButton", browse.SendMessageButton,
+			function() return browse.CategoryDropdown:GetValue() end, BrowseJournalActivities)
+		hooksecurefunc(browse.CategoryDropdown, "SetValue", update)
+		browse:HookScript("OnShow", update)
+	end
+	local listing = LFGListingFrame
+	if listing and listing.ActivityView and listing.PostButton then
+		CreateJournalButton(listing.ActivityView, "ForeverPlusListingJournalButton", listing.PostButton,
+			function() return listing:GetCategorySelection() end, ListingJournalActivities)
+		listing.ActivityView:HookScript("OnShow", update)
+	end
+	GroupFinder.RefreshJournalButtons()
 end
 
 ---------------------------------------------------------------------------
@@ -514,6 +602,7 @@ end
 
 function GroupFinder:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_GroupFinder_VanillaStyle", function()
+		SetupJournalButtons()
 		if Menu and Menu.ModifyMenu then
 			Menu.ModifyMenu("MENU_LFG_BROWSE_ACTIVITY", ns.Measured("GroupFinder: dungeon selection", AddActivityLevels))
 		end
@@ -560,6 +649,10 @@ function GroupFinder.ApplyRoles()
 end
 
 function GroupFinder:OnOptionChanged(key)
+	if key == "journalButton" then
+		GroupFinder.RefreshJournalButtons()
+		return
+	end
 	RefreshAll()
 	GroupFinder.ApplyRoles()
 	if key == "questButton" then
@@ -575,6 +668,7 @@ end
 GroupFinder.options = {
 	{ key = "composition", type = "toggle", name = L.GROUPFINDER_COMPOSITION, desc = L.GROUPFINDER_COMPOSITION_DESC },
 	{ key = "dungeonLevels", type = "toggle", name = L.GROUPFINDER_DUNGEON_LEVELS, desc = L.GROUPFINDER_DUNGEON_LEVELS_DESC, new = true },
+	{ key = "journalButton", type = "toggle", name = L.GROUPFINDER_JOURNAL, desc = L.GROUPFINDER_JOURNAL_DESC, new = true },
 	{ key = "questButton", type = "toggle", name = L.GROUPQUEST_OPTION, desc = L.GROUPQUEST_OPTION_DESC, new = true },
 	{ key = "presetRoles", type = "toggle", name = L.GROUPFINDER_ROLES, desc = L.GROUPFINDER_ROLES_DESC, new = true },
 	{ key = "roleTank", type = "toggle", name = TANK, parent = "presetRoles" },

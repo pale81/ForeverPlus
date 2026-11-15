@@ -2,7 +2,8 @@
 local _, ns = ...
 local L = ns.L
 local Journal = ns:NewModule("DungeonJournal", {
-	title = L.JOURNAL_TITLE, order = 12, defaults = { enabled = true },
+	title = L.JOURNAL_TITLE, order = 12,
+	defaults = { enabled = true, bookButton = true, questWaypoint = true },
 })
 
 local data = ns.DungeonJournalData.instances
@@ -22,7 +23,7 @@ local STATES = {
 local STATUS = {
 	ready = L.JOURNAL_READY, active = L.JOURNAL_ACTIVE, done = L.JOURNAL_DONE, missing = L.JOURNAL_MISSING,
 }
-local frame, catalog, selection, mapPage, selectedTab
+local frame, bookButton, catalog, selection, mapPage, selectedTab
 local kind, characterOnly = "dungeon", true
 local requested = {}
 local tabs = { { "map", L.JOURNAL_MAP }, { "bosses", L.JOURNAL_BOSSES }, { "quests", L.JOURNAL_QUESTS } }
@@ -273,6 +274,26 @@ local function Tooltip(button, title, note)
 	if note then GameTooltip:AddLine(note, unpack(MUTED)) end
 end
 
+-- Keep the known pickup location in the tooltip even if the game cannot put a pin there.
+local function PickupPoint(id)
+	local lib = ns.QuestieDB.Bundled()
+	local starts = lib and lib.Quest.Get(id, "startPoints")
+	local current = ns.Number(C_Map.GetBestMapForUnit("player"))
+	local best, bestRank, canSet
+	for _, point in ipairs(starts or {}) do
+		local mapID, x, y = unpack(point)
+		if mapID > 0 and x >= 0 and x <= 100 and y >= 0 and y <= 100 and (x > 0 or y > 0) then
+			local supported = C_Map.CanSetUserWaypointOnMap(mapID)
+			local rank = supported and (mapID == current and 3 or 2) or 1
+			if not bestRank or rank > bestRank then
+				best, bestRank, canSet = point, rank, supported
+				if rank == 3 then break end
+			end
+		end
+	end
+	return best, canSet
+end
+
 local function QuestTooltip(row)
 	local quest = row.quest
 	if not quest then return end
@@ -282,23 +303,34 @@ local function QuestTooltip(row)
 		local text = Text(objective.text)
 		if text then GameTooltip:AddLine(text, 0.85, 0.85, 0.85, true) end
 	end
-	local lib = ns.QuestieDB.Bundled()
-	local starts = lib and lib.Quest.Get(quest.id, "startPoints")
-	local point = starts and starts[1]
-	if point and point[1] then
+	local point, canSet = PickupPoint(quest.id)
+	if point then
 		local map = C_Map.GetMapInfo(point[1])
 		if map and Text(map.name) then
 			GameTooltip:AddLine(L.JOURNAL_PICKUP:format(map.name, point[2], point[3]), unpack(GOLD))
 		end
 	end
-	GameTooltip:AddLine(L.JOURNAL_QUEST_LINK, 0.68, 0.73, 0.81, true)
+	if Journal.db.questWaypoint then
+		local hint = canSet and L.JOURNAL_PICKUP_CLICK or point and L.JOURNAL_PICKUP_UNAVAILABLE or L.JOURNAL_PICKUP_UNKNOWN
+		GameTooltip:AddLine(hint, 0.68, 0.73, 0.81, true)
+	end
+	GameTooltip:AddLine(Journal.db.questWaypoint and L.JOURNAL_QUEST_RIGHT_CLICK or L.JOURNAL_QUEST_LINK, 0.68, 0.73, 0.81, true)
 	GameTooltip:Show()
 end
 
-local function OpenQuest(row)
+local function OpenQuest(row, button)
 	local quest = row.quest
 	if not quest then return end
 	GameTooltip:Hide()
+	if Journal.db.questWaypoint and button ~= "RightButton" then
+		local point, canSet = PickupPoint(quest.id)
+		if not point then
+			ns.PrintAlways(L.JOURNAL_PICKUP_UNKNOWN)
+		elseif not canSet or not ns:GetModule("Waypoint").SetOnMap(point[1], point[2], point[3], quest.name) then
+			ns.PrintAlways(L.JOURNAL_PICKUP_UNAVAILABLE)
+		end
+		return
+	end
 	if (quest.state == "active" or quest.state == "ready") and QuestMapFrame_OpenToQuestDetails and not InCombatLockdown() then
 		frame:Hide()
 		QuestMapFrame_OpenToQuestDetails(quest.id)
@@ -430,6 +462,7 @@ Render = function(reset)
 		row.quest = quests and record or nil
 		if not row.tooltipHook then
 			row.tooltipHook = true
+			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row:HookScript("OnEnter", ns.Measured("DungeonJournal: quest tooltip", QuestTooltip))
 		end
 		StyleButton(row, false)
@@ -698,8 +731,62 @@ function Journal.Toggle()
 	end
 end
 
+function Journal.HasDungeon(id)
+	return data[id] and data[id].kind == "dungeon"
+end
+
+function Journal.InstanceName(id)
+	return Name(id, data[id])
+end
+
+function Journal.OpenDungeons()
+	if Journal.HasDungeon(selection) then
+		Journal.Open(selection)
+		return
+	end
+	for _, entry in ipairs(Catalog()) do
+		if entry.data.kind == "dungeon" then
+			Journal.Open(entry.id)
+			return
+		end
+	end
+end
+
+local function UpdateBookButton()
+	if bookButton then
+		bookButton:SetShown(Journal.IsEnabled() and Journal.db.bookButton and not WorldMapFrame:IsMaximized())
+	end
+end
+
+function Journal:OnLogin()
+	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
+		local border = WorldMapFrame and WorldMapFrame.BorderFrame
+		local portrait = border and border.GetPortrait and border:GetPortrait()
+		if not portrait then return end
+		bookButton = CreateFrame("Button", "ForeverPlusMapBookJournalButton", border.PortraitContainer)
+		bookButton:SetPoint("TOPLEFT", portrait, "TOPLEFT", 9, -9)
+		bookButton:SetPoint("BOTTOMRIGHT", portrait, "BOTTOMRIGHT", -9, 9)
+		bookButton:SetScript("OnClick", ns.Measured("DungeonJournal: map book", function()
+			GameTooltip:Hide()
+			Journal.Toggle()
+		end))
+		bookButton:SetScript("OnEnter", ns.Measured("DungeonJournal: book tooltip", function(button)
+			Tooltip(button, L.JOURNAL_TITLE, L.JOURNAL_BOOK_CLICK)
+			GameTooltip:Show()
+		end))
+		bookButton:SetScript("OnLeave", GameTooltip_Hide)
+		local update = ns.Measured("DungeonJournal: map book visibility", UpdateBookButton)
+		hooksecurefunc(border, "SetPortraitShown", update)
+		WorldMapFrame:HookScript("OnShow", update)
+		UpdateBookButton()
+	end)
+end
+
 function Journal:OnOptionChanged()
 	if not self.db.enabled and frame then frame:Hide() end
+	UpdateBookButton()
+	local finder = ns:GetModule("GroupFinder")
+	if finder and finder.RefreshJournalButtons then finder.RefreshJournalButtons() end
 	ns.MapSymbols.Refresh()
 end
 
@@ -711,5 +798,7 @@ end)
 
 Journal.options = {
 	{ key = "enabled", type = "toggle", name = L.JOURNAL_TITLE, desc = L.JOURNAL_OPTION, new = true },
+	{ key = "bookButton", type = "toggle", name = L.JOURNAL_BOOK_OPTION, parent = "enabled", new = true },
+	{ key = "questWaypoint", type = "toggle", name = L.JOURNAL_PICKUP_OPTION, parent = "enabled", new = true },
 	{ type = "button", name = L.JOURNAL_TITLE, text = L.JOURNAL_OPEN, func = function() Journal.Open() end },
 }

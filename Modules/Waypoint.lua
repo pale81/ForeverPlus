@@ -67,6 +67,33 @@ end
 
 local Refresh -- below
 
+local function SetPoint(mapID, x, y, name, allowArrowOnly)
+	local canSet = C_Map.CanSetUserWaypointOnMap(mapID)
+	if not canSet and not allowArrowOnly then
+		return false
+	end
+	if canSet then
+		local wasSet = C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x / 100, y / 100))
+		if wasSet == false and not allowArrowOnly then
+			return false
+		end
+		if wasSet ~= false then
+			C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+		end
+	end
+	target = { mapID = mapID, x = x / 100, y = y / 100, name = name }
+	Refresh()
+	if Waypoint.db.message then
+		ns.Print(L.WAYPOINT_SET, x, y, name and (" " .. name) or "")
+	end
+	return true
+end
+
+-- The journal already knows the destination map, which can be a different zone.
+function Waypoint.SetOnMap(mapID, x, y, name)
+	return SetPoint(mapID, x, y, name, false)
+end
+
 -- Sets the waypoint on the map the player is on: our own (for the arrow) and the game's, where the map allows it.
 -- Returns whether it worked.
 function Waypoint.Set(x, y, name)
@@ -75,16 +102,7 @@ function Waypoint.Set(x, y, name)
 		ns.Print(L.WAYPOINT_NOT_HERE)
 		return false
 	end
-	target = { mapID = mapID, x = x / 100, y = y / 100, name = name }
-	if C_Map.CanSetUserWaypointOnMap(mapID) then
-		C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x / 100, y / 100))
-		C_SuperTrack.SetSuperTrackedUserWaypoint(true)
-	end
-	Refresh()
-	if Waypoint.db.message then
-		ns.Print(L.WAYPOINT_SET, x, y, name and (" " .. name) or "")
-	end
-	return true
+	return SetPoint(mapID, x, y, name, true)
 end
 
 function Waypoint.Clear()

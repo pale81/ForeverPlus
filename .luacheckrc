@@ -337,6 +337,7 @@ read_globals = {
 	"UnitOnTaxi",
 	"IsFlying",
 	"WorldMapFrame",
+	"LFGBrowseFrame", "LFGListingFrame",
 	"date",
 	"GetQuestProgressBarPercent",
 	"floor",

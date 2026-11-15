@@ -3695,6 +3695,11 @@ end)()
 	way.Command("way 23 34 Schmied")
 	assert(set and set.uiMapID == 1429 and set.position.x == 0.23 and set.position.y == 0.34 and tracked == true, "set on the player's map, tracked")
 	assert(way.Target().name == "Schmied", "reading the game waypoint preserves the name")
+	assert(way.SetOnMap(1436, 42, 71, "Quest") and set.uiMapID == 1436 and set.position.y == 0.71,
+		"the journal pin goes on the quest giver's map, not the player's map")
+	can = false
+	assert(not way.SetOnMap(1436, 30, 40) and set.position.x == 0.42, "an unsupported destination leaves the existing pin alone")
+	can = true
 	set = nil
 	way.Command("way quatsch")
 	assert(set == nil, "no numbers: nothing set")

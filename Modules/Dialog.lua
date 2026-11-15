@@ -21,10 +21,12 @@ local Dialog = ns:NewModule("Dialog", {
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
+		portrait = true,       -- with a reader that shows the words itself: only the speaker's portrait, no text
 	},
 })
 
 local WIDTH = 300
+local PORTRAIT_SIZE, PORTRAIT_RIM, PORTRAIT_GAP = 64, 3, 8 -- picture, bronze ring around it, room below it
 local INSET = 16 -- the border art of the bubble lies this far around the content
 local ROW_GAP, BLOCK_GAP = 3, 8
 local ITEM_SIZE = 34
@@ -287,6 +289,75 @@ function Dialog.CreateBubbleShape(frame)
 	return art, tail
 end
 
+-- Portrait mode: Spoken (when loaded) says and shows the NPC's words, so the bubble keeps only who speaks (a round
+-- portrait in the bronze of the game's portrait frame) and what can be chosen (options, quests, rewards, buttons).
+-- The source key tells Spoken which part reads the step.
+local SPOKEN_SOURCE = {
+	GOSSIP_SHOW = "gossip", QUEST_GREETING = "gossip", QUEST_DETAIL = "quests", QUEST_PROGRESS = "quests",
+	QUEST_COMPLETE = "quests",
+}
+
+-- Whether Spoken is loaded and shows the words of this kind of step itself (narrator on, part not switched off).
+-- An older Spoken without the question counts as showing them; an answer that fails counts as not showing them,
+-- so the words stay in the bubble when in doubt.
+function Dialog.SpokenShows(kind)
+	local source = SPOKEN_SOURCE[kind]
+	local spoken = _G.Spoken
+	if not source or type(spoken) ~= "table" then
+		return false
+	end
+	if type(spoken.IsCompatible) == "function" and not spoken:IsCompatible(1) then
+		return false
+	end
+	if type(spoken.ShowsNarratorFor) ~= "function" then
+		return true
+	end
+	local ok, shows = pcall(spoken.ShowsNarratorFor, spoken, source)
+	return ok and shows == true
+end
+
+-- The blocks of a step without what Spoken says: the quest title, the NPC's words and the objectives.
+function Dialog.WithoutWords(blocks)
+	local kept = {}
+	for _, block in ipairs(blocks) do
+		if not (block.title or block.speech or block.objective) then
+			kept[#kept + 1] = block
+		end
+	end
+	return kept
+end
+
+-- The round portrait of the speaker: a bronze ring, a dark disc, the face (`SetPortraitTexture`) in a circle.
+local function CreatePortrait(frame)
+	local size = PORTRAIT_SIZE + PORTRAIT_RIM * 2
+	local holder = CreateFrame("Frame", nil, frame)
+	holder:SetSize(size, size)
+	holder:SetPoint("TOP", frame, "TOP", 0, 0)
+	local function Disc(subLevel, diameter)
+		local disc = holder:CreateTexture(nil, "ARTWORK", nil, subLevel)
+		disc:SetSize(diameter, diameter)
+		disc:SetPoint("CENTER")
+		local mask = holder:CreateMaskTexture()
+		mask:SetAllPoints(disc)
+		mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		disc:AddMaskTexture(mask)
+		return disc
+	end
+	local rim = Disc(0, size)
+	rim:SetColorTexture(unpack(ns.PANEL_BORDER))
+	Disc(1, PORTRAIT_SIZE):SetColorTexture(0.04, 0.05, 0.09, 1)
+	holder.Face = Disc(2, PORTRAIT_SIZE)
+	-- The picture may not be loaded yet when the step shows: asked again once more a moment later.
+	function holder:Update(unit)
+		self.unit = unit or self.unit
+		if self.unit and UnitExists(self.unit) then
+			SetPortraitTexture(self.Face, self.unit)
+		end
+	end
+	holder:Hide()
+	return holder
+end
+
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
@@ -317,7 +388,8 @@ local function CreateBubble()
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
 	frame.Art, frame.Tail = Dialog.CreateBubbleShape(frame)
 	frame.hasArt = frame.Art ~= nil
-	frame.Abandon = CreateFrame("Button", nil, frame)
+	frame.Portrait = CreatePortrait(frame)
+	frame.Abandon =CreateFrame("Button", nil, frame)
 	frame.Abandon:SetSize(16, 16)
 	frame.Abandon:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
 	frame.Abandon.Icon = frame.Abandon:CreateTexture(nil, "ARTWORK")
@@ -774,6 +846,18 @@ local function RenderView(view)
 	-- A conversation step puts its text into the scrolling area, lists of merchant and trainer page themselves.
 	local scrolling = SCROLL_KINDS[view.kind] and true or false
 	local host = scrolling and frame.Content or frame
+	-- Portrait mode (see CreatePortrait): the speaker's face on top, the content below it.
+	local speaker = Dialog.PortraitUnit(view)
+	local faceRoom = speaker and PORTRAIT_SIZE + PORTRAIT_RIM * 2 + PORTRAIT_GAP or 0
+	frame.Portrait:SetShown(speaker ~= nil)
+	if speaker then
+		frame.Portrait:Update(speaker)
+		ns.After("Dialog: portrait (timer)", 0.3, function()
+			if bubble and current and bubble.Portrait:IsShown() then
+				bubble.Portrait:Update()
+			end
+		end)
+	end
 	local bestChoice, bestChecked -- most valuable quest choice, looked up once per display
 	for _, pool in pairs(frame.pools) do
 		for _, object in pairs(pool) do
@@ -814,10 +898,10 @@ local function RenderView(view)
 		StartReveal(view, AddText(text, color), text, top)
 	end
 
-	if view.name and view.name ~= "" then
+	if view.name and view.name ~= "" and not speaker then
 		AddText(view.name, palette.name)
 	end
-	for _, block in ipairs(view.blocks) do
+	for _, block in ipairs(speaker and Dialog.WithoutWords(view.blocks) or view.blocks) do
 		if block.title then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
 		elseif block.text and block.speech then
@@ -1002,11 +1086,11 @@ local function RenderView(view)
 		local visible = Dialog.ContentHeight(full)
 		frame.Content:SetHeight(full)
 		frame.Scroll:ClearAllPoints()
-		frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+		frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -faceRoom)
 		frame.Scroll:SetSize(WIDTH, visible)
 		frame.Scroll.full, frame.Scroll.visible = full, visible
 		Dialog.ScrollContent(nil, 0)
-		y = visible
+		y = faceRoom + visible
 	end
 	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
 	local buttons = {}
@@ -1083,6 +1167,34 @@ local function NpcNameplate()
 	local plate
 	plate, anchorUnit = ns.NpcBubbleNameplate(npcGuid, anchorUnit, removedPlates)
 	return plate
+end
+
+-- The unit whose portrait shows: the NPC of the talk ("npc"), else the plate, soft target or target that is the
+-- NPC noted at the start. nil when none can be told (then the words stay in the bubble).
+function Dialog.SpeakerUnit()
+	if UnitExists("npc") then
+		return "npc"
+	end
+	local candidates = { "softinteract", "target" }
+	if anchorUnit then
+		table.insert(candidates, 1, anchorUnit)
+	end
+	for _, unit in ipairs(candidates) do
+		if npcGuid and UnitExists(unit) then
+			local guid = UnitGUID(unit)
+			if not ns.Secret(guid) and guid == npcGuid then
+				return unit
+			end
+		end
+	end
+end
+
+-- The speaker for a step shown as portrait only; nil for the full bubble: option off, a step of a list (merchant,
+-- trainer), nothing that shows the words in its place, or nobody to show.
+function Dialog.PortraitUnit(view)
+	if Dialog.db.portrait and SCROLL_KINDS[view.kind] and Dialog.SpokenShows(view.kind) then
+		return Dialog.SpeakerUnit()
+	end
 end
 
 -- The bubble sits on the lower edge of the plate and covers it: the plate is made invisible meanwhile.
@@ -1760,7 +1872,7 @@ function Dialog.DetailView()
 	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetQuestText()) or "", speech = true } }
 	local objective = Readable(GetObjectiveText())
 	if objective and objective ~= "" then
-		blocks[#blocks + 1] = { text = objective }
+		blocks[#blocks + 1] = { text = objective, objective = true }
 	end
 	AddRewards(blocks, false)
 	return {
@@ -2594,6 +2706,7 @@ Dialog.options = {
 	{ key = "textSpeed", type = "dropdown", name = L.DIALOG_SPEED, desc = L.DIALOG_SPEED_DESC, parent = "enabled", values = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
+	{ key = "portrait", type = "toggle", name = L.DIALOG_PORTRAIT, desc = L.DIALOG_PORTRAIT_DESC, parent = "enabled", new = true },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },

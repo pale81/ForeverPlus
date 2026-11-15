@@ -2377,6 +2377,62 @@ end)()
 	print("dialog OK")
 end)()
 ;(function()
+	-- dialog bubble, portrait mode: with Spoken showing the words only the speaker's portrait and the choices stay
+	local dialog = ns:GetModule("Dialog")
+	local blocks = { { title = "Die Jagd" }, { text = "Worte", speech = true }, { text = "Ziel", objective = true },
+		{ text = "Noch nicht", dim = true }, { rows = {} }, { items = {} }, { money = "5s" } }
+	local kept = dialog.WithoutWords(blocks)
+	assert(#kept == 4 and kept[1].dim and kept[2].rows and kept[3].items and kept[4].money, "title, words and objective dropped")
+	assert(#blocks == 7, "the view's own blocks stay whole")
+	local saved = _G.Spoken
+	_G.Spoken = false -- the harness gives an unknown global a placeholder: false stands for "not loaded"
+	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "no Spoken: the words stay in the bubble")
+	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function(_, key) return key == "gossip" end }
+	assert(dialog.SpokenShows("GOSSIP_SHOW") and dialog.SpokenShows("QUEST_GREETING"), "gossip is shown by Spoken")
+	assert(not dialog.SpokenShows("QUEST_DETAIL"), "quests part off: the words stay")
+	assert(not dialog.SpokenShows("MERCHANT_SHOW") and not dialog.SpokenShows("TRAINER_SHOW"), "lists are never portrait only")
+	_G.Spoken = { IsCompatible = function() return true end }
+	assert(dialog.SpokenShows("QUEST_DETAIL"), "an older Spoken without the question counts as showing")
+	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function() error("boom") end }
+	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "a failing answer keeps the words")
+	_G.Spoken = { IsCompatible = function() return false end }
+	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "an incompatible Spoken is ignored")
+	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function() return true end }
+	local wasExists, wasEnabled, wasPortrait = UnitExists, dialog.db.enabled, dialog.db.portrait
+	UnitExists = function(unit) return unit == "npc" end
+	UnitGUID = function() return "Creature-0-0-0-0-1-0" end
+	UnitName = function() return "Torwächter" end
+	issecretvalue = function() return false end
+	InCombatLockdown = function() return false end
+	C_GossipInfo = {
+		GetText = function() return "Seid gegrüßt, Reisender." end,
+		GetOptions = function() return { { gossipOptionID = 5, name = "Ich möchte reisen.", icon = 1 } } end,
+		GetActiveQuests = function() return { { title = "Fertig", questID = 1, isComplete = true } } end,
+		GetAvailableQuests = function() return { { title = "Neu", questID = 2 } } end,
+	}
+	dialog.db.enabled, dialog.db.portrait = true, true
+	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == "npc", "portrait of the NPC")
+	assert(dialog.PortraitUnit({ kind = "MERCHANT_SHOW" }) == nil, "no portrait for a merchant")
+	dialog.db.portrait = false
+	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == nil, "option off: full bubble")
+	dialog.db.portrait = true
+	UnitExists = function() return false end
+	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == nil, "no speaker known: full bubble")
+	UnitExists = function(unit) return unit == "npc" end
+	local ok, err = pcall(dialog.OnConversation, dialog, "GOSSIP_SHOW")
+	assert(ok, tostring(err))
+	local bubble = ForeverPlusDialogBubble
+	assert(bubble.Portrait:IsShown(), "portrait shows")
+	assert(bubble.lastUsed.text == 0 and bubble.lastUsed.row == 3, "no words, the three choices stay: " .. bubble.lastUsed.text .. "/" .. bubble.lastUsed.row)
+	_G.Spoken = false -- the harness gives an unknown global a placeholder: false stands for "not loaded"
+	dialog.Rerender()
+	assert(not bubble.Portrait:IsShown() and bubble.lastUsed.text == 2, "without Spoken: name and words again")
+	dialog.db.enabled, dialog.db.portrait = wasEnabled, wasPortrait
+	UnitExists = wasExists
+	_G.Spoken = saved
+	print("dialog portrait OK")
+end)()
+;(function()
 	-- reputation flash and trivial messages
 	local flash = ns:GetModule("RepFlash")
 	local ok, err = pcall(flash.Add, flash, "Eisenschmiede", 25)

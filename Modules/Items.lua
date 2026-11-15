@@ -850,7 +850,7 @@ end
 local ShowNextUpgrade
 
 -- The window is the game's loot toast (its artwork, item border, glow, sheen and rising arrows) with the gain big
--- on its upper edge; the two buttons sit under it.
+-- between heading and name; the two buttons sit under it.
 local TOAST_BORDER = { [0] = "gray", [1] = "white", [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
 
 -- The gain over the worn item in percent (nil for an empty slot) and the title line of the toast.
@@ -923,33 +923,36 @@ local function CreateUpgradeFrame()
 
 	-- Like the game's toast: a yellow heading, the item name under it, both centred next to the icon.
 	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 8, 0)
+	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 8, 8)
 	frame.Title:SetPoint("RIGHT", -18, 0)
 	frame.Title:SetJustifyH("CENTER")
 	frame.Title:SetWordWrap(false)
-	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
-	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -4)
-	frame.Name:SetPoint("RIGHT", -18, 0)
-	frame.Name:SetJustifyH("CENTER")
-	frame.Name:SetWordWrap(false)
-	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -4)
-	frame.Replaces:SetPoint("RIGHT", -18, 0)
-	frame.Replaces:SetJustifyH("CENTER")
-	frame.Replaces:SetWordWrap(false)
-
-	-- The gain sits big and green on the upper edge of the toast and pops up with a little overshoot; it has its own
-	-- frame so it can scale.
+	-- The gain sits between heading and name, big and green, and pops up with a little overshoot; it has its own frame
+	-- so it can scale.
 	frame.GainBox = CreateFrame("Frame", nil, frame)
-	frame.GainBox:SetFrameLevel(frame:GetFrameLevel() + 3)
-	frame.GainBox:SetSize(130, 44)
-	frame.GainBox:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -8, -10)
+	frame.GainBox:SetHeight(24)
+	frame.GainBox:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -1)
+	frame.GainBox:SetPoint("RIGHT", -18, 0)
 	frame.Gain = frame.GainBox:CreateFontString(nil, "OVERLAY")
-	frame.Gain:SetFont(STANDARD_TEXT_FONT, 34, "OUTLINE")
-	frame.Gain:SetPoint("RIGHT")
+	frame.Gain:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
+	frame.Gain:SetPoint("CENTER")
 	frame.Gain:SetTextColor(0.3, 1, 0.3)
 	frame.Gain:SetShadowColor(0, 0, 0, 0.8)
 	frame.Gain:SetShadowOffset(1, -1)
+	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+	frame.Name:SetJustifyH("CENTER")
+	frame.Name:SetWordWrap(false)
+	-- Like the game's upgrade toast, the name flashes white once.
+	frame.NameFlash = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+	frame.NameFlash:SetJustifyH("CENTER")
+	frame.NameFlash:SetWordWrap(false)
+	frame.NameFlash:SetTextColor(1, 1, 1)
+	frame.NameFlash:SetAlpha(0)
+	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -3)
+	frame.Replaces:SetPoint("RIGHT", -18, 0)
+	frame.Replaces:SetJustifyH("CENTER")
+	frame.Replaces:SetWordWrap(false)
 	frame.GainPop = frame.GainBox:CreateAnimationGroup()
 	frame.GainPop:SetToFinalAlpha(true)
 	local popFade = frame.GainPop:CreateAnimation("Alpha")
@@ -961,7 +964,7 @@ local function CreateUpgradeFrame()
 	for order, step in ipairs({ { 0.4, 1.3, 0.2 }, { 1.3, 1, 0.14 } }) do
 		local from, to, duration = step[1], step[2], step[3]
 		local pop = frame.GainPop:CreateAnimation("Scale")
-		pop:SetOrigin("RIGHT", 0, 0)
+		pop:SetOrigin("CENTER", 0, 0)
 		if pop.SetScaleFrom then
 			pop:SetScaleFrom(from, from)
 			pop:SetScaleTo(to, to)
@@ -983,12 +986,24 @@ local function CreateUpgradeFrame()
 	frame.Flash:SetAlpha(0)
 	SetAtlasOr(frame.Flash, "loottoast-glow")
 	frame.Sheen = frame:CreateTexture(nil, "OVERLAY")
-	frame.Sheen:SetSize(171, 75)
 	frame.Sheen:SetPoint("BOTTOMLEFT", -10, 12)
-	frame.Sheen:SetTexture(TOAST_FILE)
-	frame.Sheen:SetTexCoord(0.56347656, 0.73046875, 0.57421875, 0.86718750)
 	frame.Sheen:SetBlendMode("ADD")
 	frame.Sheen:SetAlpha(0)
+	SetAtlasOr(frame.Sheen, "loottoast-sheen", function()
+		frame.Sheen:SetSize(171, 75)
+		frame.Sheen:SetTexture(TOAST_FILE)
+		frame.Sheen:SetTexCoord(0.56347656, 0.73046875, 0.57421875, 0.86718750)
+	end)
+	-- Sparkles in the quality colour: small stars that twinkle one after another at random places on the toast.
+	frame.Sparkles = {}
+	for index = 1, 10 do
+		local star = frame:CreateTexture(nil, "OVERLAY", nil, 2)
+		star:SetTexture([[Interface\Cooldown\star4]])
+		star:SetBlendMode("ADD")
+		star:SetSize(14 + (index % 3) * 6, 14 + (index % 3) * 6)
+		star:SetAlpha(0)
+		frame.Sparkles[index] = star
+	end
 
 	-- In: fades in while sliding up a little; the arrows rise over the icon one after another, the border glows.
 	frame.In = frame:CreateAnimationGroup()
@@ -1016,6 +1031,39 @@ local function CreateUpgradeFrame()
 	glowOut:SetFromAlpha(1)
 	glowOut:SetToAlpha(0)
 	glowOut:SetDuration(0.8)
+	local nameIn = frame.Celebrate:CreateAnimation("Alpha")
+	nameIn:SetTarget(frame.NameFlash)
+	nameIn:SetStartDelay(0.2)
+	nameIn:SetSmoothing("IN")
+	nameIn:SetFromAlpha(0)
+	nameIn:SetToAlpha(0.9)
+	nameIn:SetDuration(0.5)
+	local nameOut = frame.Celebrate:CreateAnimation("Alpha")
+	nameOut:SetTarget(frame.NameFlash)
+	nameOut:SetStartDelay(0.7)
+	nameOut:SetFromAlpha(0.9)
+	nameOut:SetToAlpha(0)
+	nameOut:SetDuration(0.7)
+	for index, star in ipairs(frame.Sparkles) do
+		local delay = 0.3 + (index - 1) * 0.13
+		local show = frame.Celebrate:CreateAnimation("Alpha")
+		show:SetTarget(star)
+		show:SetStartDelay(delay)
+		show:SetFromAlpha(0)
+		show:SetToAlpha(1)
+		show:SetDuration(0.15)
+		local hide = frame.Celebrate:CreateAnimation("Alpha")
+		hide:SetTarget(star)
+		hide:SetStartDelay(delay + 0.15)
+		hide:SetFromAlpha(1)
+		hide:SetToAlpha(0)
+		hide:SetDuration(0.35)
+		local turn = frame.Celebrate:CreateAnimation("Rotation")
+		turn:SetTarget(star)
+		turn:SetStartDelay(delay)
+		turn:SetDegrees(-70)
+		turn:SetDuration(0.5)
+	end
 	local flashIn = frame.Celebrate:CreateAnimation("Alpha")
 	flashIn:SetTarget(frame.Flash)
 	flashIn:SetFromAlpha(0)
@@ -1134,6 +1182,27 @@ function ShowNextUpgrade()
 	local gain = Items.UpgradeGain(entry.score, entry.equippedScore)
 	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_HEAD)
 	frame.Gain:SetText(gain and L.ITEMS_UPGRADE_POPUP_GAIN:format(gain) or "")
+	frame.GainBox:SetShown(gain ~= nil)
+	frame.Name:ClearAllPoints()
+	frame.Name:SetPoint("TOPLEFT", gain and frame.GainBox or frame.Title, "BOTTOMLEFT", 0, gain and 0 or -6)
+	frame.Name:SetPoint("RIGHT", -18, 0)
+	frame.NameFlash:SetText(itemName or entry.link)
+	frame.NameFlash:ClearAllPoints()
+	frame.NameFlash:SetPoint("TOPLEFT", frame.Name, "TOPLEFT")
+	frame.NameFlash:SetPoint("TOPRIGHT", frame.Name, "TOPRIGHT")
+	-- The sparkle, glow and sheen take the quality colour (green for grey and white items).
+	local tr, tg, tb = 0.3, 1, 0.3
+	if color and quality >= 2 then
+		tr, tg, tb = color.r, color.g, color.b
+	end
+	frame.Glow:SetVertexColor(tr, tg, tb)
+	frame.Flash:SetVertexColor(tr, tg, tb)
+	frame.Sheen:SetVertexColor(0.5 + tr / 2, 0.5 + tg / 2, 0.5 + tb / 2)
+	for _, star in ipairs(frame.Sparkles) do
+		star:SetVertexColor(0.4 + tr * 0.6, 0.4 + tg * 0.6, 0.4 + tb * 0.6)
+		star:ClearAllPoints()
+		star:SetPoint("CENTER", frame, "TOPLEFT", math.random(18, 258), -math.random(14, 82))
+	end
 	local equipped = entry.invSlot and GetInventoryItemLink("player", entry.invSlot)
 	local equippedName = equipped and C_Item.GetItemInfo(equipped)
 	frame.Replaces:SetText(equippedName and L.ITEMS_UPGRADE_POPUP_REPLACES:format(equippedName) or L.ITEMS_UPGRADE_POPUP_EMPTY)

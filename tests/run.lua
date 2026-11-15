@@ -5053,10 +5053,12 @@ end)()
 	local savedFrames, savedStance, savedForms = ActionBarButtonEventsFrame.frames, StanceBar, GetNumShapeshiftForms
 	local savedFormInfo = GetShapeshiftFormInfo
 	local savedOption = visuals.db.paladinRecommendations
+	local savedColors = visuals.db.actionColors
 	local tree = 1
 	local names = {
 		[19740] = "Might", [19742] = "Wisdom", [19854] = "Wisdom", [25894] = "Greater Wisdom",
-		[20217] = "Kings", [465] = "Devotion", [19746] = "Concentration", [7294] = "Retribution",
+		[20217] = "Kings", [1044] = "Freedom", [465] = "Devotion", [19746] = "Concentration",
+		[7294] = "Retribution", [19876] = "Shadow Resistance",
 	}
 	local known = { [19740] = true, [19742] = true, [20217] = true, [465] = true, [19746] = true, [7294] = true }
 	local spells = { 19854, 19740, 20217, 25894 }
@@ -5076,24 +5078,50 @@ end)()
 	GetActionInfo = function(slot) return slot == 4 and "macro" or "spell", spells[slot] end
 	GetMacroSpell = function(id) return id end
 	C_SpellBook = { IsSpellKnown = function(id) return known[id] end, FindSpellBookSlotForSpell = function() end }
-	C_UnitAuras = { GetAuraDataBySpellName = function() return {} end }
+	local buffs = {}
+	C_UnitAuras = { GetUnitAuras = function() return buffs end }
 	C_Secrets = { ShouldAurasBeSecret = function() return false end }
 	C_EventUtils = { IsEventValid = function() return true end }
 	ns.TalentTreeOf = function() return nil, nil, tree end
 	UnitClass = function() return "Paladin", "PALADIN" end
 	assert(savedOption, "paladin recommendations start enabled")
+	visuals.db.actionColors = false
 	visuals:OnOptionChanged("paladinRecommendations")
 	local updateWatch = uv(visuals.OnLogin, "UpdatePaladinWatch")
 	local watcher = uv(updateWatch, "paladinWatch")
 	local glows = uv(uv(updateWatch, "UpdatePaladinHighlights"), "paladinGlows")
+	local auraWatcher = uv(uv(visuals.OnLogin, "UpdateAuraWatch"), "auraWatcher")
 	local function Fire(event) watcher.scripts.OnEvent(watcher, event) end
+	local function FireAura(event) auraWatcher.scripts.OnEvent(auraWatcher, event) end
 	local function Lit(button) return glows[button] and glows[button]:IsShown() end
-	assert(Lit(wisdom) and Lit(greater) and Lit(concentration), "Holy highlights Wisdom and Concentration even when active")
+	assert(Lit(wisdom) and Lit(greater) and Lit(concentration), "Holy highlights missing Wisdom and Concentration independently of action colors")
 	assert(not Lit(might) and not Lit(devotion), "only the recommended spell families glow")
+	buffs = { { name = "Seal", auraInstanceID = 1 } }
+	FireAura("UNIT_AURA")
+	assert(Lit(wisdom) and Lit(concentration), "an unrelated buff does not hide either recommendation")
+	buffs[2] = { name = "Kings", auraInstanceID = 2, sourceUnit = "party1" }
+	FireAura("UNIT_AURA")
+	assert(not Lit(wisdom) and not Lit(greater) and Lit(concentration), "a different blessing from a party member hides only the blessing")
+	buffs = { { name = "Shadow Resistance", auraInstanceID = 3, sourceUnit = "party1" } }
+	FireAura("UNIT_AURA")
+	assert(Lit(wisdom) and Lit(greater) and not Lit(concentration), "an active resistance aura hides only the aura")
+	buffs[2] = { name = "Greater Wisdom", auraInstanceID = 4 }
+	FireAura("UNIT_AURA")
+	assert(not Lit(wisdom) and not Lit(greater) and not Lit(concentration), "both categories are covered by a greater blessing and an aura")
+	buffs = { { name = "Freedom", auraInstanceID = 5 } }
+	FireAura("UNIT_AURA")
+	assert(not Lit(wisdom) and Lit(concentration), "a utility blessing counts while active")
+	buffs = {}
+	FireAura("UNIT_AURA")
+	assert(Lit(wisdom) and Lit(concentration), "both recommendations return after the buffs end")
 	C_Secrets = { ShouldAurasBeSecret = function() return true end }
+	FireAura("PLAYER_REGEN_DISABLED")
+	assert(not Lit(wisdom) and not Lit(concentration), "recommendations are hidden while buff data is protected")
 	tree = 2
 	Fire("TRAIT_CONFIG_UPDATED")
-	assert(Lit(kings) and Lit(devotion) and not Lit(wisdom) and not Lit(concentration), "talent changes work even with restricted aura data")
+	C_Secrets = { ShouldAurasBeSecret = function() return false end }
+	FireAura("PLAYER_REGEN_ENABLED")
+	assert(Lit(kings) and Lit(devotion) and not Lit(wisdom) and not Lit(concentration), "the new talent tree is shown after buff data becomes readable")
 	tree, known[7294] = 3, nil
 	Fire("ACTIVE_TALENT_GROUP_CHANGED")
 	assert(Lit(might) and Lit(devotion) and not Lit(kings), "Retribution falls back to Devotion until its aura is learned")
@@ -5107,6 +5135,7 @@ end)()
 	visuals:OnOptionChanged("paladinRecommendations")
 	assert(not Lit(wisdom) and not Lit(retribution), "turning the option off clears all glows")
 	visuals.db.paladinRecommendations = savedOption
+	visuals.db.actionColors = savedColors
 	UnitClass, ns.TalentTreeOf, C_SpellBook = savedClass, savedTree, savedSpellBook
 	C_UnitAuras, C_Secrets, C_EventUtils = savedAuras, savedSecrets, savedEvents
 	C_Spell.GetSpellName, GetActionInfo, GetMacroSpell = savedName, savedAction, savedMacro

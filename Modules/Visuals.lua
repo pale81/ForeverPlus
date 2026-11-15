@@ -617,6 +617,30 @@ local PALADIN_RECOMMENDATIONS = {
 	{ blessings = { KINGS, WISDOM, MIGHT }, auras = { DEVOTION } }, -- Protection
 	{ blessings = { MIGHT, KINGS, WISDOM }, auras = { RETRIBUTION, DEVOTION } }, -- Retribution
 }
+local PALADIN_BLESSINGS = { MIGHT, WISDOM, KINGS, { 1022, 1044, 6940 } } -- Protection, Freedom, Sacrifice
+local PALADIN_AURAS = { DEVOTION, RETRIBUTION, CONCENTRATION, { 19876, 19888, 19891 } } -- Resistance auras
+
+local function PaladinBuffNames(families)
+	local names = {}
+	for _, family in ipairs(families) do
+		for _, spellID in ipairs(family) do
+			local name = C_Spell.GetSpellName(spellID)
+			if name then
+				names[name] = true
+			end
+		end
+	end
+	return names
+end
+
+local function HasPaladinBuff(names)
+	for name in pairs(names) do
+		if activeAuras[name] then
+			return true
+		end
+	end
+	return false
+end
 
 -- Names match all trained ranks and both versions of a blessing.
 local function FirstKnownFamily(families)
@@ -666,37 +690,46 @@ local function ShowPaladinGlow(button)
 end
 
 local paladinWatch, paladinUpdatePending
+local paladinEnabled
 local paladinBlessing, paladinAura
+local paladinBlessingNames, paladinAuraNames
+local showPaladinBlessing, showPaladinAura
 local refreshPaladinSpells
 
-local function UpdatePaladinHighlights()
-	paladinUpdatePending = false
-	local enabled = Visuals.db.paladinRecommendations
-	if not enabled then
-		paladinBlessing, paladinAura = nil, nil
-	elseif refreshPaladinSpells then
+local function UpdatePaladinHighlights(force)
+	if paladinEnabled and refreshPaladinSpells then
 		local _, _, tree = ns.TalentTreeOf()
 		local profile = PALADIN_RECOMMENDATIONS[tree] or PALADIN_RECOMMENDATIONS[3]
 		paladinBlessing = FirstKnownFamily(profile.blessings)
 		paladinAura = FirstKnownFamily(profile.auras)
+		paladinBlessingNames = PaladinBuffNames(PALADIN_BLESSINGS)
+		paladinAuraNames = PaladinBuffNames(PALADIN_AURAS)
+		refreshPaladinSpells = false
+		force = true
 	end
-	refreshPaladinSpells = false
+	local readable = paladinEnabled and auraReadable
+	local blessing = readable and paladinBlessing ~= nil and not HasPaladinBuff(paladinBlessingNames)
+	local aura = readable and paladinAura ~= nil and not HasPaladinBuff(paladinAuraNames)
+	if not force and blessing == showPaladinBlessing and aura == showPaladinAura then
+		return
+	end
+	showPaladinBlessing, showPaladinAura = blessing, aura
 	for _, glow in pairs(paladinGlows) do
 		glow.pulse:Stop()
 		glow:Hide()
 	end
-	if not (paladinBlessing or paladinAura) then
+	if not (blessing or aura) then
 		return
 	end
 	for _, button in pairs(ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames or {}) do
 		local slot = ns.Number(button.action)
 		local spellID = slot and ActionSpell(slot)
 		local name = spellID and C_Spell.GetSpellName(spellID)
-		if name and ((paladinBlessing and paladinBlessing[name]) or (paladinAura and paladinAura[name])) then
+		if name and ((blessing and paladinBlessing[name]) or (aura and paladinAura[name])) then
 			ShowPaladinGlow(button)
 		end
 	end
-	if paladinAura and StanceBar and StanceBar.actionButtons then
+	if aura and StanceBar and StanceBar.actionButtons then
 		for index = 1, GetNumShapeshiftForms() do
 			local button = StanceBar.actionButtons[index]
 			local spellID = ns.Number(select(4, GetShapeshiftFormInfo(index)))
@@ -721,14 +754,18 @@ local function UpdatePaladinWatch()
 	if select(2, UnitClass("player")) ~= "PALADIN" then
 		return
 	end
-	if Visuals.db.paladinRecommendations then
+	paladinEnabled = Visuals.db.paladinRecommendations
+	if paladinEnabled then
 		if not paladinWatch then
 			paladinWatch = CreateFrame("Frame")
 			paladinWatch:SetScript("OnEvent", ns.Measured("Visuals: paladin recommendation event", function(_, event)
 				refreshPaladinSpells = refreshPaladinSpells or PALADIN_SPELL_EVENTS[event]
 				if not paladinUpdatePending then
 					paladinUpdatePending = true
-					ns.After("Visuals: paladin recommendations", 0, UpdatePaladinHighlights)
+					ns.After("Visuals: paladin recommendations", 0, function()
+						paladinUpdatePending = false
+						UpdatePaladinHighlights(true)
+					end)
 				end
 			end))
 		end
@@ -746,7 +783,7 @@ local function UpdatePaladinWatch()
 		paladinWatch:UnregisterAllEvents()
 	end
 	refreshPaladinSpells = true
-	UpdatePaladinHighlights()
+	UpdatePaladinHighlights(true)
 end
 
 -- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
@@ -816,6 +853,9 @@ end
 local function WaitForReadableAuras()
 	auraReadable = false
 	auraWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+	if paladinEnabled then
+		UpdatePaladinHighlights()
+	end
 end
 
 local function UpdateActiveAuras()
@@ -833,6 +873,7 @@ local function UpdateActiveAuras()
 		return
 	end
 	auraWatcher:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	local readabilityChanged = auraReadable ~= complete
 	auraReadable = complete
 	auraIDs = ids
 	local changed = false
@@ -853,6 +894,9 @@ local function UpdateActiveAuras()
 	if changed then
 		activeAuras = names
 		RecolorBuffButtons()
+	end
+	if paladinEnabled and (changed or readabilityChanged) then
+		UpdatePaladinHighlights()
 	end
 end
 
@@ -883,7 +927,7 @@ local function QueueAuraUpdate()
 		auraUpdatePending = true
 		ns.After("Visuals: QueueAuraUpdate (timer)", 0, function()
 			auraUpdatePending = false
-			if Visuals.db.actionColors and Visuals.db.colorActiveBuff then
+			if paladinEnabled or (Visuals.db.actionColors and Visuals.db.colorActiveBuff) then
 				UpdateActiveAuras()
 			end
 		end)
@@ -891,7 +935,11 @@ local function QueueAuraUpdate()
 end
 
 local function UpdateAuraWatch()
-	local enabled = Visuals.db.actionColors and Visuals.db.colorActiveBuff
+	local colorBuffs = Visuals.db.actionColors and Visuals.db.colorActiveBuff
+	local enabled = paladinEnabled or colorBuffs
+	if not colorBuffs then
+		wipe(buffButtons)
+	end
 	if enabled and not auraWatcher then
 		auraWatcher = CreateFrame("Frame")
 		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
@@ -925,7 +973,13 @@ local function UpdateAuraWatch()
 			auraReadable = false
 			wipe(activeAuras)
 			wipe(auraIDs)
-			wipe(buffButtons)
+		end
+		if paladinEnabled then
+			auraWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+			auraWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+		else
+			auraWatcher:UnregisterEvent("PLAYER_ENTERING_WORLD")
+			auraWatcher:UnregisterEvent("PLAYER_REGEN_DISABLED")
 		end
 	end
 end
@@ -1225,10 +1279,10 @@ function Visuals:OnLogin()
 	FrameBuffs()
 	HookQuestItems()
 	HookActionButtons()
+	UpdatePaladinWatch()
 	UpdateAuraWatch()
 	RecolorAll()
 	UpdateCastWatch()
-	UpdatePaladinWatch()
 	StyleUnitBars()
 	ApplyPlayerDragon()
 end
@@ -1266,6 +1320,7 @@ function Visuals:OnOptionChanged(key)
 		UpdateCastWatch()
 	elseif key == "paladinRecommendations" then
 		UpdatePaladinWatch()
+		UpdateAuraWatch()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
 			StyleUnitBars()

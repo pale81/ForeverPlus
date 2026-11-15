@@ -2,7 +2,7 @@ local _, ns = ...
 local L = ns.L
 local Roleplay = ns:NewModule("Roleplay", {
 	title = L.RP_TITLE, order = 16,
-	defaults = { enabled = true },
+	defaults = { enabled = true, playerPortraitClick = true },
 	charDefaults = { shared = false, profile = {} },
 })
 
@@ -348,6 +348,20 @@ local function CreateTargetButton()
 	return button
 end
 
+local function HookPlayerPortrait()
+	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
+	local portrait = container and container.PlayerPortrait
+	if not portrait or type(portrait.IsMouseOver) ~= "function" then return end
+
+	-- Use the unit button's normal click so targeting and the context menu still work.
+	PlayerFrame:HookScript("PostClick", ns.Measured("Roleplay: player portrait click", function(frame, button, down)
+		if button ~= "LeftButton" or down or not Roleplay.db.playerPortraitClick
+			or IsModifierKeyDown() or ns:IsEditModeActive() or ns.Secret(frame.unit) or frame.unit ~= "player" then return end
+		local overPortrait = portrait:IsMouseOver()
+		if not ns.Secret(overPortrait) and overPortrait then Roleplay.OpenEditor() end
+	end))
+end
+
 function Roleplay:OnOptionChanged()
 	if not self.db.enabled and viewer then viewer:Hide() end
 	if self.db.enabled and not chatReady then
@@ -368,10 +382,12 @@ end
 function Roleplay:OnLogin()
 	realm = GetNormalizedRealmName()
 	if TargetFrame and type(TargetFrame.GetPortrait) == "function" then targetButton = CreateTargetButton() end
+	HookPlayerPortrait()
 	self:OnOptionChanged()
 end
 
 Roleplay.options = {
 	{ key = "enabled", type = "toggle", name = L.RP_ENABLE, desc = L.RP_ENABLE_DESC, new = true },
+	{ key = "playerPortraitClick", type = "toggle", name = L.RP_PLAYER_PORTRAIT_CLICK, new = true },
 	{ type = "button", name = L.RP_PROFILE, text = L.RP_EDIT, func = Roleplay.OpenEditor },
 }

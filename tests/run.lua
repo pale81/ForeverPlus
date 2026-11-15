@@ -6928,8 +6928,14 @@ end)()
 	local oldCreate = CreateFrame
 	local targetFrame = NewFrame("Frame")
 	targetFrame.GetPortrait = function() return NewFrame("Texture") end
+	local overPortrait, modified, editMode = true, false, false
+	local playerFrame = NewFrame("Button")
+	playerFrame.unit = "player"
+	playerFrame.PlayerFrameContainer.PlayerPortrait.IsMouseOver = function() return overPortrait end
 	local testGlobals = {
 		TargetFrame = targetFrame,
+		PlayerFrame = playerFrame,
+		IsModifierKeyDown = function() return modified end,
 		UnitIsPlayer = function() return player end,
 		UnitIsFriend = function() return friendly end,
 		UnitIsUnit = function() return own end,
@@ -6968,7 +6974,8 @@ end)()
 	for key, value in pairs(testGlobals) do
 		originals[key], _G[key] = _G[key], value
 	end
-	local oldAfter = C_Timer.After
+	local oldAfter, oldEditMode = C_Timer.After, ns.IsEditModeActive
+	ns.IsEditModeActive = function() return editMode end
 	C_Timer.After = function(_, fn) timeout = fn end
 	local oldRegister, oldSend = Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult
 	Enum.RegisterAddonMessagePrefixResult = { Success = 0, DuplicatePrefix = 1 }
@@ -6987,8 +6994,25 @@ end)()
 	Deliver("Q:aca123", "Reader")
 	assert(messages[1].text == "N:aca123" and messages[1].target == "Reader-LocalRealm", "private profile returns no data")
 
-	SlashCmdList.FOREVERPLUS("rp")
+	local portraitClick = playerFrame:GetScript("PostClick")
+	portraitClick(playerFrame, "RightButton", false)
+	portraitClick(playerFrame, "LeftButton", true)
+	overPortrait = false
+	portraitClick(playerFrame, "LeftButton", false)
+	overPortrait, modified = true, true
+	portraitClick(playerFrame, "LeftButton", false)
+	modified, editMode = false, true
+	portraitClick(playerFrame, "LeftButton", false)
+	editMode, rp.db.playerPortraitClick = false, false
+	portraitClick(playerFrame, "LeftButton", false)
+	assert(not rawget(_G, "ForeverPlusRoleplayEditor"), "only an enabled plain left click on the portrait opens the editor")
+	rp.db.playerPortraitClick = true
+	portraitClick(playerFrame, "LeftButton", false)
 	local editor = ForeverPlusRoleplayEditor
+	assert(editor:IsShown(), "left-clicking the player portrait opens the RP editor")
+	editor:Hide()
+	SlashCmdList.FOREVERPLUS("rp")
+	assert(editor:IsShown(), "the slash command still opens the editor")
 	local story = "Über den Pass.\n|Hitem:1|h[Text]|h\n" .. ("é"):rep(540)
 	editor.Fields.name:SetText("  Émeline  ")
 	editor.Fields.occupation:SetText("Bergführerin " .. ("x"):rep(80))
@@ -7057,7 +7081,7 @@ end)()
 	assert(not button:IsShown() and not viewer:IsShown() and #messages == before, "disabling hides the UI and stops sharing")
 
 	for key, value in pairs(originals) do _G[key] = value end
-	C_Timer.After = oldAfter
+	C_Timer.After, ns.IsEditModeActive = oldAfter, oldEditMode
 	Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult = oldRegister, oldSend
 	rp.db.enabled, rp.cdb.shared, rp.cdb.profile = true, false, {}
 	print("roleplay editor and profile exchange OK")

@@ -2043,6 +2043,165 @@ ns.ShowPopupList(owner, function()
 end)
 assert(built == 1, "popup built")
 print("popup OK")
+;(function()
+	local profiles = ns:GetModule("Profiles")
+	local savedShow, savedPrint, savedSnapshot, savedAfter = ns.ShowEditWindow, ns.PrintAlways, profiles.Snapshot, ns.After
+	local savedStore, savedLastAuto, savedTime, savedDate = ns.db.profiles, profiles.db.lastAuto, time, date
+	local now = 1784000000
+	time, date = function() return now end, os.date
+	ns.db.profiles = {}
+	local store = ns.db.profiles
+	local editor, message
+	ns.ShowEditWindow = function(_, title, initial, _, accept) editor = { title = title, initial = initial, accept = accept } end
+	ns.PrintAlways = function(text) message = text end
+	profiles.Snapshot = function() return { time = now, cvars = { example = "1" }, bindings = {}, layouts = {}, addon = {} } end
+	local owner = NewFrame("Button")
+	profiles.ShowList(owner)
+	local popup = ForeverPlusPopupProfiles
+	local function Click(label)
+		for index, entry in ipairs(popup.build().footer) do
+			if entry.text == label then
+				local button = popup.footer[index]
+				button:GetScript("OnClick")(button)
+				return
+			end
+		end
+		error("profile action missing: " .. label)
+	end
+	Click(ns.L.PROFILES_CREATE)
+	assert(not popup:IsShown() and editor.title == ns.L.PROFILES_CREATE_TITLE, "create is available in an empty list")
+	editor.accept("  Original  ")
+	local snapshot = assert(store.Original, "create saves current settings under the trimmed name")
+	assert(popup:IsShown() and popup.build().items[1].checked, "created profile is selected")
+	Click(ns.L.PROFILES_CREATE)
+	editor.accept("Original")
+	assert(message == ns.L.PROFILES_NAME_EXISTS and store.Original == snapshot, "create cannot overwrite an existing profile")
+	assert(profiles.Save("Taken"), "save a second profile for the rename conflict")
+	local target = store.Taken
+	Click(ns.L.PROFILES_RENAME)
+	assert(editor.initial == "Original", "rename starts with the selected profile name")
+	editor.accept(" Taken ")
+	assert(message == ns.L.PROFILES_NAME_EXISTS and store.Original == snapshot and store.Taken == target, "rename conflict keeps both profiles")
+	Click(ns.L.PROFILES_RENAME)
+	editor.accept(" ")
+	assert(message == ns.L.PROFILES_NAME_REQUIRED and store.Original == snapshot, "rename requires a name")
+	Click(ns.L.PROFILES_RENAME)
+	editor.accept("  Main  ")
+	assert(not store.Original and store.Main == snapshot and snapshot.cvars.example == "1", "rename keeps the same snapshot")
+	assert(popup.build().items[1].checked and popup.build().items[1].text:find("^Main "), "renamed profile stays selected")
+	Click(ns.L.PROFILES_LOAD)
+	Click(ns.L.PROFILES_DELETE)
+	popup:Hide()
+
+	local prefix = ns.L.PROFILES_AUTO_PREFIX
+	local legacy = prefix .. date("%Y-%m-%d %H:%M", now - 86400)
+	store[legacy] = { time = now - 86400 }
+	local custom = prefix .. date("%Y-%m-%d %H:%M", now)
+	assert(profiles.Rename(legacy, custom), "an older automatic backup can be renamed")
+	local retained = store[custom]
+	ns.After = function(_, _, backup) backup() end
+	profiles.db.lastAuto = 0
+	profiles:OnLogin()
+	assert(store[custom] == retained and store[custom .. " (2)"].automatic, "the new backup uses a free name")
+	for _ = 2, 4 do
+		now = now + 86400
+		profiles:OnLogin()
+	end
+	local autoCount = 0
+	for _, profile in pairs(store) do
+		if profile.automatic then autoCount = autoCount + 1 end
+	end
+	assert(store[custom] == retained and autoCount == 3, "rotation protects renamed backups and keeps three automatic copies")
+	assert(profiles.Save("Main") and store.Main ~= snapshot, "direct save can still refresh an existing profile")
+	ns.ShowEditWindow, ns.PrintAlways, profiles.Snapshot, ns.After = savedShow, savedPrint, savedSnapshot, savedAfter
+	ns.db.profiles, profiles.db.lastAuto, time, date = savedStore, savedLastAuto, savedTime, savedDate
+	print("profile management and automatic backup rotation OK")
+end)()
+
+;(function()
+	local savedSettings, savedPanel, savedHook = Settings, SettingsPanel, hooksecurefunc
+	local main, childCategory = NewFrame("Frame"), NewFrame("Frame")
+	local tab = NewFrame("Button")
+	local inits = {}
+	local function Init() return { InitFrame = function() end } end
+	Settings = setmetatable({
+		RegisterVerticalLayoutCategory = function() return main end,
+		RegisterVerticalLayoutSubcategory = function() return childCategory end,
+		CreateElementInitializer = Init,
+		CreateCheckbox = function(category, setting)
+			local initializer = Init()
+			if setting.variable then
+				inits[setting.variable] = { initializer = initializer, category = category }
+			end
+			return initializer
+		end,
+		RegisterAddOnSetting = function(_, variable) return { variable = variable, SetValueChangedCallback = function() end } end,
+	}, { __index = savedSettings })
+	SettingsPanel = { AddOnsTab = tab, GetLayout = savedPanel.GetLayout }
+	hooksecurefunc = function(object, method, hook)
+		local original = object[method]
+		object[method] = function(...) original(...) hook(...) end
+	end
+	local mover = { name = "Mover", options = {
+		{ type = "button", name = "Mover 1" }, { type = "button", name = "Mover 2" }, { type = "button", name = "Mover 3" },
+	} }
+	local profiles = { name = "Profiles", db = {}, defaults = { auto = true }, options = ns:GetModule("Profiles").options }
+	local chat = { name = "Chat", db = {}, defaults = { tabFade = true }, options = { { key = "tabFade", type = "toggle", new = true } } }
+	local modules = { Mover = mover, Profiles = profiles, Chat = chat }
+	local tabBadge
+	local settingsNS = setmetatable({
+		db = {}, modules = {},
+		GetModule = function(_, name) return modules[name] end,
+		CreateNewBadge = function(owner, text)
+			local badge = ns.CreateNewBadge(owner, text)
+			if owner == tab then tabBadge = badge end
+			return badge
+		end,
+	}, { __index = ns })
+	assert(loadfile(root .. "/Core/Settings.lua"))("ForeverPlus", settingsNS)
+	settingsNS:BuildSettings()
+	local auto, other = inits.ForeverPlus_Profiles_auto, inits.ForeverPlus_Chat_tabFade
+	assert(auto.category == main and other.category ~= main and auto.initializer.fpNewID, "both main page and subpage options have stable IDs")
+	-- Simulate a row with a label tooltip and a nested control, as in the settings list.
+	local row, label, control = NewFrame("Frame"), NewFrame("Frame"), NewFrame("Button")
+	row.fpNewBadge = false
+	row.fpNewHooked, label.fpNewHooked, control.fpNewHooked = false, false, false
+	row.fpNewMouseID = false
+	row.GetChildren = function() return label end
+	label.GetChildren = function() return control end
+	local over = true
+	row.IsMouseOver = function() return over end
+	local function Show(initializer)
+		row.GetElementData = function() return initializer end
+		initializer:InitFrame(row)
+	end
+	local function TwoPasses(initializer)
+		Show(initializer)
+		assert(row.fpNewBadge:IsShown(), "unseen row is marked NEW")
+		label:GetScript("OnEnter")(label)
+		label:GetScript("OnLeave")(label)
+		control:GetScript("OnEnter")(control)
+		assert(row.fpNewBadge:IsShown() and settingsNS.db.settingsNewSeen[initializer.fpNewID] == 1, "moving within the row counts once")
+		over = false
+		control:GetScript("OnLeave")(control)
+		over = true
+		control:GetScript("OnEnter")(control)
+		assert(not row.fpNewBadge:IsShown() and settingsNS.db.settingsNewSeen[initializer.fpNewID] == 2, "second mouseover clears NEW")
+		row:GetScript("OnHide")(row)
+		Show(initializer)
+		assert(not row.fpNewBadge:IsShown(), "dismissal survives row recycling")
+	end
+	TwoPasses(other.initializer)
+	assert(tabBadge:IsShown(), "main page still has an unseen option")
+	TwoPasses(auto.initializer)
+	assert(not tabBadge:IsShown(), "dismissing the last new option clears the tab badge")
+	settingsNS.db.settingsNewSeen[auto.initializer.fpNewID] = 3
+	Show(auto.initializer)
+	assert(not row.fpNewBadge:IsShown(), "previously dismissed rows stay dismissed")
+	Settings, SettingsPanel, hooksecurefunc = savedSettings, savedPanel, savedHook
+	print("two mouseovers dismiss NEW on main and subpages OK")
+end)()
+
 -- Loot summary popup
 local lootM = ns:GetModule("Loot")
 local showSummary = uv(lootM.OnLogin, "ShowSummary")

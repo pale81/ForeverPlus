@@ -130,14 +130,46 @@ local function Store()
 	return ns.db.profiles
 end
 
-function Profiles.Save(name)
-	name = type(name) == "string" and name:match("^%s*(.-)%s*$") or ""
+local function ValidateName(name, store, replace)
+	name = type(name) == "string" and strtrim(name) or ""
 	if name == "" then
+		ns.PrintAlways(L.PROFILES_NAME_REQUIRED)
+	elseif store[name] and not replace then
+		ns.PrintAlways(L.PROFILES_NAME_EXISTS, name)
+	else
+		return name
+	end
+end
+
+function Profiles.Save(name, createOnly)
+	local store = Store()
+	name = ValidateName(name, store, not createOnly)
+	if not name then
 		return false
 	end
-	Store()[name] = Profiles.Snapshot()
+	local profile = Profiles.Snapshot()
+	profile.automatic = false
+	store[name] = profile
 	ns.PrintAlways(L.PROFILES_SAVED, name)
-	return true
+	return true, name
+end
+
+function Profiles.Rename(oldName, name)
+	local store = Store()
+	local profile = store[oldName]
+	if not profile then
+		return false
+	end
+	name = ValidateName(name, store, type(name) == "string" and strtrim(name) == oldName)
+	if not name then
+		return false
+	end
+	if name ~= oldName then
+		profile.automatic = false -- A backup kept under a custom name is no longer rotated.
+		store[name], store[oldName] = profile, nil
+		ns.PrintAlways(L.PROFILES_RENAMED, oldName, name)
+	end
+	return true, name
 end
 
 -- Names, newest first.
@@ -170,16 +202,26 @@ local function AutoBackup()
 		return
 	end
 	db.lastAuto = now
+	local store, prefix = Store(), L.PROFILES_AUTO_PREFIX
 	local autos = {}
 	for _, name in ipairs(Profiles.List()) do
-		if name:find("^" .. L.PROFILES_AUTO_PREFIX) then
+		local automatic = store[name].automatic
+		if automatic or (automatic == nil and name:sub(1, #prefix) == prefix) then
 			autos[#autos + 1] = name
 		end
 	end
 	for index = MAX_AUTO, #autos do
 		Profiles.Delete(autos[index])
 	end
-	Store()[L.PROFILES_AUTO_PREFIX .. date("%Y-%m-%d %H:%M", now)] = Profiles.Snapshot()
+	local base = prefix .. date("%Y-%m-%d %H:%M", now)
+	local name, suffix = base, 2
+	while store[name] do
+		name = ("%s (%d)"):format(base, suffix)
+		suffix = suffix + 1
+	end
+	local profile = Profiles.Snapshot()
+	profile.automatic = true
+	store[name] = profile
 end
 
 ---------------------------------------------------------------------------
@@ -306,7 +348,27 @@ function Profiles.ShowSave()
 end
 
 function Profiles.ShowList(owner)
-	ns.ShowPopupList(owner, function()
+	local popup
+	local function EditName(oldName)
+		popup:Hide()
+		local title = oldName and L.PROFILES_RENAME_TITLE or L.PROFILES_CREATE_TITLE
+		local action = oldName and L.PROFILES_RENAME or L.PROFILES_CREATE
+		ns.ShowEditWindow("ProfileName", title, oldName, action, function(name)
+			local ok, savedName
+			if oldName then
+				ok, savedName = Profiles.Rename(oldName, name)
+			else
+				ok, savedName = Profiles.Save(name, true)
+			end
+			if ok then
+				selected = savedName
+			end
+			if owner and owner:IsVisible() then
+				Profiles.ShowList(owner)
+			end
+		end, L.PROFILES_UNIQUE_NAME_HINT)
+	end
+	popup = ns.ShowPopupList(owner, function()
 		local items = {}
 		for _, name in ipairs(Profiles.List()) do
 			local profile = Store()[name]
@@ -318,14 +380,20 @@ function Profiles.ShowList(owner)
 				end,
 			}
 		end
-		return { title = L.PROFILES_LIST, items = items, empty = L.PROFILES_NONE,
-			footer = { { text = L.PROFILES_LOAD, onClick = function()
+		return { title = L.PROFILES_LIST, items = items, empty = L.PROFILES_NONE, width = 460,
+			footer = { { text = L.PROFILES_CREATE, onClick = function()
+				EditName()
+			end }, { text = L.PROFILES_LOAD, onClick = function()
 				if selected and Store()[selected] then
 					StaticPopup_Show("FOREVERPLUS_PROFILE_LOAD", selected, nil, selected)
 				end
 			end }, { text = L.PROFILES_LAYOUTS, onClick = function()
 				if selected then
 					Profiles.ShowLayouts(owner, selected)
+				end
+			end }, { text = L.PROFILES_RENAME, onClick = function()
+				if selected and Store()[selected] then
+					EditName(selected)
 				end
 			end }, { text = L.PROFILES_DELETE, onClick = function()
 				if selected and Store()[selected] then

@@ -569,6 +569,7 @@ function ns.ShowPopupList(owner, build, key, hover)
 	end
 	popup:Refresh()
 	popup:Show()
+	return popup
 end
 
 -- Hides a list that was only shown for a look (see ShowPopupList).

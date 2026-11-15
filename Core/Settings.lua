@@ -3,21 +3,17 @@ local _, ns = ...
 local L = ns.L
 
 local mainCategory
+local newOptionsByCategory = {}
 local RefreshBadges
-local NEW_SEEN_LIMIT = 3
+local NEW_SEEN_LIMIT = 2
 
 local function NewSeenCounts()
 	ns.db.settingsNewSeen = ns.db.settingsNewSeen or {}
 	return ns.db.settingsNewSeen
 end
 
-local function IsNew(id, enabled)
-	return enabled and (NewSeenCounts()[id] or 0) < NEW_SEEN_LIMIT
-end
-
-local function CountAsSeen(id)
-	local counts = NewSeenCounts()
-	counts[id] = math.min(NEW_SEEN_LIMIT, (counts[id] or 0) + 1)
+local function IsNew(id)
+	return (NewSeenCounts()[id] or 0) < NEW_SEEN_LIMIT
 end
 
 local function AddSearchTags(initializer, ...)
@@ -36,10 +32,7 @@ local function AddSearchTags(initializer, ...)
 	end
 end
 
--- Count a feature each time its settings row is displayed. Settings rows are
--- hidden and shown again when switching pages, so revisiting the page counts
--- as another view. The count is account-wide and survives reloads.
--- The glowing "NEW" label behind the name of a settings row (checkbox, slider, section title) while it is new.
+-- The glowing "NEW" label beside the name of a settings row while it is new.
 local function RowLabel(frame)
 	return frame.Text or frame.Label or frame.Title or frame.Name
 end
@@ -51,11 +44,10 @@ local function ShowRowBadge(frame, on)
 			badge = ns.CreateNewBadge(frame, L.SETTINGS_NEW or _G.NEW or "NEW")
 			frame.fpNewBadge = badge
 			-- Rows are reused for other settings: the label goes away with the row.
-			frame:HookScript("OnHide", function(row)
-				if row.fpNewBadge then
-					row.fpNewBadge:Hide()
-				end
-			end)
+			frame:HookScript("OnHide", ns.Measured("Settings: hide NEW row", function(row)
+				row.fpNewMouseID = nil
+				row.fpNewBadge:Hide()
+			end))
 		end
 		local label = RowLabel(frame)
 		badge:ClearAllPoints()
@@ -70,63 +62,50 @@ local function ShowRowBadge(frame, on)
 	end
 end
 
--- hover: an option row counts as seen when the mouse has been over it three times (it is meant to be tried);
--- section titles count each time they are shown.
-local function TrackNew(initializer, id, hover, enabled)
-	if not enabled then
-		return initializer
-	end
-	-- The marks sit on the initializer (the row asks it, so a row reused for other settings counts nothing wrong).
-	initializer.fpNewID, initializer.fpNewHover = id, hover and true or false
-	local function Seen(row, byMouse)
-		local data = row.GetElementData and row:GetElementData()
-		local rowID = type(data) == "table" and data.fpNewID
-		if not rowID or data.fpNewHover ~= byMouse or not IsNew(rowID, true) then
-			return
-		end
-		-- Row and control report the same pass of the mouse: once a second at most.
-		if byMouse then
-			if GetTime() - (row.fpNewLast or 0) < 1 then
+local function HookNewHover(row, region)
+	if not region.fpNewHooked then
+		region.fpNewHooked = true
+		region:HookScript("OnEnter", ns.Measured("Settings: see NEW row", function()
+			local data = row.GetElementData and row:GetElementData()
+			local id = data and data.fpNewID
+			if not id or row.fpNewMouseID == id or not IsNew(id) then
 				return
 			end
-			row.fpNewLast = GetTime()
-		end
-		CountAsSeen(rowID)
-		if not IsNew(rowID, true) then
-			ShowRowBadge(row, false)
-			if RefreshBadges then
+			row.fpNewMouseID = id
+			local counts = NewSeenCounts()
+			counts[id] = (counts[id] or 0) + 1
+			if not IsNew(id) then
+				ShowRowBadge(row, false)
 				RefreshBadges()
 			end
+		end))
+		region:HookScript("OnLeave", ns.Measured("Settings: leave NEW row", function()
+			-- Hover can pass between the label and the controls without leaving the row.
+			if not row:IsMouseOver() then
+				row.fpNewMouseID = nil
+			end
+		end))
+	end
+	for _, child in ipairs({ region:GetChildren() }) do
+		if child ~= row.fpNewBadge then
+			HookNewHover(row, child)
 		end
 	end
-	-- Mouse over the row or one of the controls on it (the control may cover the row).
-	local function HookHover(row, region)
-		if not region.fpNewHooked and region.HookScript then
-			region.fpNewHooked = true
-			region:HookScript("OnEnter", function()
-				Seen(row, true)
-			end)
-		end
-	end
+end
+
+local function TrackNew(initializer, id)
+	-- The row reads its current initializer because the settings list recycles rows.
+	initializer.fpNewID = id
 	-- A hook after the game's own InitFrame (not a replacement of it): our code then does not run inside the game's
 	-- way through the list, whose later steps (search results with the Discord button, for one) refuse calls
 	-- once addon code has run there (ADDON_ACTION_FORBIDDEN IsUserOAuthed).
-	hooksecurefunc(initializer, "InitFrame", function(_, frame)
-		ShowRowBadge(frame, IsNew(id, true))
-		if not frame.foreverPlusNewTracked then
-			frame.foreverPlusNewTracked = true
-			frame:HookScript("OnShow", function(row)
-				Seen(row, false)
-			end)
+	hooksecurefunc(initializer, "InitFrame", ns.Measured("Settings: show NEW row", function(_, frame)
+		local new = IsNew(id)
+		ShowRowBadge(frame, new)
+		if new then
+			HookNewHover(frame, frame)
 		end
-		if hover then
-			HookHover(frame, frame)
-			for _, child in ipairs({ frame:GetChildren() }) do
-				HookHover(frame, child)
-			end
-		end
-	end)
-	return initializer
+	end))
 end
 
 -- New options carry the glowing label (see ShowRowBadge) instead of a coloured word in the name.
@@ -236,7 +215,11 @@ local function AddOption(module, category, layout, opt, initializers)
 	if init then
 		AddSearchTags(init, opt.name, opt.desc, opt.key, module.title, opt._pageTitle, "ForeverPlus")
 		if opt.new then
-			init = TrackNew(init, opt._newID, true, true)
+			local id = "option:" .. module.name .. ":" .. opt.key
+			TrackNew(init, id)
+			local ids = newOptionsByCategory[category] or {}
+			ids[#ids + 1] = id
+			newOptionsByCategory[category] = ids
 		end
 	end
 
@@ -329,7 +312,7 @@ local PAGES = {
 		{ "Errors", header = L.ERRORS_TITLE },
 	},
 	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
-	{ group = 1, title = L.VISUALS_TITLE, new = true,
+	{ group = 1, title = L.VISUALS_TITLE,
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame", "bagActionFrame") },
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
@@ -359,15 +342,6 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		return false
 	end
 	initializers[module] = initializers[module] or {}
-	for _, opt in ipairs(ModuleOptions(module)) do
-		local included = entry.keys and opt.key and entry.keys[opt.key]
-		if not entry.keys and not (entry.exclude and opt.key and entry.exclude[opt.key]) then
-			included = true
-		end
-		if included and opt.new then
-			opt._newID = opt._newID or ("option:" .. module.name .. ":" .. tostring(opt.key or opt.name))
-		end
-	end
 	if entry.header then
 		local header = CreateSettingsListSectionHeaderInitializer(entry.header, entry.headerDesc)
 		AddSearchTags(header, entry.header, entry.headerDesc, pageTitle, "ForeverPlus")
@@ -385,9 +359,6 @@ local function AddEntry(category, layout, entry, pageTitle, initializers)
 		end
 		if include then
 			opt._pageTitle = pageTitle
-			if opt.new then
-				opt._newID = opt._newID or ("option:" .. module.name .. ":" .. tostring(opt.key or opt.name))
-			end
 			AddOption(module, category, layout, opt, initializers[module])
 		end
 	end
@@ -400,24 +371,6 @@ end
 -- button "Addons" of the game menu, while something on a page is new (like the game's own label on new settings).
 ---------------------------------------------------------------------------
 local ownBadges = setmetatable({}, { __mode = "k" })
-
-local function PageStillNew(page)
-	for _, entry in ipairs(page) do
-		local module = ns:GetModule(entry[1])
-		for _, opt in ipairs(module and ModuleOptions(module) or {}) do
-			if opt.new and opt._newID and IsNew(opt._newID, true) then
-				local included = entry.keys and opt.key and entry.keys[opt.key]
-				if not entry.keys and not (entry.exclude and opt.key and entry.exclude[opt.key]) then
-					included = true
-				end
-				if included then
-					return true
-				end
-			end
-		end
-	end
-	return false
-end
 
 local function Mark(owner, on, place)
 	if not owner or (owner.IsForbidden and owner:IsForbidden()) then
@@ -501,10 +454,13 @@ function RefreshBadges()
 		return
 	end
 	local newIDs, any = {}, false
-	for _, page in ipairs(PAGES) do
-		if page._category and PageStillNew(page) then
-			newIDs[page._category:GetID()] = true
-			any = true
+	for category, ids in pairs(newOptionsByCategory) do
+		for _, id in ipairs(ids) do
+			if IsNew(id) then
+				newIDs[category:GetID()] = true
+				any = true
+				break
+			end
 		end
 	end
 	newIDs[mainCategory:GetID()] = any
@@ -603,7 +559,7 @@ function ns:BuildSettings()
 			AddOption(layouts, mainCategory, mainLayout, opt, moverInit)
 		end
 	end
-	-- The NEW labels count as seen after a few views; this brings them back.
+	-- Restore NEW labels that have been dismissed.
 	mainLayout:AddInitializer(ButtonInitializer(L.NEW_RESET, L.NEW_RESET_BUTTON, function()
 		ns.db.settingsNewSeen = {}
 		RefreshBadges()
@@ -617,35 +573,15 @@ function ns:BuildSettings()
 	mover.settingsCategory = mainCategory
 
 	local listed = { Mover = true, Profiles = true, EditLayouts = true }
-	for pageIndex, page in ipairs(PAGES) do
-		page._newID = "page:" .. pageIndex
-		local hasNew = page.new == true
-		for _, entry in ipairs(page) do
-			local module = ns:GetModule(entry[1])
-			if module and module.options then
-				for _, opt in ipairs(ModuleOptions(module)) do
-					local included = entry.keys and opt.key and entry.keys[opt.key]
-					if not entry.keys and not (entry.exclude and opt.key and entry.exclude[opt.key]) then
-						included = true
-					end
-					if included and opt.new then
-						hasNew = true
-						opt._newID = opt._newID or ("option:" .. module.name .. ":" .. tostring(opt.key or opt.name))
-					end
-				end
-			end
-		end
-		page.new = hasNew
+	for _, page in ipairs(PAGES) do
 		local category = Settings.RegisterVerticalLayoutSubcategory(mainCategory, PageName(page))
 		local layout = SettingsPanel:GetLayout(category)
 		local initializers = {}
 		for _, entry in ipairs(page) do
-			entry._pageID = page._newID
 			if AddEntry(category, layout, entry, page.title, initializers) then
 				listed[entry[1]] = true
 			end
 		end
-		page._category = category
 	end
 
 	-- Safety net: modules that are not part of the layout above.

@@ -849,8 +849,8 @@ end
 
 local ShowNextUpgrade
 
--- The window looks like the game's loot upgrade toast (its background, the quality border of the item, arrows that
--- rise over the icon, a glow on the border), with the two buttons below it.
+-- The window is a flat tooltip frame with the loot toast's item border, glow and rising arrows; its own border takes
+-- the quality colour; the two buttons sit inside it.
 local TOAST_BORDER = { [0] = "gray", [1] = "white", [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
 
 -- The gain over the worn item in percent (nil for an empty slot) and the title line of the toast.
@@ -872,8 +872,8 @@ local function SetAtlasOr(texture, atlas, fallback)
 end
 
 local function CreateUpgradeFrame()
-	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent)
-	frame:SetSize(276, 96)
+	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent, "TooltipBackdropTemplate")
+	frame:SetSize(300, 104)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
 	frame:SetFrameStrata("DIALOG")
 	frame:SetToplevel(true)
@@ -883,25 +883,24 @@ local function CreateUpgradeFrame()
 	-- Escape closes it like the panel before.
 	tinsert(UISpecialFrames, "ForeverPlusUpgradeFrame")
 
-	frame.Background = frame:CreateTexture(nil, "BACKGROUND")
-	frame.Background:SetPoint("TOPLEFT")
-	SetAtlasOr(frame.Background, "loottoast-bg-questrewardupgrade", function()
-		frame.Background:SetAllPoints()
-		frame.Background:SetColorTexture(0.08, 0.08, 0.1, 0.92)
-	end)
+	-- A flat tooltip frame like the modern game windows; its border takes the quality colour of the item.
+	if frame.NineSlice and frame.NineSlice.SetCenterColor then
+		frame.NineSlice:SetCenterColor(0.07, 0.07, 0.09, 0.96)
+	end
 
-	frame.Border = frame:CreateTexture(nil, "BORDER", nil, 2)
-	frame.Border:SetPoint("LEFT", frame.Background, "LEFT", 19, -1)
 	frame.Icon = frame:CreateTexture(nil, "BORDER", nil, 1)
 	frame.Icon:SetSize(50, 50)
-	frame.Icon:SetPoint("LEFT", frame, "LEFT", 23, -1)
+	frame.Icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -16)
+	frame.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	frame.Border = frame:CreateTexture(nil, "BORDER", nil, 2)
+	frame.Border:SetPoint("CENTER", frame.Icon, "CENTER")
 	frame.Glow = frame:CreateTexture(nil, "BORDER", nil, 4)
 	frame.Glow:SetPoint("CENTER", frame.Icon, "CENTER")
 	frame.Glow:SetBlendMode("ADD")
 	frame.Glow:SetAlpha(0)
 	SetAtlasOr(frame.Glow, "loottoast-itemborder-glow")
 
-	-- Pointing at the icon shows the item.
+	-- Pointing at the icon shows the item and the rating comparison.
 	local hit = CreateFrame("Frame", nil, frame)
 	hit:SetAllPoints(frame.Icon)
 	hit:SetScript("OnEnter", function(self)
@@ -909,36 +908,34 @@ local function CreateUpgradeFrame()
 		if entry then
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:SetHyperlink(entry.link)
+			GameTooltip:AddLine(" ")
+			GameTooltip:AddLine(entry.equippedScore and entry.equippedScore > 0
+				and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.score, entry.equippedScore)
+				or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score), 1, 1, 1)
 			GameTooltip:Show()
 		end
 	end)
 	hit:SetScript("OnLeave", GameTooltip_Hide)
 
-	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 14, 2)
-	frame.Title:SetPoint("RIGHT", -18, 0)
+	-- Three lines: what it is (and how much better), the item, what it replaces.
+	frame.Gain = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	frame.Gain:SetPoint("TOPRIGHT", -16, -14)
+	frame.Gain:SetTextColor(0.2, 1, 0.2)
+	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 14, -2)
+	frame.Title:SetPoint("RIGHT", frame.Gain, "LEFT", -6, 0)
 	frame.Title:SetJustifyH("LEFT")
+	frame.Title:SetWordWrap(false)
 	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
-	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -3)
-	frame.Name:SetPoint("RIGHT", -18, 0)
+	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -5)
+	frame.Name:SetPoint("RIGHT", -16, 0)
 	frame.Name:SetJustifyH("LEFT")
 	frame.Name:SetWordWrap(false)
-	frame.Score = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	frame.Score:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -3)
-	frame.Score:SetPoint("RIGHT", -18, 0)
-	frame.Score:SetJustifyH("LEFT")
 	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	frame.Replaces:SetPoint("TOPLEFT", frame.Score, "BOTTOMLEFT", 0, -2)
-	frame.Replaces:SetPoint("RIGHT", -18, 0)
+	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -4)
+	frame.Replaces:SetPoint("RIGHT", -16, 0)
 	frame.Replaces:SetJustifyH("LEFT")
 	frame.Replaces:SetWordWrap(false)
-
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButtonNoScripts")
-	close:SetSize(20, 20)
-	close:SetPoint("TOPRIGHT", -4, -4)
-	close:SetScript("OnClick", function()
-		frame:Hide()
-	end)
 
 	-- In: fades in while sliding up a little; the arrows rise over the icon one after another, the border glows.
 	frame.In = frame:CreateAnimationGroup()
@@ -993,8 +990,8 @@ local function CreateUpgradeFrame()
 	end
 
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	equip:SetSize(110, 22)
-	equip:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", -14, 2)
+	equip:SetSize(112, 24)
+	equip:SetPoint("BOTTOMRIGHT", -14, 12)
 	equip:SetText(L.ITEMS_UPGRADE_POPUP_EQUIP)
 	equip:SetScript("OnClick", function()
 		local entry = table.remove(upgradeQueue, 1)
@@ -1010,7 +1007,7 @@ local function CreateUpgradeFrame()
 		ShowNextUpgrade()
 	end)
 	local later = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	later:SetSize(110, 22)
+	later:SetSize(112, 24)
 	later:SetPoint("RIGHT", equip, "LEFT", -6, 0)
 	later:SetText(L.ITEMS_UPGRADE_POPUP_LATER)
 	local function Later()
@@ -1053,10 +1050,16 @@ function ShowNextUpgrade()
 	if color then
 		frame.Name:SetTextColor(color.r, color.g, color.b)
 	end
+	if frame.NineSlice and frame.NineSlice.SetBorderColor then
+		local r, g, b = ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3]
+		if color and quality >= 2 then
+			r, g, b = color.r, color.g, color.b
+		end
+		frame.NineSlice:SetBorderColor(r, g, b, 1)
+	end
 	local gain = Items.UpgradeGain(entry.score, entry.equippedScore)
-	frame.Title:SetText(gain and L.ITEMS_UPGRADE_TOAST_TITLE:format(gain) or L.ITEMS_UPGRADE_TOAST_NEW)
-	frame.Score:SetText(gain and L.ITEMS_UPGRADE_POPUP_SCORE:format(entry.equippedScore, entry.score, gain)
-		or L.ITEMS_UPGRADE_POPUP_SCORE_NEW:format(entry.score))
+	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_HEAD)
+	frame.Gain:SetText(gain and L.ITEMS_UPGRADE_POPUP_GAIN:format(gain) or "")
 	local equipped = entry.invSlot and GetInventoryItemLink("player", entry.invSlot)
 	local equippedName = equipped and C_Item.GetItemInfo(equipped)
 	frame.Replaces:SetText(equippedName and L.ITEMS_UPGRADE_POPUP_REPLACES:format(equippedName) or L.ITEMS_UPGRADE_POPUP_EMPTY)

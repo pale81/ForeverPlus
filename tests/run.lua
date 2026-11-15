@@ -4445,6 +4445,53 @@ end)()
 	print("quest turn-in pins OK")
 end)()
 ;(function()
+	local db = ns:GetModule("WorldMap").db
+	local collect = uv(ns.MapSymbols.Count, "Collect")
+	local savedFaction, savedComplete, savedLib = UnitFactionGroup, C_QuestLog.IsQuestFlaggedCompleted, ns.QuestieDB.Get
+	local faction, completed = "Alliance", {}
+	UnitFactionGroup = function() return faction end
+	C_QuestLog.IsQuestFlaggedCompleted = function(id) return completed[id] end
+	ns.QuestieDB.Get = function() return nil end
+	local function pins(mapID)
+		local result = {}
+		for _, pin in ipairs(collect(mapID)) do
+			if pin.kind == "discovery" then result[#result + 1] = pin end
+		end
+		return result
+	end
+	assert(db.discoveries == false and #pins(1432) == 0, "discoveries are opt-in")
+	db.discoveries = true
+	local loch = pins(1432)
+	assert(#loch == 5 and loch[1].x == 0.457 and loch[1].y == 0.433, "all four toolbox locations and the dam, without QuestieDB")
+	local lines = {}
+	loch[1].tooltip({ AddLine = function(_, line) lines[#lines + 1] = line end }, loch[1])
+	assert(lines[1] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER and lines[2] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER_TOOLBOX
+		and lines[3] == ns.L.WORLDMAP_DISCOVERY_POSSIBLE:format(45.7, 43.3), "localized hint and possible coordinates")
+	assert(#pins(1415) == 0 and #pins(1447) == 1 and #pins(2521) == 2, "discoveries appear on their own zone maps")
+	faction = "Horde"
+	assert(#pins(1432) == 1 and #pins(1431) == 8, "hide the Alliance toolbox while keeping the dam and the torch")
+	faction, completed[86614], completed[99267] = "Alliance", true, true
+	assert(#pins(1432) == 1 and #pins(1431) == 0, "either quest variant can hide a completed discovery")
+	local questSource
+	for _, source in ipairs(uv(collect, "sources")) do
+		if uv(source, "QuestStartAvailable") then questSource = source end
+	end
+	local savedStarts, savedActive, savedOption = uv(questSource, "questStarts"), C_QuestLog.GetLogIndexForQuestID, db.questStarts
+	setuv(questSource, "questStarts", { [1432] = { { x = 50.6, y = 53.4, data = { id = 86614 } } } })
+	C_QuestLog.GetLogIndexForQuestID = function() return nil end
+	ns.QuestieDB.Get = function() return {} end
+	completed[86614], db.questStarts = false, true
+	questSource(1432, function() error("a discovery replaces its ordinary quest start pin") end)
+	db.discoveries = false
+	local starts = 0
+	questSource(1432, function() starts = starts + 1 end)
+	assert(starts == 1, "the ordinary quest start is restored when discoveries are disabled")
+	setuv(questSource, "questStarts", savedStarts)
+	C_QuestLog.GetLogIndexForQuestID, db.questStarts = savedActive, savedOption
+	UnitFactionGroup, C_QuestLog.IsQuestFlaggedCompleted, ns.QuestieDB.Get = savedFaction, savedComplete, savedLib
+	print("map discoveries OK")
+end)()
+;(function()
 	-- Buff reminder: a missing buff waits while the power for it is lacking.
 	local buffs = ns:GetModule("Buffs")
 	local update = uv(buffs.OnLogin, "Update")
@@ -5949,6 +5996,10 @@ end)()
 	assert(texts[1] == "# ForeverPlus", "own section under the addon name")
 	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
 		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
+	local discoveries = setters[ns.L.WORLDMAP_DISCOVERIES]
+	assert(discoveries and not discoveries.isOn(), "discoveries filter starts off")
+	discoveries.set()
+	assert(values.ForeverPlus_WorldMap_discoveries == true, "the map filter enables discoveries")
 	assert(nested >= 3, "recipe radar options as a submenu")
 	WM.db.flightPoints = true
 	assert(setters[ns.L.WORLDMAP_FLIGHTS].isOn() == true, "state read from the option")

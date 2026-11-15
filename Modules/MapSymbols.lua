@@ -479,12 +479,25 @@ local function QuestStartTooltip(tooltip, symbol)
 end
 
 Symbols.AddSource(function(mapID, add)
-	if not (Options().questStarts and questStarts) then
+	local db = Options()
+	if not (db.questStarts and questStarts) then
 		return
 	end
 	local lib = ns.QuestieDB.Get()
 	if not lib then return end
 	local availability = {}
+	-- The discovery marker already shows these quest starts on the zone map.
+	local discoveries = db.discoveries and ns.MapDiscoveries[mapID]
+	if discoveries then
+		local faction = UnitFactionGroup("player")
+		for _, discovery in ipairs(discoveries) do
+			if not discovery.faction or discovery.faction == faction then
+				for _, questID in ipairs(discovery.quests or {}) do
+					availability[questID] = false
+				end
+			end
+		end
+	end
 	ForZones(mapID, function(zoneMapID, toMap)
 		for _, entry in ipairs(questStarts[zoneMapID] or {}) do
 			local id = entry.data.id
@@ -499,6 +512,36 @@ Symbols.AddSource(function(mapID, add)
 			end
 		end
 	end)
+end)
+
+local function DiscoveryComplete(discovery)
+	for _, questID in ipairs(discovery.quests or {}) do
+		if C_QuestLog.IsQuestFlaggedCompleted(questID) then return true end
+	end
+	return false
+end
+
+local function DiscoveryTooltip(tooltip, symbol)
+	local discovery, point = symbol.data, symbol.point
+	local strings = L.WORLDMAP_DISCOVERY_TEXT
+	tooltip:AddLine(strings[discovery.name], 1, 1, 1, true)
+	tooltip:AddLine(strings[discovery.hint], 1, 0.82, 0, true)
+	local coordinates = #discovery.points > 1 and L.WORLDMAP_DISCOVERY_POSSIBLE or L.WORLDMAP_DISCOVERY_COORDS
+	tooltip:AddLine(coordinates:format(point[1], point[2]), 0.8, 0.8, 0.8)
+end
+
+Symbols.AddSource(function(mapID, add)
+	local discoveries = Options().discoveries and ns.MapDiscoveries[mapID]
+	if not discoveries then return end
+	local faction = UnitFactionGroup("player")
+	for _, discovery in ipairs(discoveries) do
+		if (not discovery.faction or discovery.faction == faction) and not DiscoveryComplete(discovery) then
+			for _, point in ipairs(discovery.points) do
+				add(point[1] / 100, point[2] / 100, { kind = "discovery", texture = 1518645, round = true, size = 17,
+					data = discovery, point = point, tooltip = DiscoveryTooltip })
+			end
+		end
+	end
 end)
 
 local function QuestTurnInTooltip(tooltip, symbol)

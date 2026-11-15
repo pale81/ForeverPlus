@@ -48,6 +48,7 @@ Data\FontFamilies.lua
 Data\Inns.lua
 Data\WeaponMasters.lua
 Data\ZoneLevels.lua
+Data\MapDiscoveries.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\DungeonJournal.lua

@@ -33,6 +33,7 @@ Modules\InstanceStats.lua
 Data\MapOverlays.lua
 Data\Instances.lua
 Data\DungeonJournal.lua
+Data\DungeonJournalBosses.lua
 Data\Places.lua
 Data\PlaceInfo.lua
 Data\EditModeLayouts.lua

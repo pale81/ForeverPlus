@@ -7086,4 +7086,132 @@ end)()
 	rp.db.enabled, rp.cdb.shared, rp.cdb.profile = true, false, {}
 	print("roleplay editor and profile exchange OK")
 end)()
+;(function()
+	local journal = ns:GetModule("DungeonJournal")
+	local matchingBosses = {}
+	for _, entry in pairs(ns.DungeonJournalData.instances) do
+		for _, boss in ipairs(entry.bosses) do
+			local id = boss[1]
+			assert(not matchingBosses[id], "each encounter ID belongs to a single instance")
+			matchingBosses[id] = true
+			local info = ns.DungeonJournalBosses[id]
+			local point = info and info.position
+			if point then
+				local found = false
+				for _, floor in ipairs(entry.floors or {}) do found = found or floor[1] == point[1] end
+				for _, pane in ipairs(entry.minimap or {}) do found = found or pane[3][1][1] == point[1] end
+				assert(found and point[2] > 0 and point[2] < 1 and point[3] > 0 and point[3] < 1, "valid boss location " .. id)
+			end
+		end
+	end
+	for id in pairs(ns.DungeonJournalBosses) do assert(matchingBosses[id], "known boss details") end
+
+	local saved = {}
+	for _, key in ipairs({ "CreateFrame", "GetCursorPosition", "GetRealZoneText", "UISpecialFrames", "GRAY_FONT_COLOR",
+		"C_Spell", "GameTooltip", "MenuUtil" }) do
+		saved[key] = _G[key]
+	end
+	local cursorX, cursorY = 280, 160
+	GetCursorPosition = function() return cursorX, cursorY end
+	GetRealZoneText = function() end
+	UISpecialFrames = {}
+	GRAY_FONT_COLOR = { GetRGB = function() return 0.5, 0.5, 0.5 end }
+	C_Spell = { GetSpellName = function(id) return "Spell " .. id end, GetSpellTexture = function() return 1 end }
+	local tip, tipSpell = {}
+	GameTooltip = NewFrame("Tooltip")
+	GameTooltip.SetOwner = function() wipe(tip) end
+	GameTooltip.AddLine = function(_, line) tip[#tip + 1] = line end
+	GameTooltip.SetSpellByID = function(_, id) tipSpell = id return true end
+	CreateFrame = function(kind, name, parent, template)
+		local f = saved.CreateFrame(kind, name, parent, template)
+		f.SetSize = function(self, w, h) self.w, self.h = w, h end
+		f.SetHeight = function(self, h) self.h = h end
+		f.SetScale = function(self, scale) self.testScale = scale end
+		f.SetPoint = function(self, ...) self.anchor = { ... } end
+		f.SetClipsChildren = function(self) self.w, self.h = 583, 323 end
+		f.GetEffectiveScale = function() return 0.8 end
+		f.GetCenter = function() return 350, 200 end
+		f.GetParent = function() return parent end
+		f.GetText = function() return "" end
+		f.CreateFontString = function()
+			local label = NewFrame("FontString")
+			label.SetText = function(self, value) self.testText = value end
+			return label
+		end
+		return f
+	end
+
+	journal.Open(36, 52, 0.4, 0.6)
+	local panel = ForeverPlusDungeonJournal
+	local view = panel.mapImage
+	local pin = assert(view.bossPins[1])
+	assert(view.zoom == 1 and view.pinCount > 0 and pin:IsShown(), "inner map starts fitted with boss markers")
+	local firstX, firstY = pin.anchor[4], pin.anchor[5]
+	pin:GetScript("OnMouseWheel")(pin, 1)
+	assert(view.zoom > 1 and view.canvas.testScale == view.zoom and math.abs(view.panX) < 0.001
+		and math.abs(view.panY) < 0.001, "centered map zoom")
+	assert(math.abs(pin.anchor[4] - firstX * view.zoom) < 0.001 and math.abs(pin.anchor[5] - firstY * view.zoom) < 0.001,
+		"boss markers follow the zoomed tiles")
+	for _ = 1, 8 do view.viewport:GetScript("OnMouseWheel")(view.viewport, 1) end
+	assert(view.zoom == 4, "maximum zoom")
+	view.viewport:GetScript("OnDragStart")()
+	cursorX, cursorY = 3000, -3000
+	view.viewport:GetScript("OnUpdate")(view.viewport)
+	assert(view.panX == (view.canvas:GetWidth() * 4 - view.viewport:GetWidth()) / 2 and view.panY < 0, "panning stops at map edges")
+	assert(not pin:IsShown(), "pins outside the clip cannot take clicks")
+	view.viewport:GetScript("OnDragStop")()
+	assert(not view.viewport:GetScript("OnUpdate"), "panning does not leave a per-frame callback")
+	panel.resetZoom:GetScript("OnClick")()
+	assert(view.zoom == 1 and pin:IsShown(), "reset restores the map and marker")
+	pin:GetScript("OnEnter")(pin)
+	assert(tip[1] == "Rhahk'Zor" and table.concat(tip):find("6304", 1, true), "boss tooltip includes known abilities")
+	pin:GetScript("OnClick")(pin)
+	assert(panel.bossDetails:IsShown() and not panel.map:IsShown(), "marker opens the boss details")
+	local spell = panel.bossDetails.spells.rows[1]
+	spell:GetScript("OnEnter")(spell)
+	assert(tipSpell == 6304, "ability hover asks the game for its spell tooltip")
+	panel.bossDetails.mapButton:GetScript("OnClick")()
+	assert(panel.map:IsShown() and not panel.bossDetails:IsShown() and view.page == 1, "boss details return to the correct map")
+	panel.next:GetScript("OnClick")()
+	assert(view.page == 2 and view.pinCount > 0 and view.bossPins[1].boss[1] ~= 2741, "floor changes replace the marker set")
+	panel.entranceButton:GetScript("OnClick")()
+	assert(view.page == 0 and view.pinCount == 0 and view.zoom == 1, "entrance map does not inherit floor markers")
+
+	journal.Open(209)
+	local group
+	for index = 1, view.pinCount do
+		local marker = view.bossPins[index]
+		if marker.overlaps then group = marker end
+	end
+	assert(group and #group.overlaps == 2, "one marker can represent encounters at the same spot")
+	local choices = {}
+	MenuUtil = { CreateContextMenu = function(_, callback)
+		callback(nil, { CreateButton = function(_, _, action) choices[#choices + 1] = action end })
+	end }
+	group:GetScript("OnClick")(group)
+	assert(#choices == 2, "a shared marker lets the player choose either boss")
+	choices[2]()
+	assert(panel.bossDetails:IsShown() and panel.bossDetails.mapButton:IsShown(), "both choices retain their map link")
+
+	journal.Open(3065)
+	assert(view.pinCount == 4 and view.zoom == 1, "Forever minimap positions appear on the matching section")
+	panel.tabs.bosses:GetScript("OnClick")()
+	panel.entries.rows[1]:GetScript("OnClick")(panel.entries.rows[1], "LeftButton")
+	assert(panel.bossDetails:IsShown() and panel.bossDetails.title.testText == "Faldrim Anvilmar", "boss list opens the same view")
+	journal.db.bossDetails = false
+	journal:OnOptionChanged()
+	assert(panel.entries:IsShown() and not panel.bossDetails:IsShown(), "turning off boss details restores the list")
+	panel.tabs.map:GetScript("OnClick")()
+	assert(view.pinCount == 0, "turning off boss details removes map markers")
+	journal.db.mapZoom = false
+	journal:OnOptionChanged()
+	view.viewport:GetScript("OnMouseWheel")(view.viewport, 1)
+	assert(view.zoom == 1 and not panel.resetZoom:IsShown(), "turning off zoom also removes the reset action")
+
+	panel:GetScript("OnHide")()
+	panel:Hide()
+	journal.db.mapZoom, journal.db.bossDetails = true, true
+	for key, value in pairs(saved) do _G[key] = value end
+	print("dungeon journal map and boss details OK")
+end)()
 dofile("bundled.lua")

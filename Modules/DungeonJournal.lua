@@ -3,10 +3,11 @@ local _, ns = ...
 local L = ns.L
 local Journal = ns:NewModule("DungeonJournal", {
 	title = L.JOURNAL_TITLE, order = 12,
-	defaults = { enabled = true, bookButton = true, questWaypoint = true },
+	defaults = { enabled = true, bookButton = true, questWaypoint = true, mapZoom = true, bossDetails = true },
 })
 
 local data = ns.DungeonJournalData.instances
+local bossData = ns.DungeonJournalBosses
 local german = GetLocale() == "deDE"
 local WIDTH, HEIGHT = 872, 570
 local DETAIL_X, RIGHT_MARGIN = 249, 14
@@ -22,7 +23,8 @@ local STATES = {
 local STATUS = {
 	ready = L.JOURNAL_READY, active = L.JOURNAL_ACTIVE, done = L.JOURNAL_DONE, missing = L.JOURNAL_MISSING,
 }
-local frame, bookButton, catalog, selection, mapPage, selectedTab
+local frame, bookButton, catalog, selection, mapPage, selectedTab, selectedBoss
+local Render, RenderCatalog, Select
 local kind, characterOnly = "dungeon", true
 local requested = {}
 local tabs = { { "map", L.JOURNAL_MAP }, { "bosses", L.JOURNAL_BOSSES }, { "quests", L.JOURNAL_QUESTS } }
@@ -241,7 +243,7 @@ local function Row(scroll, index, onClick)
 		row.sub:SetPoint("RIGHT", -8, 0)
 		row.sub:SetJustifyH("LEFT")
 		row.sub:SetWordWrap(false)
-		row:SetScript("OnClick", ns.Measured("DungeonJournal: row", onClick))
+		if onClick then row:SetScript("OnClick", ns.Measured("DungeonJournal: row", onClick)) end
 		row:SetScript("OnLeave", GameTooltip_Hide)
 		scroll.rows[index] = row
 	end
@@ -353,8 +355,195 @@ local function DrawTile(image, index, file, x, y, tileW, tileH, width, height, s
 	tile:Show()
 end
 
+local function BossName(boss)
+	return german and boss[3] or boss[2]
+end
+
+local function BossPage(entry, info)
+	local tile = info and info.position and info.position[1]
+	if not tile then return end
+	for index, floor in ipairs(entry.floors or {}) do
+		if floor[1] == tile then return index end
+	end
+	for index, section in ipairs(entry.minimap or {}) do
+		if section[3][1][1] == tile then return index end
+	end
+end
+
+local function BossSpellName(id)
+	return Text(C_Spell.GetSpellName(id)) or L.JOURNAL_SPELL_ID:format(id)
+end
+
+local function BossPositionSource(info)
+	if info then
+		if info.classic then return L.JOURNAL_CLASSIC_BOSS end
+		if info.approximate then return L.JOURNAL_APPROX_BOSS end
+	end
+end
+
+local function BossTooltip(button)
+	if not button.boss or not Journal.db.bossDetails then return end
+	if button.overlaps then
+		Tooltip(button, L.JOURNAL_BOSSES, L.JOURNAL_SHARED_BOSS_POINT)
+		for _, entry in ipairs(button.overlaps) do
+			GameTooltip:AddLine(BossName(entry[1]), 1, 0.82, 0.35, true)
+		end
+		GameTooltip:AddLine(L.JOURNAL_SHARED_BOSS_CLICK, 0.68, 0.73, 0.81, true)
+		GameTooltip:Show()
+		return
+	end
+	local info = bossData[button.boss[1]]
+	Tooltip(button, BossName(button.boss), L.JOURNAL_ENCOUNTER:format(button.bossIndex))
+	if info and info.note then
+		GameTooltip:AddLine(info.note[german and 2 or 1], 0.85, 0.85, 0.85, true)
+	end
+	local spells = info and info.spells or {}
+	for index = 1, math.min(#spells, 5) do
+		GameTooltip:AddLine(BossSpellName(spells[index]), 1, 0.82, 0.35, true)
+	end
+	local source = BossPositionSource(info)
+	if source then
+		GameTooltip:AddLine(source, 0.68, 0.73, 0.81, true)
+	end
+	GameTooltip:AddLine(L.JOURNAL_BOSS_CLICK, 0.68, 0.73, 0.81, true)
+	GameTooltip:Show()
+end
+
+local function SelectBoss(index)
+	selectedBoss, selectedTab = index, "bosses"
+	Render(true)
+end
+
+local function OpenBoss(button)
+	if not button.boss or not Journal.db.bossDetails then return end
+	GameTooltip:Hide()
+	if not button.overlaps then
+		SelectBoss(button.bossIndex)
+		return
+	end
+	MenuUtil.CreateContextMenu(button, function(_, root)
+		for _, entry in ipairs(button.overlaps) do
+			local boss, index = unpack(entry)
+			root:CreateButton(BossName(boss), ns.Measured("DungeonJournal: select boss", function() SelectBoss(index) end))
+		end
+	end)
+end
+
+local function PositionMap(image)
+	local canvas, view = image.canvas, image.viewport
+	local vw, vh = view:GetSize()
+	local width, height = canvas:GetWidth() * image.zoom, canvas:GetHeight() * image.zoom
+	local limitX, limitY = math.max(0, (width - vw) / 2), math.max(0, (height - vh) / 2)
+	image.panX = math.max(-limitX, math.min(limitX, image.panX))
+	image.panY = math.max(-limitY, math.min(limitY, image.panY))
+	canvas:SetScale(image.zoom)
+	canvas:ClearAllPoints()
+	canvas:SetPoint("CENTER", view, "CENTER", image.panX / image.zoom, image.panY / image.zoom)
+	for i = 1, image.pinCount do
+		local pin = image.bossPins[i]
+		local x = image.panX + (pin.x - 0.5) * width
+		local y = image.panY + (0.5 - pin.y) * height
+		pin:ClearAllPoints()
+		pin:SetPoint("CENTER", view, "CENTER", x, y)
+		pin:SetShown(math.abs(x) + pin:GetWidth() / 2 <= vw / 2 and math.abs(y) + pin:GetHeight() / 2 <= vh / 2)
+	end
+end
+
+local function StopMapDrag(image)
+	image.dragX, image.dragY = false, nil
+	ns.SetUpdate(image.viewport, "DungeonJournal: pan map", nil)
+end
+
+local function ResetMapView(image)
+	StopMapDrag(image)
+	image.zoom, image.panX, image.panY = 1, 0, 0
+end
+
+local function ZoomMap(image, delta)
+	if not Journal.db.mapZoom or not image.hasArt or image.dragX or delta == 0 then return end
+	local zoom = math.max(1, math.min(4, image.zoom * (delta > 0 and math.sqrt(2) or 1 / math.sqrt(2))))
+	if math.abs(zoom - 1) < 0.001 then zoom = 1 end
+	if math.abs(zoom - 4) < 0.001 then zoom = 4 end
+	if zoom == image.zoom then return end
+	local view = image.viewport
+	local scale = view:GetEffectiveScale()
+	local centerX, centerY = view:GetCenter()
+	local x, y = GetCursorPosition()
+	x, y = x / scale - centerX, y / scale - centerY
+	local ratio = zoom / image.zoom
+	image.panX = x + (image.panX - x) * ratio
+	image.panY = y + (image.panY - y) * ratio
+	image.zoom = zoom
+	PositionMap(image)
+end
+
+local function PanMap(view)
+	local image = view:GetParent()
+	local x, y = GetCursorPosition()
+	if x == image.dragX and y == image.dragY then return end
+	local scale = view:GetEffectiveScale()
+	image.panX = image.panX + (x - image.dragX) / scale
+	image.panY = image.panY + (y - image.dragY) / scale
+	image.dragX, image.dragY = x, y
+	PositionMap(image)
+end
+
+local function BossPin(image, index)
+	local pin = image.bossPins[index]
+	if not pin then
+		pin = CreateFrame("Button", nil, image.viewport)
+		pin:SetSize(20, 20)
+		pin:SetNormalTexture(ICON.boss)
+		pin:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+		pin:SetScript("OnClick", ns.Measured("DungeonJournal: open boss", OpenBoss))
+		pin:SetScript("OnEnter", ns.Measured("DungeonJournal: boss tooltip", BossTooltip))
+		pin:SetScript("OnLeave", GameTooltip_Hide)
+		pin:EnableMouseWheel(true)
+		pin:SetScript("OnMouseWheel", image.viewport:GetScript("OnMouseWheel"))
+		image.bossPins[index] = pin
+	end
+	return pin
+end
+
+local function DrawBossPins(image, entry)
+	local count, locations = 0, {}
+	if mapPage ~= 0 and image.hasArt and Journal.db.bossDetails then
+		for index, boss in ipairs(entry.bosses) do
+			local info = bossData[boss[1]]
+			local position = info and info.position
+			if position and BossPage(entry, info) == mapPage then
+				local x, y = position[2], position[3]
+				local key = x .. ":" .. y
+				local pin = locations[key]
+				if pin then
+					pin.overlaps = pin.overlaps or { { pin.boss, pin.bossIndex } }
+					pin.overlaps[#pin.overlaps + 1] = { boss, index }
+				else
+					count = count + 1
+					pin = BossPin(image, count)
+					pin.boss, pin.bossIndex, pin.x, pin.y, pin.overlaps = boss, index, x, y, false
+					locations[key] = pin
+					pin:UnlockHighlight()
+					pin:SetFrameLevel(image.viewport:GetFrameLevel() + 2)
+				end
+				if selectedBoss == index then
+					pin:LockHighlight()
+					pin:SetFrameLevel(image.viewport:GetFrameLevel() + 3)
+				end
+			end
+		end
+	end
+	for index = count + 1, #image.bossPins do image.bossPins[index]:Hide() end
+	image.pinCount = count
+end
+
 local function DrawMap(id, entry)
 	local image = frame.mapImage
+	if image.instance ~= id or image.page ~= mapPage or not Journal.db.mapZoom then
+		ResetMapView(image)
+		GameTooltip:Hide()
+		image.instance, image.page = id, mapPage
+	end
 	local width, height, tileW, tileH, tiles, x, y
 	local pageCount, cropped = 0, false
 	local label
@@ -376,17 +565,16 @@ local function DrawMap(id, entry)
 	end
 
 	frame.mapLabel:SetText(label)
-	frame.mapCaption:SetText(mapPage == 0 and (tiles and L.JOURNAL_ENTRANCE_NOTE or "")
-		or entry.floors and L.JOURNAL_LEGACY_NOTE or L.JOURNAL_MINIMAP_NOTE)
+	local caption = mapPage == 0 and L.JOURNAL_ENTRANCE_NOTE
+		or entry.floors and L.JOURNAL_LEGACY_NOTE or L.JOURNAL_MINIMAP_NOTE
 	frame.prev:SetShown(pageCount > 1)
 	frame.next:SetShown(pageCount > 1)
 	frame.entranceButton:SetShown(Entrance(id) ~= nil and (entry.floors ~= nil or entry.minimap ~= nil))
 	frame.entranceButton:SetText(mapPage == 0 and L.JOURNAL_INTERIOR or L.JOURNAL_ENTRANCE)
-	image.empty:SetShown(tiles == nil)
 	image.pin:Hide()
 	local used = 0
 	if tiles and width > 0 and height > 0 and tileW > 0 and tileH > 0 then
-		local scale = math.min((image:GetWidth() - 8) / width, (image:GetHeight() - 8) / height)
+		local scale = math.min(image.viewport:GetWidth() / width, image.viewport:GetHeight() / height)
 		image.canvas:SetSize(width * scale, height * scale)
 		local columns = math.ceil(width / tileW)
 		local count = cropped and #tiles or math.min(#tiles, columns * math.ceil(height / tileH))
@@ -410,19 +598,74 @@ local function DrawMap(id, entry)
 		end
 	end
 	for i = used + 1, #image.tiles do image.tiles[i]:Hide() end
+	image.hasArt = used > 0
+	image.empty:SetShown(not image.hasArt)
+	DrawBossPins(image, entry)
+	PositionMap(image)
+	local zoomEnabled = image.hasArt and Journal.db.mapZoom
+	frame.resetZoom:SetShown(zoomEnabled)
+	frame.mapCaption:SetText(image.hasArt and (caption .. (zoomEnabled and "\n" .. L.JOURNAL_ZOOM_HINT or "")) or "")
 end
 
-local Render, RenderCatalog, Select
+local function OpenEntry(row, button)
+	if row.quest then
+		OpenQuest(row, button)
+	elseif button == "LeftButton" then
+		OpenBoss(row)
+	end
+end
+
+local function EntryTooltip(row)
+	if row.quest then QuestTooltip(row) else BossTooltip(row) end
+end
+
+local function SpellTooltip(row)
+	GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+	if not GameTooltip:SetSpellByID(row.spellID) then
+		GameTooltip:AddLine(BossSpellName(row.spellID), 1, 1, 1)
+		GameTooltip:Show()
+	end
+end
+
+local function DrawBossDetails(entry)
+	local boss = entry.bosses[selectedBoss]
+	local info = bossData[boss[1]]
+	local details = frame.bossDetails
+	details.title:SetText(BossName(boss))
+	details.order:SetText(L.JOURNAL_ENCOUNTER:format(selectedBoss))
+	details.mapButton:SetShown(BossPage(entry, info) ~= nil)
+	local note = info and info.note
+	details.note:SetText(note and note[german and 2 or 1] or "")
+	local noteHeight = note and details.note:GetStringHeight() + 12 or 0
+	details.heading:SetPoint("TOPLEFT", 12, -124 - noteHeight)
+	local spells = info and info.spells or {}
+	details.empty:SetShown(#spells == 0)
+	details.spells:SetShown(#spells > 0)
+	details.spells:SetHeight(222 - noteHeight)
+	for index, id in ipairs(spells) do
+		local row = Row(details.spells, index)
+		if not row:GetScript("OnEnter") then
+			row:SetScript("OnEnter", ns.Measured("DungeonJournal: ability tooltip", SpellTooltip))
+		end
+		row.spellID = id
+		row.icon:SetTexture(C_Spell.GetSpellTexture(id) or 134400)
+		row.text:SetText(BossSpellName(id))
+	end
+	ShowRows(details.spells, #spells, true)
+	details.source:SetText(BossPositionSource(info) or "")
+end
 
 Render = function(reset)
 	local entry = data[selection]
 	local map = selectedTab == "map"
 	local quests = selectedTab == "quests"
+	local bossDetails = not (map or quests) and selectedBoss ~= nil and Journal.db.bossDetails
 	for key, button in pairs(frame.tabs) do SelectTab(button, key == selectedTab) end
 	frame.map:SetShown(map)
-	frame.entries:SetShown(not map)
-	frame.listTitle:SetShown(not map)
-	frame.listNote:SetShown(not map)
+	frame.bossDetails:SetShown(bossDetails)
+	frame.entries:SetShown(not (map or bossDetails))
+	frame.listTitle:SetShown(not (map or bossDetails))
+	frame.listNote:SetShown(not (map or bossDetails))
 	frame.character:SetShown(quests)
 	frame.empty:Hide()
 	frame.art:SetTexture(entry.art ~= 0 and entry.art or nil)
@@ -434,17 +677,22 @@ Render = function(reset)
 		DrawMap(selection, entry)
 		return
 	end
+	if bossDetails then
+		DrawBossDetails(entry)
+		return
+	end
 
 	local rows = quests and QuestRows(selection, characterOnly) or entry.bosses
 	frame.listTitle:SetText(quests and L.JOURNAL_QUEST_COUNT:format(#rows) or L.JOURNAL_BOSS_COUNT:format(#rows))
-	frame.listNote:SetText(quests and L.JOURNAL_QUEST_NOTE or L.JOURNAL_BOSS_NOTE)
+	frame.listNote:SetText(quests and L.JOURNAL_QUEST_NOTE
+		or Journal.db.bossDetails and L.JOURNAL_BOSS_CLICK or L.JOURNAL_BOSS_NOTE)
 	for index, record in ipairs(rows) do
-		local row = Row(frame.entries, index, OpenQuest)
-		row.quest = quests and record or nil
-		if not row.tooltipHook then
-			row.tooltipHook = true
+		local row = Row(frame.entries, index, OpenEntry)
+		row.quest = quests and record
+		row.boss, row.bossIndex, row.overlaps = not quests and record, index, false
+		if not row:GetScript("OnEnter") then
 			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-			row:HookScript("OnEnter", ns.Measured("DungeonJournal: quest tooltip", QuestTooltip))
+			row:HookScript("OnEnter", ns.Measured("DungeonJournal: entry tooltip", EntryTooltip))
 		end
 		if quests then
 			row.icon:SetTexture(record.state == "done" and ICON.done or ICON.quest)
@@ -462,7 +710,7 @@ Render = function(reset)
 		else
 			row.icon:SetTexture(ICON.boss)
 			row.icon:SetDesaturated(false)
-			row.text:SetText(german and record[3] or record[2])
+			row.text:SetText(BossName(record))
 			row.sub:SetText(L.JOURNAL_ENCOUNTER:format(index))
 			row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
 		end
@@ -501,6 +749,7 @@ end
 Select = function(id)
 	if not data[id] then return end
 	selection, kind = id, data[id].kind
+	selectedBoss = nil
 	mapPage = (data[id].floors or data[id].minimap) and 1 or 0
 	SelectTab(frame.dungeons, kind == "dungeon")
 	SelectTab(frame.raids, kind == "raid")
@@ -533,9 +782,30 @@ local function CreateMap(panel, parent)
 	image:SetPoint("TOPLEFT", 9, -39)
 	image:SetSize(DETAIL_WIDTH - 18, 331)
 	image.Bg:SetVertexColor(0.37, 0.34, 0.31)
-	image.canvas = CreateFrame("Frame", nil, image)
+	local view = CreateFrame("Frame", nil, image)
+	view:SetPoint("TOPLEFT", 4, -4)
+	view:SetPoint("BOTTOMRIGHT", -4, 4)
+	view:SetClipsChildren(true)
+	view:EnableMouse(true)
+	view:EnableMouseWheel(true)
+	view:RegisterForDrag("LeftButton")
+	view:SetScript("OnMouseWheel", ns.Measured("DungeonJournal: zoom map", function(_, delta)
+		ZoomMap(image, delta)
+	end))
+	view:SetScript("OnDragStart", ns.Measured("DungeonJournal: start map drag", function()
+		if image.zoom <= 1 or not image.hasArt then return end
+		image.dragX, image.dragY = GetCursorPosition()
+		ns.SetUpdate(view, "DungeonJournal: pan map", PanMap)
+	end))
+	local stop = ns.Measured("DungeonJournal: stop map drag", function() StopMapDrag(image) end)
+	view:SetScript("OnDragStop", stop)
+	view:SetScript("OnHide", stop)
+	image.viewport = view
+	image.canvas = CreateFrame("Frame", nil, view)
+	image.canvas:SetSize(1, 1)
 	image.canvas:SetPoint("CENTER")
-	image.tiles = {}
+	image.tiles, image.bossPins, image.pinCount = {}, {}, 0
+	ResetMapView(image)
 	image.pin = image.canvas:CreateTexture(nil, "OVERLAY")
 	image.pin:SetSize(26, 26)
 	image.pin:SetAtlas("dungeon")
@@ -554,7 +824,45 @@ local function CreateMap(panel, parent)
 		DrawMap(selection, data[selection])
 	end)
 	panel.entranceButton:SetPoint("TOPRIGHT", -68, -8)
+	panel.resetZoom = PanelButton(map, 123, L.JOURNAL_RESET_ZOOM, function()
+		ResetMapView(image)
+		PositionMap(image)
+	end)
+	panel.resetZoom:SetPoint("RIGHT", panel.entranceButton, "LEFT", -6, 0)
 	return map
+end
+
+local function CreateBossDetails(parent)
+	local details = CreateFrame("Frame", nil, parent)
+	details:SetAllPoints()
+	local back = PanelButton(details, 123, L.JOURNAL_BOSSES_BACK, function()
+		GameTooltip:Hide()
+		selectedBoss = nil
+		Render(true)
+	end)
+	back:SetPoint("TOPLEFT", 9, -8)
+	details.mapButton = PanelButton(details, 132, L.JOURNAL_BOSS_SHOW_MAP, function()
+		local entry = data[selection]
+		selectedTab, mapPage = "map", BossPage(entry, bossData[entry.bosses[selectedBoss][1]])
+		ResetMapView(frame.mapImage)
+		Render(true)
+	end)
+	details.mapButton:SetPoint("TOPRIGHT", -9, -8)
+	details.title = Label(details, "GameFontNormalLarge", "TOPLEFT", 12, -44)
+	details.order = Label(details, "GameFontHighlightSmall", "TOPLEFT", 12, -70)
+	details.note = Label(details, "GameFontHighlight", "TOPLEFT", 12, -96)
+	details.note:SetWidth(DETAIL_WIDTH - 24)
+	details.note:SetWordWrap(true)
+	details.heading = Label(details, "GameFontNormal", "TOPLEFT", 12, -124, L.JOURNAL_ABILITIES)
+	details.spells = List(details, DETAIL_WIDTH - 33, 222)
+	details.spells:SetPoint("TOPLEFT", details.heading, "BOTTOMLEFT", -4, -7)
+	details.empty = Label(details, "GameFontDisable", "TOPLEFT", 0, 0, L.JOURNAL_NO_ABILITIES)
+	details.empty:ClearAllPoints()
+	details.empty:SetPoint("TOPLEFT", details.heading, "BOTTOMLEFT", 0, -10)
+	details.source = Label(details, "GameFontHighlightSmall", "TOPLEFT", 12, -379)
+	details.source:SetWidth(DETAIL_WIDTH - 24)
+	details.source:SetWordWrap(true)
+	return details
 end
 
 local function RefreshQuests()
@@ -636,6 +944,7 @@ local function CreateJournal()
 		local key = spec[1]
 		local tab = Tab(panel, spec[2], function()
 			selectedTab = key
+			if key == "bosses" then selectedBoss = nil end
 			Render(true)
 		end)
 		if previousTab then
@@ -647,6 +956,7 @@ local function CreateJournal()
 		previousTab = tab
 	end
 	panel.map = CreateMap(panel, detail)
+	panel.bossDetails = CreateBossDetails(detail)
 	panel.character = CreateFrame("CheckButton", nil, detail, "UICheckButtonTemplate")
 	panel.character:SetPoint("TOPLEFT", DETAIL_WIDTH - 185, -5)
 	panel.character:SetSize(26, 26)
@@ -768,7 +1078,9 @@ function Journal:OnLogin()
 end
 
 function Journal:OnOptionChanged()
-	if not self.db.enabled and frame then frame:Hide() end
+	if frame and frame:IsShown() then
+		if self.db.enabled then Render(false) else frame:Hide() end
+	end
 	UpdateBookButton()
 	local finder = ns:GetModule("GroupFinder")
 	if finder and finder.RefreshJournalButtons then finder.RefreshJournalButtons() end
@@ -785,5 +1097,7 @@ Journal.options = {
 	{ key = "enabled", type = "toggle", name = L.JOURNAL_TITLE, desc = L.JOURNAL_OPTION, new = true },
 	{ key = "bookButton", type = "toggle", name = L.JOURNAL_BOOK_OPTION, parent = "enabled", new = true },
 	{ key = "questWaypoint", type = "toggle", name = L.JOURNAL_PICKUP_OPTION, parent = "enabled", new = true },
+	{ key = "mapZoom", type = "toggle", name = L.JOURNAL_ZOOM_OPTION, parent = "enabled", new = true },
+	{ key = "bossDetails", type = "toggle", name = L.JOURNAL_BOSS_OPTION, parent = "enabled", new = true },
 	{ type = "button", name = L.JOURNAL_TITLE, text = L.JOURNAL_OPEN, func = function() Journal.Open() end },
 }

@@ -348,21 +348,11 @@ local function CreateTargetButton()
 	return button
 end
 
-local function HookPlayerPortrait()
-	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
-	local portrait = container and container.PlayerPortrait
-	if not portrait or type(portrait.IsMouseOver) ~= "function" then return end
-
-	-- Use the unit button's normal click so targeting and the context menu still work.
-	PlayerFrame:HookScript("PostClick", ns.Measured("Roleplay: player portrait click", function(frame, button, down)
-		if button ~= "LeftButton" or down or not Roleplay.db.playerPortraitClick
-			or IsModifierKeyDown() or ns:IsEditModeActive() or ns.Secret(frame.unit) or frame.unit ~= "player" then return end
-		local overPortrait = portrait:IsMouseOver()
-		if not ns.Secret(overPortrait) and overPortrait then Roleplay.OpenEditor() end
-	end))
-end
-
-function Roleplay:OnOptionChanged()
+function Roleplay:OnOptionChanged(key)
+	if key == "playerPortraitClick" then
+		ns:GetModule("Visuals").ApplyPlayerDragon()
+		return
+	end
 	if not self.db.enabled and viewer then viewer:Hide() end
 	if self.db.enabled and not chatReady then
 		local result = C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
@@ -382,7 +372,6 @@ end
 function Roleplay:OnLogin()
 	realm = GetNormalizedRealmName()
 	if TargetFrame and type(TargetFrame.GetPortrait) == "function" then targetButton = CreateTargetButton() end
-	HookPlayerPortrait()
 	self:OnOptionChanged()
 end
 

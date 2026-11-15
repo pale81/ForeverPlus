@@ -1178,9 +1178,112 @@ local DRAGONS = {
 	bronze = { GOLD, "plain", true, BRONZE },
 	bronzeWinged = { GOLD_WINGED, "winged", true, BRONZE },
 }
-local dragon
+-- Rectangles on a 24 x 24 grid, from the alpha of the mirrored client atlases.
+-- Leave the transparent centre available for normal portrait clicks.
+local DRAGON_HITS = {
+	[GOLD] = {
+		{10,0,11,1}, {16,0,17,1}, {4,1,19,2}, {6,2,20,3}, {22,2,23,3}, {5,3,23,4},
+		{2,4,13,5}, {15,4,23,5}, {3,5,9,6}, {15,5,24,6}, {3,6,7,7}, {2,7,6,8},
+		{1,8,5,9}, {2,9,5,11}, {1,11,5,14}, {2,14,5,16}, {2,16,6,17}, {2,17,7,18},
+		{2,18,3,19}, {4,18,7,19}, {4,19,9,20}, {18,19,19,20}, {5,20,11,21}, {16,20,18,21},
+		{5,21,6,22}, {8,21,19,22}, {9,22,15,23},
+	},
+	[SILVER] = {
+		{10,0,12,1}, {14,0,15,1}, {16,0,17,1}, {3,1,19,2}, {6,2,21,3}, {22,2,23,3},
+		{4,3,23,4}, {2,4,13,5}, {14,4,23,5}, {3,5,9,6}, {15,5,24,6}, {3,6,7,7},
+		{2,7,6,8}, {1,8,5,9}, {2,9,5,11}, {1,11,5,14}, {2,14,5,16}, {2,16,6,17},
+		{2,17,7,18}, {2,18,3,19}, {4,18,7,19}, {4,19,9,20}, {18,19,19,20}, {4,20,11,21},
+		{16,20,18,21}, {5,21,6,22}, {8,21,19,22}, {9,22,15,23}, {10,23,11,24},
+	},
+	[GOLD_WINGED] = {
+		{8,1,11,2}, {13,1,19,2}, {9,2,21,3}, {9,3,23,4}, {4,4,15,5}, {16,4,23,5},
+		{5,5,12,6}, {17,5,24,6}, {4,6,10,7}, {3,7,9,9}, {2,9,9,10}, {2,10,8,11},
+		{1,11,8,12}, {1,12,4,13}, {5,12,8,14}, {1,13,3,19}, {6,14,9,17}, {6,17,10,18},
+		{8,18,11,19}, {2,19,3,20}, {8,19,12,20}, {19,19,20,20}, {8,20,14,21}, {17,20,19,21},
+		{11,21,17,22}, {12,22,13,23}, {15,22,17,23},
+	},
+}
+local DRAGON_GRID = 24
+local dragon, dragonButtons
 
-local function ApplyPlayerDragon()
+local function CanUsePlayerDragon()
+	local unit = PlayerFrame.unit
+	return not ns.Secret(unit) and unit == "player" and not ns:IsEditModeActive()
+end
+
+local function DrawDragonHover(group)
+	local progress = group.progress
+	local eased = progress * progress * (3 - 2 * progress)
+	dragon:SetPoint("CENTER", group:GetParent(), "TOPLEFT", group.x, group.y + 2.5 * eased)
+	dragon.Bright:SetAlpha(group.baseShine + 0.18 * eased)
+end
+
+local function UpdateDragonHover(group, elapsed)
+	local direction = group.hovered and 1 or -1
+	group.progress = math.max(0, math.min(1, group.progress + direction * elapsed / 0.14))
+	DrawDragonHover(group)
+	if group.progress == 0 or group.progress == 1 then
+		group.animating = false
+		ns.SetUpdate(group, "Visuals: portrait dragon", nil)
+	end
+end
+
+local function SetDragonHovered(button, hovered)
+	local group = button:GetParent()
+	if hovered then
+		if not CanUsePlayerDragon() then return end
+		group.hovered = button
+	elseif group.hovered == button then
+		group.hovered = false
+	end
+	if not group.animating and group.progress ~= (group.hovered and 1 or 0) then
+		group.animating = true
+		ns.SetUpdate(group, "Visuals: portrait dragon", UpdateDragonHover)
+	end
+end
+
+local function PlaceDragonButtons(container, atlas, shape, width, height, baseShine)
+	local group = dragonButtons
+	if not group then
+		group = CreateFrame("Frame", "ForeverPlusPlayerDragonButtons", container)
+		group:SetFrameLevel(PlayerFrame:GetFrameLevel() + 10)
+		group.parts = {}
+		group:SetScript("OnHide", ns.Measured("Visuals: hide portrait dragon controls", function(self)
+			self.hovered, self.progress, self.animating = false, 0, false
+			ns.SetUpdate(self, "Visuals: portrait dragon", nil)
+			DrawDragonHover(self)
+		end))
+		dragonButtons = group
+	end
+	group.hovered, group.animating = false, false
+	group.x, group.y, group.baseShine, group.progress = shape.x, shape.y, baseShine, 0
+	group:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
+	group:SetSize(width, height)
+	local cellWidth, cellHeight = width / DRAGON_GRID, height / DRAGON_GRID
+	local rects = DRAGON_HITS[atlas]
+	for index, rect in ipairs(rects) do
+		local button = group.parts[index]
+		if not button then
+			button = CreateFrame("Button", nil, group)
+			button:RegisterForClicks("LeftButtonUp")
+			button:SetPassThroughButtons("RightButton", "MiddleButton", "Button4", "Button5")
+			button:SetScript("OnClick", ns.Measured("Roleplay: dragon click", function()
+				if CanUsePlayerDragon() and not IsModifierKeyDown() then ns:GetModule("Roleplay").OpenEditor() end
+			end))
+			button:SetScript("OnEnter", ns.Measured("Visuals: dragon hover", function(self) SetDragonHovered(self, true) end))
+			button:SetScript("OnLeave", ns.Measured("Visuals: dragon leave", function(self) SetDragonHovered(self, false) end))
+			group.parts[index] = button
+		end
+		button:SetPoint("TOPLEFT", group, "TOPLEFT", rect[1] * cellWidth, -rect[2] * cellHeight)
+		button:SetSize((rect[3] - rect[1]) * cellWidth, (rect[4] - rect[2]) * cellHeight)
+		button:Show()
+	end
+	for index = #rects + 1, #group.parts do group.parts[index]:Hide() end
+	group:Show()
+end
+
+function Visuals.ApplyPlayerDragon()
+	if dragonButtons then dragonButtons:Hide() end
 	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
 	if not container then
 		return
@@ -1189,46 +1292,48 @@ local function ApplyPlayerDragon()
 	if not data then
 		if dragon then
 			dragon:Hide()
-			if dragon.Bright then
-				dragon.Bright:Hide()
-			end
+			dragon.Bright:Hide()
 		end
 		return
 	end
 	-- Above the frame art, like the dragon on the target frame.
-	dragon = dragon or container:CreateTexture(nil, "OVERLAY", nil, 6)
+	if not dragon then
+		dragon = container:CreateTexture(nil, "OVERLAY", nil, 6)
+		dragon.Bright = container:CreateTexture(nil, "OVERLAY", nil, 7)
+		dragon.Bright:SetAllPoints(dragon)
+		dragon.Bright:SetBlendMode("ADD")
+	end
 	-- The target art faces right; mirror it for the portrait on the left
 	-- (absolute atlas coordinates showed only part of the dragon).
 	dragon:SetAtlas(data[1])
 	dragon:SetTexCoord(1, 0, 0, 1)
 	local shape = SHAPES[data[2]]
 	local scale = Visuals.db.dragonScale / 100
-	dragon:SetSize(shape.width * scale, shape.height * scale)
-	dragon:ClearAllPoints()
+	local width, height = shape.width * scale, shape.height * scale
+	dragon:SetSize(width, height)
 	dragon:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
-	dragon:SetDesaturated(data[3] and true or false)
+	local greyDragon = data[3] == true
 	local tint = data[4]
-	if tint then
-		dragon:SetVertexColor(tint[1], tint[2], tint[3])
-	else
-		dragon:SetVertexColor(1, 1, 1)
-	end
+	local r, g, b = 1, 1, 1
+	if tint then r, g, b = unpack(tint) end
+	dragon:SetDesaturated(greyDragon)
+	dragon:SetVertexColor(r, g, b)
 	dragon:Show()
-	-- Additive copy of the same dragon for the tinted (bronze) ones.
-	dragon.Bright = dragon.Bright or container:CreateTexture(nil, "OVERLAY", nil, 7)
+
+	-- Bronze has a small amount of additive light even at rest. The same
+	-- layer adds colour-matched shine when any of the dragons is hovered.
+	local baseShine = tint and BRIGHTEN or 0
 	local bright = dragon.Bright
-	if tint then
-		bright:SetAtlas(data[1])
-		bright:SetTexCoord(1, 0, 0, 1)
-		bright:SetBlendMode("ADD")
-		bright:SetDesaturated(true)
-		bright:SetVertexColor(tint[1], tint[2], tint[3], BRIGHTEN)
-		bright:SetSize(shape.width * scale, shape.height * scale)
-		bright:ClearAllPoints()
-		bright:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
-		bright:Show()
-	else
-		bright:Hide()
+	bright:SetAtlas(data[1])
+	bright:SetTexCoord(1, 0, 0, 1)
+	bright:SetDesaturated(greyDragon)
+	bright:SetVertexColor(r, g, b)
+	bright:SetAlpha(baseShine)
+	local roleplay = ns:GetModule("Roleplay")
+	local interactive = roleplay and roleplay.db and roleplay.db.playerPortraitClick
+	bright:SetShown(tint ~= nil or interactive == true)
+	if interactive then
+		PlaceDragonButtons(container, data[1], shape, width, height, baseShine)
 	end
 end
 
@@ -1284,7 +1389,7 @@ function Visuals:OnLogin()
 	RecolorAll()
 	UpdateCastWatch()
 	StyleUnitBars()
-	ApplyPlayerDragon()
+	Visuals.ApplyPlayerDragon()
 end
 
 -- All open bag buttons and character slots again (after switching the option).
@@ -1315,7 +1420,7 @@ function Visuals:OnOptionChanged(key)
 	elseif key == "bagActionFrame" then
 		RefreshBagFrames()
 	elseif key == "playerDragon" or key == "dragonScale" then
-		ApplyPlayerDragon()
+		Visuals.ApplyPlayerDragon()
 	elseif key == "castsLeft" then
 		UpdateCastWatch()
 	elseif key == "paladinRecommendations" then

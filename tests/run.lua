@@ -6928,10 +6928,23 @@ end)()
 	local oldCreate = CreateFrame
 	local targetFrame = NewFrame("Frame")
 	targetFrame.GetPortrait = function() return NewFrame("Texture") end
-	local overPortrait, modified, editMode = true, false, false
+	local visuals = ns:GetModule("Visuals")
+	local oldDragon, oldScale = visuals.db.playerDragon, visuals.db.dragonScale
+	local modified, editMode = false, false
 	local playerFrame = NewFrame("Button")
 	playerFrame.unit = "player"
-	playerFrame.PlayerFrameContainer.PlayerPortrait.IsMouseOver = function() return overPortrait end
+	local dragonArt = {}
+	local function RecordLayout(frame)
+		frame.SetPoint = function(self, _, _, _, x, y) self.x, self.y = x, y end
+		frame.SetSize = function(self, width, height) self.w, self.h = width, height end
+	end
+	playerFrame.PlayerFrameContainer.CreateTexture = function()
+		local texture = NewFrame("Texture")
+		RecordLayout(texture)
+		texture.SetVertexColor = function(self, ...) self.color = { ... } end
+		tinsert(dragonArt, texture)
+		return texture
+	end
 	local testGlobals = {
 		TargetFrame = targetFrame,
 		PlayerFrame = playerFrame,
@@ -6960,7 +6973,16 @@ end)()
 		},
 		CreateFrame = function(kind, name, parent, template)
 			local frame = oldCreate(kind, name)
-			if parent and parent == rawget(_G, "ForeverPlusRoleplayEditor") and template == "UIPanelButtonTemplate" then
+			if name == "ForeverPlusPlayerDragonButtons" then
+				frame.GetParent = function() return parent end
+				frame.Hide = function(self)
+					self.shown = false
+					self:GetScript("OnHide")(self)
+				end
+			elseif parent and parent == rawget(_G, "ForeverPlusPlayerDragonButtons") then
+				frame.GetParent = function() return parent end
+				RecordLayout(frame)
+			elseif parent and parent == rawget(_G, "ForeverPlusRoleplayEditor") and template == "UIPanelButtonTemplate" then
 				save = frame
 			elseif kind == "EditBox" or template == "ForeverPlusRoleplayStoryInputTemplate" then
 				local box = kind == "EditBox" and frame or frame.EditBox
@@ -6994,22 +7016,48 @@ end)()
 	Deliver("Q:aca123", "Reader")
 	assert(messages[1].text == "N:aca123" and messages[1].target == "Reader-LocalRealm", "private profile returns no data")
 
-	local portraitClick = playerFrame:GetScript("PostClick")
-	portraitClick(playerFrame, "RightButton", false)
-	portraitClick(playerFrame, "LeftButton", true)
-	overPortrait = false
-	portraitClick(playerFrame, "LeftButton", false)
-	overPortrait, modified = true, true
-	portraitClick(playerFrame, "LeftButton", false)
+	visuals.db.playerDragon, visuals.db.dragonScale = "bronze", 100
+	visuals.ApplyPlayerDragon()
+	local group = ForeverPlusPlayerDragonButtons
+	local function DragonButtonAt(x, y)
+		for _, part in ipairs(group.parts) do
+			if part:IsShown() and x >= part.x and x < part.x + part.w and y <= part.y and y > part.y - part.h then
+				return part
+			end
+		end
+	end
+	local dragonButton = assert(DragonButtonAt(12, -49), "the dragon's body is clickable")
+	assert(not DragonButtonAt(53, -48), "the transparent portrait centre has no RP hit area")
+	assert(not playerFrame:GetScript("PostClick"), "the normal player portrait has no RP hook")
+	local art, shine = unpack(dragonArt)
+	local restY, restShine = art.y, shine:GetAlpha()
+	dragonButton:GetScript("OnEnter")(dragonButton)
+	group:GetScript("OnUpdate")(group, 0.2)
+	assert(art.y > restY and shine:GetAlpha() > restShine and shine.color[2] == art.color[2], "hover lifts the dragon and adds matching shine")
+	assert(not group:GetScript("OnUpdate"), "the animation stops at the raised position")
+	dragonButton:GetScript("OnLeave")(dragonButton)
+	group:GetScript("OnUpdate")(group, 0.2)
+	assert(art.y == restY and shine:GetAlpha() == restShine, "leaving restores the original dragon")
+	modified = true
+	dragonButton:GetScript("OnClick")(dragonButton)
 	modified, editMode = false, true
-	portraitClick(playerFrame, "LeftButton", false)
-	editMode, rp.db.playerPortraitClick = false, false
-	portraitClick(playerFrame, "LeftButton", false)
-	assert(not rawget(_G, "ForeverPlusRoleplayEditor"), "only an enabled plain left click on the portrait opens the editor")
+	dragonButton:GetScript("OnClick")(dragonButton)
+	editMode = false
+	assert(not rawget(_G, "ForeverPlusRoleplayEditor"), "modified clicks and Edit Mode do not open the editor")
+	rp.db.playerPortraitClick = false
+	rp:OnOptionChanged("playerPortraitClick")
+	assert(not group:IsShown() and art:IsShown(), "disabling the RP shortcut keeps the dragon as decoration")
 	rp.db.playerPortraitClick = true
-	portraitClick(playerFrame, "LeftButton", false)
+	visuals.db.playerDragon = "none"
+	visuals.ApplyPlayerDragon()
+	assert(not group:IsShown() and not art:IsShown(), "hiding the dragon also removes the shortcut")
+	visuals.db.playerDragon, visuals.db.dragonScale = "silverWinged", 120
+	visuals.ApplyPlayerDragon()
+	assert(group:IsShown() and DragonButtonAt(12, -70) and not DragonButtonAt(70, -54), "the winged silhouette scales with the art")
+	dragonButton = DragonButtonAt(12, -70)
+	dragonButton:GetScript("OnClick")(dragonButton)
 	local editor = ForeverPlusRoleplayEditor
-	assert(editor:IsShown(), "left-clicking the player portrait opens the RP editor")
+	assert(editor:IsShown(), "left-clicking the portrait dragon opens the RP editor")
 	editor:Hide()
 	SlashCmdList.FOREVERPLUS("rp")
 	assert(editor:IsShown(), "the slash command still opens the editor")
@@ -7080,6 +7128,8 @@ end)()
 	Deliver("Q:aca456", "Reader-LocalRealm")
 	assert(not button:IsShown() and not viewer:IsShown() and #messages == before, "disabling hides the UI and stops sharing")
 
+	visuals.db.playerDragon, visuals.db.dragonScale = oldDragon, oldScale
+	visuals.ApplyPlayerDragon()
 	for key, value in pairs(originals) do _G[key] = value end
 	C_Timer.After, ns.IsEditModeActive = oldAfter, oldEditMode
 	Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult = oldRegister, oldSend

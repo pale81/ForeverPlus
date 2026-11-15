@@ -196,7 +196,7 @@ read_globals = {
 	"MinimapUtil",
 	"C_QuestLog",
 	"C_Spell",
-	"C_SpellBook",
+	"C_SpellBook", "C_SkillInfo",
 	"C_SuperTrack",
 	"C_Texture",
 	"C_Timer",

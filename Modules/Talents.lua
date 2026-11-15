@@ -28,9 +28,7 @@ local Talents = ns:NewModule("Talents", {
 local _, playerClass = UnitClass("player")
 
 ---------------------------------------------------------------------------
--- Trainer spells: what the game lists per level and the spell book, plus the
--- class trainer's list (stored at each visit), which also holds the spells
--- of later levels.
+-- Trainer spells from the client, the bundled trainer records and visits.
 ---------------------------------------------------------------------------
 local function IsKnown(spellID)
 	return C_SpellBook.IsSpellKnown(spellID) or (IsPlayerSpell and IsPlayerSpell(spellID))
@@ -98,11 +96,21 @@ local function ScanTrainer()
 			SetTrainerServiceTypeFilter(filter, false)
 		end
 	end
-	if #found > 0 then
+	if #found == 0 then
+		return
+	end
+	local indices = {}
+	if isPet then
 		wipe(list)
-		for i, entry in ipairs(found) do
-			list[i] = entry
-		end
+	end
+	-- Starting-area trainers only teach the first few levels.
+	for i, entry in ipairs(list) do
+		indices[SpellKey(entry.name, entry.rank)] = i
+	end
+	for _, entry in ipairs(found) do
+		local key = SpellKey(entry.name, entry.rank)
+		local index = indices[key] or #list + 1
+		list[index], indices[key] = entry, index
 	end
 end
 
@@ -121,23 +129,60 @@ end
 -- level, tooltip and trainer highlight, even if the current filters hide it.
 local function CollectTrainerSpells(onDone)
 	local bank = Enum.SpellBookSpellBank.Player
+	local general = Enum.SpellBookSkillLineIndex.General
 	local byID, byKey, lineByName, lineByLabel = {}, {}, {}, {}
-	local slots, visibleLines = {}, {}
-	for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
-		local info = C_SpellBook.GetSpellBookSkillLineInfo(line)
-		if info and not info.offSpecID and not info.isGuild then
-			if not info.shouldHide then
-				lineByLabel[info.name] = line
-			end
-			for slot = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-				slots[#slots + 1] = slot
-				visibleLines[#slots] = not info.shouldHide and line or false
-			end
+	local slots, visibleLines, lines = {}, {}, SpellBookLines()
+	for line, info in pairs(lines) do
+		if not info.shouldHide then
+			lineByLabel[info.name] = line
+		end
+		for slot = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+			slots[#slots + 1] = slot
+			visibleLines[#slots] = not info.shouldHide and line or false
 		end
 	end
 
 	local missing = {}
 	local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion() or 60
+	local bundled = ns.TrainerSpells and ns.TrainerSpells[playerClass] or {}
+	local bundledByID = {}
+	local bundledLines = { [0] = general }
+	for _, spell in ipairs(bundled) do
+		local skillID = spell[3]
+		bundledByID[spell[1]] = spell
+		if bundledLines[skillID] == nil then
+			local line = C_SpellBook.GetSkillLineIndexByID(skillID)
+			if line and lines[line] and not lines[line].shouldHide then
+				bundledLines[skillID] = line
+			else
+				local skill = C_SkillInfo.GetSkillLineInfoByID(skillID)
+				bundledLines[skillID] = (skill and lineByLabel[skill.name]) or false
+			end
+		end
+	end
+
+	local function AddSpell(spellID, level)
+		if byID[spellID] then
+			return
+		end
+		local name = C_Spell.GetSpellName(spellID)
+		if not name then
+			return
+		end
+		byID[spellID] = true
+		local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
+		local record = bundledByID[spellID]
+		if record and record[4] and (not rank or rank == "") then
+			rank = L.TALENTS_SPELL_RANK:format(record[4])
+		end
+		local key = SpellKey(name, rank)
+		if IsKnown(spellID) then
+			byKey[key], missing[key] = true, nil
+		elseif not byKey[key] and not missing[key] then
+			missing[key] = { name = name, rank = rank ~= "" and rank or nil, level = level,
+				icon = C_Spell.GetSpellTexture(spellID), spellID = spellID, lineIndex = record and bundledLines[record[3]] }
+		end
+	end
 	local function Scan(index)
 		if index <= #slots then
 			local item = C_SpellBook.GetSpellBookItemInfo(slots[index], bank)
@@ -152,20 +197,13 @@ local function CollectTrainerSpells(onDone)
 			return
 		end
 		local level = index - #slots
-		for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
-			if not byID[spellID] then
-				local name = C_Spell.GetSpellName(spellID)
-				local rank = C_Spell.GetSpellSubtext and C_Spell.GetSpellSubtext(spellID)
-				local key = SpellKey(name, rank)
-				if name then
-					if IsKnown(spellID) then
-						byKey[key], missing[key] = true, nil
-					elseif not byKey[key] and not missing[key] then
-						missing[key] = { name = name, rank = rank ~= "" and rank or nil, level = level,
-							icon = C_Spell.GetSpellTexture(spellID), spellID = spellID }
-					end
-				end
+		if level <= maxLevel then
+			for _, spellID in ipairs(C_SpellBook.GetCurrentLevelSpells(level) or {}) do
+				AddSpell(spellID, level)
 			end
+		else
+			local spell = bundled[level - maxLevel]
+			AddSpell(spell[1], spell[2])
 		end
 	end
 	local function Finish()
@@ -174,13 +212,14 @@ local function CollectTrainerSpells(onDone)
 			if not byKey[key] then
 				local fromAPI = missing[key]
 				missing[key] = { name = entry.name, rank = entry.rank, level = entry.level, line = entry.line,
-					icon = entry.icon or (fromAPI and fromAPI.icon), spellID = fromAPI and fromAPI.spellID }
+					icon = entry.icon or (fromAPI and fromAPI.icon), spellID = fromAPI and fromAPI.spellID,
+					lineIndex = fromAPI and fromAPI.lineIndex }
 			end
 		end
 
 		local byLine = {}
 		for key, entry in pairs(missing) do
-			local line = lineByLabel[entry.line] or lineByName[entry.name] or Enum.SpellBookSkillLineIndex.General
+			local line = lineByLabel[entry.line] or entry.lineIndex or lineByName[entry.name] or general
 			entry.key = key
 			byLine[line] = byLine[line] or {}
 			tinsert(byLine[line], entry)
@@ -190,7 +229,7 @@ local function CollectTrainerSpells(onDone)
 		end
 		onDone(byLine)
 	end
-	return ns.RunSliced("Talents: scan trainer spells", #slots + maxLevel, Scan, Finish)
+	return ns.RunSliced("Talents: scan trainer spells", #slots + maxLevel + #bundled, Scan, Finish)
 end
 
 local function CollectPetTrainerSpells()

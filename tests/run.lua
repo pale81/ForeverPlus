@@ -1210,6 +1210,70 @@ print("mover OK")
 	bookScripts.OnHide()
 	C_Timer.NewTicker = savedTicker
 
+	local collect = uv(uv(talents.Update, "queueTrainerBook"), "RefreshTrainerBook")
+	collect = uv(collect, "CollectTrainerSpells")
+	local trainerList = uv(collect, "TrainerList")
+	local savedShaman, savedSkills = talents.db.trainer.SHAMAN, C_SkillInfo
+	setuv(collect, "playerClass", "SHAMAN")
+	talents.db.trainer.SHAMAN = {
+		{ name = "Welle der Heilung", rank = "Rang 2", level = 6, line = "Wiederherstellung" },
+		{ name = "Großer Lehrerzauber", level = 40, line = "Wiederherstellung" },
+	}
+	local restoration = { name = "Wiederherstellung", itemIndexOffset = 0, numSpellBookItems = 1 }
+	C_SpellBook = {
+		GetNumSpellBookSkillLines = function() return 2 end,
+		GetSpellBookSkillLineInfo = function(line)
+			return line == 2 and restoration or { name = "Allgemein", itemIndexOffset = 0, numSpellBookItems = 0 }
+		end,
+		GetSkillLineIndexByID = function() return nil end,
+		GetSpellBookItemInfo = function() return { spellID = 332, name = "Welle der Heilung", subName = "Rang 2" } end,
+		IsSpellKnown = function(id) return id == 332 end,
+		GetCurrentLevelSpells = function() return {} end,
+	}
+	C_SkillInfo = { GetSkillLineInfoByID = function(id) return id == 374 and restoration or nil end }
+	C_Spell.GetSpellName = function(id)
+		return ({ [332] = "Welle der Heilung", [547] = "Welle der Heilung", [2008] = "Geist der Ahnen" })[id]
+	end
+	C_Spell.GetSpellSubtext = function(id)
+		return ({ [332] = "Rang 2", [547] = "", [2008] = "Rang 1" })[id]
+	end
+
+	local scan = uv(talents.OnLogin, "ScanTrainer")
+	local savedTrainerAPI, savedTrainerType = C_Trainer, Enum.TrainerType
+	local savedGetFilter, savedSetFilter = GetTrainerServiceTypeFilter, SetTrainerServiceTypeFilter
+	local savedCount, savedService, savedSkill = GetNumTrainerServices, GetTrainerServiceInfo, GetTrainerServiceSkillLine
+	Enum.TrainerType = { Class = 0, Pet = 1, Tradeskills = 2 }
+	C_Trainer = { GetTrainerType = function() return Enum.TrainerType.Class end }
+	local filters = { available = true, unavailable = false, used = false }
+	GetTrainerServiceTypeFilter = function(filter) return filters[filter] end
+	SetTrainerServiceTypeFilter = function(filter, enabled) filters[filter] = enabled end
+	GetNumTrainerServices = function() return 1 end
+	GetTrainerServiceInfo = function()
+		assert(filters.available and filters.unavailable and filters.used, "the scan includes every trainer filter")
+		return "Welle der Heilung", "available", 136052, 6, "Rang 2"
+	end
+	GetTrainerServiceSkillLine = function() return "Wiederherstellung" end
+	scan()
+	assert(#trainerList() == 2 and trainerList()[1].icon == 136052 and trainerList()[2].level == 40,
+		"a starting-area trainer updates its ranks and keeps the previously recorded high-level spells")
+	assert(filters.available and not filters.unavailable and not filters.used, "the user's trainer filters are restored")
+
+	local results
+	collect(function(spells) results = spells end)
+	assert(#results[2] == 3 and results[2][1].spellID == 2008 and results[2][1].level == 12
+		and results[2][2].spellID == 547 and results[2][2].level == 12
+		and results[2][2].rank == ns.L.TALENTS_SPELL_RANK:format(3) and results[2][3].level == 40,
+		"at level 6 the indexed preview includes new spells and higher ranks in Restoration, minus the learned rank")
+	UnitLevel = function() return 6 end
+	talents:Update()
+	assert(row.fpTrainerEntry.spellID == 2008 and row.RequiredLevel.testText == "Level 12",
+		"a Shaman future spell is drawn inside the Restoration tab with its level")
+
+	C_Trainer, Enum.TrainerType = savedTrainerAPI, savedTrainerType
+	GetTrainerServiceTypeFilter, SetTrainerServiceTypeFilter = savedGetFilter, savedSetFilter
+	GetNumTrainerServices, GetTrainerServiceInfo, GetTrainerServiceSkillLine = savedCount, savedService, savedSkill
+	talents.db.trainer.SHAMAN, C_SkillInfo = savedShaman, savedSkills
+	setuv(collect, "playerClass", "MAGE")
 	C_SpellBook, C_Spell, CreateFrame, EventRegistry = savedBook, savedSpell, savedFrame, savedRegistry
 	IsPlayerSpell, UnitLevel = savedKnown, savedLevel
 	SPELLBOOK_AVAILABLE_AT, SPELLBOOK_TRAINABLE, SPELLBOOK_FONT_COLOR = savedAvailable, savedTrainable, savedColor

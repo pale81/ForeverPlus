@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"C_PetJournal",
 	"CanInspect", "NotifyInspect", "ClearInspectPlayer", "InspectFrame",
 	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "Professions", "ProfessionsRecipeListRecipeMixin",
 	"ITEM_MIN_LEVEL",
@@ -337,6 +338,7 @@ read_globals = {
 	"UnitOnTaxi",
 	"IsFlying",
 	"WorldMapFrame",
+	"PanelTemplates_SelectTab", "PanelTemplates_DeselectTab",
 	"LFGBrowseFrame", "LFGListingFrame",
 	"date",
 	"GetQuestProgressBarPercent",

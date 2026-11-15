@@ -8,17 +8,16 @@ local Journal = ns:NewModule("DungeonJournal", {
 
 local data = ns.DungeonJournalData.instances
 local german = GetLocale() == "deDE"
-local GOLD = { 0.96, 0.76, 0.43 }
-local MUTED = { 0.68, 0.73, 0.81 }
-local WHITE = { 0.96, 0.94, 0.90 }
-local DARK = { 0.037, 0.049, 0.071, 0.97 }
-local INK = { 0.077, 0.098, 0.135, 1 }
-local EDGE = { 0.37, 0.29, 0.18, 0.85 }
-local WIDTH, HEIGHT = 944, 566
-local ROW = 40
+local WIDTH, HEIGHT = 872, 570
+local DETAIL_X, RIGHT_MARGIN = 249, 14
+local DETAIL_WIDTH = WIDTH - DETAIL_X - RIGHT_MARGIN
+local DETAIL_TOP = -158
+local ROW = 36
+local PORTRAIT = [[Interface\EncounterJournal\UI-EJ-PortraitIcon]]
+local ROW_HIGHLIGHT = [[Interface\QuestFrame\UI-QuestTitleHighlight]]
 local ICON = { boss = [[Interface\TargetingFrame\UI-RaidTargetingIcon_8]], quest = 132049, done = 136814 }
 local STATES = {
-	ready = { 1, 0.82, 0.35 }, active = { 0.50, 0.80, 1 }, done = { 0.51, 0.82, 0.57 }, missing = MUTED,
+	ready = { 1, 0.82, 0.35 }, active = { 0.50, 0.80, 1 }, done = { 0.51, 0.82, 0.57 },
 }
 local STATUS = {
 	ready = L.JOURNAL_READY, active = L.JOURNAL_ACTIVE, done = L.JOURNAL_DONE, missing = L.JOURNAL_MISSING,
@@ -141,127 +140,109 @@ local function QuestRows(id, forCharacter)
 	return list
 end
 
-local function Fill(parent, layer, color, sublayer)
-	local region = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sublayer or 0)
-	region:SetColorTexture(unpack(color))
-	region:SetAllPoints()
-	return region
-end
-
-local function Line(parent, left, right, y, color)
-	local line = parent:CreateTexture(nil, "BORDER")
-	line:SetColorTexture(unpack(color))
-	line:SetPoint("TOPLEFT", left, y)
-	line:SetPoint("TOPRIGHT", right, y)
-	line:SetHeight(1)
-end
-
-local function Label(frameOwner, size, color, font)
-	local label = frameOwner:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
-	label:SetFont(label:GetFont(), size)
-	label:SetTextColor(unpack(color))
+local function Label(parent, font, point, x, y, title)
+	local label = parent:CreateFontString(nil, "OVERLAY", font)
+	label:SetPoint(point, x, y)
+	label:SetText(title)
 	label:SetJustifyH("LEFT")
 	return label
 end
 
-local function StyleButton(button, selected)
-	if selected then
-		button.bg:SetColorTexture(0.25, 0.17, 0.09, 1)
-		button.text:SetTextColor(unpack(GOLD))
-	elseif button.hover then
-		button.bg:SetColorTexture(0.17, 0.20, 0.25, 1)
-		button.text:SetTextColor(unpack(WHITE))
-	else
-		button.bg:SetColorTexture(unpack(INK))
-		button.text:SetTextColor(unpack(WHITE))
-	end
-	button.selected = selected
-end
-
-local function Button(parent, width, height, title, onClick)
-	local button = CreateFrame("Button", nil, parent)
-	button:SetSize(width, height)
-	button.bg = Fill(button, "BACKGROUND", INK)
-	button.text = Label(button, 12, WHITE)
-	button.text:SetPoint("CENTER")
-	button.text:SetText(title)
-	button:SetScript("OnEnter", ns.Measured("DungeonJournal: hover", function(self)
-		self.hover = true
-		StyleButton(self, self.selected)
-	end))
-	button:SetScript("OnLeave", ns.Measured("DungeonJournal: leave", function(self)
-		self.hover = nil
-		StyleButton(self, self.selected)
-		GameTooltip:Hide()
-	end))
+local function PanelButton(parent, width, title, onClick)
+	local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+	button:SetSize(width, 22)
+	button:SetText(title)
 	button:SetScript("OnClick", ns.Measured("DungeonJournal: click", onClick))
 	return button
 end
 
-local function SetThumb(scroll, offset)
-	local y = scroll.range > 0 and offset / scroll.range * (scroll:GetHeight() - scroll.thumb:GetHeight()) or 0
-	scroll.thumb:ClearAllPoints()
-	scroll.thumb:SetPoint("TOP", scroll.track, "TOP", 0, -y)
+local function Tab(parent, title, onClick)
+	local tab = CreateFrame("Button", nil, parent, "PanelTopTabButtonTemplate")
+	tab:SetText(title)
+	tab:SetScript("OnClick", ns.Measured("DungeonJournal: tab", onClick))
+	return tab
 end
 
--- Scroll by rows so a long dungeon/quest list keeps the same readable spacing.
-local function List(parent, width, height, rowHeight)
-	local scroll = CreateFrame("ScrollFrame", nil, parent)
+local function SelectTab(tab, selected)
+	if selected then
+		PanelTemplates_SelectTab(tab)
+	else
+		PanelTemplates_DeselectTab(tab)
+	end
+end
+
+local function PageButton(parent, direction, onClick)
+	local button = CreateFrame("Button", nil, parent)
+	local texture = [[Interface\Buttons\UI-SpellbookIcon-]] .. direction .. "Page"
+	button:SetSize(26, 26)
+	button:SetNormalTexture(texture .. "-Up")
+	button:SetPushedTexture(texture .. "-Down")
+	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	button:SetScript("OnClick", ns.Measured("DungeonJournal: page", onClick))
+	return button
+end
+
+local function List(parent, width, height)
+	local scroll = CreateFrame("ScrollFrame", nil, parent, "ScrollFrameTemplate")
 	scroll:SetSize(width, height)
 	scroll:EnableMouseWheel(true)
+	scroll.ScrollBar:ClearAllPoints()
+	scroll.ScrollBar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 4, 0)
+	scroll.ScrollBar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 4, 0)
+	scroll.ScrollBar:SetHideIfUnscrollable(true)
+	scroll:SetPanExtent(ROW)
 	local child = CreateFrame("Frame", nil, scroll)
 	child:SetSize(width, height)
 	scroll:SetScrollChild(child)
-	scroll.content, scroll.rows, scroll.step = child, {}, rowHeight
-	local track = CreateFrame("Frame", nil, parent)
-	track:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 5, 0)
-	track:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 5, 0)
-	track:SetWidth(3)
-	Fill(track, "BACKGROUND", INK)
-	scroll.track = track
-	scroll.thumb = track:CreateTexture(nil, "ARTWORK")
-	scroll.thumb:SetColorTexture(unpack(EDGE))
-	scroll.thumb:SetWidth(3)
-	scroll:SetScript("OnMouseWheel", ns.Measured("DungeonJournal: scroll", function(self, delta)
-		self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScroll() - delta * self.step * 2, self.range or 0)))
-	end))
-	scroll:SetScript("OnVerticalScroll", ns.Measured("DungeonJournal: scroll thumb", SetThumb))
-	scroll.range = 0
+	scroll.content, scroll.rows, scroll.range = child, {}, 0
 	return scroll
 end
 
 local function ShowRows(scroll, count, reset)
 	for index = count + 1, #scroll.rows do scroll.rows[index]:Hide() end
 	local height = scroll:GetHeight()
-	local contentHeight = math.max(height, count * scroll.step)
-	local scrollTo = reset and 0 or ns.Number(scroll:GetVerticalScroll(), 0)
+	local contentHeight = math.max(height, count * ROW)
+	local offset = reset and 0 or ns.Number(scroll:GetVerticalScroll(), 0)
 	scroll.range = contentHeight - height
-	scroll.thumb:SetHeight(math.max(16, height * height / contentHeight))
-	scroll.track:SetShown(scroll.range > 0)
 	scroll.content:SetHeight(contentHeight)
 	scroll:UpdateScrollChildRect()
-	local offset = math.min(scrollTo, scroll.range)
-	scroll:SetVerticalScroll(offset)
-	SetThumb(scroll, offset)
+	scroll:SetVerticalScroll(math.min(offset, scroll.range))
 end
 
-local function Row(scroll, index, width, onClick)
+local function Row(scroll, index, onClick)
 	local row = scroll.rows[index]
 	if not row then
-		row = Button(scroll.content, width, scroll.step - 3, "", onClick)
-		row:SetPoint("TOPLEFT", 0, -(index - 1) * scroll.step)
-		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row = CreateFrame("Button", nil, scroll.content)
+		row:SetSize(scroll:GetWidth(), ROW)
+		row:SetPoint("TOPLEFT", 0, -(index - 1) * ROW)
+		row:SetHighlightTexture(ROW_HIGHLIGHT, "ADD")
+		row.selectedArt = row:CreateTexture(nil, "ARTWORK")
+		row.selectedArt:SetTexture(ROW_HIGHLIGHT)
+		row.selectedArt:SetBlendMode("ADD")
+		row.selectedArt:SetAlpha(0.48)
+		row.selectedArt:SetAllPoints()
+		row.selectedArt:Hide()
+		local line = row:CreateTexture(nil, "BORDER")
+		line:SetColorTexture(0.65, 0.48, 0.28, 0.22)
+		line:SetPoint("BOTTOMLEFT", 4, 0)
+		line:SetPoint("BOTTOMRIGHT", -4, 0)
+		line:SetHeight(1)
+
+		row.icon = row:CreateTexture(nil, "ARTWORK", nil, 1)
 		row.icon:SetPoint("LEFT", 8, 0)
 		row.icon:SetSize(23, 23)
-		row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		row.text:ClearAllPoints()
-		row.text:SetPoint("LEFT", row.icon, "RIGHT", 9, 6)
+		row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		row.text:SetPoint("LEFT", row.icon, "RIGHT", 8, 6)
 		row.text:SetPoint("RIGHT", -8, 0)
+		row.text:SetJustifyH("LEFT")
 		row.text:SetWordWrap(false)
-		row.sub = Label(row, 10, MUTED)
+		row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		row.sub:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -2)
 		row.sub:SetPoint("RIGHT", -8, 0)
+		row.sub:SetJustifyH("LEFT")
 		row.sub:SetWordWrap(false)
+		row:SetScript("OnClick", ns.Measured("DungeonJournal: row", onClick))
+		row:SetScript("OnLeave", GameTooltip_Hide)
 		scroll.rows[index] = row
 	end
 	row:Show()
@@ -271,7 +252,7 @@ end
 local function Tooltip(button, title, note)
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	GameTooltip:AddLine(title, 1, 1, 1, true)
-	if note then GameTooltip:AddLine(note, unpack(MUTED)) end
+	if note then GameTooltip:AddLine(note, GRAY_FONT_COLOR:GetRGB()) end
 end
 
 -- Keep the known pickup location in the tooltip even if the game cannot put a pin there.
@@ -307,7 +288,7 @@ local function QuestTooltip(row)
 	if point then
 		local map = C_Map.GetMapInfo(point[1])
 		if map and Text(map.name) then
-			GameTooltip:AddLine(L.JOURNAL_PICKUP:format(map.name, point[2], point[3]), unpack(GOLD))
+			GameTooltip:AddLine(L.JOURNAL_PICKUP:format(map.name, point[2], point[3]), NORMAL_FONT_COLOR:GetRGB())
 		end
 	end
 	if Journal.db.questWaypoint then
@@ -400,12 +381,12 @@ local function DrawMap(id, entry)
 	frame.prev:SetShown(pageCount > 1)
 	frame.next:SetShown(pageCount > 1)
 	frame.entranceButton:SetShown(Entrance(id) ~= nil and (entry.floors ~= nil or entry.minimap ~= nil))
-	frame.entranceButton.text:SetText(mapPage == 0 and L.JOURNAL_INTERIOR or L.JOURNAL_ENTRANCE)
+	frame.entranceButton:SetText(mapPage == 0 and L.JOURNAL_INTERIOR or L.JOURNAL_ENTRANCE)
 	image.empty:SetShown(tiles == nil)
 	image.pin:Hide()
 	local used = 0
 	if tiles and width > 0 and height > 0 and tileW > 0 and tileH > 0 then
-		local scale = math.min(image:GetWidth() / width, image:GetHeight() / height)
+		local scale = math.min((image:GetWidth() - 8) / width, (image:GetHeight() - 8) / height)
 		image.canvas:SetSize(width * scale, height * scale)
 		local columns = math.ceil(width / tileW)
 		local count = cropped and #tiles or math.min(#tiles, columns * math.ceil(height / tileH))
@@ -437,7 +418,7 @@ Render = function(reset)
 	local entry = data[selection]
 	local map = selectedTab == "map"
 	local quests = selectedTab == "quests"
-	for key, button in pairs(frame.tabs) do StyleButton(button, key == selectedTab) end
+	for key, button in pairs(frame.tabs) do SelectTab(button, key == selectedTab) end
 	frame.map:SetShown(map)
 	frame.entries:SetShown(not map)
 	frame.listTitle:SetShown(not map)
@@ -458,14 +439,13 @@ Render = function(reset)
 	frame.listTitle:SetText(quests and L.JOURNAL_QUEST_COUNT:format(#rows) or L.JOURNAL_BOSS_COUNT:format(#rows))
 	frame.listNote:SetText(quests and L.JOURNAL_QUEST_NOTE or L.JOURNAL_BOSS_NOTE)
 	for index, record in ipairs(rows) do
-		local row = Row(frame.entries, index, 676, OpenQuest)
+		local row = Row(frame.entries, index, OpenQuest)
 		row.quest = quests and record or nil
 		if not row.tooltipHook then
 			row.tooltipHook = true
 			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row:HookScript("OnEnter", ns.Measured("DungeonJournal: quest tooltip", QuestTooltip))
 		end
-		StyleButton(row, false)
 		if quests then
 			row.icon:SetTexture(record.state == "done" and ICON.done or ICON.quest)
 			row.icon:SetDesaturated(record.state == "done")
@@ -473,13 +453,18 @@ Render = function(reset)
 			local level = record.level and record.level > 0 and L.JOURNAL_MIN_LEVEL:format(record.level) or ""
 			local side = record.side == "A" and L.JOURNAL_ALLIANCE or record.side == "H" and L.JOURNAL_HORDE
 			row.sub:SetText(STATUS[record.state] .. (level ~= "" and "  ·  " .. level or "") .. (side and "  ·  " .. side or ""))
-			row.sub:SetTextColor(unpack(STATES[record.state]))
+			local color = STATES[record.state]
+			if color then
+				row.sub:SetTextColor(unpack(color))
+			else
+				row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
+			end
 		else
 			row.icon:SetTexture(ICON.boss)
 			row.icon:SetDesaturated(false)
 			row.text:SetText(german and record[3] or record[2])
 			row.sub:SetText(L.JOURNAL_ENCOUNTER:format(index))
-			row.sub:SetTextColor(unpack(MUTED))
+			row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
 		end
 	end
 	ShowRows(frame.entries, #rows, reset)
@@ -498,12 +483,12 @@ RenderCatalog = function(reset, reveal)
 			or entry.data.name[1]:lower():find(query, 1, true)) then
 			count = count + 1
 			if selection == entry.id then selectedIndex = count end
-			local row = Row(frame.browser, count, 210, function(button) Select(button.id) end)
+			local row = Row(frame.browser, count, function(button) Select(button.id) end)
 			row.id = entry.id
 			row.icon:SetAtlas(kind)
 			row.text:SetText(entry.title)
 			row.sub:SetText(FormatLevel(entry.data.min, entry.data.max))
-			StyleButton(row, selection == entry.id)
+			row.selectedArt:SetShown(selection == entry.id)
 		end
 	end
 	frame.noSearch:SetShown(count == 0)
@@ -517,8 +502,8 @@ Select = function(id)
 	if not data[id] then return end
 	selection, kind = id, data[id].kind
 	mapPage = (data[id].floors or data[id].minimap) and 1 or 0
-	StyleButton(frame.dungeons, kind == "dungeon")
-	StyleButton(frame.raids, kind == "raid")
+	SelectTab(frame.dungeons, kind == "dungeon")
+	SelectTab(frame.raids, kind == "raid")
 	RenderCatalog(false)
 	Render(true)
 end
@@ -534,13 +519,6 @@ local function SelectKind(target)
 	end
 end
 
-local function AnchoredLabel(parent, size, color, x, y, title)
-	local label = Label(parent, size, color)
-	label:SetPoint("TOPLEFT", x, y)
-	label:SetText(title)
-	return label
-end
-
 local function MovePage(delta)
 	local entry = data[selection]
 	local count = #(entry.floors or entry.minimap)
@@ -548,41 +526,34 @@ local function MovePage(delta)
 	DrawMap(selection, entry)
 end
 
-local function CreateMap(parent)
+local function CreateMap(panel, parent)
 	local map = CreateFrame("Frame", nil, parent)
-	map:SetPoint("TOPLEFT", 246, -184)
-	map:SetSize(682, 369)
-	local image = CreateFrame("Frame", nil, map)
-	image:SetPoint("TOPLEFT", 0, -35)
-	image:SetSize(682, 305)
-	Fill(image, "BACKGROUND", EDGE)
-	local matte = image:CreateTexture(nil, "BACKGROUND", nil, 1)
-	matte:SetPoint("TOPLEFT", 1, -1)
-	matte:SetPoint("BOTTOMRIGHT", -1, 1)
-	matte:SetColorTexture(0.019, 0.028, 0.044, 1)
+	map:SetAllPoints()
+	local image = CreateFrame("Frame", nil, map, "InsetFrameTemplate")
+	image:SetPoint("TOPLEFT", 9, -39)
+	image:SetSize(DETAIL_WIDTH - 18, 331)
+	image.Bg:SetVertexColor(0.37, 0.34, 0.31)
 	image.canvas = CreateFrame("Frame", nil, image)
 	image.canvas:SetPoint("CENTER")
 	image.tiles = {}
 	image.pin = image.canvas:CreateTexture(nil, "OVERLAY")
 	image.pin:SetSize(26, 26)
 	image.pin:SetAtlas("dungeon")
-	image.empty = Label(image, 14, MUTED)
-	image.empty:SetPoint("CENTER")
-	image.empty:SetText(L.JOURNAL_NO_MAP)
-	parent.mapImage = image
-	parent.mapLabel = AnchoredLabel(map, 15, GOLD, 0, -7, "")
-	parent.mapCaption = AnchoredLabel(map, 11, MUTED, 0, -347, "")
-	parent.mapCaption:SetWidth(682)
-	parent.mapCaption:SetWordWrap(true)
-	parent.prev = Button(map, 28, 25, "‹", function() MovePage(-1) end)
-	parent.prev:SetPoint("TOPRIGHT", -36, 0)
-	parent.next = Button(map, 28, 25, "›", function() MovePage(1) end)
-	parent.next:SetPoint("TOPRIGHT")
-	parent.entranceButton = Button(map, 132, 25, "", function()
+	image.empty = Label(image, "GameFontDisable", "CENTER", 0, 0, L.JOURNAL_NO_MAP)
+	panel.mapImage = image
+	panel.mapLabel = Label(map, "GameFontNormal", "TOPLEFT", 12, -15)
+	panel.mapCaption = Label(map, "GameFontHighlightSmall", "TOPLEFT", 12, -379)
+	panel.mapCaption:SetWidth(DETAIL_WIDTH - 24)
+	panel.mapCaption:SetWordWrap(true)
+	panel.prev = PageButton(map, "Prev", function() MovePage(-1) end)
+	panel.prev:SetPoint("TOPRIGHT", -35, -6)
+	panel.next = PageButton(map, "Next", function() MovePage(1) end)
+	panel.next:SetPoint("TOPRIGHT", -9, -6)
+	panel.entranceButton = PanelButton(map, 132, "", function()
 		mapPage = mapPage == 0 and 1 or 0
 		DrawMap(selection, data[selection])
 	end)
-	parent.entranceButton:SetPoint("TOPRIGHT", -76, 0)
+	panel.entranceButton:SetPoint("TOPRIGHT", -68, -8)
 	return map
 end
 
@@ -597,89 +568,103 @@ local function RefreshQuests()
 end
 
 local function CreateJournal()
-	local panel = ns.CreatePanel("ForeverPlusDungeonJournal", { close = true })
+	local panel = CreateFrame("Frame", "ForeverPlusDungeonJournal", UIParent, "PortraitFrameTemplate")
+	panel:Hide()
 	panel:SetSize(WIDTH, HEIGHT)
 	panel:SetPoint("CENTER")
+	panel:SetFrameStrata("DIALOG")
+	panel:SetToplevel(true)
+	panel:SetClampedToScreen(true)
+	panel:EnableMouse(true)
+	panel:SetTitle(L.JOURNAL_TITLE)
+	panel:SetPortraitToAsset(PORTRAIT)
+	panel.tabPadding = 16
+	panel.CloseButton:SetScript("OnClick", ns.Measured("DungeonJournal: close button", function() panel:Hide() end))
+	tinsert(UISpecialFrames, panel:GetName())
+	ns.FadeIn(panel)
+
 	local screenWidth = ns.Number(UIParent:GetWidth(), WIDTH + 24)
 	local screenHeight = ns.Number(UIParent:GetHeight(), HEIGHT + 24)
 	panel:SetScale(math.min(1, screenWidth / (WIDTH + 24), screenHeight / (HEIGHT + 24)))
-	local background = panel:CreateTexture(nil, "BACKGROUND", nil, 1)
-	background:SetColorTexture(unpack(DARK))
-	background:SetPoint("TOPLEFT", 5, -5)
-	background:SetPoint("BOTTOMRIGHT", -5, 5)
-	panel.Title:SetFont(panel.Title:GetFont(), 18)
-	panel.Title:SetTextColor(unpack(GOLD))
-	panel.Title:SetText(L.JOURNAL_TITLE)
-	panel.Title:ClearAllPoints()
-	panel.Title:SetPoint("TOPLEFT", 16, -14)
-	Line(panel, 16, -16, -41, EDGE)
 
-	panel.dungeons = Button(panel, 102, 25, L.JOURNAL_DUNGEONS, function() SelectKind("dungeon") end)
-	panel.dungeons:SetPoint("TOPLEFT", 16, -54)
-	panel.raids = Button(panel, 102, 25, L.JOURNAL_RAIDS, function() SelectKind("raid") end)
+	local sidebar = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
+	sidebar:SetPoint("TOPLEFT", 11, -86)
+	sidebar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMLEFT", DETAIL_X - 10, 12)
+	panel.dungeons = Tab(panel, L.JOURNAL_DUNGEONS, function() SelectKind("dungeon") end)
+	panel.dungeons:SetPoint("BOTTOMLEFT", sidebar, "TOPLEFT", 5, -2)
+	panel.raids = Tab(panel, L.JOURNAL_RAIDS, function() SelectKind("raid") end)
 	panel.raids:SetPoint("LEFT", panel.dungeons, "RIGHT", 6, 0)
-	panel.search = CreateFrame("EditBox", nil, panel, "SearchBoxTemplate")
-	panel.search:SetPoint("TOPLEFT", 21, -89)
-	panel.search:SetSize(202, 24)
+	panel.search = CreateFrame("EditBox", nil, sidebar, "SearchBoxTemplate")
+	panel.search:SetPoint("TOPLEFT", 12, -10)
+	panel.search:SetSize(198, 22)
 	panel.search:SetAutoFocus(false)
 	panel.search:SetMaxLetters(80)
 	panel.search.Instructions:SetText(L.JOURNAL_SEARCH)
 	panel.search:HookScript("OnTextChanged", ns.Measured("DungeonJournal: search", function()
 		RenderCatalog(true)
 	end))
-	panel.browser = List(panel, 210, 425, ROW)
-	panel.browser:SetPoint("TOPLEFT", 16, -124)
-	panel.noSearch = AnchoredLabel(panel, 12, MUTED, 28, -140, L.JOURNAL_NO_SEARCH)
+	panel.browser = List(sidebar, DETAIL_X - 54, 421)
+	panel.browser:SetPoint("TOPLEFT", 7, -39)
+	panel.noSearch = Label(sidebar, "GameFontDisable", "TOPLEFT", 14, -46, L.JOURNAL_NO_SEARCH)
 
-	local hero = CreateFrame("Frame", nil, panel)
-	hero:SetPoint("TOPLEFT", 246, -54)
-	hero:SetSize(682, 87)
-	Fill(hero, "BACKGROUND", INK)
-	panel.art = hero:CreateTexture(nil, "ARTWORK")
-	panel.art:SetPoint("TOPRIGHT")
-	panel.art:SetPoint("BOTTOMRIGHT")
-	panel.art:SetWidth(341)
-	panel.art:SetTexCoord(0, 1, 0.22, 0.70)
-	panel.art:SetVertexColor(0.65, 0.65, 0.65, 0.72)
-	local fade = hero:CreateTexture(nil, "OVERLAY")
+	local header = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
+	header:SetPoint("TOPLEFT", DETAIL_X, -32)
+	header:SetSize(DETAIL_WIDTH, 94)
+	panel.art = header:CreateTexture(nil, "ARTWORK")
+	panel.art:SetPoint("TOPRIGHT", -4, -4)
+	panel.art:SetPoint("BOTTOMRIGHT", -4, 4)
+	panel.art:SetWidth(330)
+	panel.art:SetTexCoord(0, 1, 0.30, 0.57)
+	panel.art:SetVertexColor(0.82, 0.75, 0.62)
+	local fade = header:CreateTexture(nil, "ARTWORK", nil, 1)
 	fade:SetPoint("TOPLEFT", panel.art)
-	fade:SetPoint("BOTTOMLEFT", panel.art)
-	fade:SetWidth(155)
+	fade:SetPoint("BOTTOMRIGHT", panel.art, "BOTTOMLEFT", 160, 0)
 	fade:SetColorTexture(1, 1, 1, 1)
-	fade:SetGradient("HORIZONTAL", CreateColor(INK[1], INK[2], INK[3], 1), CreateColor(INK[1], INK[2], INK[3], 0))
-	panel.subtitle = AnchoredLabel(hero, 11, GOLD, 14, -12, "")
-	panel.name = AnchoredLabel(hero, 23, WHITE, 14, -30, "")
-	panel.name:SetPoint("RIGHT", -12, 0)
+	fade:SetGradient("HORIZONTAL", CreateColor(0.08, 0.074, 0.067, 1), CreateColor(0.08, 0.074, 0.067, 0))
+	panel.name = Label(header, "GameFontNormalLarge", "TOPLEFT", 13, -16)
+	panel.name:SetPoint("RIGHT", -13, 0)
 	panel.name:SetWordWrap(false)
-	panel.counts = AnchoredLabel(hero, 11, MUTED, 14, -63, "")
+	panel.subtitle = Label(header, "GameFontHighlight", "TOPLEFT", 13, -43)
+	panel.counts = Label(header, "GameFontHighlightSmall", "TOPLEFT", 13, -65)
 
+	local detail = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
+	detail:SetPoint("TOPLEFT", DETAIL_X, DETAIL_TOP)
+	detail:SetPoint("BOTTOMRIGHT", -RIGHT_MARGIN, 12)
 	panel.tabs = {}
-	for index, tab in ipairs(tabs) do
-		local key = tab[1]
-		local button = Button(panel, 106, 28, tab[2], function()
+	local previousTab
+	for _, spec in ipairs(tabs) do
+		local key = spec[1]
+		local tab = Tab(panel, spec[2], function()
 			selectedTab = key
 			Render(true)
 		end)
-		button:SetPoint("TOPLEFT", 246 + (index - 1) * 112, -147)
-		panel.tabs[key] = button
+		if previousTab then
+			tab:SetPoint("LEFT", previousTab, "RIGHT", 6, 0)
+		else
+			tab:SetPoint("BOTTOMLEFT", detail, "TOPLEFT", 5, -2)
+		end
+		panel.tabs[key] = tab
+		previousTab = tab
 	end
-	panel.map = CreateMap(panel)
-	panel.character = Button(panel, 158, 28, L.JOURNAL_MY_QUESTS, function(button)
-		characterOnly = not characterOnly
-		StyleButton(button, characterOnly)
-		button.text:SetText(characterOnly and L.JOURNAL_MY_QUESTS or L.JOURNAL_ALL_QUESTS)
+	panel.map = CreateMap(panel, detail)
+	panel.character = CreateFrame("CheckButton", nil, detail, "UICheckButtonTemplate")
+	panel.character:SetPoint("TOPLEFT", DETAIL_WIDTH - 185, -5)
+	panel.character:SetSize(26, 26)
+	panel.character.Text:SetText(L.JOURNAL_MY_QUESTS)
+	panel.character:SetHitRectInsets(0, -panel.character.Text:GetStringWidth(), 0, 0)
+	panel.character:SetChecked(characterOnly)
+	panel.character:SetScript("OnClick", ns.Measured("DungeonJournal: character filter", function(button)
+		characterOnly = button:GetChecked()
 		Render(true)
-	end)
-	panel.character:SetPoint("TOPRIGHT", -16, -147)
-	StyleButton(panel.character, characterOnly)
-	panel.entries = List(panel, 676, 311, ROW)
-	panel.entries:SetPoint("TOPLEFT", 246, -214)
-	panel.listTitle = AnchoredLabel(panel, 15, GOLD, 246, -191, "")
-	panel.listNote = AnchoredLabel(panel, 11, MUTED, 246, -538, "")
-	panel.listNote:SetWidth(682)
+	end))
+	panel.entries = List(detail, DETAIL_WIDTH - 33, 326)
+	panel.entries:SetPoint("TOPLEFT", 8, -41)
+	panel.listTitle = Label(detail, "GameFontNormal", "TOPLEFT", 12, -15)
+	panel.listNote = Label(detail, "GameFontHighlightSmall", "TOPLEFT", 12, -379)
+	panel.listNote:SetWidth(DETAIL_WIDTH - 24)
 	panel.listNote:SetWordWrap(true)
-	panel.empty = AnchoredLabel(panel, 14, MUTED, 256, -236, "")
-	panel.empty:SetWidth(645)
+	panel.empty = Label(detail, "GameFontDisable", "TOPLEFT", 16, -62)
+	panel.empty:SetWidth(DETAIL_WIDTH - 40)
 	panel.empty:SetWordWrap(true)
 	panel:SetScript("OnHide", ns.Measured("DungeonJournal: close", function()
 		panel.search:ClearFocus()

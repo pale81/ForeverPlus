@@ -849,8 +849,8 @@ end
 
 local ShowNextUpgrade
 
--- The window is a flat tooltip frame with the loot toast's item border, glow and rising arrows; its own border takes
--- the quality colour; the two buttons sit inside it.
+-- The window is the game's loot toast (its artwork, item border, glow, sheen and rising arrows) with the gain big
+-- on its upper edge; the two buttons sit under it.
 local TOAST_BORDER = { [0] = "gray", [1] = "white", [2] = "green", [3] = "blue", [4] = "purple", [5] = "orange" }
 
 -- The gain over the worn item in percent (nil for an empty slot) and the title line of the toast.
@@ -871,9 +871,13 @@ local function SetAtlasOr(texture, atlas, fallback)
 	return false
 end
 
+local TOAST_FILE = [[Interface\LootFrame\LootToast]]
+
 local function CreateUpgradeFrame()
-	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent, "TooltipBackdropTemplate")
-	frame:SetSize(380, 118)
+	-- The size and artwork of the game's loot toast (276 x 96), a little bigger.
+	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent)
+	frame:SetSize(276, 96)
+	frame:SetScale(1.25)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
 	frame:SetFrameStrata("DIALOG")
 	frame:SetToplevel(true)
@@ -883,27 +887,14 @@ local function CreateUpgradeFrame()
 	-- Escape closes it like the panel before.
 	tinsert(UISpecialFrames, "ForeverPlusUpgradeFrame")
 
-	-- A flat tooltip frame like the modern game windows; its border takes the quality colour of the item.
-	if frame.NineSlice and frame.NineSlice.SetCenterColor then
-		frame.NineSlice:SetCenterColor(0.07, 0.07, 0.09, 0.96)
-	end
-
-	-- A soft green glow from the top edge, a thin line above the buttons.
-	frame.Band = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
-	frame.Band:SetPoint("TOPLEFT", 4, -4)
-	frame.Band:SetPoint("TOPRIGHT", -4, -4)
-	frame.Band:SetHeight(56)
-	frame.Band:SetColorTexture(1, 1, 1, 1)
-	frame.Band:SetGradient("VERTICAL", CreateColor(0.2, 0.9, 0.2, 0), CreateColor(0.2, 0.9, 0.2, 0.3))
-	local line = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
-	line:SetPoint("BOTTOMLEFT", 10, 46)
-	line:SetPoint("BOTTOMRIGHT", -10, 46)
-	line:SetHeight(1)
-	line:SetColorTexture(1, 1, 1, 0.1)
+	frame.Background = frame:CreateTexture(nil, "BACKGROUND")
+	frame.Background:SetAllPoints()
+	frame.Background:SetTexture(TOAST_FILE)
+	frame.Background:SetTexCoord(0.28222656, 0.55175781, 0.578125, 0.953125)
 
 	frame.Icon = frame:CreateTexture(nil, "BORDER", nil, 1)
 	frame.Icon:SetSize(50, 50)
-	frame.Icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -18)
+	frame.Icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -23)
 	frame.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	frame.Border = frame:CreateTexture(nil, "BORDER", nil, 2)
 	frame.Border:SetPoint("CENTER", frame.Icon, "CENTER")
@@ -930,13 +921,31 @@ local function CreateUpgradeFrame()
 	end)
 	hit:SetScript("OnLeave", GameTooltip_Hide)
 
-	-- Three lines: what it is (and how much better), the item, what it replaces.
-	-- The gain is big and green and pops up with a little overshoot; it sits in its own frame so it can scale.
+	-- Like the game's toast: a yellow heading, the item name under it, both centred next to the icon.
+	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 8, 0)
+	frame.Title:SetPoint("RIGHT", -18, 0)
+	frame.Title:SetJustifyH("CENTER")
+	frame.Title:SetWordWrap(false)
+	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -4)
+	frame.Name:SetPoint("RIGHT", -18, 0)
+	frame.Name:SetJustifyH("CENTER")
+	frame.Name:SetWordWrap(false)
+	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -4)
+	frame.Replaces:SetPoint("RIGHT", -18, 0)
+	frame.Replaces:SetJustifyH("CENTER")
+	frame.Replaces:SetWordWrap(false)
+
+	-- The gain sits big and green on the upper edge of the toast and pops up with a little overshoot; it has its own
+	-- frame so it can scale.
 	frame.GainBox = CreateFrame("Frame", nil, frame)
-	frame.GainBox:SetSize(112, 40)
-	frame.GainBox:SetPoint("TOPRIGHT", -14, -16)
+	frame.GainBox:SetFrameLevel(frame:GetFrameLevel() + 3)
+	frame.GainBox:SetSize(130, 44)
+	frame.GainBox:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", -8, -10)
 	frame.Gain = frame.GainBox:CreateFontString(nil, "OVERLAY")
-	frame.Gain:SetFont(STANDARD_TEXT_FONT, 32, "OUTLINE")
+	frame.Gain:SetFont(STANDARD_TEXT_FONT, 34, "OUTLINE")
 	frame.Gain:SetPoint("RIGHT")
 	frame.Gain:SetTextColor(0.3, 1, 0.3)
 	frame.Gain:SetShadowColor(0, 0, 0, 0.8)
@@ -966,21 +975,20 @@ local function CreateUpgradeFrame()
 			pop:SetStartDelay(0.25)
 		end
 	end
-	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 14, -2)
-	frame.Title:SetPoint("RIGHT", frame.GainBox, "LEFT", -6, 0)
-	frame.Title:SetJustifyH("LEFT")
-	frame.Title:SetWordWrap(false)
-	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
-	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -5)
-	frame.Name:SetPoint("RIGHT", frame.GainBox, "LEFT", -6, 0)
-	frame.Name:SetJustifyH("LEFT")
-	frame.Name:SetWordWrap(false)
-	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -5)
-	frame.Replaces:SetPoint("RIGHT", -16, 0)
-	frame.Replaces:SetJustifyH("LEFT")
-	frame.Replaces:SetWordWrap(false)
+
+	-- The game's flash over the toast and the sheen that sweeps across it.
+	frame.Flash = frame:CreateTexture(nil, "OVERLAY")
+	frame.Flash:SetPoint("CENTER")
+	frame.Flash:SetBlendMode("ADD")
+	frame.Flash:SetAlpha(0)
+	SetAtlasOr(frame.Flash, "loottoast-glow")
+	frame.Sheen = frame:CreateTexture(nil, "OVERLAY")
+	frame.Sheen:SetSize(171, 75)
+	frame.Sheen:SetPoint("BOTTOMLEFT", -10, 12)
+	frame.Sheen:SetTexture(TOAST_FILE)
+	frame.Sheen:SetTexCoord(0.56347656, 0.73046875, 0.57421875, 0.86718750)
+	frame.Sheen:SetBlendMode("ADD")
+	frame.Sheen:SetAlpha(0)
 
 	-- In: fades in while sliding up a little; the arrows rise over the icon one after another, the border glows.
 	frame.In = frame:CreateAnimationGroup()
@@ -1008,6 +1016,34 @@ local function CreateUpgradeFrame()
 	glowOut:SetFromAlpha(1)
 	glowOut:SetToAlpha(0)
 	glowOut:SetDuration(0.8)
+	local flashIn = frame.Celebrate:CreateAnimation("Alpha")
+	flashIn:SetTarget(frame.Flash)
+	flashIn:SetFromAlpha(0)
+	flashIn:SetToAlpha(1)
+	flashIn:SetDuration(0.2)
+	local flashOut = frame.Celebrate:CreateAnimation("Alpha")
+	flashOut:SetTarget(frame.Flash)
+	flashOut:SetFromAlpha(1)
+	flashOut:SetToAlpha(0)
+	flashOut:SetStartDelay(0.2)
+	flashOut:SetDuration(0.5)
+	local sheenIn = frame.Celebrate:CreateAnimation("Alpha")
+	sheenIn:SetTarget(frame.Sheen)
+	sheenIn:SetStartDelay(0.1)
+	sheenIn:SetFromAlpha(0)
+	sheenIn:SetToAlpha(1)
+	sheenIn:SetDuration(0.1)
+	local sheenMove = frame.Celebrate:CreateAnimation("Translation")
+	sheenMove:SetTarget(frame.Sheen)
+	sheenMove:SetStartDelay(0.1)
+	sheenMove:SetOffset(165, 0)
+	sheenMove:SetDuration(0.5)
+	local sheenOut = frame.Celebrate:CreateAnimation("Alpha")
+	sheenOut:SetTarget(frame.Sheen)
+	sheenOut:SetStartDelay(0.3)
+	sheenOut:SetFromAlpha(1)
+	sheenOut:SetToAlpha(0)
+	sheenOut:SetDuration(0.25)
 	frame.Arrows = {}
 	for index, x in ipairs({ 0, 16, -16, 5, -12 }) do
 		local arrow = frame:CreateTexture(nil, "ARTWORK")
@@ -1035,8 +1071,8 @@ local function CreateUpgradeFrame()
 	end
 
 	local equip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	equip:SetSize(112, 24)
-	equip:SetPoint("BOTTOMRIGHT", -14, 12)
+	equip:SetSize(132, 24)
+	equip:SetPoint("TOPLEFT", frame, "BOTTOM", 3, 2)
 	equip:SetText(L.ITEMS_UPGRADE_POPUP_EQUIP)
 	equip:SetScript("OnClick", function()
 		local entry = table.remove(upgradeQueue, 1)
@@ -1052,8 +1088,8 @@ local function CreateUpgradeFrame()
 		ShowNextUpgrade()
 	end)
 	local later = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	later:SetSize(112, 24)
-	later:SetPoint("RIGHT", equip, "LEFT", -6, 0)
+	later:SetSize(132, 24)
+	later:SetPoint("TOPRIGHT", frame, "BOTTOM", -3, 2)
 	later:SetText(L.ITEMS_UPGRADE_POPUP_LATER)
 	local function Later()
 		table.remove(upgradeQueue, 1)
@@ -1094,13 +1130,6 @@ function ShowNextUpgrade()
 	frame.Name:SetText(itemName or entry.link)
 	if color then
 		frame.Name:SetTextColor(color.r, color.g, color.b)
-	end
-	if frame.NineSlice and frame.NineSlice.SetBorderColor then
-		local r, g, b = ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3]
-		if color and quality >= 2 then
-			r, g, b = color.r, color.g, color.b
-		end
-		frame.NineSlice:SetBorderColor(r, g, b, 1)
 	end
 	local gain = Items.UpgradeGain(entry.score, entry.equippedScore)
 	frame.Title:SetText(L.ITEMS_UPGRADE_POPUP_HEAD)

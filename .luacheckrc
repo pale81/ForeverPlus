@@ -133,6 +133,7 @@ read_globals = {
 	"tremove",
 	"StaticPopup_Hide",
 	"ConfirmLootSlot",
+	"LootFrame",
 	"ConfirmLootRoll",
 	"C_LootHistory",
 	"GetLootRollItemLink",

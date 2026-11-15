@@ -587,6 +587,90 @@ UnitLevel = function() return 40 end
 print("dbg", up(4, 3, "INVTYPE_WAIST"), upvalue(up, "ARMOR_TYPE").SHAMAN[2], UnitLevel())
 check("mailBelt", true)
 print("upgrade OK")
+;(function()
+	local savedLoot, savedScrollUtil = rawget(_G, "LootFrame"), rawget(_G, "ScrollUtil")
+	local savedType, savedLink, savedTypes = rawget(_G, "GetLootSlotType"), rawget(_G, "GetLootSlotLink"), Enum.LootSlotType
+	local savedEquippable, savedCached, savedRequest = C_Item.IsEquippableItem, C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID
+	local savedTooltip, savedPattern, savedEquipped = C_TooltipInfo.GetHyperlink, itemsMod.levelPattern, GetInventoryItemLink
+	local arrow, initialized, request
+	local row, data = { Item = NewFrame("Button") }, { slotIndex = 1 }
+	local slots = { "mailBelt", "clothBelt", "money", "clothBelt" }
+	local cached, canUse = false, false
+	LootFrame = NewFrame("Frame")
+	LootFrame.ScrollBox = { ForEachFrame = function(_, visit) visit(row, data) end }
+	LootFrame:Hide()
+	ScrollUtil = { AddInitializedFrameCallback = function(box, callback, owner)
+		if box == LootFrame.ScrollBox then
+			initialized = function() callback(owner, row, data) end
+		end
+	end }
+	row.Item.CreateTexture = function()
+		assert(not arrow, "reuse the existing arrow")
+		arrow = NewFrame("Texture")
+		arrow.SetDesaturated = function(self, value) self.grey = value end
+		arrow.SetAtlas = function(self, value) self.atlas = value end
+		arrow.SetPoint = function(self, point, anchor) self.point, self.anchor = point, anchor end
+		return arrow
+	end
+	Enum.LootSlotType = { Item = 1, Money = 2 }
+	GetLootSlotType = function(slot) return slot == 3 and Enum.LootSlotType.Money or Enum.LootSlotType.Item end
+	GetLootSlotLink = function(slot)
+		assert(slot ~= 3, "do not read item links for money")
+		return slots[slot]
+	end
+	C_Item.IsEquippableItem = function(link) return ITEMS[link] ~= nil end
+	C_Item.IsItemDataCachedByID = function(link) return link ~= "mailBelt" or cached end
+	C_Item.RequestLoadItemDataByID = function(link) request = link end
+	C_TooltipInfo.GetHyperlink = function()
+		return { lines = canUse and {} or { { leftText = "Benötigt Stufe 41", leftColor = { r = 1, g = 0, b = 0 } } } }
+	end
+	itemsMod.levelPattern = "Benötigt Stufe %d+"
+	itemsMod:OnLogin()
+	LootFrame:Show()
+	local listeners = upvalue(ns.RegisterEvent, "listeners")
+	local function Send(event, ...)
+		listeners[event][itemsMod](itemsMod, event, ...)
+	end
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	initialized()
+	assert(request == "mailBelt" and not arrow, "wait for uncached loot without showing the arrow")
+	cached = true
+	Send("ITEM_DATA_LOAD_RESULT", 1, true)
+	assert(arrow:IsShown() and arrow.grey and arrow:GetAlpha() == 0.75, "a level requirement shows the grey arrow after loading")
+	assert(arrow.atlas == "bags-greenarrow" and arrow.point == "TOPRIGHT" and arrow.anchor == row.Item, "use the bag arrow on the loot icon")
+
+	data = { slotIndex = 2 }
+	initialized()
+	assert(not arrow:IsShown(), "a recycled row clears the previous arrow for unsuitable gear")
+	data = { slotIndex = 3 }
+	initialized()
+	assert(not arrow:IsShown(), "money has no arrow")
+	data = { slotIndex = 4 }
+	initialized()
+	canUse = true
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	slots[4] = "mailBelt"
+	Send("LOOT_SLOT_CHANGED", 4)
+	assert(arrow:IsShown() and not arrow.grey and arrow:GetAlpha() == 1, "an equippable upgrade shows the green arrow")
+	GetInventoryItemLink = function(_, slot) return slot == 6 and "mailBelt" or nil end
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	assert(not arrow:IsShown(), "equipping equivalent gear updates the open window")
+	GetInventoryItemLink = savedEquipped
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	itemsMod.db.upgradeArrow = false
+	itemsMod:OnOptionChanged("upgradeArrow")
+	assert(not arrow:IsShown(), "the existing option hides loot arrows")
+	itemsMod.db.upgradeArrow = true
+	itemsMod:OnOptionChanged("upgradeArrow")
+	assert(arrow:IsShown(), "turning the option back on refreshes the open window")
+
+	LootFrame, ScrollUtil = savedLoot, savedScrollUtil
+	GetLootSlotType, GetLootSlotLink, Enum.LootSlotType = savedType, savedLink, savedTypes
+	C_Item.IsEquippableItem, C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID = savedEquippable, savedCached, savedRequest
+	C_TooltipInfo.GetHyperlink, itemsMod.levelPattern = savedTooltip, savedPattern
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	print("loot upgrade arrows OK")
+end)()
 -- Info module: played + perf tooltip
 local info = ns:GetModule("Info")
 TimeManagerClockButton = {}

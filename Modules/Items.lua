@@ -1,5 +1,5 @@
 -- Items: junk selling and marking, auto repair, quest reward value,
--- upgrade arrows in bags and fast looting.
+-- upgrade arrows in bags and loot, and fast looting.
 local _, ns = ...
 local L = ns.L
 
@@ -150,6 +150,7 @@ function ns.EquipSlots(equipLoc)
 end
 
 local upgradeCache = {}    -- hyperlink -> bool
+local linkUpgradeCache = {} -- hyperlink -> upgrade state outside the bags
 local scoreCache = {}      -- hyperlink (+ ranged) -> base score and bonus against Humanoids
 local equippedCache = {}   -- inventory slot -> base score and bonus against Humanoids
 
@@ -628,7 +629,7 @@ end
 -- Everything that depends on what is worn or on the stat weights.
 local function ClearWeighCaches()
 	wipe(upgradeCache)
-	wipe(Items.recipeCache)
+	wipe(linkUpgradeCache)
 	wipe(scoreCache)
 	wipe(equippedCache)
 end
@@ -736,16 +737,13 @@ local function CanUseLink(link)
 	return true
 end
 
--- What a recipe makes (an item link) against what is worn, with the rating of the bag arrow: true, "later" (only the
--- level is missing), false; nil while its data loads.
-Items.recipeCache = {}
-
-function ns.RecipeUpgradeState(link)
+-- An item outside the bags against what is worn: true, "later" (only the level is missing), false; nil while loading.
+local function LinkUpgradeState(link)
 	if not Items.db or not Items.db.upgradeArrow or type(link) ~= "string" or ns.Secret(link)
 		or not C_Item.IsEquippableItem(link) then
 		return false
 	end
-	local cached = Items.recipeCache[link]
+	local cached = linkUpgradeCache[link]
 	if cached ~= nil then
 		return cached
 	end
@@ -759,9 +757,11 @@ function ns.RecipeUpgradeState(link)
 		local block = Items.UseBlock(data and data.lines, LevelPattern())
 		result = block == "ok" or (block == "level" and "later") or false
 	end
-	Items.recipeCache[link] = result
+	linkUpgradeCache[link] = result
 	return result
 end
+
+ns.RecipeUpgradeState = LinkUpgradeState
 
 local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	local _, treeName = GetWeights()
@@ -1137,8 +1137,14 @@ local function ScanNewItems()
 end
 
 ---------------------------------------------------------------------------
--- Bag button decoration
+-- Bag and loot button decoration
 ---------------------------------------------------------------------------
+local function SetUpgradeArrow(arrow, state)
+	arrow:SetDesaturated(state == "later")
+	arrow:SetAlpha(state == "later" and 0.75 or 1)
+	arrow:SetShown(state and true or false)
+end
+
 local function UpdateButton(button)
 	local bag, slot = button:GetBagID(), button:GetID()
 	local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -1166,10 +1172,7 @@ local function UpdateButton(button)
 		if Items.db.upgradeArrow and info and info.hyperlink and C_Item.IsEquippableItem(info.hyperlink) then
 			show = IsUpgrade(bag, slot, info.hyperlink)
 		end
-		button.UpgradeIcon:SetShown(show and true or false)
-		-- Usable only at a higher level: the arrow is grey.
-		button.UpgradeIcon:SetDesaturated(show == "later")
-		button.UpgradeIcon:SetAlpha(show == "later" and 0.75 or 1)
+		SetUpgradeArrow(button.UpgradeIcon, show)
 	end
 end
 
@@ -1199,6 +1202,46 @@ local function UpdateAllBags()
 	end
 end
 
+local lootArrows = {}
+local lootWaitingForData = false
+
+local function UpdateLootRow(row, data)
+	local state = false
+	if Items.db.upgradeArrow and row.Item and GetLootSlotType(data.slotIndex) == Enum.LootSlotType.Item then
+		local link = GetLootSlotLink(data.slotIndex)
+		state = LinkUpgradeState(link)
+		if state == nil then
+			lootWaitingForData = true
+			if not C_Item.IsItemDataCachedByID(link) then
+				C_Item.RequestLoadItemDataByID(link)
+			end
+		end
+	end
+	local arrow = lootArrows[row]
+	if state and not arrow then
+		arrow = row.Item:CreateTexture(nil, "OVERLAY", nil, 7)
+		arrow:SetAtlas("bags-greenarrow", true)
+		arrow:SetPoint("TOPRIGHT", row.Item, "TOPRIGHT")
+		lootArrows[row] = arrow
+	end
+	if arrow then
+		SetUpgradeArrow(arrow, state)
+	end
+end
+
+local function UpdateLootUpgrades()
+	lootWaitingForData = false
+	if LootFrame and LootFrame.ScrollBox and LootFrame:IsShown() then
+		LootFrame.ScrollBox:ForEachFrame(UpdateLootRow)
+	end
+end
+
+local function OnLootItemData(_, _, _, success)
+	if success and lootWaitingForData then
+		UpdateLootUpgrades()
+	end
+end
+
 local function UsesGearScores()
 	local db = Items.db
 	return db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
@@ -1222,6 +1265,7 @@ local function QueueWeighRefresh()
 		if UsesGearScores() then
 			UpdateAllBags()
 		end
+		UpdateLootUpgrades()
 	end)
 end
 
@@ -2591,6 +2635,8 @@ function Items:Refresh()
 		merchantOpen = false
 	end
 	self:ToggleEvent("LOOT_READY", db.fastLoot)
+	self:ToggleEvent("LOOT_SLOT_CHANGED", db.upgradeArrow, UpdateLootUpgrades)
+	self:ToggleEvent("ITEM_DATA_LOAD_RESULT", db.upgradeArrow, OnLootItemData)
 	-- Fast loot builds on the game's auto loot; switch that on with it.
 	if db.fastLoot and not GetCVarBool("autoLootDefault") then
 		SetCVar("autoLootDefault", "1")
@@ -2622,6 +2668,7 @@ function Items:Refresh()
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", UsesGearScores(), function()
 		ClearWeighCaches()
 		UpdateAllBags()
+		UpdateLootUpgrades()
 	end)
 end
 
@@ -2643,6 +2690,14 @@ end
 
 function Items:OnLogin()
 	HookContainerFrames()
+	ns.OnAddOnLoaded("Blizzard_UIPanels_Game", function()
+		if LootFrame and LootFrame.ScrollBox then
+			ScrollUtil.AddInitializedFrameCallback(LootFrame.ScrollBox, ns.Measured("Items: loot arrow", function(_, row, data)
+				UpdateLootRow(row, data)
+			end), self)
+			UpdateLootUpgrades()
+		end
+	end)
 	hooksecurefunc("StaticPopup_Show", FillDeleteText)
 	HookRollFrames()
 	if C_Container.SortBags then
@@ -2678,6 +2733,9 @@ function Items:OnOptionChanged(key)
 	end
 	self:Refresh()
 	UpdateAllBags()
+	if key == "upgradeArrow" then
+		UpdateLootUpgrades()
+	end
 	if key == "moneyPickup" then
 		for _, area in pairs(moneyAreas) do
 			area:SetShown(self.db.moneyPickup and true or false)

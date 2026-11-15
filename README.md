@@ -16,6 +16,7 @@ Alles Bewegliche (Fenster und ForeverPlus-Anzeigen wie Koordinaten, FPS/MS, Welt
 
 | Bereich | Funktion | Option |
 |---|---|---|
+| Rollenspiel | `/fp rp` oder **Rollenspiel → Eigenes Profil bearbeiten** öffnet das Charakterprofil mit RP-Name, Beruf oder Titel, Geburtsort, Wohnort und Geschichte. „Profil mit anderen Spielern teilen“ beim Speichern freigeben (Standard aus). Das kleine Buch am Porträt eines freundlichen Spielerziels öffnet dessen Profil. Die Abfrage läuft im Spiel direkt zwischen beiden Addons und speichert fremde Profile nicht dauerhaft. | ja |
 | Chat | Drei Symbole links vom Chat (Soziales, Kanäle, Chatmenü) ausblenden | ja |
 | | Mittelklick auf einen Chatreiter wechselt zur nächsten Sprache | ja |
 | | Reiterbeschriftungen blenden mit dem Chat aus (sichtbar bei Mouseover oder neuen Nachrichten) | ja |

@@ -873,7 +873,7 @@ end
 
 local function CreateUpgradeFrame()
 	local frame = CreateFrame("Button", "ForeverPlusUpgradeFrame", UIParent, "TooltipBackdropTemplate")
-	frame:SetSize(300, 104)
+	frame:SetSize(380, 118)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
 	frame:SetFrameStrata("DIALOG")
 	frame:SetToplevel(true)
@@ -888,9 +888,22 @@ local function CreateUpgradeFrame()
 		frame.NineSlice:SetCenterColor(0.07, 0.07, 0.09, 0.96)
 	end
 
+	-- A soft green glow from the top edge, a thin line above the buttons.
+	frame.Band = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
+	frame.Band:SetPoint("TOPLEFT", 4, -4)
+	frame.Band:SetPoint("TOPRIGHT", -4, -4)
+	frame.Band:SetHeight(56)
+	frame.Band:SetColorTexture(1, 1, 1, 1)
+	frame.Band:SetGradient("VERTICAL", CreateColor(0.2, 0.9, 0.2, 0), CreateColor(0.2, 0.9, 0.2, 0.3))
+	local line = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
+	line:SetPoint("BOTTOMLEFT", 10, 46)
+	line:SetPoint("BOTTOMRIGHT", -10, 46)
+	line:SetHeight(1)
+	line:SetColorTexture(1, 1, 1, 0.1)
+
 	frame.Icon = frame:CreateTexture(nil, "BORDER", nil, 1)
 	frame.Icon:SetSize(50, 50)
-	frame.Icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -16)
+	frame.Icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, -18)
 	frame.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	frame.Border = frame:CreateTexture(nil, "BORDER", nil, 2)
 	frame.Border:SetPoint("CENTER", frame.Icon, "CENTER")
@@ -918,21 +931,53 @@ local function CreateUpgradeFrame()
 	hit:SetScript("OnLeave", GameTooltip_Hide)
 
 	-- Three lines: what it is (and how much better), the item, what it replaces.
-	frame.Gain = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	frame.Gain:SetPoint("TOPRIGHT", -16, -14)
-	frame.Gain:SetTextColor(0.2, 1, 0.2)
+	-- The gain is big and green and pops up with a little overshoot; it sits in its own frame so it can scale.
+	frame.GainBox = CreateFrame("Frame", nil, frame)
+	frame.GainBox:SetSize(112, 40)
+	frame.GainBox:SetPoint("TOPRIGHT", -14, -16)
+	frame.Gain = frame.GainBox:CreateFontString(nil, "OVERLAY")
+	frame.Gain:SetFont(STANDARD_TEXT_FONT, 32, "OUTLINE")
+	frame.Gain:SetPoint("RIGHT")
+	frame.Gain:SetTextColor(0.3, 1, 0.3)
+	frame.Gain:SetShadowColor(0, 0, 0, 0.8)
+	frame.Gain:SetShadowOffset(1, -1)
+	frame.GainPop = frame.GainBox:CreateAnimationGroup()
+	frame.GainPop:SetToFinalAlpha(true)
+	local popFade = frame.GainPop:CreateAnimation("Alpha")
+	popFade:SetFromAlpha(0)
+	popFade:SetToAlpha(1)
+	popFade:SetDuration(0.15)
+	popFade:SetStartDelay(0.25)
+	popFade:SetOrder(1)
+	for order, step in ipairs({ { 0.4, 1.3, 0.2 }, { 1.3, 1, 0.14 } }) do
+		local from, to, duration = step[1], step[2], step[3]
+		local pop = frame.GainPop:CreateAnimation("Scale")
+		pop:SetOrigin("RIGHT", 0, 0)
+		if pop.SetScaleFrom then
+			pop:SetScaleFrom(from, from)
+			pop:SetScaleTo(to, to)
+		else
+			pop:SetFromScale(from, from)
+			pop:SetToScale(to, to)
+		end
+		pop:SetDuration(duration)
+		pop:SetOrder(order)
+		if order == 1 then
+			pop:SetStartDelay(0.25)
+		end
+	end
 	frame.Title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	frame.Title:SetPoint("TOPLEFT", frame.Icon, "TOPRIGHT", 14, -2)
-	frame.Title:SetPoint("RIGHT", frame.Gain, "LEFT", -6, 0)
+	frame.Title:SetPoint("RIGHT", frame.GainBox, "LEFT", -6, 0)
 	frame.Title:SetJustifyH("LEFT")
 	frame.Title:SetWordWrap(false)
 	frame.Name = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
 	frame.Name:SetPoint("TOPLEFT", frame.Title, "BOTTOMLEFT", 0, -5)
-	frame.Name:SetPoint("RIGHT", -16, 0)
+	frame.Name:SetPoint("RIGHT", frame.GainBox, "LEFT", -6, 0)
 	frame.Name:SetJustifyH("LEFT")
 	frame.Name:SetWordWrap(false)
 	frame.Replaces = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -4)
+	frame.Replaces:SetPoint("TOPLEFT", frame.Name, "BOTTOMLEFT", 0, -5)
 	frame.Replaces:SetPoint("RIGHT", -16, 0)
 	frame.Replaces:SetJustifyH("LEFT")
 	frame.Replaces:SetWordWrap(false)
@@ -1070,8 +1115,12 @@ function ShowNextUpgrade()
 		frame.In:Play()
 	end
 	frame.Celebrate:Stop()
+	frame.GainPop:Stop()
+	frame.GainBox:SetAlpha(1)
 	if Items.db.upgradeCelebrate then
 		frame.Celebrate:Play()
+		frame.GainBox:SetAlpha(0)
+		frame.GainPop:Play()
 		if SOUNDKIT and SOUNDKIT.UI_EPICLOOT_TOAST then
 			PlaySound(SOUNDKIT.UI_EPICLOOT_TOAST)
 		end

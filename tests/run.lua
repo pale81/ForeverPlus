@@ -168,6 +168,7 @@ BACKPACK_CONTAINER, NUM_BAG_SLOTS, NUM_TOTAL_EQUIPPED_BAG_SLOTS = 0, 4, 5
 C_Container = { GetContainerNumFreeSlots = function() return 3, 0 end, GetContainerNumSlots = function() return 16 end, GetContainerItemInfo = function() return nil end, UseContainerItem = function() end, GetContainerItemLink = function() end, SortBags = function() end, GetBagSlotFlag = function() return false end, GetBackpackSellJunkDisabled = function() return false end, GetBackpackAutosortDisabled = function() return false end, PickupContainerItem = function() end }
 GetQuestLogSpecialItemInfo = function() end
 C_QuestLog = { GetQuestWatchType = function() return nil end, IsOnQuest = function() return false end, GetNumQuestWatches = function() return 0 end, GetInfo = function() return nil end, IsComplete = function() return false end, GetNumQuestLogEntries = function() return 9, 7 end, GetMaxNumQuestsCanAccept = function() return 25 end }
+C_QuestLog.IsQuestFlaggedCompleted = function() return false end
 TRACKER_HEADER_QUESTS = "Quests"
 C_Spell = { GetSpellName = function(id) return "Spell"..id end, GetSpellTexture = function() return 1 end }
 C_SpellBook = { IsSpellKnown = function() return true end, FindSpellBookSlotForSpell = function() return 1 end }
@@ -4557,13 +4558,21 @@ end)()
 	print("quest turn-in pins OK")
 end)()
 ;(function()
-	local db = ns:GetModule("WorldMap").db
-	local collect = uv(ns.MapSymbols.Count, "Collect")
+	local wm, symbols = ns:GetModule("WorldMap"), ns.MapSymbols
+	local db, collect = wm.db, uv(symbols.Count, "Collect")
 	local savedFaction, savedComplete, savedLib = UnitFactionGroup, C_QuestLog.IsQuestFlaggedCompleted, ns.QuestieDB.Get
-	local faction, completed = "Alliance", {}
+	local savedCount, savedJournal, savedRefresh = C_Item.GetItemCount, rawget(_G, "C_PetJournal"), symbols.Refresh
+	local savedMarks = wm.cdb.collectedDiscoveries
+	local marks, faction, completed, items, pets, redraws = {}, "Alliance", {}, {}, {}, 0
+	wm.cdb.collectedDiscoveries = marks
 	UnitFactionGroup = function() return faction end
 	C_QuestLog.IsQuestFlaggedCompleted = function(id) return completed[id] end
+	C_Item.GetItemCount = function(id) return items[id] and 1 or 0 end
+	C_PetJournal = { GetNumPetsInJournal = function(id) return 3, pets[id] and 1 or 0 end }
+	symbols.Refresh = function() redraws = redraws + 1 end
 	ns.QuestieDB.Get = function() return nil end
+	local events = uv(ns.RegisterEvent, "listeners")
+	local function fire(event, id) events[event][wm](wm, event, id) end
 	local function pins(mapID)
 		local result = {}
 		for _, pin in ipairs(collect(mapID)) do
@@ -4574,16 +4583,48 @@ end)()
 	assert(db.discoveries == false and #pins(1432) == 0, "discoveries are opt-in")
 	db.discoveries = true
 	local loch = pins(1432)
-	assert(#loch == 5 and loch[1].x == 0.457 and loch[1].y == 0.433, "all four toolbox locations and the dam, without QuestieDB")
+	assert(#loch == 7 and loch[1].x == 0.457 and loch[1].y == 0.433, "the toolbox, dam and hatchling, without QuestieDB")
 	local lines = {}
 	loch[1].tooltip({ AddLine = function(_, line) lines[#lines + 1] = line end }, loch[1])
 	assert(lines[1] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER and lines[2] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER_TOOLBOX
 		and lines[3] == ns.L.WORLDMAP_DISCOVERY_POSSIBLE:format(45.7, 43.3), "localized hint and possible coordinates")
-	assert(#pins(1415) == 0 and #pins(1447) == 1 and #pins(2521) == 2, "discoveries appear on their own zone maps")
+	assert(#pins(1415) == 0 and #pins(1447) == 1 and #pins(2521) == 3, "discoveries appear on their own zone maps")
+	loch[1].click(loch[1], "LeftButton")
+	assert(#pins(1432) == 7 and redraws == 0, "left click leaves the pins alone")
+	loch[1].click(loch[1], "RightButton")
+	assert(marks.silver == "manual" and #pins(1432) == 3 and redraws == 1, "right click hides all alternative positions")
+	symbols.ResetDiscoveryMarks()
+	assert(#pins(1432) == 7 and not marks.silver, "manual marks can be cleared")
 	faction = "Horde"
-	assert(#pins(1432) == 1 and #pins(1431) == 8, "hide the Alliance toolbox while keeping the dam and the torch")
-	faction, completed[86614], completed[99267] = "Alliance", true, true
-	assert(#pins(1432) == 1 and #pins(1431) == 0, "either quest variant can hide a completed discovery")
+	assert(#pins(1432) == 3 and #pins(1431) == 8 and #pins(1441) == 3 and #pins(1438) == 0, "faction applies to special quests and nests")
+	fire("QUEST_TURNED_IN", 4821)
+	assert(marks.alienEgg == true and #pins(1441) == 0, "the turn-in marks the egg even if it has already left the bags")
+	fire("QUEST_ACCEPTED", 79007)
+	assert(#pins(1413) == 0 and #pins(1436) == 1, "a Horde quest pickup marks only its own sleeping bag stop")
+	completed[99267] = true
+	faction = "Alliance"
+	fire("PLAYER_ENTERING_WORLD")
+	assert(#pins(1431) == 0, "existing completion of a quest variant is recognized")
+	fire("QUEST_ACCEPTED", 86614)
+	assert(marks.silver == true and #pins(1432) == 3, "the toolbox is collected as soon as the quest begins")
+	local darkshore = pins(1439)
+	darkshore[1].click(darkshore[1], "RightButton")
+	pets[274334] = true
+	fire("PET_JOURNAL_LIST_UPDATE")
+	symbols.ResetDiscoveryMarks()
+	assert(marks.tallstriderHatchling == true and #pins(1439) == 0, "learning the pet preserves a previously manual mark")
+	db.discoveries, items[5167] = false, true
+	fire("BAG_UPDATE_DELAYED")
+	items[5167], db.discoveries = false, true
+	assert(marks.webwoodEgg == true and #pins(1438) == 0, "looted nest items are remembered even with the filter off")
+	local ids = {}
+	for _, entries in pairs(ns.MapDiscoveries) do
+		for _, entry in ipairs(entries) do
+			assert(entry.id and not ids[entry.id] and (entry.item or entry.quests or entry.pet), "each discovery has a stable ID and detection data")
+			assert(ns.L.WORLDMAP_DISCOVERY_TEXT[entry.name] and ns.L.WORLDMAP_DISCOVERY_TEXT[entry.hint], "each discovery has localized text")
+			ids[entry.id] = true
+		end
+	end
 	local questSource
 	for _, source in ipairs(uv(collect, "sources")) do
 		if uv(source, "QuestStartAvailable") then questSource = source end
@@ -4592,7 +4633,7 @@ end)()
 	setuv(questSource, "questStarts", { [1432] = { { x = 50.6, y = 53.4, data = { id = 86614 } } } })
 	C_QuestLog.GetLogIndexForQuestID = function() return nil end
 	ns.QuestieDB.Get = function() return {} end
-	completed[86614], db.questStarts = false, true
+	db.questStarts = true
 	questSource(1432, function() error("a discovery replaces its ordinary quest start pin") end)
 	db.discoveries = false
 	local starts = 0
@@ -4601,6 +4642,8 @@ end)()
 	setuv(questSource, "questStarts", savedStarts)
 	C_QuestLog.GetLogIndexForQuestID, db.questStarts = savedActive, savedOption
 	UnitFactionGroup, C_QuestLog.IsQuestFlaggedCompleted, ns.QuestieDB.Get = savedFaction, savedComplete, savedLib
+	C_Item.GetItemCount, C_PetJournal, symbols.Refresh = savedCount, savedJournal, savedRefresh
+	wm.cdb.collectedDiscoveries = savedMarks
 	print("map discoveries OK")
 end)()
 ;(function()

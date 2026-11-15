@@ -31,6 +31,9 @@ local WorldMap = ns:NewModule("WorldMap", {
 		filterMenu = true,
 		zoneLevels = true, -- the level range after the name of the zone under the mouse
 	},
+	charDefaults = {
+		collectedDiscoveries = {},
+	},
 })
 
 local PIN_TEMPLATE = "MapExplorationPinTemplate"
@@ -387,6 +390,10 @@ end
 WorldMap.HookAreaLabel = HookAreaLabel
 
 function WorldMap:OnLogin()
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED", "QUEST_ACCEPTED", "QUEST_TURNED_IN", "PET_JOURNAL_LIST_UPDATE" }) do
+		self:RegisterEvent(event, ns.MapSymbols.ScanDiscoveries)
+	end
+	ns.MapSymbols.ScanDiscoveries()
 	ns.OnAddOnLoaded("Blizzard_WorldMap", function()
 		self:Apply()
 		HookAreaLabel()
@@ -445,6 +452,9 @@ WorldMap.options = {
 	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
 	{ key = "questTurnIns", type = "toggle", name = L.WORLDMAP_QUEST_TURN_INS, desc = L.WORLDMAP_QUEST_TURN_INS_DESC, new = true },
 	{ key = "discoveries", type = "toggle", name = L.WORLDMAP_DISCOVERIES, desc = L.WORLDMAP_DISCOVERIES_DESC, new = true },
+	{ type = "button", name = L.WORLDMAP_DISCOVERY_RESET, text = L.WORLDMAP_DISCOVERY_RESET, parent = "discoveries", func = function()
+		ns.MapSymbols.ResetDiscoveryMarks()
+	end },
 	{ key = "zoneLevels", type = "toggle", name = L.WORLDMAP_ZONE_LEVELS, desc = L.WORLDMAP_ZONE_LEVELS_DESC, new = true },
 	{ key = "symbolScale", type = "slider", name = L.WORLDMAP_SYMBOL_SCALE, desc = L.WORLDMAP_SYMBOL_SCALE_DESC, min = 50, max = 200, step = 5, new = true,
 		format = function(value)

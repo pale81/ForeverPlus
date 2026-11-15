@@ -491,7 +491,7 @@ Symbols.AddSource(function(mapID, add)
 	if discoveries then
 		local faction = UnitFactionGroup("player")
 		for _, discovery in ipairs(discoveries) do
-			if not discovery.faction or discovery.faction == faction then
+			if discovery.replacesQuestStart and (not discovery.faction or discovery.faction == faction) then
 				for _, questID in ipairs(discovery.quests or {}) do
 					availability[questID] = false
 				end
@@ -514,11 +514,67 @@ Symbols.AddSource(function(mapID, add)
 	end)
 end)
 
-local function DiscoveryComplete(discovery)
-	for _, questID in ipairs(discovery.quests or {}) do
-		if C_QuestLog.IsQuestFlaggedCompleted(questID) then return true end
+local function DiscoveryMarks()
+	return ns:GetModule("WorldMap").cdb.collectedDiscoveries
+end
+
+local function DiscoveryQuestReached(id, onAccept, event, questID)
+	return C_QuestLog.IsQuestFlaggedCompleted(id) or (event == "QUEST_TURNED_IN" and questID == id)
+		or (onAccept and (C_QuestLog.IsOnQuest(id) or (event == "QUEST_ACCEPTED" and questID == id)))
+end
+
+local function DiscoveryFound(discovery, faction, event, questID)
+	local fullScan = not event or event == "PLAYER_ENTERING_WORLD"
+	if discovery.item and (fullScan or event == "BAG_UPDATE_DELAYED")
+		and ns.Number(C_Item.GetItemCount(discovery.item, true), 0) > 0 then
+		return true
+	end
+	if discovery.pet and (fullScan or event == "PET_JOURNAL_LIST_UPDATE") and C_PetJournal and C_PetJournal.GetNumPetsInJournal then
+		local _, count = C_PetJournal.GetNumPetsInJournal(discovery.pet)
+		if ns.Number(count, 0) > 0 then return true end
+	end
+	local quests = discovery.quests
+	if not quests or not (fullScan or event == "QUEST_ACCEPTED" or event == "QUEST_TURNED_IN") then return false end
+	if quests[faction] then
+		return DiscoveryQuestReached(quests[faction], discovery.onAccept, event, questID)
+	end
+	for _, id in ipairs(quests) do
+		if DiscoveryQuestReached(id, discovery.onAccept, event, questID) then return true end
 	end
 	return false
+end
+
+function Symbols.ScanDiscoveries(_, event, questID)
+	local collected = DiscoveryMarks()
+	local faction = UnitFactionGroup("player")
+	local changed = false
+	for _, discoveries in pairs(ns.MapDiscoveries) do
+		for _, discovery in ipairs(discoveries) do
+			local id = discovery.id
+			if collected[id] ~= true and (not discovery.faction or discovery.faction == faction)
+				and DiscoveryFound(discovery, faction, event, questID) then
+				changed = changed or not collected[id]
+				collected[id] = true
+			end
+		end
+	end
+	if changed and Options().discoveries then Symbols.Refresh() end
+end
+
+function Symbols.ResetDiscoveryMarks()
+	local collected = DiscoveryMarks()
+	for id, status in pairs(collected) do
+		if status == "manual" then collected[id] = nil end
+	end
+	Symbols.Refresh()
+end
+
+local function MarkDiscovery(symbol, button)
+	if button ~= "RightButton" then return end
+	local collected, id = DiscoveryMarks(), symbol.data.id
+	if not collected[id] then collected[id] = "manual" end
+	GameTooltip:Hide()
+	Symbols.Refresh()
 end
 
 local function DiscoveryTooltip(tooltip, symbol)
@@ -528,17 +584,18 @@ local function DiscoveryTooltip(tooltip, symbol)
 	tooltip:AddLine(strings[discovery.hint], 1, 0.82, 0, true)
 	local coordinates = #discovery.points > 1 and L.WORLDMAP_DISCOVERY_POSSIBLE or L.WORLDMAP_DISCOVERY_COORDS
 	tooltip:AddLine(coordinates:format(point[1], point[2]), 0.8, 0.8, 0.8)
+	GameTooltip_AddInstructionLine(tooltip, L.WORLDMAP_DISCOVERY_MARK)
 end
 
 Symbols.AddSource(function(mapID, add)
 	local discoveries = Options().discoveries and ns.MapDiscoveries[mapID]
 	if not discoveries then return end
-	local faction = UnitFactionGroup("player")
+	local collected, faction = DiscoveryMarks(), UnitFactionGroup("player")
 	for _, discovery in ipairs(discoveries) do
-		if (not discovery.faction or discovery.faction == faction) and not DiscoveryComplete(discovery) then
+		if not collected[discovery.id] and (not discovery.faction or discovery.faction == faction) then
 			for _, point in ipairs(discovery.points) do
 				add(point[1] / 100, point[2] / 100, { kind = "discovery", texture = 1518645, round = true, size = 17,
-					data = discovery, point = point, tooltip = DiscoveryTooltip })
+					data = discovery, point = point, tooltip = DiscoveryTooltip, click = MarkDiscovery })
 			end
 		end
 	end

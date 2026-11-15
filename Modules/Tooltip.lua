@@ -856,56 +856,102 @@ local function ShowTrainerCompare(tooltip, index)
 	end
 end
 
-local function CanRefreshTooltip(tooltip)
-	-- RefreshData replays every entry, including appended data. Its line rules cannot
-	-- pass a secret unit token to unit APIs when the rebuild came from an addon.
-	for _, info in ipairs(tooltip.infoList or {}) do
+local function IsSecretData(value)
+	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
+end
+
+local function HasSecretData(value, seen)
+	if IsSecretData(value) then
+		return true
+	end
+	if type(value) ~= "table" then
+		return false
+	end
+	seen = seen or {}
+	if seen[value] then
+		return false
+	end
+	seen[value] = true
+	for key, field in pairs(value) do
+		if IsSecretData(key) or HasSecretData(field, seen) then
+			return true
+		end
+	end
+	return false
+end
+
+local function CanRefreshTooltip(tooltip, unitLootOnly)
+	local entries = tooltip.infoList
+	if IsSecretData(entries) or type(entries) ~= "table" then
+		return false
+	end
+	local hasExtras = false
+	local types = Enum.TooltipDataType
+	for i, info in ipairs(entries) do
+		if IsSecretData(info) then
+			return false
+		end
 		local data = info.tooltipData
-		if data then
-			if Secret(data.guid) then
-				return false
-			end
-			for _, line in ipairs(data.lines or {}) do
-				if Secret(line.unitToken) then
+		if HasSecretData(data) then
+			return false
+		end
+		local kind = data and data.type
+		if unitLootOnly then
+			if i == 1 then
+				if kind ~= types.Unit or not ns:GetModule("LootSources").ShouldRefreshUnitLoot(data) then
 					return false
 				end
+				hasExtras = true
 			end
+		elseif kind == types.Item or kind == types.Unit then
+			hasExtras = true
 		end
-		for _, arg in pairs(info.getterArgs or {}) do
-			if Secret(arg) then
+	end
+	if not hasExtras then
+		return false
+	end
+
+	-- Blizzard discards cached data for each getter during RefreshData. Check the
+	-- live result too: text, colours and line rules may have become restricted.
+	for _, info in ipairs(entries) do
+		local name, args = info.getterName, info.getterArgs
+		if IsSecretData(name) or HasSecretData(args) or Secret(info.getterFunction) or info.getterFunction then
+			return false
+		end
+		if name then
+			local getter = C_TooltipInfo[name]
+			if type(getter) ~= "function" then
 				return false
 			end
-		end
-		-- These getters can see a different unit or secrecy state when replayed.
-		local unit
-		if info.getterName == "GetWorldCursor" then
-			unit = "mouseover"
-		elseif info.getterName == "GetUnit" and info.getterArgs then
-			unit = info.getterArgs[1]
-		end
-		if unit and C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret and C_Secrets.ShouldUnitIdentityBeSecret(unit) then
-			return false
+			local unit = name == "GetWorldCursor" and "mouseover" or name == "GetUnit" and args and args[1]
+			if unit and C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret and C_Secrets.ShouldUnitIdentityBeSecret(unit) then
+				return false
+			end
+			local ok, data
+			if args then
+				ok, data = pcall(getter, unpack(args, 1, args.n or #args))
+			else
+				ok, data = pcall(getter)
+			end
+			if not ok or HasSecretData(data) or not data then
+				return false
+			end
 		end
 	end
 	return true
 end
 
-function ns.RefreshGameTooltip()
+function ns.RefreshGameTooltip(unitLootOnly)
 	local tooltip = GameTooltip
-	if tooltip:IsShown() and not tooltip:IsForbidden() and CanRefreshTooltip(tooltip) then
+	if tooltip:IsShown() and not tooltip:IsForbidden() and CanRefreshTooltip(tooltip, unitLootOnly) then
 		tooltip:RefreshData()
 	end
 end
 
 -- Pressing or releasing Shift rebuilds the open tooltip if its data can be replayed.
 local function OnShiftChanged(_, _, key)
-	local tooltip = GameTooltip
-	if (key ~= "LSHIFT" and key ~= "RSHIFT") or not tooltip:IsShown() or tooltip:IsForbidden() then
-		return
-	end
-	if Tooltip.db.shiftInfo or tooltip:IsTooltipType(Enum.TooltipDataType.Unit)
-		and ns:GetModule("LootSources").ShouldRefreshUnitLoot(tooltip:GetPrimaryTooltipData()) then
-		ns.RefreshGameTooltip()
+	if key == "LSHIFT" or key == "RSHIFT" then
+		ns.RefreshGameTooltip(not Tooltip.db.shiftInfo)
 	end
 end
 

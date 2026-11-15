@@ -202,6 +202,7 @@ C_AddOns.GetAddOnInfo = function(i)
 	return i, i
 end
 issecretvalue = function() return false end
+issecrettable = function() return false end
 MerchantSellAllJunkButton = CreateFrame("Button"); MerchantSellAllJunkButton.Icon = MerchantSellAllJunkButton:CreateTexture()
 ProfessionsFrame = false -- profession tests install their own frame
 setmetatable(_G, { __index = function(_, k) return Mock(k) end })
@@ -1770,15 +1771,20 @@ end
 	local module = ns:GetModule("Tooltip")
 	local onShift = uv(module.OnLogin, "OnShiftChanged")
 	local savedTooltip, savedSecrets, savedSecret = GameTooltip, C_Secrets, issecretvalue
+	local savedSecretTable, savedWorld = issecrettable, C_TooltipInfo.GetWorldCursor
 	local savedShiftInfo = module.db.shiftInfo
 	module.db.shiftInfo = true
 	local refreshed, restrictedUnit = 0, nil
-	local item = { tooltipData = { lines = {} } }
-	local world = { getterName = "GetWorldCursor", tooltipData = { lines = { { unitToken = "mouseover" } } } }
+	local types = Enum.TooltipDataType
+	local item = { tooltipData = { type = types.Item, lines = {} } }
+	local world = { getterName = "GetWorldCursor", tooltipData = { type = types.Unit, lines = { { unitToken = "mouseover" } } } }
+	local liveWorld, secretColor, restrictedLines = world.tooltipData, {}, {}
+	C_TooltipInfo.GetWorldCursor = function() return liveWorld end
 	GameTooltip = NewFrame("GameTooltip")
 	GameTooltip.RefreshData = function() refreshed = refreshed + 1 end
 	C_Secrets = { ShouldUnitIdentityBeSecret = function(unit) return unit == restrictedUnit end }
-	issecretvalue = function(value) return value == "secret" end
+	issecretvalue = function(value) return value == "secret" or value == secretColor end
+	issecrettable = function(value) return value == restrictedLines end
 
 	GameTooltip.infoList = { item }
 	onShift(nil, nil, "LCTRL")
@@ -1792,19 +1798,36 @@ end
 	onShift(nil, nil, "LSHIFT")
 	assert(refreshed == 2, "a secret unit line in appended data prevents the rebuild")
 
-	GameTooltip.infoList = { { getterName = "GetUnit", getterArgs = { "secret" }, tooltipData = { lines = {} } } }
+	GameTooltip.infoList = { item, { tooltipData = { lines = { { leftText = "name", leftColor = secretColor } } } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a secret line colour in appended data prevents the rebuild")
+
+	GameTooltip.infoList = { item, { tooltipData = { lines = restrictedLines } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a table whose contents are secret prevents the rebuild")
+
+	GameTooltip.infoList = { { getterName = "GetUnit", getterArgs = { "secret" }, tooltipData = world.tooltipData } }
 	onShift(nil, nil, "LSHIFT")
 	assert(refreshed == 2, "a secret getter argument prevents the rebuild")
+
+	GameTooltip.infoList = { { tooltipData = { type = types.UnitAura, lines = {} } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "a tooltip without Shift extras does not need to be rebuilt")
 
 	GameTooltip.infoList = { world }
 	restrictedUnit = "mouseover"
 	onShift(nil, nil, "LSHIFT")
 	assert(refreshed == 2, "a newly restricted mouseover prevents replaying the world cursor getter")
 	restrictedUnit = nil
+	liveWorld = { type = types.Unit, lines = { { leftText = "name", rightText = "level", rightColor = secretColor } } }
+	onShift(nil, nil, "LSHIFT")
+	assert(refreshed == 2, "newly restricted line colours prevent the rebuild even with readable cached data and identity")
+	liveWorld = world.tooltipData
 	onShift(nil, nil, "LSHIFT")
 	assert(refreshed == 3, "normal refresh resumes when the unit is readable again")
 
 	GameTooltip, C_Secrets, issecretvalue = savedTooltip, savedSecrets, savedSecret
+	issecrettable, C_TooltipInfo.GetWorldCursor = savedSecretTable, savedWorld
 	module.db.shiftInfo = savedShiftInfo
 	print("Shift tooltip refresh OK")
 end)()
@@ -5856,13 +5879,12 @@ end)()
 	local savedItems, savedSources, savedCount, savedMerged = ns.LootData.items, ns.db.lootSources, loot.count, loot.merged
 	local savedShiftInfo, savedUnitLoot = tooltipModule.db.shiftInfo, loot.db.unitLoot
 	local guid = "Creature-0-1-2-3-999987-0001"
-	local data = { guid = guid, lines = {} }
+	local data = { type = Enum.TooltipDataType.Unit, guid = guid, lines = {} }
 	local shift, attackable, mouseover, requests = false, true, guid, 0
 	local lines, drops = {}, {}
 	GameTooltip = NewFrame("GameTooltip")
 	GameTooltip.infoList = { { tooltipData = data } }
 	GameTooltip.GetPrimaryTooltipData = function() return data end
-	GameTooltip.IsTooltipType = function(_, kind) return kind == Enum.TooltipDataType.Unit end
 	GameTooltip.AddLine = function(_, line) lines[#lines + 1] = line end
 	GameTooltip.AddDoubleLine = function(_, name, rate) drops[#drops + 1] = { name, rate } end
 	GameTooltip.RefreshData = function()

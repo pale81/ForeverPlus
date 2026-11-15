@@ -342,7 +342,7 @@ read_globals = {
 	"GetQuestProgressBarPercent",
 	"floor",
 	"hooksecurefunc",
-	"issecretvalue",
+	"issecretvalue", "issecrettable",
 	"GetCameraZoom",
 	"CloseItemText",
 	"GetMaterialTextColors",

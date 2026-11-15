@@ -72,6 +72,8 @@ Modules\Profiles.lua
 Modules\LootSources.lua
 Modules\Observations.lua
 Modules\GroupFinder.lua
+Modules\Roleplay.xml
+Modules\Roleplay.lua
 Modules\Flight.lua
 Modules\Waypoint.lua
 Modules\Moments.lua

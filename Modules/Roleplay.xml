@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<ScrollFrame name="ForeverPlusRoleplayStoryInputTemplate" inherits="InputScrollFrameTemplate" virtual="true">
+		<Size x="362" y="86"/>
+		<KeyValues>
+			<KeyValue key="hideCharCount" value="true" type="boolean"/>
+		</KeyValues>
+	</ScrollFrame>
+</Ui>

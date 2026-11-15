@@ -206,6 +206,7 @@ issecretvalue = function() return false end
 issecrettable = function() return false end
 MerchantSellAllJunkButton = CreateFrame("Button"); MerchantSellAllJunkButton.Icon = MerchantSellAllJunkButton:CreateTexture()
 ProfessionsFrame = false -- profession tests install their own frame
+SlashCmdList = {}
 setmetatable(_G, { __index = function(_, k) return Mock(k) end })
 
 dofile("qdb.lua")
@@ -6919,5 +6920,146 @@ end)()
 	UnitIsUnit, UnitGUID, CanInspect, NotifyInspect, InCombatLockdown, GetTime, ns.TalentTreeOf, InspectFrame = unpack(saved, 1, 8)
 	T.trees = {}
 	print("talent tree tooltip OK")
+end)()
+;(function()
+	local rp = ns:GetModule("Roleplay")
+	local now, player, friendly, own = 10000, true, true, false
+	local messages, timeout, save, encodedFixtures = {}, nil, nil, {}
+	local oldCreate = CreateFrame
+	local targetFrame = NewFrame("Frame")
+	targetFrame.GetPortrait = function() return NewFrame("Texture") end
+	local testGlobals = {
+		TargetFrame = targetFrame,
+		UnitIsPlayer = function() return player end,
+		UnitIsFriend = function() return friendly end,
+		UnitIsUnit = function() return own end,
+		UnitFullName = function() return "Aelwyn", "Test Realm" end,
+		GetNormalizedRealmName = function() return "LocalRealm" end,
+		GetTime = function() return now end,
+		C_ChatInfo = {
+			RegisterAddonMessagePrefix = function(prefix) assert(prefix == "ForeverPlusRP1") return 0 end,
+			SendAddonMessage = function(prefix, text, channel, target)
+				assert(prefix == "ForeverPlusRP1" and channel == "WHISPER" and #prefix + #text < 255)
+				messages[#messages + 1] = { text = text, target = target }
+				return 0
+			end,
+		},
+		C_EncodingUtil = {
+			EncodeBase64 = function(data)
+				local encoded = ("a"):rep(math.ceil(#data / 3) * 4)
+				encodedFixtures[encoded] = data
+				return encoded
+			end,
+			DecodeBase64 = function(encoded) return encodedFixtures[encoded] end,
+		},
+		CreateFrame = function(kind, name, parent, template)
+			local frame = oldCreate(kind, name)
+			if parent and parent == rawget(_G, "ForeverPlusRoleplayEditor") and template == "UIPanelButtonTemplate" then
+				save = frame
+			elseif kind == "EditBox" or template == "ForeverPlusRoleplayStoryInputTemplate" then
+				local box = kind == "EditBox" and frame or frame.EditBox
+				box.GetText = function(self) return self.value or "" end
+				box.SetText = function(self, value) self.value = value end
+			end
+			return frame
+		end,
+	}
+	local originals = {}
+	for key, value in pairs(testGlobals) do
+		originals[key], _G[key] = _G[key], value
+	end
+	local oldAfter = C_Timer.After
+	C_Timer.After = function(_, fn) timeout = fn end
+	local oldRegister, oldSend = Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult
+	Enum.RegisterAddonMessagePrefixResult = { Success = 0, DuplicatePrefix = 1 }
+	Enum.SendAddonMessageResult = { Success = 0 }
+
+	rp:OnLogin()
+	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
+	local function Deliver(text, sender, channel)
+		onEvent(nil, "CHAT_MSG_ADDON", "ForeverPlusRP1", text, channel or "WHISPER", sender)
+	end
+	local button = ForeverPlusRoleplayTargetButton
+	button.GetCenter = function() return 15 end
+	local click = button:GetScript("OnClick")
+	assert(button:IsShown() and not rp.cdb.shared, "friendly player has a portrait button and sharing starts off")
+	assert(#messages == 0, "selecting a target does not send a request")
+	Deliver("Q:aca123", "Reader")
+	assert(messages[1].text == "N:aca123" and messages[1].target == "Reader-LocalRealm", "private profile returns no data")
+
+	SlashCmdList.FOREVERPLUS("rp")
+	local editor = ForeverPlusRoleplayEditor
+	local story = "Über den Pass.\n|Hitem:1|h[Text]|h\n" .. ("é"):rep(540)
+	editor.Fields.name:SetText("  Émeline  ")
+	editor.Fields.occupation:SetText("Bergführerin " .. ("x"):rep(80))
+	editor.Fields.birthplace:SetText("Dun Morogh " .. ("x"):rep(80))
+	editor.Fields.residence:SetText("Eisenschmiede " .. ("x"):rep(80))
+	editor.Fields.story:SetText(story)
+	editor.Share.GetChecked = function() return true end
+	save:GetScript("OnClick")()
+	assert(not editor:IsShown() and rp.cdb.shared and rp.cdb.profile.name == "Émeline", "the editor saves per character")
+	assert(rp.cdb.profile.story:sub(-2) == "é" and #rp.cdb.profile.story <= 1100, "UTF-8 story is trimmed to whole characters")
+
+	click()
+	local viewer = ForeverPlusRoleplayViewer
+	local loading, reads = ns.L.RP_LOADING, {}
+	viewer.Text.SetText = function(_, text) reads[#reads + 1] = text end
+	viewer.Hide = function(self)
+		self.shown = false
+		self:GetScript("OnHide")()
+	end
+	local query = messages[2]
+	assert(query.text:match("^Q:%x+$") and query.target == "Aelwyn-TestRealm", "portrait queries the full target name")
+	Deliver("N:" .. query.text:sub(3), "Aelwyn-LocalRealm")
+	Deliver("N:" .. query.text:sub(3), "Aelwyn-TestRealm", "GUILD")
+	assert(#reads == 0, "wrong realm or channel cannot answer")
+	Deliver(query.text, "Reader-LocalRealm")
+	assert(#messages == 2, "a response waits for enough budget to send every piece")
+	now = now + 1
+	Deliver(query.text, "Reader-LocalRealm")
+	assert(#messages == 11, "long profile fits in nine pieces")
+	for index = #messages, 3, -1 do
+		Deliver(messages[index].text, "Aelwyn-TestRealm")
+		if index > 3 then
+			assert(#reads == 0, "response waits for all pieces")
+			Deliver(messages[index].text, "Aelwyn-TestRealm")
+		end
+	end
+	assert(#reads == 1 and reads[1]:find("Dun Morogh", 1, true)
+		and reads[1]:find("Eisenschmiede", 1, true)
+		and reads[1]:find("\n||Hitem:1||h[Text]||h\n", 1, true), "profile renders UTF-8, line breaks and literal markup")
+	timeout()
+	assert(#reads == 1, "a completed response cancels its timeout")
+
+	now = now + 10
+	click()
+	click()
+	assert(reads[#reads] == loading, "reopening fetches a fresh profile")
+	local stale = messages[#messages].text:sub(3)
+	player = false
+	onEvent(nil, "PLAYER_TARGET_CHANGED")
+	Deliver("N:" .. stale, "Aelwyn-TestRealm")
+	timeout()
+	assert(not button:IsShown() and not viewer:IsShown() and reads[#reads] == loading, "target change cancels the request")
+
+	player, friendly = true, false
+	onEvent(nil, "PLAYER_TARGET_CHANGED")
+	assert(not button:IsShown(), "hostile players have no portrait button")
+	friendly = true
+	onEvent(nil, "PLAYER_TARGET_CHANGED")
+	click()
+	timeout()
+	assert(reads[#reads] == ns.L.RP_NO_REPLY, "unanswered request times out")
+	rp.db.enabled = false
+	rp:OnOptionChanged()
+	local before = #messages
+	Deliver("Q:aca456", "Reader-LocalRealm")
+	assert(not button:IsShown() and not viewer:IsShown() and #messages == before, "disabling hides the UI and stops sharing")
+
+	for key, value in pairs(originals) do _G[key] = value end
+	C_Timer.After = oldAfter
+	Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult = oldRegister, oldSend
+	rp.db.enabled, rp.cdb.shared, rp.cdb.profile = true, false, {}
+	print("roleplay editor and profile exchange OK")
 end)()
 dofile("bundled.lua")

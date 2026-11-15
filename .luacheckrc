@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"C_EncodingUtil", "GetNormalizedRealmName", "UnitFullName", "UnitIsFriend",
 	"C_PetJournal",
 	"CanInspect", "NotifyInspect", "ClearInspectPlayer", "InspectFrame",
 	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "Professions", "ProfessionsRecipeListRecipeMixin",

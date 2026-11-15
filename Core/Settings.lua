@@ -308,6 +308,7 @@ local PAGES = {
 	},
 	{ group = 3, title = L.BUFFS_TITLE, { "Buffs" } },
 	{ group = 3, title = L.TALENTS_TITLE, { "Talents" } },
+	{ group = 3, title = L.RP_TITLE, { "Roleplay" } },
 	{ group = 2, title = L.PAGE_INFO,
 		-- By sense, then alphabetical: minimap, world map, places and routes, data and displays, errors.
 		{ "QoL", header = L.QOL_MINIMAP_HEADER, keys = Keys("hideMinimapButtons") },

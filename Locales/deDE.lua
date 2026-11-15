@@ -135,7 +135,7 @@ L.VISUALS_COLOR_RANGE = "Außer Reichweite: rot"
 L.VISUALS_COLOR_MANA = "Nicht genug Mana: blau"
 L.VISUALS_COLOR_UNUSABLE = "Nicht verwendbar: grau"
 L.VISUALS_PALADIN_RECOMMENDATIONS = "Paladin-Segen und -Aura empfehlen"
-L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "Markiert fehlende empfohlene Segen und Auren blau auf deinen Aktionsleisten und der Auraleiste. Die Empfehlung richtet sich nach deinem aktiven Talentbaum."
+L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "Markiert den empfohlenen Segen und die empfohlene Aura blau auf deinen Aktionsleisten und der Auraleiste. Die Empfehlung richtet sich nach deinem aktiven Talentbaum und bleibt bei aktivem Buff sichtbar."
 
 L.RADAR_TITLE = "Rezeptradar"
 L.RADAR_ENABLE = "Rezepthändler anzeigen"

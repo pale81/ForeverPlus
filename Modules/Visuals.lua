@@ -618,7 +618,7 @@ local PALADIN_RECOMMENDATIONS = {
 	{ blessings = { MIGHT, KINGS, WISDOM }, auras = { RETRIBUTION, DEVOTION } }, -- Retribution
 }
 
--- Names match all trained ranks. The normal and greater blessing satisfy the same recommendation.
+-- Names match all trained ranks and both versions of a blessing.
 local function FirstKnownFamily(families)
 	for _, family in ipairs(families) do
 		local names, known = {}, false
@@ -635,32 +635,24 @@ local function FirstKnownFamily(families)
 	end
 end
 
-local function IsMissing(names)
-	if not names then
-		return false
-	end
-	for name in pairs(names) do
-		local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-		if not ok or ns.Secret(aura) or aura then
-			return false
-		end
-	end
-	return true
-end
-
 local paladinGlows = setmetatable({}, { __mode = "k" })
 
 local function ShowPaladinGlow(button)
 	local glow = paladinGlows[button]
 	if not glow then
-		glow = button:CreateTexture(nil, "OVERLAY", nil, 7)
-		glow:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-		glow:SetBlendMode("ADD")
-		glow:SetVertexColor(0.2, 0.65, 1)
-		glow:SetPoint("CENTER")
+		local icon = button.icon or button
+		glow = CreateFrame("Frame", nil, button)
+		glow:SetAllPoints(icon)
+		glow:SetFrameLevel(button:GetFrameLevel() + 3)
+		local texture = glow:CreateTexture(nil, "OVERLAY")
+		texture:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
+		texture:SetBlendMode("ADD")
+		texture:SetVertexColor(0.2, 0.65, 1)
+		texture:SetPoint("CENTER")
 		local width, height = button:GetSize()
-		glow:SetSize(width * 1.8, height * 1.8)
-		glow.pulse = glow:CreateAnimationGroup()
+		texture:SetSize(width * 1.8, height * 1.8)
+		glow.border = ns.CreatePixelBorder(glow, glow, 2)
+		glow.pulse = texture:CreateAnimationGroup()
 		glow.pulse:SetLooping("BOUNCE")
 		local fade = glow.pulse:CreateAnimation("Alpha")
 		fade:SetFromAlpha(1)
@@ -668,14 +660,14 @@ local function ShowPaladinGlow(button)
 		fade:SetDuration(0.85)
 		paladinGlows[button] = glow
 	end
+	glow.border:ShowColor(0.2, 0.65, 1)
 	glow:Show()
 	glow.pulse:Play()
 end
 
 local paladinWatch, paladinUpdatePending
 local paladinBlessing, paladinAura
-local blessingMissing, auraMissing
-local refreshPaladinSpells, refreshPaladinButtons
+local refreshPaladinSpells
 
 local function UpdatePaladinHighlights()
 	paladinUpdatePending = false
@@ -688,37 +680,28 @@ local function UpdatePaladinHighlights()
 		paladinBlessing = FirstKnownFamily(profile.blessings)
 		paladinAura = FirstKnownFamily(profile.auras)
 	end
-	local readable = enabled and not AurasAreSecret()
-	local missingBlessing = readable and IsMissing(paladinBlessing)
-	local missingAura = readable and IsMissing(paladinAura)
-	local updateButtons = refreshPaladinButtons or missingBlessing ~= blessingMissing or missingAura ~= auraMissing
-	refreshPaladinSpells, refreshPaladinButtons = false, false
-	blessingMissing, auraMissing = missingBlessing, missingAura
-	if not updateButtons then
-		return
-	end
+	refreshPaladinSpells = false
 	for _, glow in pairs(paladinGlows) do
 		glow.pulse:Stop()
 		glow:Hide()
 	end
-	if not (missingBlessing or missingAura) then
+	if not (paladinBlessing or paladinAura) then
 		return
 	end
 	for _, button in pairs(ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames or {}) do
 		local slot = ns.Number(button.action)
 		local spellID = slot and ActionSpell(slot)
 		local name = spellID and C_Spell.GetSpellName(spellID)
-		if name and ((missingBlessing and paladinBlessing[name]) or (missingAura and paladinAura[name])) then
+		if name and ((paladinBlessing and paladinBlessing[name]) or (paladinAura and paladinAura[name])) then
 			ShowPaladinGlow(button)
 		end
 	end
-	if missingAura and StanceBar and StanceBar.actionButtons then
+	if paladinAura and StanceBar and StanceBar.actionButtons then
 		for index = 1, GetNumShapeshiftForms() do
 			local button = StanceBar.actionButtons[index]
-			local info = button and button:GetActionButtonInfo()
-			local spellID = info and ns.Number(info.id)
+			local spellID = ns.Number(select(4, GetShapeshiftFormInfo(index)))
 			local name = spellID and C_Spell.GetSpellName(spellID)
-			if name and paladinAura[name] then
+			if button and name and paladinAura[name] then
 				ShowPaladinGlow(button)
 			end
 		end
@@ -726,8 +709,8 @@ local function UpdatePaladinHighlights()
 end
 
 local PALADIN_BUTTON_EVENTS = {
-	ACTIONBAR_SLOT_CHANGED = true, ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true,
-	UPDATE_MACROS = true, UPDATE_SHAPESHIFT_FORMS = true, UPDATE_SHAPESHIFT_FORM = true,
+	"ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR",
+	"UPDATE_MACROS", "UPDATE_SHAPESHIFT_FORMS", "UPDATE_SHAPESHIFT_FORM",
 }
 local PALADIN_SPELL_EVENTS = {
 	PLAYER_ENTERING_WORLD = true, SPELLS_CHANGED = true, ACTIVE_TALENT_GROUP_CHANGED = true,
@@ -742,34 +725,27 @@ local function UpdatePaladinWatch()
 		if not paladinWatch then
 			paladinWatch = CreateFrame("Frame")
 			paladinWatch:SetScript("OnEvent", ns.Measured("Visuals: paladin recommendation event", function(_, event)
-				if PALADIN_SPELL_EVENTS[event] then
-					refreshPaladinSpells, refreshPaladinButtons = true, true
-				elseif PALADIN_BUTTON_EVENTS[event] then
-					refreshPaladinButtons = true
-				elseif event == "UNIT_AURA" and not blessingMissing and not auraMissing and AurasAreSecret() then
-					return
-				end
+				refreshPaladinSpells = refreshPaladinSpells or PALADIN_SPELL_EVENTS[event]
 				if not paladinUpdatePending then
 					paladinUpdatePending = true
 					ns.After("Visuals: paladin recommendations", 0, UpdatePaladinHighlights)
 				end
 			end))
 		end
-		for event in pairs(PALADIN_BUTTON_EVENTS) do
-			paladinWatch:RegisterEvent(event)
+		for _, event in ipairs(PALADIN_BUTTON_EVENTS) do
+			if C_EventUtils.IsEventValid(event) then
+				paladinWatch:RegisterEvent(event)
+			end
 		end
 		for event in pairs(PALADIN_SPELL_EVENTS) do
 			if C_EventUtils.IsEventValid(event) then
 				paladinWatch:RegisterEvent(event)
 			end
 		end
-		paladinWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
-		paladinWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
-		paladinWatch:RegisterUnitEvent("UNIT_AURA", "player")
 	elseif paladinWatch then
 		paladinWatch:UnregisterAllEvents()
 	end
-	refreshPaladinSpells, refreshPaladinButtons = true, true
+	refreshPaladinSpells = true
 	UpdatePaladinHighlights()
 end
 

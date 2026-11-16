@@ -43,7 +43,7 @@ local PALETTES = {
 }
 
 local bubble
-local current -- { view, selected }
+local current -- the view, reward choice and scroll position of the current step
 local history = {} -- earlier gossip and greeting steps of this conversation, for "back"
 local showToken = 0 -- counts the steps shown (a closing event only counts when no new step followed)
 local collapsed = {} -- Blizzard window -> original scale
@@ -128,6 +128,9 @@ function Dialog.ScrollContent(delta, to)
 	local offset = to or ns.Number(scroll:GetVerticalScroll(), 0) - (delta or 0) * 28
 	offset = math.max(0, math.min(range, offset))
 	scroll:SetVerticalScroll(offset)
+	if current and SCROLL_KINDS[current.view.kind] then
+		current.scrollOffset = offset
+	end
 	scroll.More:SetShown(offset < range - 1)
 end
 
@@ -289,7 +292,7 @@ function Dialog.CreateBubbleShape(frame)
 	return art, tail
 end
 
--- Portrait mode: Spoken (when loaded) says and shows the NPC's words, so the bubble keeps only who speaks (a round
+-- Portrait mode: Spoken (when loaded) reads the NPC's words, so the bubble keeps only who speaks (a round
 -- portrait in the bronze of the game's portrait frame) and what can be chosen (options, quests, rewards, buttons).
 -- The source key tells Spoken which part reads the step.
 local SPOKEN_SOURCE = {
@@ -297,23 +300,42 @@ local SPOKEN_SOURCE = {
 	QUEST_COMPLETE = "quests",
 }
 
--- Whether Spoken is loaded and shows the words of this kind of step itself (narrator on, part not switched off).
--- An older Spoken without the question counts as showing them; an answer that fails counts as not showing them,
--- so the words stay in the bubble when in doubt.
-function Dialog.SpokenShows(kind)
-	local source = SPOKEN_SOURCE[kind]
+local function SpokenFlag(spoken, method, arg)
+	if type(spoken[method]) == "function" then
+		local ok, result = pcall(spoken[method], spoken, arg)
+		return ok and result == true
+	end
+end
+
+-- The playing clip, rather than the narrator style, tells us whether this page is being read.
+function Dialog.SpokenReads(view)
+	local source = SPOKEN_SOURCE[view.kind]
 	local spoken = _G.Spoken
-	if not source or type(spoken) ~= "table" then
+	if not source or view.stale or type(spoken) ~= "table" or SpokenFlag(spoken, "IsCompatible", 1) == false
+		or SpokenFlag(spoken, "IsPartOn", source) == false then
 		return false
 	end
-	if type(spoken.IsCompatible) == "function" and not spoken:IsCompatible(1) then
+	if type(spoken.GetNowPlaying) ~= "function" then
+		-- Older players can only report whether they show the text for the source.
+		return SpokenFlag(spoken, "ShowsNarratorFor", source) == true
+	end
+	local ok, clip = pcall(spoken.GetNowPlaying, spoken)
+	if not ok or type(clip) ~= "table" or type(clip.source) ~= "table" or clip.source.key ~= source
+		or SpokenFlag(spoken, "IsPaused") == true or SpokenFlag(spoken, "IsPlaying", clip) == false then
 		return false
 	end
-	if type(spoken.ShowsNarratorFor) ~= "function" then
-		return true
+	if (view.questID and clip.questID ~= view.questID) or (view.speakerGUID and clip.unitGUID and clip.unitGUID ~= view.speakerGUID) then
+		return false
 	end
-	local ok, shows = pcall(spoken.ShowsNarratorFor, spoken, source)
-	return ok and shows == true
+	if clip.textOnly and SpokenFlag(spoken, "ShowsNarratorFor", source) ~= true then
+		return false
+	end
+	for _, block in ipairs(view.blocks) do
+		if block.speech and block.text ~= "" and block.text == clip.text then
+			return true
+		end
+	end
+	return false
 end
 
 -- The blocks of a step without what Spoken says: the quest title, the NPC's words and the objectives.
@@ -349,9 +371,8 @@ local function CreatePortrait(frame)
 	holder.Face = Disc(2, PORTRAIT_SIZE)
 	-- The picture may not be loaded yet when the step shows: asked again once more a moment later.
 	function holder:Update(unit)
-		self.unit = unit or self.unit
-		if self.unit and UnitExists(self.unit) then
-			SetPortraitTexture(self.Face, self.unit)
+		if unit and UnitExists(unit) then
+			SetPortraitTexture(self.Face, unit)
 		end
 	end
 	holder:Hide()
@@ -848,13 +869,17 @@ local function RenderView(view)
 	local host = scrolling and frame.Content or frame
 	-- Portrait mode (see CreatePortrait): the speaker's face on top, the content below it.
 	local speaker = Dialog.PortraitUnit(view)
+	local portraitChanged = (speaker ~= nil) ~= frame.Portrait:IsShown()
+	frame.speaker = speaker
 	local faceRoom = speaker and PORTRAIT_SIZE + PORTRAIT_RIM * 2 + PORTRAIT_GAP or 0
 	frame.Portrait:SetShown(speaker ~= nil)
 	if speaker then
+		FinishReveal()
+		current.portraitShown = true
 		frame.Portrait:Update(speaker)
 		ns.After("Dialog: portrait (timer)", 0.3, function()
-			if bubble and current and bubble.Portrait:IsShown() then
-				bubble.Portrait:Update()
+			if current and current.view == view and frame.Portrait:IsShown() then
+				frame.Portrait:Update(Dialog.SpeakerUnit(view.kind))
 			end
 		end)
 	end
@@ -867,6 +892,7 @@ local function RenderView(view)
 	end
 	local y = 0
 	local listScroll, selectedTop, selectedHeight = false, nil, nil
+	local rewardTop
 	local textFont = TextFont()
 	local baseFont = _G[textFont]
 	local fontFile, fontSize, fontFlags
@@ -895,7 +921,10 @@ local function RenderView(view)
 	-- The NPC's words: laid out whole (the height counts), then emptied for the slow text in the same picture.
 	local function AddSpeech(text, color)
 		local top = y
-		StartReveal(view, AddText(text, color), text, top)
+		local fs = AddText(text, color)
+		if not current.portraitShown then
+			StartReveal(view, fs, text, top)
+		end
 	end
 
 	if view.name and view.name ~= "" and not speaker then
@@ -1026,19 +1055,22 @@ local function RenderView(view)
 				if info.choice and bestChoice == nil and not bestChecked then
 					bestChecked = true
 					bestChoice = ns.BestQuestChoice and ns.BestQuestChoice(function()
-						if bubble:IsShown() and current then
+						if current and not current.pending and frame:IsShown() then
 							Render(current.view)
 						end
 					end) or false
 				end
 				item.Coin:SetShown(info.choice ~= nil and bestChoice == info.choice)
 				item.Upgrade:SetShown(ns.IsRewardUpgrade and ns.IsRewardUpgrade(info.link, function()
-					if bubble:IsShown() and current then
+					if current and not current.pending and frame:IsShown() then
 						Render(current.view)
 					end
 				end) and true or false)
 				item.tooltip = info.tooltip
 				local chosen = block.choose and current and current.selected == info.choice or false
+				if chosen then
+					rewardTop = y
+				end
 				item.Chosen:SetShown(chosen)
 				if chosen then
 					item.Chosen.Pulse:Play()
@@ -1046,8 +1078,11 @@ local function RenderView(view)
 					item.Chosen.Pulse:Stop()
 				end
 				item.action = block.choose and function()
-					current.selected = info.choice
-					Render(view)
+					if current and current.view == view then
+						current.selected = info.choice
+						FinishReveal()
+						Render(view)
+					end
 				end or nil
 				item:Show()
 				x = x + ITEM_SIZE + 6
@@ -1089,7 +1124,11 @@ local function RenderView(view)
 		frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -faceRoom)
 		frame.Scroll:SetSize(WIDTH, visible)
 		frame.Scroll.full, frame.Scroll.visible = full, visible
-		Dialog.ScrollContent(nil, 0)
+		local offset = current.scrollOffset or 0
+		if portraitChanged and rewardTop then
+			offset = Dialog.ListOffset(offset, rewardTop, ITEM_SIZE, visible)
+		end
+		Dialog.ScrollContent(nil, offset)
 		y = faceRoom + visible
 	end
 	-- Buttons side by side at the bottom: main step, "back" (when there is a step before), close.
@@ -1169,14 +1208,19 @@ local function NpcNameplate()
 	return plate
 end
 
--- The unit whose portrait shows: the NPC of the talk ("npc"), else the plate, soft target or target that is the
+local function InteractionUnit(kind)
+	return kind ~= "GOSSIP_SHOW" and SCROLL_KINDS[kind] and UnitExists("questnpc") and "questnpc" or "npc"
+end
+
+-- The unit whose portrait shows: the NPC of the talk, else the plate, soft target or target that is the
 -- NPC noted at the start. nil when none can be told (then the words stay in the bubble).
-function Dialog.SpeakerUnit()
-	if UnitExists("npc") then
-		return "npc"
+function Dialog.SpeakerUnit(kind)
+	local interaction = InteractionUnit(kind)
+	if UnitExists(interaction) then
+		return interaction
 	end
 	local candidates = { "softinteract", "target" }
-	if anchorUnit then
+	if anchorUnit and not removedPlates[anchorUnit] then
 		table.insert(candidates, 1, anchorUnit)
 	end
 	for _, unit in ipairs(candidates) do
@@ -1192,8 +1236,8 @@ end
 -- The speaker for a step shown as portrait only; nil for the full bubble: option off, a step of a list (merchant,
 -- trainer), nothing that shows the words in its place, or nobody to show.
 function Dialog.PortraitUnit(view)
-	if Dialog.db.portrait and SCROLL_KINDS[view.kind] and Dialog.SpokenShows(view.kind) then
-		return Dialog.SpeakerUnit()
+	if Dialog.db.portrait and Dialog.SpokenReads(view) then
+		return Dialog.SpeakerUnit(view.kind)
 	end
 end
 
@@ -1548,6 +1592,26 @@ function Dialog.Rerender()
 	end
 end
 
+-- Spoken may start the line several frames after the quest opens. Recheck on queue changes,
+-- including pause and stop, and leave other clips and frames alone.
+local boundSpoken
+function Dialog.BindSpoken()
+	local spoken = _G.Spoken
+	if type(spoken) ~= "table" or spoken == boundSpoken or type(spoken.RegisterCallback) ~= "function"
+		or type(spoken.GetNowPlaying) ~= "function" then
+		return
+	end
+	local ok = pcall(spoken.RegisterCallback, spoken, "AUDIO_CHANGED", ns.Measured("Dialog: Spoken", function()
+		if current and not current.pending and Dialog.db.portrait and not InCombatLockdown()
+			and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
+			Dialog.Rerender()
+		end
+	end))
+	if ok then
+		boundSpoken = spoken
+	end
+end
+
 -- A choice that asks the server for the next step (gossip option, quest, accept, continue): until the next step
 -- arrives the old one must not stay on screen. It did, in full (also the text just read), and was then replaced by
 -- the new text, which came in slowly: the text seemed to appear whole, vanish and come again.
@@ -1563,6 +1627,7 @@ function Dialog.Pending()
 		return
 	end
 	pendingToken = pendingToken + 1
+	current.pending = true
 	local token = pendingToken
 	Trace("Wahl getroffen: alter Schritt ausgeblendet")
 	FinishReveal()
@@ -1579,7 +1644,8 @@ function Dialog.Pending()
 		if current and not (GossipFrame and GossipFrame:IsShown() or QuestFrame and QuestFrame:IsShown()) then
 			-- The conversation ended meanwhile without an event: the empty step must not stay.
 			Hide()
-		else
+		elseif current then
+			current.pending = nil
 			-- A choice on a step reached with "back" that the game did not answer: the step comes again and says why.
 			if view.stale and not view.noAnswer then
 				view.noAnswer = true
@@ -1648,15 +1714,24 @@ local function Show(view, fromBack)
 			table.remove(history, 1)
 		end
 	end
-	if not current then
-		npcGuid = ns.NpcBubbleGUID(true)
-	elseif not fromBack and not npcGuid then
-		npcGuid = ns.NpcBubbleGUID()
+	if not fromBack then
+		view.speakerGUID = ns.NpcBubbleGUID(false, InteractionUnit(view.kind))
+		npcGuid = view.speakerGUID or npcGuid or ns.NpcBubbleGUID(not current)
 	end
 	-- A plate already visible on the target can disappear as soon as the target changes.
 	ns.ShowFriendlyPlates(Dialog.db.plates and npcGuid ~= nil, "dialog")
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
-	current = { view = view }
+	local sameReward = current and view.kind == "QUEST_COMPLETE" and current.view.kind == view.kind
+		and view.questID and current.view.questID == view.questID
+	if sameReward then
+		current.view, current.pending = view, nil
+		if current.selected and current.selected > view.choiceCount then
+			current.selected = nil
+		end
+	else
+		current = { view = view }
+	end
+	Dialog.BindSpoken()
 	Render(view)
 	if not current then
 		return -- drawing failed, Blizzard's window shows the step
@@ -1915,9 +1990,8 @@ function Dialog.RewardView()
 	local blocks = { { title = Readable(GetTitleText()) }, { text = Readable(GetRewardText()) or "", speech = true } }
 	AddRewards(blocks, true)
 	local choices = GetNumQuestChoices() or 0
-	local view
-	view = {
-		name = NpcName(), blocks = blocks,
+	return {
+		name = NpcName(), blocks = blocks, choiceCount = choices,
 		buttons = {
 			{ text = COMPLETE_QUEST, primary = true, action = function()
 				local choice = current and current.selected or (choices == 1 and 1) or 0
@@ -1932,7 +2006,6 @@ function Dialog.RewardView()
 			end },
 		},
 	}
-	return view
 end
 
 ---------------------------------------------------------------------------
@@ -2546,9 +2619,12 @@ function Dialog:OnConversation(event)
 	local ok, view = pcall(Dialog[VIEWS[event]])
 	if ok and view then
 		view.kind = event
-		if event == "QUEST_PROGRESS" and GetQuestID then
-			local id = GetQuestID()
-			view.abandonQuestID = type(id) == "number" and id > 0 and id or nil
+		if SPOKEN_SOURCE[event] == "quests" and GetQuestID then
+			local id = ns.Number(GetQuestID(), 0)
+			view.questID = id > 0 and id or nil
+			if event == "QUEST_PROGRESS" then
+				view.abandonQuestID = view.questID
+			end
 		end
 		WrapActions(view)
 		Show(view)
@@ -2668,6 +2744,7 @@ function Dialog:OnLogin()
 	end
 	HookWindows()
 	ns.OnAddOnLoaded("Blizzard_TrainerUI", HookWindows)
+	ns.OnAddOnLoaded("Spoken", Dialog.BindSpoken)
 	self:Apply()
 	-- Build the hidden shell during login warmup. Prepare common rows in separate slices.
 	ns.After("Dialog: prepare bubble", 2, function()

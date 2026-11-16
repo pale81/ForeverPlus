@@ -31,6 +31,8 @@ frameMeta.__index = function(t, k)
 		GetAlpha = function(self) return self.alpha end, SetAlpha = function(self, a) self.alpha = a end,
 		GetWidth = function(self) return self.w end, GetHeight = function(self) return self.h end,
 		GetSize = function(self) return self.w, self.h end,
+		GetVerticalScroll = function(self) return rawget(self, "verticalScroll") or 0 end,
+		SetVerticalScroll = function(self, offset) self.verticalScroll = offset end,
 		CreateTexture = function(self) return NewFrame("Texture") end,
 		CreateFontString = function(self) return NewFrame("FontString") end,
 		CreateMaskTexture = function(self) return NewFrame("Mask") end,
@@ -2595,13 +2597,39 @@ end)()
 	assert(pcall(dialog.AbandonQuest, 77), "abandon runs")
 	local reward = dialog.RewardView()
 	assert(#reward.buttons == 2 and reward.blocks[3].choose, "reward choice")
+	-- A long reward page must survive clicks, late item data, and a repeated event for that quest.
+	local savedHeight, savedBest, savedReward, savedQuestID =
+		bubble.pools.text[2].GetStringHeight, ns.BestQuestChoice, GetQuestReward, GetQuestID
+	local refreshReward, claimed
+	bubble.pools.text[2].GetStringHeight = function() return 260 end
+	ns.BestQuestChoice = function(onLoaded) refreshReward = onLoaded end
+	GetQuestReward = function(choice) claimed = choice end
+	dialog:OnConversation("QUEST_COMPLETE")
+	bubble:Show() -- the harness does not create a nameplate for the quest giver
+	bubble:GetScript("OnMouseWheel")(bubble, -20)
+	local offset = bubble.Scroll:GetVerticalScroll()
+	assert(offset > 0, "long reward page scrolls")
+	local choice = bubble.pools.item[2]
+	choice:GetScript("OnClick")(choice)
+	assert(choice.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() == offset, "choosing keeps the rewards in view")
+	refreshReward()
+	assert(choice.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() == offset, "late item data preserves position")
+	dialog:OnConversation("QUEST_COMPLETE")
+	assert(choice.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() == offset, "reopening the same reward page keeps the choice")
+	uv(dialog.Rerender, "current").view.buttons[1].action()
+	assert(claimed == 2, "completing the refreshed quest hands in with the selected reward")
+	GetQuestID = function() return 78 end
+	dialog:OnConversation("QUEST_COMPLETE")
+	assert(not choice.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() == 0, "a different quest starts fresh")
+	bubble.pools.text[2].GetStringHeight, ns.BestQuestChoice, GetQuestReward, GetQuestID =
+		savedHeight, savedBest, savedReward, savedQuestID
 	dialog.db.style = "DARK"
 	assert(pcall(dialog.OnConversation, dialog, "QUEST_DETAIL"), "dark style")
 	dialog.db.enabled = false
 	print("dialog OK")
 end)()
 ;(function()
-	-- dialog bubble, portrait mode: with Spoken showing the words only the speaker's portrait and the choices stay
+	-- The actual line spoken switches the portrait on and off, even in voice-only mode.
 	local dialog = ns:GetModule("Dialog")
 	local blocks = { { title = "Die Jagd" }, { text = "Worte", speech = true }, { text = "Ziel", objective = true },
 		{ text = "Noch nicht", dim = true }, { rows = {} }, { items = {} }, { money = "5s" } }
@@ -2609,20 +2637,21 @@ end)()
 	assert(#kept == 4 and kept[1].dim and kept[2].rows and kept[3].items and kept[4].money, "title, words and objective dropped")
 	assert(#blocks == 7, "the view's own blocks stay whole")
 	local saved = _G.Spoken
-	_G.Spoken = false -- the harness gives an unknown global a placeholder: false stands for "not loaded"
-	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "no Spoken: the words stay in the bubble")
-	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function(_, key) return key == "gossip" end }
-	assert(dialog.SpokenShows("GOSSIP_SHOW") and dialog.SpokenShows("QUEST_GREETING"), "gossip is shown by Spoken")
-	assert(not dialog.SpokenShows("QUEST_DETAIL"), "quests part off: the words stay")
-	assert(not dialog.SpokenShows("MERCHANT_SHOW") and not dialog.SpokenShows("TRAINER_SHOW"), "lists are never portrait only")
-	_G.Spoken = { IsCompatible = function() return true end }
-	assert(dialog.SpokenShows("QUEST_DETAIL"), "an older Spoken without the question counts as showing")
-	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function() error("boom") end }
-	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "a failing answer keeps the words")
-	_G.Spoken = { IsCompatible = function() return false end }
-	assert(not dialog.SpokenShows("GOSSIP_SHOW"), "an incompatible Spoken is ignored")
-	_G.Spoken = { IsCompatible = function() return true end, ShowsNarratorFor = function() return true end }
-	local wasExists, wasEnabled, wasPortrait = UnitExists, dialog.db.enabled, dialog.db.portrait
+	local clip, notifyAudio, paused
+	_G.Spoken = {
+		IsCompatible = function() return true end,
+		ShowsNarratorFor = function() return false end, -- "voice only"
+		GetNowPlaying = function() return clip end,
+		IsPlaying = function() return clip ~= nil and not paused end,
+		IsPaused = function() return paused == true end,
+		RegisterCallback = function(_, event, fn)
+			assert(event == "AUDIO_CHANGED" and not notifyAudio, "subscribe once to playback changes")
+			notifyAudio = fn
+		end,
+	}
+	local wasExists, wasEnabled, wasPortrait, savedDraw = UnitExists, dialog.db.enabled, dialog.db.portrait, SetPortraitTexture
+	local faceUnit
+	SetPortraitTexture = function(_, unit) faceUnit = unit end
 	UnitExists = function(unit) return unit == "npc" end
 	UnitGUID = function() return "Creature-0-0-0-0-1-0" end
 	UnitName = function() return "Torwächter" end
@@ -2635,24 +2664,48 @@ end)()
 		GetAvailableQuests = function() return { { title = "Neu", questID = 2 } } end,
 	}
 	dialog.db.enabled, dialog.db.portrait = true, true
-	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == "npc", "portrait of the NPC")
-	assert(dialog.PortraitUnit({ kind = "MERCHANT_SHOW" }) == nil, "no portrait for a merchant")
-	dialog.db.portrait = false
-	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == nil, "option off: full bubble")
-	dialog.db.portrait = true
-	UnitExists = function() return false end
-	assert(dialog.PortraitUnit({ kind = "GOSSIP_SHOW" }) == nil, "no speaker known: full bubble")
-	UnitExists = function(unit) return unit == "npc" end
-	local ok, err = pcall(dialog.OnConversation, dialog, "GOSSIP_SHOW")
-	assert(ok, tostring(err))
+	dialog:OnConversation("GOSSIP_SHOW")
 	local bubble = ForeverPlusDialogBubble
-	assert(bubble.Portrait:IsShown(), "portrait shows")
-	assert(bubble.lastUsed.text == 0 and bubble.lastUsed.row == 3, "no words, the three choices stay: " .. bubble.lastUsed.text .. "/" .. bubble.lastUsed.row)
-	_G.Spoken = false -- the harness gives an unknown global a placeholder: false stands for "not loaded"
-	dialog.Rerender()
-	assert(not bubble.Portrait:IsShown() and bubble.lastUsed.text == 2, "without Spoken: name and words again")
+	assert(not bubble.Portrait:IsShown() and bubble.lastUsed.text == 2, "the words remain while no clip is playing")
+	clip = { source = { key = "gossip" }, text = "Different dialogue.", unitGUID = UnitGUID("npc") }
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown(), "an unrelated voiceover keeps the text visible")
+	clip.text = C_GossipInfo.GetText()
+	notifyAudio()
+	assert(bubble.Portrait:IsShown() and faceUnit == "npc", "voice-only playback shows the speaker's face")
+	assert(bubble.lastUsed.text == 0 and bubble.lastUsed.row == 3, "the three choices stay visible")
+	paused = true
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown() and bubble.lastUsed.text == 2, "a paused clip leaves the words visible")
+	paused = false
+	clip.textOnly = true
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown(), "a silent clip without a narrator does not replace the words")
+	clip.textOnly = false
+	dialog.db.portrait = false
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown(), "option off: full bubble")
+	dialog.db.portrait = true
+	UnitExists = function(unit) return unit == "questnpc" end
+	dialog:OnConversation("QUEST_COMPLETE")
+	clip = { source = { key = "quests" }, questID = GetQuestID(), text = GetRewardText(), unitGUID = UnitGUID("questnpc") }
+	notifyAudio()
+	assert(bubble.Portrait:IsShown() and faceUnit == "questnpc" and bubble.lastUsed.item == 3, "quest portrait preserves rewards")
+	local item = bubble.pools.item[2]
+	item:GetScript("OnClick")(item)
+	local height = bubble.pools.text[2].GetStringHeight
+	bubble.pools.text[2].GetStringHeight = function() return 260 end
+	clip = nil
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown() and item.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() > 0,
+		"the text returns when playback ends and the selected reward stays in view")
+	bubble.pools.text[2].GetStringHeight = height
+	UnitExists = function() return false end
+	clip = { source = { key = "quests" }, questID = GetQuestID(), text = GetRewardText() }
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown(), "no speaker known: full bubble")
 	dialog.db.enabled, dialog.db.portrait = wasEnabled, wasPortrait
-	UnitExists = wasExists
+	UnitExists, SetPortraitTexture = wasExists, savedDraw
 	_G.Spoken = saved
 	print("dialog portrait OK")
 end)()

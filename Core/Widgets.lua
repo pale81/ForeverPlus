@@ -620,8 +620,8 @@ end
 
 -- Capture the speaker at the start of the interaction. Some dialogs have no
 -- "npc" token, so the caller can use the interaction target at opening time.
-function ns.NpcBubbleGUID(useTarget)
-	local unit = "npc"
+function ns.NpcBubbleGUID(useTarget, interactionUnit)
+	local unit = interactionUnit or "npc"
 	if useTarget and not UnitExists(unit) then
 		unit = UnitExists("softinteract") and "softinteract" or "target"
 	end

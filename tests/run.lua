@@ -4383,8 +4383,24 @@ end)()
 ;(function()
 	-- Solo Party uses independent events, even with the chat summaries disabled.
 	local solo = ns:GetModule("SoloParty")
-	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString }
+	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound }
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
+	local frames, played = {}, {}
+	SOUNDKIT = ns.CopyDefaults(SOUNDKIT, {})
+	SOUNDKIT.UI_MISSION_SUCCESS_CHEERS = 74702
+	SOUNDKIT.UI_RAID_BOSS_DEFEATED = 50111
+	SOUNDKIT.UI_SCENARIO_STAGE_END = 31757
+	SOUNDKIT.UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL = 43501
+	SOUNDKIT.UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE = 165976
+	SOUNDKIT.UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER = 43503
+	local reward = { [74702] = true, [50111] = true, [31757] = true }
+	local expense = { [43501] = true, [165976] = true, [43503] = true }
+	PlaySound = function(kit, channel)
+		if reward[kit] or expense[kit] then
+			assert(channel == "SFX", "party sounds use the game's effects channel")
+			played[#played + 1] = kit
+		end
+	end
 	local layer
 	GetMoney = function() return money end
 	GetMoneyString = function(amount) return amount .. "c" end
@@ -4401,6 +4417,11 @@ end)()
 			layer = frame
 		elseif layer and parent == layer then
 			frame.SetPoint = function(_, _, _, _, x, y) positions[#positions + 1] = { x, y } end
+		end
+		frame.CreateTexture = function()
+			local texture = NewFrame("Texture")
+			texture.SetTexture = function(_, path) frames[#frames + 1] = path end
+			return texture
 		end
 		frame.CreateFontString = function()
 			local region = NewFrame("FontString")
@@ -4428,9 +4449,9 @@ end)()
 		local listeners = uv(ns.RegisterEvent, "listeners")
 		listeners.PLAYER_ENTERING_WORLD[solo](solo, "PLAYER_ENTERING_WORLD")
 	end
-	assert(not solo.db.enabled, "Solo Party defaults to off")
+	assert(not solo.db.enabled and solo.db.sounds, "Solo Party defaults to off with sound available when enabled")
 	Fire("CHAT_MSG_SKILL", skill)
-	assert(not layer, "disabled: no party frame")
+	assert(not layer and #played == 0, "disabled: no party frame or sound")
 	SetEnabled(true)
 	Fire("CHAT_MSG_SKILL", "protected")
 	Fire("CHAT_MSG_SKILL", "Unrelated skill message")
@@ -4458,6 +4479,12 @@ end)()
 	money = 900
 	Fire("PLAYER_MONEY")
 	assert(printed[5] == ns.L.SOLO_PARTY_SPENT and printed[6] == "−100c", "exactly -10% of the purse before spending qualifies")
+	assert(#played == 3 and reward[played[1]] and reward[played[2]] and expense[played[3]], "each qualifying burst gets a sound from its pool")
+	assert(#frames == 3 and frames[1] ~= frames[2] and frames[2] ~= frames[3] and frames[1] ~= frames[3], "all three frames rotate")
+	for _, path in ipairs(frames) do
+		local asset = assert(io.open(root .. "/Media/" .. path:match("[^\\]+$") .. ".tga", "rb"))
+		asset:close()
+	end
 	assert(positions[1][1] ~= positions[2][1] and positions[2][1] ~= positions[3][1], "consecutive bursts use different places")
 	assert(visuals[4][1] ~= visuals[6][1] and visuals[4][2] ~= visuals[6][2], "loot and expenses use different typefaces and sizes")
 	layer:GetScript("OnUpdate")(layer, 2)
@@ -4470,14 +4497,39 @@ end)()
 	Fire("CHAT_MSG_MONEY", "Ihr plündert 1 Kupfer")
 	timers[3].fn()
 	assert(printed[8] == "+10c" and printed[10] == "+1c", "cash from zero and a second loot line in the same tick")
+	assert(reward[played[4]] and played[4] ~= played[1] and played[4] ~= played[2] and played[5] == played[1],
+		"rewards use all three sounds before repeating")
+	assert(frames[4] == frames[1] and frames[5] == frames[2], "frames repeat only after all three are used")
 	Fire("CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer")
 	SetEnabled(false)
 	assert(timers[4].cancelled and not layer:IsShown(), "switching off clears pending loot and active effects")
 	Fire("CHAT_MSG_SKILL", skill)
-	assert(#printed == 10, "switching off unregisters the events")
-	solo.options[2].func()
-	assert(#printed == 16 and not solo.db.enabled and money == 11, "preview shows three effects without changing the mode or wallet")
-	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString = unpack(saved, 1, 5)
+	assert(#printed == 10 and #played == 5, "switching off unregisters the events")
+	local preview = solo.options[3].func
+	preview()
+	assert(#printed == 12 and #played == 6, "preview starts with one effect and one sound")
+	timers[#timers].fn()
+	assert(#printed == 14 and #played == 7, "preview plays the second effect separately")
+	timers[#timers].fn()
+	assert(#printed == 16 and #played == 8 and expense[played[8]], "preview plays the expense sound separately")
+	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
+
+	SetEnabled(true)
+	for _ = 1, 2 do
+		EnterWorld(1000)
+		money = 900
+		Fire("PLAYER_MONEY")
+	end
+	assert(expense[played[9]] and played[9] ~= played[8] and played[8] ~= played[3] and played[9] ~= played[3]
+		and played[10] == played[3], "expenses use all three sounds before repeating")
+	solo.db.sounds = false
+	solo:OnOptionChanged("sounds")
+	money = 810
+	Fire("PLAYER_MONEY")
+	assert(#printed == 22 and #played == 10 and solo.db.enabled, "muting keeps qualifying pop-ups active")
+	SetEnabled(false)
+	solo.db.sounds = true
+	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound = unpack(saved, 1, 7)
 	print("solo party OK")
 end)()
 ;(function()

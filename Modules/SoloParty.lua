@@ -5,10 +5,16 @@ local L = ns.L
 local SoloParty = ns:NewModule("SoloParty", {
 	title = L.SOLO_PARTY_TITLE,
 	order = 5.37,
-	defaults = { enabled = false },
+	defaults = { enabled = false, sounds = true },
 })
 
-local BURST = "Interface\\AddOns\\ForeverPlus\\Media\\SoloPartyBurst"
+local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
+local BURSTS = { MEDIA .. "SoloPartyBurst", MEDIA .. "SoloPartyCloud", MEDIA .. "SoloPartyBalloon" }
+local SOUNDS = {
+	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
+	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
+		"UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER" },
+}
 local BANGERS = "Interface\\AddOns\\ForeverPlus\\Media\\Fonts\\Bangers-Regular.ttf"
 local BARLOW = "Interface\\AddOns\\ForeverPlus\\Media\\Fonts\\BarlowCondensed-Black.ttf"
 local STYLES = {
@@ -19,8 +25,28 @@ local STYLES = {
 local POSITIONS = { { 0.21, 0.66 }, { 0.79, 0.37 }, { 0.50, 0.67 }, { 0.21, 0.37 }, { 0.79, 0.66 }, { 0.50, 0.38 } }
 local POP, HOLD, END = 0.22, 1.35, 1.78
 local root, cards, nextSlot = nil, {}, 0
-local balance, lootTimer
+local lastBurst, lastSound = nil, {}
+local balance, lootTimer, previewTimer
 local lootAmounts, lootTotal = {}, 0
+
+-- Start at a random variant and use each one before repeating it.
+local function NextVariant(previous, count)
+	return previous and previous % count + 1 or math.random(count)
+end
+
+local function PlayBurstSound(kind)
+	if not SoloParty.db.sounds then
+		return
+	end
+	local group = kind == "spent" and "spent" or "reward"
+	local pool = SOUNDS[group]
+	local index = NextVariant(lastSound[group], #pool)
+	lastSound[group] = index
+	local kit = SOUNDKIT[pool[index]]
+	if kit then
+		PlaySound(kit, "SFX")
+	end
+end
 
 local function Update(_, delta)
 	local visible = false
@@ -58,7 +84,6 @@ local function CreateCard()
 	art:EnableMouse(false)
 	local burst = art:CreateTexture(nil, "BACKGROUND")
 	burst:SetAllPoints()
-	burst:SetTexture(BURST)
 	local label = art:CreateFontString(nil, "OVERLAY")
 	local value = art:CreateFontString(nil, "OVERLAY")
 	label:SetTextColor(0.11, 0.07, 0.17)
@@ -80,6 +105,8 @@ local function ShowBurst(kind, label, value)
 	cards[nextSlot] = card
 	local style = STYLES[kind]
 	local size = style.size + math.random(-4, 4)
+	lastBurst = NextVariant(lastBurst, #BURSTS)
+	card.burst:SetTexture(BURSTS[lastBurst])
 	if card.label:SetFont(BARLOW, 18, "") == false then
 		card.label:SetFontObject(GameFontNormal)
 	end
@@ -105,6 +132,7 @@ local function ShowBurst(kind, label, value)
 	card.art:SetAlpha(0)
 	card.art:Show()
 	root:Show()
+	PlayBurstSound(kind)
 end
 
 local function ShowMoney(kind, amount)
@@ -164,28 +192,53 @@ function SoloParty:CHAT_MSG_SKILL(_, message)
 	end
 end
 
-function SoloParty:OnOptionChanged()
+function SoloParty:OnOptionChanged(key)
+	if key == "sounds" then
+		return
+	end
 	local enabled = self.db.enabled
 	ResetMoney()
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, ResetMoney)
 	self:ToggleEvent("PLAYER_MONEY", enabled, self.PLAYER_MONEY)
 	self:ToggleEvent("CHAT_MSG_MONEY", enabled, self.CHAT_MSG_MONEY)
 	self:ToggleEvent("CHAT_MSG_SKILL", enabled, self.CHAT_MSG_SKILL)
-	if not enabled and root then
-		for _, card in pairs(cards) do
-			card.art:Hide()
+	if not enabled then
+		if previewTimer then
+			previewTimer:Cancel()
+			previewTimer = nil
 		end
-		root:Hide()
+		if root then
+			for _, card in pairs(cards) do
+				card.art:Hide()
+			end
+			root:Hide()
+		end
 	end
 end
 
 SoloParty.OnLogin = SoloParty.OnOptionChanged
 
+local PREVIEW_STEPS = {
+	function() ShowBurst("skill", L.SOLO_PARTY_PREVIEW_SKILL, L.SOLO_PARTY_RANK:format(75)) end,
+	function() ShowMoney("loot", 12500) end,
+	function() ShowMoney("spent", 3500) end,
+}
+
+local function Preview()
+	if previewTimer then
+		previewTimer:Cancel()
+	end
+	local step = 1
+	local function Advance()
+		PREVIEW_STEPS[step]()
+		step = step + 1
+		previewTimer = PREVIEW_STEPS[step] and ns.NewTimer("SoloParty: next preview", 2.4, Advance) or nil
+	end
+	Advance()
+end
+
 SoloParty.options = {
 	{ key = "enabled", type = "toggle", name = L.SOLO_PARTY_ENABLED, desc = L.SOLO_PARTY_DESC, new = true },
-	{ type = "button", name = L.SOLO_PARTY_PREVIEW, text = L.SOLO_PARTY_PREVIEW_BUTTON, func = function()
-		ShowBurst("skill", L.SOLO_PARTY_PREVIEW_SKILL, L.SOLO_PARTY_RANK:format(75))
-		ShowMoney("loot", 12500)
-		ShowMoney("spent", 3500)
-	end },
+	{ key = "sounds", type = "toggle", name = L.SOLO_PARTY_SOUNDS, desc = L.SOLO_PARTY_SOUNDS_DESC, new = true },
+	{ type = "button", name = L.SOLO_PARTY_PREVIEW, text = L.SOLO_PARTY_PREVIEW_BUTTON, func = Preview },
 }

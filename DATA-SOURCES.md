@@ -22,7 +22,7 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 ## Sources reviewed
 
-**Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). Cells with mean alpha of at least 150/255 become click areas. The game renders its own Blizzard textures.
+**Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). The mean alpha threshold is 150/255, with 30/255 in the tail region (columns 13–24, rows 18–24, counted from the top left). The game renders its own Blizzard textures.
 
 **Quest hand-in pins.** With Blizzard's Quest Objectives filter off, ForeverPlus reads the Forever client's quest log for readiness and takes the map position from `C_QuestLog.GetQuestsOnMap`. When the client supplies no usable point for the quest on that map, the pins use the bundled `turnInPoint` coordinates described above.
 

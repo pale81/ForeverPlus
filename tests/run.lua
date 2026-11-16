@@ -7402,6 +7402,7 @@ end)()
 	end
 	local dragonButton = assert(DragonButtonAt(12, -49), "the dragon's body is clickable")
 	assert(not DragonButtonAt(53, -48), "the transparent portrait centre has no RP hit area")
+	assert(DragonButtonAt(85, -73) and not DragonButtonAt(90, -73), "the plain dragon reacts at the thin tail tip")
 	assert(not playerFrame:GetScript("PostClick"), "the normal player portrait has no RP hook")
 	local art, shine = unpack(dragonArt)
 	local restY, restShine = art.y, shine:GetAlpha()
@@ -7428,6 +7429,7 @@ end)()
 	visuals.db.playerDragon, visuals.db.dragonScale = "silverWinged", 120
 	visuals.ApplyPlayerDragon()
 	assert(group:IsShown() and DragonButtonAt(12, -70) and not DragonButtonAt(70, -54), "the winged silhouette scales with the art")
+	assert(DragonButtonAt(118, -80) and not DragonButtonAt(124, -80), "the scaled winged dragon reacts at the thin tail tip")
 	dragonButton = DragonButtonAt(12, -70)
 	dragonButton:GetScript("OnClick")(dragonButton)
 	local editor = ForeverPlusRoleplayEditor

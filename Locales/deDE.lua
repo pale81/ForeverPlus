@@ -138,6 +138,8 @@ L.VISUALS_PALADIN_RECOMMENDATIONS = "Paladin-Segen und -Aura empfehlen"
 L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "Fehlt dir ein Segen oder eine Paladin-Aura, leuchtet der passende Zauber für deinen aktiven Talentbaum blau auf den Aktionsleisten oder der Auraleiste."
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION = "Paladin-Siegel im Kampf empfehlen"
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC = "Fehlt dir im Kampf ein Siegel, leuchtet das empfohlene Siegel für deinen aktiven Talentbaum blau auf den Aktionsleisten."
+L.VISUALS_COMBAT_BUFF_RECOMMENDATION = "Fehlende Kampfbuffs hervorheben"
+L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Markiert im Kampf den Schamanenschild, Zerhäckseln oder Schlachtruf blau auf den Aktionsleisten, wenn der Buff fehlt und die Aktion einsetzbar ist."
 
 L.RADAR_TITLE = "Rezeptradar"
 L.RADAR_ENABLE = "Rezepthändler anzeigen"

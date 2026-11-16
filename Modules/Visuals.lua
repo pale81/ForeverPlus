@@ -19,6 +19,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorActiveBuff = true,
 		paladinRecommendations = true,
 		paladinSealRecommendation = true,
+		combatBuffRecommendation = false,
 		castsLeft = false,
 		auraActionFrame = true,
 		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
@@ -628,7 +629,7 @@ local PALADIN_BLESSINGS = { MIGHT, WISDOM, KINGS, { 1022, 1044, 6940 } } -- Prot
 local PALADIN_AURAS = { DEVOTION, RETRIBUTION, CONCENTRATION, { 19876, 19888, 19891 } } -- Resistance auras
 local PALADIN_SEALS = { SEAL_WISDOM, SEAL_FURY, SEAL_COMMAND, SEAL_LIGHT, SEAL_RIGHTEOUSNESS, { 21082, 20164 } } -- Crusader, Justice
 
-local function PaladinBuffNames(families)
+local function BuffFamilyNames(families)
 	local names = {}
 	for _, family in ipairs(families) do
 		for _, spellID in ipairs(family) do
@@ -667,10 +668,20 @@ local function FirstKnownFamily(families)
 	end
 end
 
-local paladinGlows = setmetatable({}, { __mode = "k" })
+local recommendationGlows = setmetatable({}, { __mode = "k" })
 
-local function ShowPaladinGlow(button)
-	local glow = paladinGlows[button]
+local function HideRecommendationGlow(glow)
+	if glow and glow:IsShown() then
+		glow.pulse:Stop()
+		glow:Hide()
+	end
+end
+
+local function ShowRecommendationGlow(button)
+	local glow = recommendationGlows[button]
+	if glow and glow:IsShown() then
+		return
+	end
 	if not glow then
 		local icon = button.icon or button
 		glow = CreateFrame("Frame", nil, button)
@@ -690,7 +701,7 @@ local function ShowPaladinGlow(button)
 		fade:SetFromAlpha(1)
 		fade:SetToAlpha(0.55)
 		fade:SetDuration(0.85)
-		paladinGlows[button] = glow
+		recommendationGlows[button] = glow
 	end
 	glow.border:ShowColor(0.2, 0.65, 1)
 	glow:Show()
@@ -748,8 +759,8 @@ function UpdatePaladinHighlights(force)
 		paladinBlessing = FirstKnownFamily(profile.blessings)
 		paladinAura = FirstKnownFamily(profile.auras)
 		paladinSeal = FirstKnownFamily(profile.seals)
-		paladinBlessingNames = PaladinBuffNames(PALADIN_BLESSINGS)
-		paladinAuraNames = PaladinBuffNames(PALADIN_AURAS)
+		paladinBlessingNames = BuffFamilyNames(PALADIN_BLESSINGS)
+		paladinAuraNames = BuffFamilyNames(PALADIN_AURAS)
 		refreshPaladinSpells = false
 		force = true
 	end
@@ -761,9 +772,8 @@ function UpdatePaladinHighlights(force)
 		return
 	end
 	showPaladinBlessing, showPaladinAura, showPaladinSeal = blessing, aura, seal
-	for _, glow in pairs(paladinGlows) do
-		glow.pulse:Stop()
-		glow:Hide()
+	for _, glow in pairs(recommendationGlows) do
+		HideRecommendationGlow(glow)
 	end
 	if not (blessing or aura or seal) then
 		return
@@ -773,7 +783,7 @@ function UpdatePaladinHighlights(force)
 		local spellID = slot and ActionSpell(slot)
 		local name = spellID and C_Spell.GetSpellName(spellID)
 		if name and ((blessing and paladinBlessing[name]) or (aura and paladinAura[name]) or (seal and paladinSeal[name])) then
-			ShowPaladinGlow(button)
+			ShowRecommendationGlow(button)
 		end
 	end
 	if aura and StanceBar and StanceBar.actionButtons then
@@ -782,7 +792,7 @@ function UpdatePaladinHighlights(force)
 			local spellID = ns.Number(select(4, GetShapeshiftFormInfo(index)))
 			local name = spellID and C_Spell.GetSpellName(spellID)
 			if button and name and paladinAura[name] then
-				ShowPaladinGlow(button)
+				ShowRecommendationGlow(button)
 			end
 		end
 	end
@@ -803,7 +813,7 @@ local function UpdatePaladinWatch()
 	end
 	paladinEnabled = Visuals.db.paladinRecommendations or Visuals.db.paladinSealRecommendation
 	if Visuals.db.paladinSealRecommendation then
-		paladinSealNames = PaladinBuffNames(PALADIN_SEALS)
+		paladinSealNames = BuffFamilyNames(PALADIN_SEALS)
 	else
 		paladinSealNames = nil
 		SetSealState(nil)
@@ -858,6 +868,204 @@ local function UpdatePaladinWatch()
 	end
 	refreshPaladinSpells = true
 	UpdatePaladinHighlights(true)
+end
+
+---------------------------------------------------------------------------
+-- Optional in-combat buff recommendations for the other supported classes.
+---------------------------------------------------------------------------
+local LIGHTNING_SHIELD, WATER_SHIELD = { 324 }, { 408510 }
+local BATTLE_SHOUT_DURATION = 3 * 60
+local COMBAT_BUFF_FAMILIES = {
+	SHAMAN = { LIGHTNING_SHIELD, WATER_SHIELD },
+	ROGUE = { { 5171, 6774 } }, -- Slice and Dice
+	WARRIOR = { { 6673 } }, -- Battle Shout
+}
+
+local combatBuffWatch, combatBuffClass, combatBuffPending
+local combatBuffChoice, combatBuffNames
+local combatBuffExpiration, combatBuffAuraID, combatBuffTimer -- nil = unknown, false = active, 0 = absent
+local refreshCombatChoice, refreshCombatAuras, refreshCombatButtons
+local combatBuffButtons = {}
+
+local function ReadCombatBuff()
+	local readable = true
+	for name in pairs(combatBuffNames) do
+		-- Query only the relevant buffs. The client can deny the read or return secret data in combat.
+		local ok, buff = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
+		if not ok or ns.Secret(buff) then
+			readable = false
+		elseif buff then
+			local expiration = ns.Number(buff.expirationTime, 0)
+			return expiration > 0 and expiration or false, ns.Number(buff.auraInstanceID)
+		end
+	end
+	return readable and 0 or nil
+end
+
+local function SetCombatBuffState(expiration, auraID)
+	if combatBuffTimer and combatBuffExpiration ~= expiration then
+		combatBuffTimer:Cancel()
+		combatBuffTimer = nil
+	end
+	combatBuffExpiration, combatBuffAuraID = expiration, auraID
+end
+
+local function ReadCombatBuffInstance()
+	if not combatBuffAuraID or not C_UnitAuras.GetUnitAuraInstanceIDs then
+		return
+	end
+	local ok, ids = pcall(C_UnitAuras.GetUnitAuraInstanceIDs, "player", "HELPFUL")
+	if not ok or ns.Secret(ids) or type(ids) ~= "table" then
+		return
+	end
+	for _, id in ipairs(ids) do
+		if ns.Secret(id) or id == combatBuffAuraID then
+			return
+		end
+	end
+	return 0
+end
+
+local function ClearCombatBuffButtons()
+	for button in pairs(combatBuffButtons) do
+		HideRecommendationGlow(recommendationGlows[button])
+	end
+	wipe(combatBuffButtons)
+end
+
+local function UpdateCombatBuffHighlights()
+	combatBuffPending = false
+	if not combatBuffClass then
+		SetCombatBuffState(nil)
+		ClearCombatBuffButtons()
+		return
+	end
+	if refreshCombatChoice then
+		local families = COMBAT_BUFF_FAMILIES[combatBuffClass]
+		local _, _, tree = ns.TalentTreeOf()
+		local order = combatBuffClass == "SHAMAN" and tree == 3 and { WATER_SHIELD, LIGHTNING_SHIELD } or families
+		-- The Restoration talent grants a separate spell for casting Water Shield.
+		if order ~= families and C_SpellBook.IsSpellKnown(409941) then
+			combatBuffChoice = BuffFamilyNames({ WATER_SHIELD })
+		else
+			combatBuffChoice = FirstKnownFamily(order)
+		end
+		combatBuffNames = BuffFamilyNames(families)
+		refreshCombatChoice = false
+		refreshCombatAuras, refreshCombatButtons = true, true
+	end
+	if refreshCombatAuras then
+		local expiration, auraID = ReadCombatBuff()
+		if expiration == nil then
+			expiration = ReadCombatBuffInstance()
+		end
+		if expiration ~= nil or not InCombatLockdown() then
+			SetCombatBuffState(expiration, auraID)
+		end
+		refreshCombatAuras = false
+	end
+	if not InCombatLockdown() then
+		if combatBuffTimer then
+			combatBuffTimer:Cancel()
+			combatBuffTimer = nil
+		end
+		ClearCombatBuffButtons()
+		return
+	end
+	local remaining = type(combatBuffExpiration) == "number" and (combatBuffExpiration - GetTime())
+	local missing = remaining and remaining <= 0
+	if remaining and remaining > 0 and not combatBuffTimer then
+		combatBuffTimer = ns.NewTimer("Visuals: combat buff expires", remaining, function()
+			combatBuffTimer = nil
+			refreshCombatAuras = true
+			UpdateCombatBuffHighlights()
+		end)
+	end
+	if refreshCombatButtons then
+		ClearCombatBuffButtons()
+		if combatBuffChoice then
+			for _, button in pairs(ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames or {}) do
+				local slot = ns.Number(button.action)
+				local id = slot and ActionSpell(slot)
+				local name = id and C_Spell.GetSpellName(id)
+				if name and combatBuffChoice[name] then
+					combatBuffButtons[button] = slot
+				end
+			end
+		end
+		refreshCombatButtons = false
+	end
+	for button, slot in pairs(combatBuffButtons) do
+		local usable = missing and C_ActionBar.IsUsableAction(slot)
+		if not ns.Secret(usable) and usable then
+			ShowRecommendationGlow(button)
+		else
+			HideRecommendationGlow(recommendationGlows[button])
+		end
+	end
+end
+
+local function UpdateCombatBuffWatch()
+	local _, class = UnitClass("player")
+	combatBuffClass = Visuals.db.combatBuffRecommendation and COMBAT_BUFF_FAMILIES[class] and class or nil
+	if combatBuffClass then
+		if not combatBuffWatch then
+			combatBuffWatch = CreateFrame("Frame")
+			combatBuffWatch:SetScript("OnEvent", ns.Measured("Visuals: combat buff event", function(_, event, _, updateInfo, spellID)
+				if PALADIN_SPELL_EVENTS[event] then
+					refreshCombatChoice = true
+				elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+					local id = ns.Number(spellID)
+					local name = id and C_Spell.GetSpellName(id)
+					if not (name and combatBuffNames and combatBuffNames[name]) then
+						return
+					end
+					-- An observed cast hides the hint even if the new aura cannot be read yet.
+					SetCombatBuffState(combatBuffClass == "WARRIOR" and GetTime() + BATTLE_SHOUT_DURATION or false)
+				elseif event == "UNIT_AURA" or event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+					if event == "UNIT_AURA" and combatBuffAuraID and not ns.Secret(updateInfo) then
+						local removedIDs = updateInfo and updateInfo.removedAuraInstanceIDs
+						if not ns.Secret(removedIDs) then
+							for _, id in ipairs(removedIDs or {}) do
+								if ns.Number(id) == combatBuffAuraID then
+									SetCombatBuffState(0)
+									break
+								end
+							end
+						end
+					end
+					refreshCombatAuras = true
+					refreshCombatButtons = refreshCombatButtons or event == "PLAYER_REGEN_DISABLED"
+				elseif event ~= "ACTION_USABLE_CHANGED" and event ~= "ACTIONBAR_UPDATE_USABLE" then
+					refreshCombatButtons = true
+				end
+				if not combatBuffPending then
+					combatBuffPending = true
+					ns.After("Visuals: combat buff recommendations", 0, UpdateCombatBuffHighlights)
+				end
+			end))
+		end
+		for _, event in ipairs(PALADIN_BUTTON_EVENTS) do
+			if C_EventUtils.IsEventValid(event) then
+				combatBuffWatch:RegisterEvent(event)
+			end
+		end
+		for event in pairs(PALADIN_SPELL_EVENTS) do
+			if C_EventUtils.IsEventValid(event) then
+				combatBuffWatch:RegisterEvent(event)
+			end
+		end
+		local usableEvent = C_EventUtils.IsEventValid("ACTION_USABLE_CHANGED") and "ACTION_USABLE_CHANGED" or "ACTIONBAR_UPDATE_USABLE"
+		combatBuffWatch:RegisterEvent(usableEvent)
+		combatBuffWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
+		combatBuffWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+		combatBuffWatch:RegisterUnitEvent("UNIT_AURA", "player")
+		combatBuffWatch:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	elseif combatBuffWatch then
+		combatBuffWatch:UnregisterAllEvents()
+	end
+	refreshCombatChoice = true
+	UpdateCombatBuffHighlights()
 end
 
 -- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
@@ -1486,6 +1694,7 @@ function Visuals:OnLogin()
 	HookQuestItems()
 	HookActionButtons()
 	UpdatePaladinWatch()
+	UpdateCombatBuffWatch()
 	UpdateAuraWatch()
 	RecolorAll()
 	UpdateCastWatch()
@@ -1527,6 +1736,8 @@ function Visuals:OnOptionChanged(key)
 	elseif key == "paladinRecommendations" or key == "paladinSealRecommendation" then
 		UpdatePaladinWatch()
 		UpdateAuraWatch()
+	elseif key == "combatBuffRecommendation" then
+		UpdateCombatBuffWatch()
 	elseif key == "unitBars" then
 		if self.db.unitBars then
 			StyleUnitBars()
@@ -1575,6 +1786,8 @@ Visuals.options = {
 		desc = L.VISUALS_PALADIN_RECOMMENDATIONS_DESC, new = true },
 	{ key = "paladinSealRecommendation", type = "toggle", name = L.VISUALS_PALADIN_SEAL_RECOMMENDATION,
 		desc = L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC, new = true },
+	{ key = "combatBuffRecommendation", type = "toggle", name = L.VISUALS_COMBAT_BUFF_RECOMMENDATION,
+		desc = L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC, new = true },
 	{ key = "buffExceptions", type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
 		Visuals:ShowBuffExceptions(button)
 	end },

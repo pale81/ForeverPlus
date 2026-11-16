@@ -5382,7 +5382,7 @@ end)()
 	visuals:OnOptionChanged("paladinRecommendations")
 	local updateWatch = uv(visuals.OnLogin, "UpdatePaladinWatch")
 	local watcher = uv(updateWatch, "paladinWatch")
-	local glows = uv(uv(updateWatch, "UpdatePaladinHighlights"), "paladinGlows")
+	local glows = uv(uv(updateWatch, "UpdatePaladinHighlights"), "recommendationGlows")
 	local auraWatcher = uv(uv(visuals.OnLogin, "UpdateAuraWatch"), "auraWatcher")
 	local function Fire(event, spellID) watcher.scripts.OnEvent(watcher, event, "player", nil, spellID) end
 	local function FireAura(event, updateInfo) auraWatcher.scripts.OnEvent(auraWatcher, event, "player", updateInfo) end
@@ -5482,6 +5482,97 @@ end)()
 	GetShapeshiftFormInfo = savedFormInfo
 	InCombatLockdown, GetTime, C_Timer.NewTimer = savedCombat, savedTime, savedNewTimer
 	print("paladin action bar recommendations OK")
+end)()
+;(function()
+	local visuals = ns:GetModule("Visuals")
+	local oldClass, oldTree, oldCombat = UnitClass, ns.TalentTreeOf, InCombatLockdown
+	local oldSpellbook, oldAuras, oldEvents = C_SpellBook, C_UnitAuras, C_EventUtils
+	local oldName, oldAction, oldUsable = C_Spell.GetSpellName, GetActionInfo, C_ActionBar.IsUsableAction
+	local oldButtons, oldOption = ActionBarButtonEventsFrame.frames, visuals.db.combatBuffRecommendation
+	local class, tree, combat, protected = "SHAMAN", 3, false, false
+	local ids, auras, usable = {}, {}, {}
+	local spells = { 324, 408510, 6774, 6673 }
+	local names = { [324] = "Lightning Shield", [408510] = "Water Shield", [5171] = "Slice and Dice",
+		[6774] = "Slice and Dice", [6673] = "Battle Shout" }
+	local known = { [324] = true, [409941] = true, [5171] = true, [6673] = true }
+	local buttons = {}
+	for slot = 1, #spells do
+		buttons[slot] = CreateFrame("Button")
+		buttons[slot].action = slot
+	end
+	ActionBarButtonEventsFrame.frames = buttons
+	UnitClass = function() return class, class end
+	ns.TalentTreeOf = function() return nil, nil, tree end
+	InCombatLockdown = function() return combat end
+	C_Spell.GetSpellName = function(id) return names[id] end
+	GetActionInfo = function(slot) return "spell", spells[slot] end
+	C_ActionBar.IsUsableAction = function(slot) return usable[slot] == true end
+	C_SpellBook = { IsSpellKnown = function(id) return known[id] end, FindSpellBookSlotForSpell = function() end }
+	C_EventUtils = { IsEventValid = function() return true end }
+	C_UnitAuras = {
+		GetAuraDataBySpellName = function(_, name)
+			assert(not protected, "protected aura lookup")
+			return auras[name]
+		end,
+		GetUnitAuraInstanceIDs = function() return ids end,
+	}
+	local updateWatch = uv(visuals.OnLogin, "UpdateCombatBuffWatch")
+	local glows = uv(uv(updateWatch, "UpdateCombatBuffHighlights"), "recommendationGlows")
+	local function Lit(slot) return glows[buttons[slot]] and glows[buttons[slot]]:IsShown() end
+	local function Fire(event, updateInfo, spellID)
+		local watcher = uv(updateWatch, "combatBuffWatch")
+		watcher.scripts.OnEvent(watcher, event, "player", updateInfo, spellID)
+	end
+	assert(oldOption == false, "optional combat buffs start off")
+	visuals.db.combatBuffRecommendation = true
+	auras["Lightning Shield"] = { auraInstanceID = 10 }
+	ids, usable[1], usable[2] = { 10 }, true, true
+	visuals:OnOptionChanged("combatBuffRecommendation")
+	assert(not Lit(1) and not Lit(2), "combat buffs are hidden outside combat")
+	combat, protected = true, true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(not Lit(2), "a different shield seen before combat still counts")
+	ids = {}
+	Fire("UNIT_AURA")
+	assert(Lit(2) and not Lit(1), "an exhausted shield detected by instance ID recommends Water Shield for Restoration")
+	Fire("UNIT_SPELLCAST_SUCCEEDED", nil, 408510)
+	assert(not Lit(2), "an observed Water Shield cast clears the recommendation with protected auras")
+	protected, auras = false, {}
+	tree = 2
+	Fire("TRAIT_CONFIG_UPDATED")
+	assert(Lit(1) and not Lit(2), "Enhancement recommends Lightning Shield")
+	class = "ROGUE"
+	visuals:OnOptionChanged("combatBuffRecommendation")
+	assert(not Lit(1) and not Lit(3), "Slice and Dice does not glow when unusable")
+	usable[3] = true
+	Fire("ACTION_USABLE_CHANGED")
+	assert(Lit(3), "when resources allow it the higher rank of Slice and Dice glows")
+	auras["Slice and Dice"] = { auraInstanceID = 11 }
+	Fire("UNIT_AURA")
+	assert(not Lit(3), "active Slice and Dice clears its glow")
+	class, usable[4] = "WARRIOR", true
+	visuals:OnOptionChanged("combatBuffRecommendation")
+	assert(Lit(4), "Warrior recommends Battle Shout")
+	auras["Battle Shout"] = { auraInstanceID = 12, sourceUnit = "party1" }
+	Fire("UNIT_AURA")
+	assert(not Lit(4), "a group member's Battle Shout counts")
+	auras["Battle Shout"] = nil
+	Fire("UNIT_AURA")
+	assert(Lit(4), "the shout glows again when it falls off")
+	combat = false
+	Fire("PLAYER_REGEN_ENABLED")
+	assert(not Lit(4), "leaving combat clears the shout glow")
+	combat = true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(Lit(4), "the glow is rebuilt at the next pull")
+	visuals.db.combatBuffRecommendation = false
+	visuals:OnOptionChanged("combatBuffRecommendation")
+	assert(not Lit(4), "disabling the option clears the glow")
+	UnitClass, ns.TalentTreeOf, InCombatLockdown = oldClass, oldTree, oldCombat
+	C_SpellBook, C_UnitAuras, C_EventUtils = oldSpellbook, oldAuras, oldEvents
+	C_Spell.GetSpellName, GetActionInfo, C_ActionBar.IsUsableAction = oldName, oldAction, oldUsable
+	ActionBarButtonEventsFrame.frames, visuals.db.combatBuffRecommendation = oldButtons, oldOption
+	print("optional combat buff recommendations OK")
 end)()
 ;(function()
 	-- Casts left: mana divided by the spell's cost.

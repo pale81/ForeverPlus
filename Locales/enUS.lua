@@ -139,6 +139,8 @@ L.VISUALS_PALADIN_RECOMMENDATIONS = "Suggest a paladin blessing and aura"
 L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "When you lack a blessing or a paladin aura, highlights the recommended spell for your active talent tree on your action bars or aura bar."
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION = "Suggest a paladin seal in combat"
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC = "When you lack a seal in combat, highlights the recommended seal for your active talent tree on your action bars."
+L.VISUALS_COMBAT_BUFF_RECOMMENDATION = "Highlight missing combat buffs"
+L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Highlights Shaman shields, Slice and Dice, or Battle Shout on your action bars in combat when the buff is missing and the action is usable."
 
 L.RADAR_TITLE = "Recipe radar"
 L.RADAR_ENABLE = "Show recipe vendors"

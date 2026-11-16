@@ -108,6 +108,8 @@ for _, n in ipairs({ "ChatFrameMenuButton", "ChatFrameChannelButton", "QuickJoin
 	"ScriptErrorsFrame", "DressUpFrame", "MainMenuBarBackpackButton", "MicroMenuContainer", "BagsBar", "ObjectiveTrackerFrame",
 	"QuestObjectiveTracker", "UIParent", "WorldMapFrame", "GameTooltip", "MainActionBar", "QuestInfoFrame", "MerchantFrame",
 	"ContainerFrame1", "ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
+NewFrame("Button", "PlayerFrame").unit = "player"
+PlayerFrame.PlayerFrameContainer = NewFrame("Frame")
 ContainerFrameContainer = { ContainerFrames = {} }
 WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
 ActionBarButtonEventsFrame.frames = {}
@@ -1401,6 +1403,62 @@ assert(proc(0, 1) == 13262, "disenchant")
 	C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem = savedSlots, savedBag, savedTooltip
 end)()
 print("helpers OK")
+;(function()
+	local create = uv(helpers.OnLogin, "CreateFishingMenu")
+	local savedMenu, savedCreate, savedMenuUtil = ForeverPlusFishingMenu, CreateFrame, MenuUtil
+	local savedModifier, savedEdit = IsModifierKeyDown, ns.IsEditModeActive
+	local savedMode, savedShow = helpers.db.fishing, helpers.db.fishingMenu
+	local menu, firstHit, owner, title, anchor, clickThrough
+	local edit = false
+	local rows = {}
+	CreateFrame = function(kind, name, parent)
+		local frame = savedCreate(kind, name, parent)
+		if name == "ForeverPlusFishingMenu" then
+			menu = frame
+			frame.SetPoint = function(_, _, relative, point) anchor = { relative, point } end
+		elseif parent == menu and not firstHit then
+			firstHit = frame
+			frame.SetPassThroughButtons = function(_, ...) clickThrough = { ... } end
+		end
+		return frame
+	end
+	MenuUtil = { CreateContextMenu = function(region, generate)
+		owner = region
+		generate(region, {
+			CreateTitle = function(_, text) title = text end,
+			CreateCheckbox = function(_, text, checked, toggle)
+				local row = { checked = checked, toggle = toggle, SetEnabled = function(self, fn) self.enabled = fn end }
+				rows[text] = row
+				return row
+			end,
+		})
+	end }
+	IsModifierKeyDown = function() return false end
+	ns.IsEditModeActive = function() return edit end
+	create()
+	assert(anchor[1] == PlayerFrame.PlayerFrameContainer and anchor[2] == "TOPRIGHT" and clickThrough[1] == "RightButton",
+		"the rod follows the player's upper right corner and passes through ordinary right-clicks")
+	local click = firstHit:GetScript("OnClick")
+	click(firstHit)
+	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")
+	local mode, equip, restore = rows[ns.L.HELPERS_FISHING], rows[ns.L.HELPERS_FISHING_EQUIP], rows[ns.L.HELPERS_FISHING_RESTORE]
+	assert(mode.checked() and equip.enabled() and restore.enabled(), "all three fishing settings are available from the same menu")
+	mode.toggle()
+	assert(not helpers.db.fishing and not equip.enabled() and menu:IsShown(), "turning off fishing leaves the menu available to turn it back on")
+	mode.toggle()
+	assert(helpers.db.fishing and equip.enabled(), "turning fishing back on enables the two dependent choices")
+	edit, owner = true, nil
+	click(firstHit)
+	assert(not owner, "the rod is inactive while the player frame is being placed")
+	edit = false
+	ns.SetOption("Helpers", "fishingMenu", false)
+	assert(not menu:IsShown(), "the portrait shortcut can be hidden through settings")
+	ns.SetOption("Helpers", "fishingMenu", savedShow)
+	ns.SetOption("Helpers", "fishing", savedMode)
+	ForeverPlusFishingMenu, CreateFrame, MenuUtil = savedMenu, savedCreate, savedMenuUtil
+	IsModifierKeyDown, ns.IsEditModeActive = savedModifier, savedEdit
+	setuv(create, "fishingMenu", savedMenu)
+end)()
 print("ttd OK")
 -- Junk marks tell random suffixes apart
 local isJunk = uv(uv(items.LOOT_READY or items.OnLogin, "UpdateAllBags") or function() end, "x")

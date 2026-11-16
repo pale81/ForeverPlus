@@ -2,7 +2,7 @@ local _, ns = ...
 local L = ns.L
 local Roleplay = ns:NewModule("Roleplay", {
 	title = L.RP_TITLE, order = 16,
-	defaults = { enabled = true, playerPortraitClick = true },
+	defaults = { enabled = true, hoverTargetProfile = true, playerPortraitClick = true },
 	charDefaults = { shared = false, profile = {} },
 })
 
@@ -17,7 +17,9 @@ local BOOK_ICON = [[Interface\Icons\INV_Misc_Book_09]]
 local PREFIX = "ForeverPlusRP1"
 local SEPARATOR = "\031"
 local CHUNK_BYTES, MAX_CHUNKS, TIMEOUT = 220, 9, 8
+local HOVER_DELAY, LEAVE_DELAY = 0.2, 0.35
 local editor, viewer, targetButton, pending
+local hoverTimer, hoverPreview, leaveElapsed
 local chatReady, realm
 local serial = math.random(0, 0xFFFFFF)
 local sendBudget, budgetTime = 10, 0
@@ -204,6 +206,30 @@ function Roleplay.OpenEditor()
 	editor:Show()
 end
 
+local function CancelHoverOpening()
+	if hoverTimer then
+		hoverTimer:Cancel()
+		hoverTimer = nil
+	end
+end
+
+local function WatchPreview(self, elapsed)
+	-- A small grace period lets the pointer cross the gap from the book and back.
+	if not targetButton:IsVisible() then
+		self:Hide()
+	elseif self:IsMouseOver() or targetButton:IsMouseOver() then
+		leaveElapsed = 0
+	else
+		leaveElapsed = leaveElapsed + elapsed
+		if leaveElapsed >= LEAVE_DELAY then self:Hide() end
+	end
+end
+
+local function SetHoverPreview(active)
+	hoverPreview, leaveElapsed = active, 0
+	ns.SetUpdate(viewer, "Roleplay: hover preview", active and WatchPreview or nil)
+end
+
 local function CreateViewer()
 	local panel = Panel("ForeverPlusRoleplayViewer", 348, 310)
 	local inset = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
@@ -224,7 +250,10 @@ local function CreateViewer()
 	text:SetNonSpaceWrap(true)
 	text:SetSpacing(3)
 	panel.Text, panel.Scroll, panel.Content = text, scroll, content
-	panel:SetScript("OnHide", ns.Measured("Roleplay: cancel profile request", function() pending = nil end))
+	panel:SetScript("OnHide", ns.Measured("Roleplay: close target profile", function()
+		pending = nil
+		SetHoverPreview(false)
+	end))
 	return panel
 end
 
@@ -246,11 +275,11 @@ local function ShowProfile(profile)
 	ShowText(#lines > 0 and table.concat(lines, "\n\n") or L.RP_EMPTY)
 end
 
-local function OpenTargetProfile()
+local function OpenTargetProfile(preview)
 	local address, name, own = Target()
 	if not (own or address) then return end
 	if not viewer then viewer = CreateViewer() end
-	if viewer:IsShown() then viewer:Hide() return end
+	if viewer:IsShown() then return end
 
 	viewer:ClearAllPoints()
 	local x = targetButton:GetCenter()
@@ -261,6 +290,7 @@ local function OpenTargetProfile()
 	end
 	viewer:SetTitle(L.RP_PROFILE .. " – " .. PlainText(name))
 	viewer:SetPortraitToUnit("target")
+	SetHoverPreview(preview)
 	viewer:Show()
 	if own then ShowProfile(Roleplay.cdb.profile) return end
 
@@ -320,6 +350,7 @@ local function RefreshTarget()
 end
 
 function Roleplay:PLAYER_TARGET_CHANGED()
+	CancelHoverOpening()
 	if viewer then viewer:Hide() end
 	RefreshTarget()
 end
@@ -339,13 +370,35 @@ local function CreateTargetButton()
 	border:SetTexture([[Interface\Buttons\UI-Quickslot2]])
 	border:SetTexCoord(0.16, 0.84, 0.16, 0.84)
 	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
-	button:SetScript("OnClick", ns.Measured("Roleplay: open target profile", OpenTargetProfile))
-	button:SetScript("OnEnter", ns.Measured("Roleplay: target tooltip", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(L.RP_PROFILE)
-		GameTooltip:Show()
+	button:SetScript("OnClick", ns.Measured("Roleplay: click target book", function()
+		CancelHoverOpening()
+		if not (viewer and viewer:IsShown()) then
+			OpenTargetProfile(false)
+		elseif hoverPreview then
+			SetHoverPreview(false)
+		else
+			viewer:Hide()
+		end
 	end))
-	button:SetScript("OnLeave", ns.Measured("Roleplay: hide target tooltip", function() GameTooltip:Hide() end))
+	button:SetScript("OnEnter", ns.Measured("Roleplay: hover target book", function(self)
+		if Roleplay.db.hoverTargetProfile then
+			if viewer and viewer:IsShown() then return end
+			CancelHoverOpening()
+			hoverTimer = ns.NewTimer("Roleplay: open hover preview", HOVER_DELAY, function()
+				hoverTimer = nil
+				if self:IsVisible() and self:IsMouseOver() then OpenTargetProfile(true) end
+			end)
+		else
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(L.RP_PROFILE)
+			GameTooltip:Show()
+		end
+	end))
+	button:SetScript("OnLeave", ns.Measured("Roleplay: leave target book", function(self)
+		CancelHoverOpening()
+		if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+	end))
+	button:SetScript("OnHide", ns.Measured("Roleplay: hide target book", CancelHoverOpening))
 	return button
 end
 
@@ -354,7 +407,11 @@ function Roleplay:OnOptionChanged(key)
 		ns:GetModule("Visuals").ApplyPlayerDragon()
 		return
 	end
-	if not self.db.enabled and viewer then viewer:Hide() end
+	if not self.db.enabled or not self.db.hoverTargetProfile then
+		CancelHoverOpening()
+		if viewer and (hoverPreview or not self.db.enabled) then viewer:Hide() end
+	end
+	if key == "hoverTargetProfile" then return end
 	if self.db.enabled and not chatReady then
 		local result = C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
 		local status = Enum.RegisterAddonMessagePrefixResult
@@ -378,6 +435,7 @@ end
 
 Roleplay.options = {
 	{ key = "enabled", type = "toggle", name = L.RP_ENABLE, desc = L.RP_ENABLE_DESC, new = true },
+	{ key = "hoverTargetProfile", type = "toggle", name = L.RP_HOVER_TARGET, parent = "enabled", new = true },
 	{ key = "playerPortraitClick", type = "toggle", name = L.RP_PLAYER_PORTRAIT_CLICK, new = true },
 	{ type = "button", name = L.RP_PROFILE, text = L.RP_EDIT, func = Roleplay.OpenEditor },
 }

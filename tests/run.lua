@@ -7601,6 +7601,41 @@ end)()
 	assert(viewer:IsShown() and reads[#reads] == ns.L.RP_EMPTY and #messages == sent, "empty self profile stays in the viewer")
 	rp.cdb.profile, rp.cdb.shared = profile, true
 
+	local oldNewTimer = C_Timer.NewTimer
+	local hoverTimer, overBook, overViewer
+	C_Timer.NewTimer = function(_, callback)
+		hoverTimer = { Fire = callback, Cancel = function(self) self.cancelled = true end }
+		return hoverTimer
+	end
+	button.IsMouseOver = function() return overBook end
+	viewer.IsMouseOver = function() return overViewer end
+	local enter, leave = button:GetScript("OnEnter"), button:GetScript("OnLeave")
+	own, overBook = false, true
+	onEvent(nil, "PLAYER_TARGET_CHANGED")
+	enter(button)
+	leave(button)
+	assert(hoverTimer.cancelled and not viewer:IsShown() and #messages == sent, "passing over the book sends no request")
+	enter(button)
+	hoverTimer:Fire()
+	assert(viewer:IsShown() and reads[#reads] == loading and #messages == sent + 1, "hover requests and opens the target profile")
+	local update = viewer:GetScript("OnUpdate")
+	overBook = false
+	update(viewer, 0.15)
+	overViewer = true
+	update(viewer, 0.5)
+	assert(viewer:IsShown(), "the preview stays open while crossing into and reading the window")
+	click()
+	assert(viewer:IsShown() and not viewer:GetScript("OnUpdate") and #messages == sent + 1, "click pins the existing preview without requesting it again")
+	click()
+	assert(not viewer:IsShown(), "the pinned preview closes with a second click")
+	overBook, overViewer = true, false
+	enter(button)
+	hoverTimer:Fire()
+	overBook = false
+	viewer:GetScript("OnUpdate")(viewer, 0.4)
+	assert(not viewer:IsShown() and not viewer:GetScript("OnUpdate"), "the preview closes after the pointer leaves the book and window")
+	C_Timer.NewTimer = oldNewTimer
+
 	rp.db.enabled = false
 	rp:OnOptionChanged()
 	local before = #messages

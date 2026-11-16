@@ -1293,27 +1293,85 @@ Enum.ItemClass.Weapon, Enum.ItemClass.Armor, Enum.ItemClass.Tradegoods, Enum.Ite
 Enum.ItemQuality.Uncommon, Enum.ItemQuality.Epic = 2, 4
 local proc = uv(uv(helpers.MODIFIER_STATE_CHANGED, "ShowGlows"), "ProcessSpell")
 assert(proc(0, 1) == 13262, "disenchant")
-local bound
-SetOverrideBindingClick = function(_, _, key, name) bound = key .. ">" .. name end
-InCombatLockdown = function() return false end
-IsMounted = function() return false end
-GetMouseFoci = function() return {} end
-UnitExists = function() return false end
-GetCursorPosition = function() return 100, 100 end
-GetInventoryItemID = function() return 6256 end
-Enum.ItemWeaponSubclass = { Fishingpole = 20 }
-C_Item.GetItemInfoInstant = function() return 6256, nil, nil, nil, nil, 2, 20 end
-helpers:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-assert(bound == nil, "no binding on press")
-helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
-assert(bound == "BUTTON2>ForeverPlusFishButton", "fishing binding after short click")
--- Holding to turn the camera never arms it.
-bound = nil
-uv(helpers.GLOBAL_MOUSE_UP, "ClearFishBinding")()
-helpers:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-GetCursorPosition = function() return 180, 100 end
-helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
-assert(bound == nil, "camera turn does not arm fishing")
+;(function()
+	local savedBind, savedClear, savedTimer = SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer
+	local savedCombat, savedMounted, savedFoci, savedExists = InCombatLockdown, IsMounted, GetMouseFoci, UnitExists
+	local savedPosition, savedInventory, savedCursor = GetCursorPosition, GetInventoryItemID, GetCursorInfo
+	local savedInstant, savedSubclasses = C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass
+	local savedSlots, savedBag, savedTooltip = C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem
+	local button = _G.ForeverPlusFishButton
+	local savedAttribute, attrs = button.SetAttribute, {}
+	local binding, timer, equipped, blocked, mouseover, focus, cursor = nil, nil, 1, false, false, nil, nil
+	local x = 100
+	button.SetAttribute = function(_, key, value) attrs[key] = value end
+	SetOverrideBindingClick = function(_, _, key, name) binding = key .. ">" .. name end
+	ClearOverrideBindings = function() binding = nil end
+	C_Timer.NewTimer = function(_, callback)
+		timer = { Cancel = function(self) self.cancelled = true end, expire = callback }
+		return timer
+	end
+	InCombatLockdown = function() return blocked end
+	IsMounted = function() return false end
+	GetMouseFoci = function() return { focus } end
+	UnitExists = function() return mouseover end
+	GetCursorPosition = function() return x, 100 end
+	GetInventoryItemID = function() return equipped end
+	GetCursorInfo = function() return cursor end
+	Enum.ItemWeaponSubclass = { Fishingpole = 20 }
+	C_Item.GetItemInfoInstant = function(id) return id, nil, nil, nil, nil, 2, id >= 6256 and 20 or 7 end
+	local bagItems = { { itemID = 1 }, { itemID = 6257, isLocked = true }, { itemID = 6258 }, { itemID = 6256 } }
+	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and #bagItems or 0 end
+	C_Container.GetContainerItemInfo = function(_, slot) return bagItems[slot] end
+	C_TooltipInfo.GetBagItem = function(_, slot)
+		return { lines = slot == 3 and { { leftColor = { r = 1, g = 0.1, b = 0.1 } } } or {} }
+	end
+	local function click()
+		helpers:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+		assert(not binding, "the first press alone does not arm the button")
+		helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
+	end
+
+	assert(helpers.db.fishingEquip == false, "equipping is opt-in")
+	click()
+	assert(not binding, "no override without an equipped pole while the option is off")
+	helpers.db.fishingEquip = true
+	blocked = true
+	click()
+	blocked, mouseover = false, true
+	click()
+	mouseover, focus = false, UIParent
+	click()
+	focus, cursor = nil, "item"
+	click()
+	assert(not binding, "combat, mouseover units, UI and a held item prevent auto-equip")
+	cursor = nil
+	helpers:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	x = 180
+	helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
+	assert(not binding, "camera turn does not arm fishing")
+	click()
+	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "item" and attrs.item == "item:6256",
+		"the first pair equips the unlocked pole with no unmet requirements")
+	local equipTimer = timer
+	button:GetScript("PostClick")()
+	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
+	equipped = 6256
+	click()
+	assert(binding and attrs.type == "spell" and attrs.spell == 7620, "the next pair casts Fishing after the pole is equipped")
+	timer.expire()
+	assert(not binding, "an unused binding expires")
+	equipped, bagItems = 1, {}
+	click()
+	assert(not binding, "no override when there is no pole to equip")
+
+	helpers.db.fishingEquip = false
+	button.SetAttribute = savedAttribute
+	SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer = savedBind, savedClear, savedTimer
+	InCombatLockdown, IsMounted, GetMouseFoci, UnitExists = savedCombat, savedMounted, savedFoci, savedExists
+	GetCursorPosition, GetInventoryItemID, GetCursorInfo = savedPosition, savedInventory, savedCursor
+	C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass = savedInstant, savedSubclasses
+	C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem = savedSlots, savedBag, savedTooltip
+end)()
 print("helpers OK")
 print("ttd OK")
 -- Junk marks tell random suffixes apart
@@ -1347,6 +1405,8 @@ local appendLine = uv(append, "AppendToSellLine")
 assert(appendLine(tt, "(20 / Stück)") and tt.lines[2] == "Verkaufspreis: 40 (20 / Stück)", "unit price appended")
 print("unit price OK")
 -- Hover name with health mask (smoke test)
+GetMouseFoci = function() return {} end
+GetCursorPosition = function() return 180, 100 end
 UnitExists = function() return true end
 UnitName = function() return "Helaku" end
 UnitLevel = function() return 13 end

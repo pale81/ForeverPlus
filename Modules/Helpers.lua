@@ -12,6 +12,7 @@ local Helpers = ns:NewModule("Helpers", {
 		feedPet = true,
 		openButton = true,
 		fishing = true,
+		fishingEquip = false,
 		knownRecipes = true,
 	},
 })
@@ -306,15 +307,13 @@ local function CreateOpenButton()
 end
 
 ---------------------------------------------------------------------------
--- Fishing: a double right-click on the world casts Fishing. Only a short,
--- still click (not a camera turn) with a fishing pole equipped arms the next
--- right-click for a moment, and only after its release: holding the right
--- button to turn and right-click interaction stay untouched.
+-- Only a short, still right-click on the world arms the next click.
+-- The secure button equips a pole or casts Fishing, one action per pair.
 ---------------------------------------------------------------------------
 local FISHING = { 18248, 7732, 7731, 7620 }
 local DOUBLE_CLICK = 0.4
 local CLICK_TIME, CLICK_MOVE = 0.3, 6
-local fishButton, bindingSet = nil, false
+local fishButton, bindingTimer
 local pressTime, pressX, pressY
 
 local function FishingSpell()
@@ -325,8 +324,7 @@ local function FishingSpell()
 	end
 end
 
-local function HasFishingPole()
-	local itemID = GetInventoryItemID("player", INVSLOT_MAINHAND or 16)
+local function IsFishingPole(itemID)
 	if not itemID then
 		return false
 	end
@@ -334,10 +332,34 @@ local function HasFishingPole()
 	return classID == Enum.ItemClass.Weapon and subClassID == (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Fishingpole or 20)
 end
 
+local function HasFishingPole()
+	return IsFishingPole(GetInventoryItemID("player", INVSLOT_MAINHAND or 16))
+end
+
 ns.HasFishingPole = HasFishingPole
 
+local function FindFishingPole()
+	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info and not info.isLocked and IsFishingPole(info.itemID) then
+				local usable = true
+				for _, line in ipairs(TooltipLines(bag, slot)) do
+					if IsRed(line.leftColor) then
+						usable = false
+						break
+					end
+				end
+				if usable then
+					return info.itemID
+				end
+			end
+		end
+	end
+end
+
 local function ClearFishBinding()
-	if not bindingSet then
+	if not bindingTimer then
 		return
 	end
 	if InCombatLockdown() then
@@ -345,60 +367,83 @@ local function ClearFishBinding()
 		return
 	end
 	ClearOverrideBindings(fishButton)
-	bindingSet = false
+	bindingTimer:Cancel()
+	bindingTimer = nil
 end
 
 local function CreateFishButton()
-	fishButton = CreateFrame("Button", "ForeverPlusFishButton", UIParent, "SecureActionButtonTemplate")
+	fishButton = CreateFrame("Button", "ForeverPlusFishButton", UIParent, "SecureActionButtonTemplate, SecureHandlerStateTemplate")
 	fishButton:RegisterForClicks("AnyUp", "AnyDown")
-	fishButton:SetAttribute("type", "spell")
 	fishButton:SetAttribute("useOnKeyDown", true)
-	fishButton:HookScript("PostClick", function()
-		ns.After("Helpers: ClearFishBinding", 0, ClearFishBinding)
-	end)
+	-- Remove the binding even if combat starts between the two clicks.
+	fishButton:SetAttribute("_onstate-fishingblocked", [=[
+		if newstate == "1" then
+			self:ClearBindings()
+		end
+	]=])
+	RegisterStateDriver(fishButton, "fishingblocked", "[combat][mounted] 1; 0")
+	fishButton:HookScript("PostClick", ns.Measured("Helpers: fish click", function()
+		local timer = bindingTimer
+		ns.After("Helpers: ClearFishBinding", 0, function()
+			if timer == bindingTimer then
+				ClearFishBinding()
+			end
+		end)
+	end))
 end
 
-local function FishingReady()
-	if InCombatLockdown() or IsMounted() or UnitExists("mouseover") then
+local function CanArmFishing()
+	if not Helpers.db.fishing or InCombatLockdown() or IsMounted() then
+		return
+	end
+	local mouseover = UnitExists("mouseover")
+	if ns.Secret(mouseover) or mouseover then
 		return
 	end
 	local focus = GetMouseFoci()[1]
-	if focus and focus ~= WorldFrame then
-		return
-	end
-	local spellID = FishingSpell()
-	if spellID and HasFishingPole() then
-		return spellID
-	end
+	return not focus or focus == WorldFrame
 end
 
 function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
-	if mouseButton == "RightButton" and not bindingSet then
+	if mouseButton == "RightButton" and not bindingTimer and CanArmFishing() then
 		pressTime = GetTime()
 		pressX, pressY = GetCursorPosition()
 	end
 end
 
 function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
-	if mouseButton ~= "RightButton" or not pressTime or bindingSet then
+	if mouseButton ~= "RightButton" or not pressTime or bindingTimer then
 		return
 	end
 	local x, y = GetCursorPosition()
 	local short = GetTime() - pressTime <= CLICK_TIME and math.abs(x - pressX) + math.abs(y - pressY) <= CLICK_MOVE
 	pressTime = nil
-	local spellID = short and FishingReady()
-	if not spellID then
+	if not short or not CanArmFishing() then
 		return
 	end
 	-- After the release has been handled by the game.
 	ns.After("Helpers: GLOBAL_MOUSE_UP (timer)", 0, function()
-		if InCombatLockdown() then
+		if bindingTimer or not CanArmFishing() then
 			return
 		end
-		fishButton:SetAttribute("spell", spellID)
+		local spellID = FishingSpell()
+		if not spellID then
+			return
+		end
+		if HasFishingPole() then
+			fishButton:SetAttribute("type", "spell")
+			fishButton:SetAttribute("spell", spellID)
+		else
+			local pole = Helpers.db.fishingEquip and not GetCursorInfo() and FindFishingPole()
+			if not pole then
+				return
+			end
+			fishButton:SetAttribute("type", "item")
+			-- Bind the item, not a slot that may change while the click is armed.
+			fishButton:SetAttribute("item", "item:" .. pole)
+		end
 		SetOverrideBindingClick(fishButton, true, "BUTTON2", "ForeverPlusFishButton", "LeftButton")
-		bindingSet = true
-		ns.After("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
+		bindingTimer = ns.NewTimer("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
 	end)
 end
 
@@ -485,6 +530,7 @@ function Helpers:Update()
 	end
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", db.fishing)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", db.fishing)
+	pressTime = nil
 	ns.RunOutOfCombat(ClearFishBinding)
 	UpdateOpenButton()
 end
@@ -525,5 +571,6 @@ Helpers.options = {
 	{ key = "feedPet", type = "toggle", name = L.HELPERS_FEED_PET, desc = L.HELPERS_FEED_PET_DESC, parent = "process" },
 	{ key = "openButton", type = "toggle", name = L.HELPERS_OPEN_BUTTON, desc = L.HELPERS_OPEN_BUTTON_DESC },
 	{ key = "fishing", type = "toggle", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
+	{ key = "fishingEquip", type = "toggle", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing" },
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },
 }

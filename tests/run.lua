@@ -5333,15 +5333,27 @@ end)()
 	local savedFrames, savedStance, savedForms = ActionBarButtonEventsFrame.frames, StanceBar, GetNumShapeshiftForms
 	local savedFormInfo = GetShapeshiftFormInfo
 	local savedOption = visuals.db.paladinRecommendations
+	local savedSealOption = visuals.db.paladinSealRecommendation
 	local savedColors = visuals.db.actionColors
+	local savedCombat, savedTime, savedNewTimer = InCombatLockdown, GetTime, C_Timer.NewTimer
+	local inCombat, now, sealTimer = false, 100
+	InCombatLockdown = function() return inCombat end
+	GetTime = function() return now end
+	C_Timer.NewTimer = function(delay, callback)
+		sealTimer = { delay = delay, callback = callback, Cancel = function(self) self.cancelled = true end }
+		return sealTimer
+	end
 	local tree = 1
 	local names = {
 		[19740] = "Might", [19742] = "Wisdom", [19854] = "Wisdom", [25894] = "Greater Wisdom",
 		[20217] = "Kings", [1044] = "Freedom", [465] = "Devotion", [19746] = "Concentration",
 		[7294] = "Retribution", [19876] = "Shadow Resistance",
+		[20375] = "Seal of Command", [20166] = "Seal of Wisdom", [1311649] = "Seal of Fury",
+		[20154] = "Seal of Righteousness", [20164] = "Seal of Justice",
 	}
 	local known = { [19740] = true, [19742] = true, [20217] = true, [465] = true, [19746] = true, [7294] = true }
-	local spells = { 19854, 19740, 20217, 25894 }
+	known[20375], known[20166], known[1311649], known[20154] = true, true, true, true
+	local spells = { 19854, 19740, 20217, 25894, 20375, 20166, 1311649, 20154 }
 	local forms = { 19746, 465, 7294 }
 	local function Button(slot)
 		local button = CreateFrame("Button")
@@ -5349,8 +5361,9 @@ end)()
 		return button
 	end
 	local wisdom, might, kings, greater = Button(1), Button(2), Button(3), Button(4)
+	local sealCommand, sealWisdom, sealFury, sealRight = Button(5), Button(6), Button(7), Button(8)
 	local concentration, devotion, retribution = Button(), Button(), Button()
-	ActionBarButtonEventsFrame.frames = { wisdom, might, kings, greater }
+	ActionBarButtonEventsFrame.frames = { wisdom, might, kings, greater, sealCommand, sealWisdom, sealFury, sealRight }
 	StanceBar = { actionButtons = { concentration, devotion, retribution } }
 	GetNumShapeshiftForms = function() return #forms end
 	GetShapeshiftFormInfo = function(index) return 1, true, true, forms[index] end
@@ -5364,18 +5377,19 @@ end)()
 	C_EventUtils = { IsEventValid = function() return true end }
 	ns.TalentTreeOf = function() return nil, nil, tree end
 	UnitClass = function() return "Paladin", "PALADIN" end
-	assert(savedOption, "paladin recommendations start enabled")
+	assert(savedOption and savedSealOption, "paladin recommendations start enabled")
 	visuals.db.actionColors = false
 	visuals:OnOptionChanged("paladinRecommendations")
 	local updateWatch = uv(visuals.OnLogin, "UpdatePaladinWatch")
 	local watcher = uv(updateWatch, "paladinWatch")
 	local glows = uv(uv(updateWatch, "UpdatePaladinHighlights"), "paladinGlows")
 	local auraWatcher = uv(uv(visuals.OnLogin, "UpdateAuraWatch"), "auraWatcher")
-	local function Fire(event) watcher.scripts.OnEvent(watcher, event) end
-	local function FireAura(event) auraWatcher.scripts.OnEvent(auraWatcher, event) end
+	local function Fire(event, spellID) watcher.scripts.OnEvent(watcher, event, "player", nil, spellID) end
+	local function FireAura(event, updateInfo) auraWatcher.scripts.OnEvent(auraWatcher, event, "player", updateInfo) end
 	local function Lit(button) return glows[button] and glows[button]:IsShown() end
 	assert(Lit(wisdom) and Lit(greater) and Lit(concentration), "Holy highlights missing Wisdom and Concentration independently of action colors")
 	assert(not Lit(might) and not Lit(devotion), "only the recommended spell families glow")
+	assert(not Lit(sealWisdom), "no seal glow out of combat")
 	buffs = { { name = "Seal", auraInstanceID = 1 } }
 	FireAura("UNIT_AURA")
 	assert(Lit(wisdom) and Lit(concentration), "an unrelated buff does not hide either recommendation")
@@ -5411,16 +5425,62 @@ end)()
 	might.action, wisdom.action = 1, 2
 	Fire("ACTIONBAR_PAGE_CHANGED")
 	assert(Lit(wisdom) and not Lit(might), "the glow follows the spell to the new button")
+	buffs = { { name = "Seal of Justice", auraInstanceID = 6, expirationTime = 115 } }
+	FireAura("UNIT_AURA")
+	inCombat = true
+	C_Secrets.ShouldAurasBeSecret = function() return true end
+	FireAura("PLAYER_REGEN_DISABLED")
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(not Lit(sealCommand) and sealTimer.delay == 15, "precombat seal remains active for its actual remaining time")
+	FireAura("UNIT_AURA", { removedAuraInstanceIDs = { 6 } })
+	assert(Lit(sealCommand) and sealTimer.cancelled, "an early seal removal restores the glow in combat")
+	Fire("UNIT_SPELLCAST_SUCCEEDED", 20164)
+	assert(not Lit(sealCommand) and sealTimer.delay == 30, "casting any seal removes the glow even with hidden auras")
+	local previousTimer = sealTimer
+	now = 110
+	Fire("UNIT_SPELLCAST_SUCCEEDED", 20375)
+	assert(previousTimer.cancelled and sealTimer.delay == 30, "refreshing or switching seals replaces the expiry timer")
+	previousTimer = sealTimer
+	Fire("UNIT_SPELLCAST_SUCCEEDED", 20271) -- Judgement keeps the seal in Forever.
+	assert(sealTimer == previousTimer and not Lit(sealCommand), "Judgement neither removes the seal nor restarts its timer")
+	now = 140
+	sealTimer.callback()
+	assert(Lit(sealCommand) and not Lit(sealWisdom) and not Lit(sealFury), "expiry shows the Retribution recommendation")
+	known[20375] = nil
+	Fire("SPELLS_CHANGED")
+	assert(Lit(sealRight) and not Lit(sealCommand), "Retribution falls back to Righteousness before learning Command")
+	tree = 2
+	Fire("ACTIVE_TALENT_GROUP_CHANGED")
+	assert(Lit(sealFury) and not Lit(sealRight), "Protection recommends Fury")
+	visuals.db.paladinSealRecommendation = false
+	visuals:OnOptionChanged("paladinSealRecommendation")
+	assert(not Lit(sealFury), "the seal option clears the seal glow")
+	inCombat = false
+	C_Secrets.ShouldAurasBeSecret = function() return false end
+	buffs = {}
+	FireAura("PLAYER_REGEN_ENABLED")
+	visuals.db.paladinSealRecommendation = savedSealOption
+	visuals:OnOptionChanged("paladinSealRecommendation")
+	assert(not Lit(sealFury), "the seal glow stays hidden after combat")
+	tree, inCombat = 1, true
+	Fire("ACTIVE_TALENT_GROUP_CHANGED")
+	assert(Lit(sealWisdom) and not Lit(sealFury), "Holy recommends Wisdom")
+	inCombat = false
+	Fire("PLAYER_REGEN_ENABLED")
+	assert(not Lit(sealWisdom), "leaving combat immediately clears a missing seal glow")
+	visuals.db.paladinSealRecommendation = false
 	visuals.db.paladinRecommendations = false
 	visuals:OnOptionChanged("paladinRecommendations")
 	assert(not Lit(wisdom) and not Lit(retribution), "turning the option off clears all glows")
 	visuals.db.paladinRecommendations = savedOption
+	visuals.db.paladinSealRecommendation = savedSealOption
 	visuals.db.actionColors = savedColors
 	UnitClass, ns.TalentTreeOf, C_SpellBook = savedClass, savedTree, savedSpellBook
 	C_UnitAuras, C_Secrets, C_EventUtils = savedAuras, savedSecrets, savedEvents
 	C_Spell.GetSpellName, GetActionInfo, GetMacroSpell = savedName, savedAction, savedMacro
 	ActionBarButtonEventsFrame.frames, StanceBar, GetNumShapeshiftForms = savedFrames, savedStance, savedForms
 	GetShapeshiftFormInfo = savedFormInfo
+	InCombatLockdown, GetTime, C_Timer.NewTimer = savedCombat, savedTime, savedNewTimer
 	print("paladin action bar recommendations OK")
 end)()
 ;(function()

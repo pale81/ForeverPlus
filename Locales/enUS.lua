@@ -137,6 +137,8 @@ L.VISUALS_COLOR_MANA = "Not enough mana: blue"
 L.VISUALS_COLOR_UNUSABLE = "Not usable: grey"
 L.VISUALS_PALADIN_RECOMMENDATIONS = "Suggest a paladin blessing and aura"
 L.VISUALS_PALADIN_RECOMMENDATIONS_DESC = "When you lack a blessing or a paladin aura, highlights the recommended spell for your active talent tree on your action bars or aura bar."
+L.VISUALS_PALADIN_SEAL_RECOMMENDATION = "Suggest a paladin seal in combat"
+L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC = "When you lack a seal in combat, highlights the recommended seal for your active talent tree on your action bars."
 
 L.RADAR_TITLE = "Recipe radar"
 L.RADAR_ENABLE = "Show recipe vendors"

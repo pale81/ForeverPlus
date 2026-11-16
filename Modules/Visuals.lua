@@ -18,6 +18,7 @@ local Visuals = ns:NewModule("Visuals", {
 		colorUnusable = true,
 		colorActiveBuff = true,
 		paladinRecommendations = true,
+		paladinSealRecommendation = true,
 		castsLeft = false,
 		auraActionFrame = true,
 		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
@@ -612,13 +613,20 @@ end
 ---------------------------------------------------------------------------
 local MIGHT, WISDOM, KINGS = { 19740, 25782 }, { 19742, 25894 }, { 20217, 25898 }
 local DEVOTION, RETRIBUTION, CONCENTRATION = { 465 }, { 7294 }, { 19746 }
+local SEAL_WISDOM, SEAL_FURY, SEAL_COMMAND = { 20166 }, { 1311649 }, { 20375 }
+local SEAL_LIGHT, SEAL_RIGHTEOUSNESS = { 20165 }, { 20154, 21084 }
+local SEAL_DURATION = 30
 local PALADIN_RECOMMENDATIONS = {
-	{ blessings = { WISDOM, KINGS, MIGHT }, auras = { CONCENTRATION, DEVOTION } }, -- Holy
-	{ blessings = { KINGS, WISDOM, MIGHT }, auras = { DEVOTION } }, -- Protection
-	{ blessings = { MIGHT, KINGS, WISDOM }, auras = { RETRIBUTION, DEVOTION } }, -- Retribution
+	{ blessings = { WISDOM, KINGS, MIGHT }, auras = { CONCENTRATION, DEVOTION },
+		seals = { SEAL_WISDOM, SEAL_LIGHT, SEAL_RIGHTEOUSNESS } }, -- Holy
+	{ blessings = { KINGS, WISDOM, MIGHT }, auras = { DEVOTION },
+		seals = { SEAL_FURY, SEAL_RIGHTEOUSNESS } }, -- Protection
+	{ blessings = { MIGHT, KINGS, WISDOM }, auras = { RETRIBUTION, DEVOTION },
+		seals = { SEAL_COMMAND, SEAL_RIGHTEOUSNESS } }, -- Retribution
 }
 local PALADIN_BLESSINGS = { MIGHT, WISDOM, KINGS, { 1022, 1044, 6940 } } -- Protection, Freedom, Sacrifice
 local PALADIN_AURAS = { DEVOTION, RETRIBUTION, CONCENTRATION, { 19876, 19888, 19891 } } -- Resistance auras
+local PALADIN_SEALS = { SEAL_WISDOM, SEAL_FURY, SEAL_COMMAND, SEAL_LIGHT, SEAL_RIGHTEOUSNESS, { 21082, 20164 } } -- Crusader, Justice
 
 local function PaladinBuffNames(families)
 	local names = {}
@@ -691,41 +699,80 @@ end
 
 local paladinWatch, paladinUpdatePending
 local paladinEnabled
-local paladinBlessing, paladinAura
-local paladinBlessingNames, paladinAuraNames
-local showPaladinBlessing, showPaladinAura
+local paladinBlessing, paladinAura, paladinSeal
+local paladinBlessingNames, paladinAuraNames, paladinSealNames
+local showPaladinBlessing, showPaladinAura, showPaladinSeal
 local refreshPaladinSpells
+local sealExpiration, sealAuraID, sealTimer -- nil = unknown, false = active with unknown expiry, 0 = absent
+local UpdatePaladinHighlights
 
-local function UpdatePaladinHighlights(force)
+local function StopSealTimer()
+	if sealTimer then
+		sealTimer:Cancel()
+		sealTimer = nil
+	end
+end
+
+local function SetSealState(expiration, auraID)
+	if sealExpiration ~= expiration then
+		StopSealTimer()
+	end
+	sealExpiration, sealAuraID = expiration, auraID
+end
+
+local function SealMissingInCombat()
+	if not (paladinEnabled and Visuals.db.paladinSealRecommendation and paladinSeal and InCombatLockdown()) then
+		StopSealTimer()
+		return false
+	end
+	if type(sealExpiration) ~= "number" then
+		return false
+	end
+	local remaining = sealExpiration - GetTime()
+	if remaining <= 0 then
+		return true
+	end
+	if not sealTimer then
+		sealTimer = ns.NewTimer("Visuals: seal expires", remaining, function()
+			sealTimer = nil
+			UpdatePaladinHighlights()
+		end)
+	end
+	return false
+end
+
+function UpdatePaladinHighlights(force)
 	if paladinEnabled and refreshPaladinSpells then
 		local _, _, tree = ns.TalentTreeOf()
 		local profile = PALADIN_RECOMMENDATIONS[tree] or PALADIN_RECOMMENDATIONS[3]
 		paladinBlessing = FirstKnownFamily(profile.blessings)
 		paladinAura = FirstKnownFamily(profile.auras)
+		paladinSeal = FirstKnownFamily(profile.seals)
 		paladinBlessingNames = PaladinBuffNames(PALADIN_BLESSINGS)
 		paladinAuraNames = PaladinBuffNames(PALADIN_AURAS)
 		refreshPaladinSpells = false
 		force = true
 	end
-	local readable = paladinEnabled and auraReadable
+	local readable = paladinEnabled and Visuals.db.paladinRecommendations and auraReadable
 	local blessing = readable and paladinBlessing ~= nil and not HasPaladinBuff(paladinBlessingNames)
 	local aura = readable and paladinAura ~= nil and not HasPaladinBuff(paladinAuraNames)
-	if not force and blessing == showPaladinBlessing and aura == showPaladinAura then
+	local seal = SealMissingInCombat()
+	if not force and blessing == showPaladinBlessing and aura == showPaladinAura and seal == showPaladinSeal then
 		return
 	end
-	showPaladinBlessing, showPaladinAura = blessing, aura
+	showPaladinBlessing, showPaladinAura, showPaladinSeal = blessing, aura, seal
 	for _, glow in pairs(paladinGlows) do
 		glow.pulse:Stop()
 		glow:Hide()
 	end
-	if not (blessing or aura) then
+	if not (blessing or aura or seal) then
 		return
 	end
 	for _, button in pairs(ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames or {}) do
 		local slot = ns.Number(button.action)
 		local spellID = slot and ActionSpell(slot)
 		local name = spellID and C_Spell.GetSpellName(spellID)
-		if name and ((blessing and paladinBlessing[name]) or (aura and paladinAura[name])) then
+		if name and ((blessing and paladinBlessing[name]) or (aura and paladinAura[name]) or (seal and paladinSeal[name])) then
 			ShowPaladinGlow(button)
 		end
 	end
@@ -754,11 +801,29 @@ local function UpdatePaladinWatch()
 	if select(2, UnitClass("player")) ~= "PALADIN" then
 		return
 	end
-	paladinEnabled = Visuals.db.paladinRecommendations
+	paladinEnabled = Visuals.db.paladinRecommendations or Visuals.db.paladinSealRecommendation
+	if Visuals.db.paladinSealRecommendation then
+		paladinSealNames = PaladinBuffNames(PALADIN_SEALS)
+	else
+		paladinSealNames = nil
+		SetSealState(nil)
+	end
 	if paladinEnabled then
 		if not paladinWatch then
 			paladinWatch = CreateFrame("Frame")
-			paladinWatch:SetScript("OnEvent", ns.Measured("Visuals: paladin recommendation event", function(_, event)
+			paladinWatch:SetScript("OnEvent", ns.Measured("Visuals: paladin recommendation event", function(_, event, _, _, spellID)
+				if event == "UNIT_SPELLCAST_SUCCEEDED" then
+					local id = ns.Number(spellID)
+					local name = id and C_Spell.GetSpellName(id)
+					if name and paladinSealNames and paladinSealNames[name] then
+						SetSealState(GetTime() + SEAL_DURATION)
+						UpdatePaladinHighlights()
+					elseif ns.Secret(spellID) and AurasAreSecret() then
+						SetSealState(nil)
+						UpdatePaladinHighlights()
+					end
+					return
+				end
 				refreshPaladinSpells = refreshPaladinSpells or PALADIN_SPELL_EVENTS[event]
 				if not paladinUpdatePending then
 					paladinUpdatePending = true
@@ -778,6 +843,15 @@ local function UpdatePaladinWatch()
 			if C_EventUtils.IsEventValid(event) then
 				paladinWatch:RegisterEvent(event)
 			end
+		end
+		if paladinSealNames then
+			paladinWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
+			paladinWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+			paladinWatch:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+		else
+			paladinWatch:UnregisterEvent("PLAYER_REGEN_DISABLED")
+			paladinWatch:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			paladinWatch:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 		end
 	elseif paladinWatch then
 		paladinWatch:UnregisterAllEvents()
@@ -824,6 +898,7 @@ local function ScanActiveAuras()
 	local auras = C_UnitAuras.GetUnitAuras and C_UnitAuras.GetUnitAuras("player", "HELPFUL")
 	local names, ids = {}, {}
 	local index, complete = 1, true
+	local sealEnd, sealID
 	while true do
 		local aura
 		if auras then
@@ -839,6 +914,11 @@ local function ScanActiveAuras()
 		local knownName = name and not ns.Secret(name)
 		if knownName then
 			names[name] = true
+			if paladinSealNames and paladinSealNames[name] then
+				local expiration = ns.Number(aura.expirationTime, 0)
+				sealEnd = expiration > 0 and expiration or false
+				sealID = ns.Number(id)
+			end
 		end
 		if knownName and id and not ns.Secret(id) then
 			ids[id] = name
@@ -847,7 +927,7 @@ local function ScanActiveAuras()
 		end
 		index = index + 1
 	end
-	return names, ids, complete
+	return names, ids, complete, sealEnd, sealID
 end
 
 local function WaitForReadableAuras()
@@ -867,7 +947,7 @@ local function UpdateActiveAuras()
 		WaitForReadableAuras()
 		return
 	end
-	local ok, names, ids, complete = pcall(ScanActiveAuras)
+	local ok, names, ids, complete, sealEnd, sealID = pcall(ScanActiveAuras)
 	if not ok then
 		WaitForReadableAuras()
 		return
@@ -895,8 +975,26 @@ local function UpdateActiveAuras()
 		activeAuras = names
 		RecolorBuffButtons()
 	end
-	if paladinEnabled and (changed or readabilityChanged) then
+	local sealChanged = false
+	if paladinSealNames and (sealEnd ~= nil or complete) then
+		if sealEnd == nil then
+			sealEnd = 0
+		end
+		sealChanged = sealExpiration ~= sealEnd
+		SetSealState(sealEnd, sealID)
+	end
+	if paladinEnabled and (changed or readabilityChanged or sealChanged) then
 		UpdatePaladinHighlights()
+	end
+end
+
+local function CheckSealRemoval(updateInfo)
+	for _, id in ipairs(updateInfo.removedAuraInstanceIDs or {}) do
+		if ns.Number(id) == sealAuraID then
+			SetSealState(0)
+			UpdatePaladinHighlights()
+			return
+		end
 	end
 end
 
@@ -945,6 +1043,9 @@ local function UpdateAuraWatch()
 		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
 			if AurasAreSecret() then
 				if event == "UNIT_AURA" then
+					if sealAuraID and updateInfo then
+						pcall(CheckSealRemoval, updateInfo)
+					end
 					ForgetRemovedAuras(updateInfo)
 				end
 				if auraReadable or not auraWatcher:IsEventRegistered("PLAYER_REGEN_ENABLED") then
@@ -1423,7 +1524,7 @@ function Visuals:OnOptionChanged(key)
 		Visuals.ApplyPlayerDragon()
 	elseif key == "castsLeft" then
 		UpdateCastWatch()
-	elseif key == "paladinRecommendations" then
+	elseif key == "paladinRecommendations" or key == "paladinSealRecommendation" then
 		UpdatePaladinWatch()
 		UpdateAuraWatch()
 	elseif key == "unitBars" then
@@ -1472,6 +1573,8 @@ Visuals.options = {
 	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
 	{ key = "paladinRecommendations", type = "toggle", name = L.VISUALS_PALADIN_RECOMMENDATIONS,
 		desc = L.VISUALS_PALADIN_RECOMMENDATIONS_DESC, new = true },
+	{ key = "paladinSealRecommendation", type = "toggle", name = L.VISUALS_PALADIN_SEAL_RECOMMENDATION,
+		desc = L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC, new = true },
 	{ key = "buffExceptions", type = "button", name = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS, text = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_BUTTON, desc = L.VISUALS_ACTIVE_BUFF_EXCEPTIONS_DESC, func = function(button)
 		Visuals:ShowBuffExceptions(button)
 	end },

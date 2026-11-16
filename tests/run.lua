@@ -7496,6 +7496,20 @@ end)()
 	click()
 	timeout()
 	assert(reads[#reads] == ns.L.RP_NO_REPLY, "unanswered request times out")
+
+	own, rp.cdb.shared = true, false
+	onEvent(nil, "PLAYER_TARGET_CHANGED")
+	local sent = #messages
+	click()
+	assert(viewer:IsShown() and not editor:IsShown() and #messages == sent
+		and reads[#reads]:find("Émeline", 1, true), "self target opens a read-only preview of the saved private profile")
+	local profile = rp.cdb.profile
+	rp.cdb.profile = {}
+	click()
+	click()
+	assert(viewer:IsShown() and reads[#reads] == ns.L.RP_EMPTY and #messages == sent, "empty self profile stays in the viewer")
+	rp.cdb.profile, rp.cdb.shared = profile, true
+
 	rp.db.enabled = false
 	rp:OnOptionChanged()
 	local before = #messages

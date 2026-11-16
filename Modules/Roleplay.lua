@@ -238,18 +238,17 @@ end
 local function ShowProfile(profile)
 	local lines = {}
 	for _, field in ipairs(FIELDS) do
-		local text = profile[field.key]
+		local text = CleanText(profile[field.key], field)
 		if text ~= "" then
 			lines[#lines + 1] = "|cffffd100" .. field.label .. "|r\n" .. PlainText(text)
 		end
 	end
-	ShowText(table.concat(lines, "\n\n"))
+	ShowText(#lines > 0 and table.concat(lines, "\n\n") or L.RP_EMPTY)
 end
 
 local function OpenTargetProfile()
 	local address, name, own = Target()
-	if own then Roleplay.OpenEditor() return end
-	if not address then return end
+	if not (own or address) then return end
 	if not viewer then viewer = CreateViewer() end
 	if viewer:IsShown() then viewer:Hide() return end
 
@@ -263,6 +262,8 @@ local function OpenTargetProfile()
 	viewer:SetTitle(L.RP_PROFILE .. " – " .. PlainText(name))
 	viewer:SetPortraitToUnit("target")
 	viewer:Show()
+	if own then ShowProfile(Roleplay.cdb.profile) return end
+
 	if not ReserveMessages(1) then ShowText(L.RP_SEND_FAILED) return end
 	serial = (serial + 1) % 0x1000000
 	local request = { address = address, id = ("%06x"):format(serial), parts = {}, received = 0 }

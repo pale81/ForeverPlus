@@ -4308,6 +4308,89 @@ end)()
 	print("talent links OK")
 end)()
 ;(function()
+	-- Import the published Shaman path with the first three rows of the applicable client trees.
+	local talents = ns:GetModule("Talents")
+	local menu = uv(uv(uv(talents.OnLogin, "SetupPlanner"), "CreatePlanBar"), "ShowBuildMenu")
+	local import = uv(menu, "ImportPlan")
+	local importLink = uv(import, "ImportLink")
+	local playerClass = uv(importLink, "playerClass")
+	local active = uv(menu, "ActiveBuild")
+	local key = uv(uv(menu, "BuildList"), "PlanKey")
+	local savedFrame, savedTraits, savedClassTalents, savedSpec = PlayerSpellsFrame, C_Traits, C_ClassTalents, C_SpecializationInfo
+	local savedGroups, savedEdit, savedPrint = ns.TalentGroups, ns.ShowEditWindow, ns.Print
+	local queue = uv(talents.QueuePlanUpdate, "QueuePlanUpdate")
+	local savedAfter, savedPending = ns.After, uv(queue, "updatePending")
+	setuv(queue, "updatePending", false)
+	ns.After = function(_, _, fn) fn() end
+	local savedSeq = talents.db.buildSeq
+	setuv(importLink, "playerClass", "SHAMAN")
+	local planKey = key()
+	local savedPlans, savedActive = talents.db.builds[planKey], talents.cdb.activeBuild[planKey]
+	talents.db.builds[planKey], talents.cdb.activeBuild[planKey] = nil, nil
+	local buttons, nodes, groups = {}, {}, { { groupID = 1 }, { groupID = 2 }, { groupID = 3 } }
+	for tree, layout in pairs({
+		[2] = { { 104757, 0, 0, 2 }, { 104753, 0, 1, 5 }, { 104756, 0, 2, 5 }, { 104754, 1, 0, 2 },
+			{ 104755, 1, 1, 3 }, { 104751, 1, 2, 3 }, { 104750, 2, 0, 3 }, { 104749, 2, 2, 1 } },
+		[3] = { { 104739, 0, 1, 5 }, { 104729, 0, 2, 5 }, { 104734, 1, 0, 3 }, { 104736, 1, 1, 3 },
+			{ 104735, 1, 2, 5 }, { 104737, 1, 3, 2 }, { 104731, 2, 0, 3 }, { 104733, 2, 1, 3 }, { 104732, 2, 2, 1 } },
+	}) do
+		for _, slot in ipairs(layout) do
+			local id, row, col, maxRanks = unpack(slot)
+			nodes[id] = { ID = id, posY = row * 600, posX = col * 600 + tree * 4000, maxRanks = maxRanks,
+				ranksPurchased = 0, groupIDs = { tree } }
+			local button = CreateFrame("Button")
+			button.GetNodeID = function() return id end
+			buttons[button] = true
+		end
+	end
+	local bought, message = {}
+	C_Traits = {
+		GetNodeInfo = function(_, id) return nodes[id] end,
+		GetConfigInfo = function() return nil end,
+		PurchaseRank = function(_, id) bought[#bought + 1] = id; return true end,
+	}
+	C_ClassTalents = { GetActiveConfigID = function() return 1 end }
+	C_SpecializationInfo = { HasPlayerEarnedATalentPoint = function() return true end }
+	ns.TalentGroups = function() return groups end
+	PlayerSpellsFrame = { TalentsFrame = {
+		GetConfigID = function() return 1 end,
+		IsVisible = function() return true end,
+		EnumerateAllTalentButtons = function() return pairs(buttons) end,
+	} }
+	local url = "https://www.wowhead.com/forever/it/talent-calc/shaman/vkndmh-05203001-053020001_t0/"
+	local function Import(suffix)
+		ns.ShowEditWindow = function(_, _, _, _, accept) accept(url .. suffix) end
+		ns.Print = function(text) message = text end
+		import()
+		return active()
+	end
+	local expected = "104729,104729,104729,104729,104729,104734,104734,104734,104735,104735,104732,"
+		.. "104753,104753,104753,104753,104753,104755,104755,104755,104756,104756,104749"
+	local plan = Import("2BCeej1BEcch?test=1#main")
+	assert(ns.TalentBuilds.Points(plan) == 22 and table.concat(plan.order, ",") == expected and #bought == 0,
+		"the exact Wowhead level order is stored, without buying any points")
+	talents:ApplyPlan()
+	assert(table.concat(bought, ",") == expected, "apply follows the Wowhead order")
+	nodes[104729].ranksPurchased = 2
+	plan = Import("2BCeej1BEcch")
+	local remaining = expected:gsub("^104729,104729,", "")
+	assert(table.concat(plan.order, ",") == remaining, "the first two ranks were already learned: " .. table.concat(plan.order, ","))
+	nodes[104729].ranksPurchased = 0
+	local inferred = table.concat(Import("").order, ",")
+	assert(inferred ~= expected, "a rank-only link still gets an inferred order")
+	assert(Import("2B").order[1] == 104729, "valid steps of a partial order precede inferred steps")
+	assert(table.concat(Import("2Bbb").order, ",") == inferred and message == ns.L.TALENTS_LINK_ORDER_BAD,
+		"an order exceeding the link's ranks falls back with a message")
+	talents.db.builds[planKey], talents.cdb.activeBuild[planKey], talents.db.buildSeq = savedPlans, savedActive, savedSeq
+	setuv(importLink, "playerClass", playerClass)
+	PlayerSpellsFrame, C_Traits, C_ClassTalents, C_SpecializationInfo = savedFrame, savedTraits, savedClassTalents, savedSpec
+	ns.TalentGroups, ns.ShowEditWindow, ns.Print = savedGroups, savedEdit, savedPrint
+	ns.After = savedAfter
+	setuv(queue, "updatePending", savedPending)
+	talents:QueuePlanUpdate()
+	print("Wowhead talent order OK")
+end)()
+;(function()
 	-- A choice on a step reached with "back" that gets no answer: the step comes again soon and says why.
 	local dialog = ns:GetModule("Dialog")
 	local savedCurrent, savedBubble = uv(dialog.Pending, "current"), uv(dialog.Pending, "bubble")

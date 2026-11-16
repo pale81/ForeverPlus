@@ -1069,20 +1069,25 @@ function ApplyTemplate(preset, name)
 		ns.Print(L.TALENTS_TEMPLATE_BAD:format(problem))
 		return
 	end
-	StorePlan(name, plan)
+	StorePlan(name, plan, preset.order)
 	QueuePlanUpdate()
 	ns.Print(L.TALENTS_TEMPLATE_DONE:format(name, points))
+	return true
 end
 
 
 ---------------------------------------------------------------------------
 -- Links of the talent calculators on the web (Forever has no import code of its own).
--- Wowhead: …/forever/talent-calc/paladin/vkndmh511-1-01_t0/0ab…: after six letters one digit per talent (its
--- rank), the talents of a tree row by row from the left, the trees separated by "-", zeros at the end left out.
+-- Wowhead: …/forever/talent-calc/shaman/vkndmh-05203001-053020001_t0/2BCeej1BEcch: ranks by position,
+-- then the optional pick order (a tree number followed by one token per point or full talent).
 -- Icy Veins: …/wow-forever/paladin-talent-calculator#tc-33Oy1~70888-…: one character per point spent; which
 -- character stands for which talent is the site's own choice (LINK_IDS: per class and tree the characters of the
 -- talents, row by row from the left; read from the site's calculator, data version 70888-0650090c).
 ---------------------------------------------------------------------------
+-- The position alphabets from Wowhead's TalentCalcClassic URL format.
+local WOWHEAD_ORDER_POINT = "abcdefghjkmnpqrstvwzxyilou468-~!"
+local WOWHEAD_ORDER_FULL = "ABCDEFGHJKMNPQRSTVWZXYILOU579_^."
+
 local LINK_IDS = {
 	DRUID = { "0123456789abcdef", "ghijklmnopsrqtvwyxzu", "ABCDEFGHIJKLMNOP" },
 	HUNTER = { "0123546789abcdef", "ghijklmnopqrstuv", "wxyzABCDEFGHIJKLMN" },
@@ -1100,11 +1105,11 @@ function Talents.IsLink(text)
 	return type(text) == "string" and (text:find("talent%-calc/", 1) or text:find("%-talent%-calculator", 1)) and true or false
 end
 
--- Reads a link for a class (file name, "PALADIN"): the ranks by place, trees[tree][place in the tree] = rank.
+-- Reads a link for a class (file name, "PALADIN"): the ranks by place and, as a third result, the Wowhead order code.
 -- Without a result the reason: "class" (another class), "format" (not readable).
 function Talents.ParseLink(text, class)
 	local trees = { {}, {}, {} }
-	local slug, code = text:match("talent%-calc/(%a+)/([^/%s%?#]+)")
+	local slug, code, suffix = text:match("talent%-calc/(%a+)/([^/%s%?#]+)([^%s%?#]*)")
 	if slug then
 		if slug:upper() ~= class then
 			return nil, "class"
@@ -1123,7 +1128,7 @@ function Talents.ParseLink(text, class)
 				trees[tree][place] = tonumber(part:sub(place, place))
 			end
 		end
-		return trees
+		return trees, nil, suffix:match("^/([^/]+)")
 	end
 	local points
 	slug, points = text:match("(%a+)%-talent%-calculator#tc%-(%w+)")
@@ -1148,6 +1153,38 @@ function Talents.ParseLink(text, class)
 		end
 	end
 	return trees
+end
+
+-- Translate each Wowhead step through the same tree positions as the ranks. A full-talent token
+-- spends consecutive points up to the talent's maximum. Incomplete but consistent orders are
+-- useful: PlanOrder fills in any planned ranks that have no step yet.
+local function WowheadOrder(code, trees, ordered)
+	local order, spent = {}, {}
+	local tree
+	for token in code:gmatch(".") do
+		if token == "0" or token == "1" or token == "2" then
+			tree = tonumber(token) + 1
+		else
+			local place = WOWHEAD_ORDER_POINT:find(token, 1, true)
+			local full = not place
+			place = place or WOWHEAD_ORDER_FULL:find(token, 1, true)
+			local entry = tree and place and ordered[tree][place]
+			if not entry then
+				return nil
+			end
+			local id, maxRanks = entry[1], entry[2]
+			local points = full and maxRanks or 1
+			local rank = (spent[id] or 0) + points
+			if rank > (trees[tree][place] or 0) then
+				return nil
+			end
+			spent[id] = rank
+			for _ = 1, points do
+				order[#order + 1] = id
+			end
+		end
+	end
+	return #order > 0 and order or nil
 end
 
 -- The ranks by place onto the talents of the game: ordered[tree] = { { nodeID, maxRanks }, … } row by row from the
@@ -1191,18 +1228,22 @@ local function OrderedNodes(nodes, rowOf)
 end
 
 local function ImportLink(frame, configID, text)
-	local trees, reason = Talents.ParseLink(text, playerClass)
+	local trees, reason, orderCode = Talents.ParseLink(text, playerClass)
 	if not trees then
 		ns.Print(reason == "class" and L.TALENTS_LINK_CLASS or L.TALENTS_LINK_FORMAT)
 		return
 	end
 	local nodes, rowOf = TreeState(frame, configID)
-	local ranks = Talents.LinkRanks(trees, OrderedNodes(nodes, rowOf))
+	local ordered = OrderedNodes(nodes, rowOf)
+	local ranks = Talents.LinkRanks(trees, ordered)
 	if not ranks or ranks == "" then
 		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
 		return
 	end
-	ApplyTemplate({ ranks = ranks }, L.TALENTS_LINK_NAME)
+	local order = orderCode and WowheadOrder(orderCode, trees, ordered)
+	if ApplyTemplate({ ranks = ranks, order = order }, L.TALENTS_LINK_NAME) and orderCode and not order then
+		ns.Print(L.TALENTS_LINK_ORDER_BAD)
+	end
 end
 
 -- Blizzard's loadout text into the plan (nothing is learned yet): the ✓ button learns what the

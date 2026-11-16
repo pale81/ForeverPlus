@@ -1408,16 +1408,18 @@ print("helpers OK")
 	local savedMenu, savedCreate, savedMenuUtil = ForeverPlusFishingMenu, CreateFrame, MenuUtil
 	local savedModifier, savedEdit = IsModifierKeyDown, ns.IsEditModeActive
 	local savedMode, savedShow = helpers.db.fishing, helpers.db.fishingMenu
-	local menu, firstHit, owner, title, anchor, clickThrough
+	local menu, firstHit, owner, title, anchor, clickThrough, gripX
 	local edit = false
 	local rows = {}
 	CreateFrame = function(kind, name, parent)
 		local frame = savedCreate(kind, name, parent)
 		if name == "ForeverPlusFishingMenu" then
 			menu = frame
+			frame.SetSize = function(self, width, height) self.w, self.h = width, height end
 			frame.SetPoint = function(_, _, relative, point) anchor = { relative, point } end
 		elseif parent == menu and not firstHit then
 			firstHit = frame
+			frame.SetPoint = function(_, _, _, _, x) gripX = x end
 			frame.SetPassThroughButtons = function(_, ...) clickThrough = { ... } end
 		end
 		return frame
@@ -1438,6 +1440,14 @@ print("helpers OK")
 	create()
 	assert(anchor[1] == PlayerFrame.PlayerFrameContainer and anchor[2] == "TOPRIGHT" and clickThrough[1] == "RightButton",
 		"the rod follows the player's upper right corner and passes through ordinary right-clicks")
+	assert(menu:GetWidth() < 40 and gripX > menu:GetWidth() * 0.5, "the smaller mirrored rod has its grip hit area on the right")
+	local fishingSettings = {}
+	for _, option in ipairs(helpers.options) do
+		if option.key and option.key:match("^fishing") then
+			fishingSettings[#fishingSettings + 1] = option.key
+		end
+	end
+	assert(table.concat(fishingSettings) == "fishingMenu", "settings only expose the rod visibility")
 	local click = firstHit:GetScript("OnClick")
 	click(firstHit)
 	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")

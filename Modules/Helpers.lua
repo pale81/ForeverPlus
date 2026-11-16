@@ -313,12 +313,12 @@ end
 -- Angler mode menu on the player frame
 ---------------------------------------------------------------------------
 local FISHING_OPTIONS = {
-	{ key = "fishing", type = "toggle", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
-	{ key = "fishingEquip", type = "toggle", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing", new = true },
-	{ key = "fishingRestore", type = "toggle", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing", new = true },
+	{ key = "fishing", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
+	{ key = "fishingEquip", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing" },
+	{ key = "fishingRestore", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing" },
 }
 local ROD_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerRod]]
-local ROD_SIZE = 40
+local ROD_SIZE = 28
 -- Hit areas in the 64-unit artwork: grip, reel, shaft, tip and float.
 local ROD_HITS = {
 	{ 5, 48, 18, 61 }, { 15, 35, 35, 51 }, { 25, 24, 37, 37 },
@@ -378,9 +378,11 @@ local function CreateFishingMenu()
 	frame.art = frame:CreateTexture(nil, "OVERLAY", nil, 6)
 	frame.art:SetAllPoints()
 	frame.art:SetTexture(ROD_ART)
+	frame.art:SetTexCoord(1, 0, 0, 1)
 	frame.shine = frame:CreateTexture(nil, "OVERLAY", nil, 7)
 	frame.shine:SetAllPoints(frame.art)
 	frame.shine:SetTexture(ROD_ART)
+	frame.shine:SetTexCoord(1, 0, 0, 1)
 	frame.shine:SetBlendMode("ADD")
 	frame.shine:SetAlpha(0.24)
 	frame.shine:Hide()
@@ -399,7 +401,7 @@ local function CreateFishingMenu()
 	for _, hit in ipairs(ROD_HITS) do
 		local left, top, right, bottom = unpack(hit)
 		local button = CreateFrame("Button", nil, frame)
-		button:SetPoint("TOPLEFT", frame, "TOPLEFT", left * scale, -top * scale)
+		button:SetPoint("TOPLEFT", frame, "TOPLEFT", ROD_SIZE - right * scale, -top * scale)
 		button:SetSize((right - left) * scale, (bottom - top) * scale)
 		button:RegisterForClicks("LeftButtonUp")
 		button:SetPassThroughButtons("RightButton", "MiddleButton", "Button4", "Button5")
@@ -759,6 +761,3 @@ Helpers.options = {
 	{ type = "header", name = L.HELPERS_FISHING_MODE },
 	{ key = "fishingMenu", type = "toggle", name = L.HELPERS_FISHING_MENU, desc = L.HELPERS_FISHING_MENU_DESC, new = true },
 }
-for _, option in ipairs(FISHING_OPTIONS) do
-	Helpers.options[#Helpers.options + 1] = option
-end

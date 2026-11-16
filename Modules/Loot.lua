@@ -100,12 +100,16 @@ local function MoneyValue(text)
 end
 
 local function ParseMoney(text)
+	if type(text) ~= "string" or ns.Secret(text) then
+		return nil
+	end
 	local args = MatchAny(moneyPatterns, text)
 	local amount = args and args[1] and MoneyValue(args[1])
 	if amount and amount > 0 then
 		return amount
 	end
 end
+ns.ParseLootMoney = ParseMoney
 
 ---------------------------------------------------------------------------
 -- Origin of the loot: the unit clicked or targeted, the node or fish a cast
@@ -271,9 +275,6 @@ function Loot:CHAT_MSG_LOOT(_, text)
 end
 
 function Loot:CHAT_MSG_MONEY(_, text)
-	if not Accessible(text) then
-		return
-	end
 	local amount = ParseMoney(text)
 	if not amount then
 		return
@@ -321,7 +322,7 @@ local function LootFilter(chatFrame, _, text)
 end
 
 local function MoneyFilter(chatFrame, _, text)
-	if type(text) == "string" and Accessible(text) and ParseMoney(text) then
+	if ParseMoney(text) then
 		frames.MONEY[chatFrame] = true
 		return true
 	end

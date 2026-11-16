@@ -590,8 +590,9 @@ end
 -- shown as one line once no new one came for a while ("... increased to 11
 -- (x8)"; reputation amounts are added up).
 ---------------------------------------------------------------------------
+local SKILL_RANK = { event = "CHAT_MSG_SKILL", group = "SKILL", format = SKILL_RANK_UP }
 local REPEAT_KINDS = {
-	{ event = "CHAT_MSG_SKILL", group = "SKILL", format = SKILL_RANK_UP },
+	SKILL_RANK,
 	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_INCREASED, sum = true, sign = 1 },
 	{ event = "CHAT_MSG_COMBAT_FACTION_CHANGE", group = "COMBAT_FACTION_CHANGE", format = FACTION_STANDING_DECREASED, sum = true, sign = -1 },
 	-- New spells: one line with all links ("You have learned the spell: [Fireball]").
@@ -630,6 +631,12 @@ local function ParseRepeat(kind, text)
 	local name = args[kind.numberArg == 2 and 1 or 2]
 	if number and name then
 		return name, number
+	end
+end
+
+function ns.ParseSkillRankMessage(text)
+	if SKILL_RANK.match and SKILL_RANK.numberArg and type(text) == "string" and not ns.Secret(text) then
+		return ParseRepeat(SKILL_RANK, text)
 	end
 end
 

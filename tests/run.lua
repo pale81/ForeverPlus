@@ -4381,6 +4381,106 @@ end)()
 	print("moments OK")
 end)()
 ;(function()
+	-- Solo Party uses independent events, even with the chat summaries disabled.
+	local solo = ns:GetModule("SoloParty")
+	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString }
+	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
+	local layer
+	GetMoney = function() return money end
+	GetMoneyString = function(amount) return amount .. "c" end
+	issecretvalue = function(value) return value == "protected" end
+	ns.NewTimer = function(_, _, fn)
+		local timer = { fn = fn, Cancel = function(self) self.cancelled = true end }
+		timers[#timers + 1] = timer
+		return timer
+	end
+	CreateFrame = function(kind, name, parent)
+		local frame = NewFrame(kind, name)
+		if parent == UIParent then
+			frame.w, frame.h = 1400, 800
+			layer = frame
+		elseif layer and parent == layer then
+			frame.SetPoint = function(_, _, _, _, x, y) positions[#positions + 1] = { x, y } end
+		end
+		frame.CreateFontString = function()
+			local region = NewFrame("FontString")
+			region.SetText = function(_, value) printed[#printed + 1] = value end
+			region.SetFont = function(_, font, size)
+				visuals[#visuals + 1] = { font, size }
+				return true
+			end
+			return region
+		end
+		return frame
+	end
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function Fire(event, ...)
+		eventFrame:GetScript("OnEvent")(eventFrame, event, ...)
+	end
+	local skill = "Eure Fertigkeit 'Kürschnerei' hat sich auf 51 erhöht."
+	local function SetEnabled(value)
+		solo.db.enabled = value
+		solo:OnOptionChanged("enabled", value)
+	end
+	local function EnterWorld(value)
+		money = value
+		-- Other modules' world-entry callbacks need unrelated live data.
+		local listeners = uv(ns.RegisterEvent, "listeners")
+		listeners.PLAYER_ENTERING_WORLD[solo](solo, "PLAYER_ENTERING_WORLD")
+	end
+	assert(not solo.db.enabled, "Solo Party defaults to off")
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(not layer, "disabled: no party frame")
+	SetEnabled(true)
+	Fire("CHAT_MSG_SKILL", "protected")
+	Fire("CHAT_MSG_SKILL", "Unrelated skill message")
+	assert(not layer, "only readable skill increases qualify")
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(printed[1] == "Kürschnerei" and printed[2] == ns.L.SOLO_PARTY_RANK:format(51), "the new skill rank pops: " .. table.concat(printed, ", "))
+
+	money = 1099
+	Fire("PLAYER_MONEY")
+	Fire("CHAT_MSG_MONEY", "Ihr plündert 99 Kupfer")
+	timers[1].fn()
+	assert(#printed == 2, "just below 10% of 1000c is quiet")
+	EnterWorld(1000)
+	Fire("CHAT_MSG_MONEY", "Ihr plündert 1 Silber")
+	money = 1100
+	Fire("PLAYER_MONEY")
+	timers[2].fn()
+	assert(printed[3] == ns.L.SOLO_PARTY_LOOT and printed[4] == "+100c", "exactly +10% of the purse before loot qualifies")
+	money = 1500
+	Fire("PLAYER_MONEY")
+	money = 1351
+	Fire("PLAYER_MONEY")
+	assert(#printed == 4, "non-loot credits and spending below 10% are quiet")
+	EnterWorld(1000)
+	money = 900
+	Fire("PLAYER_MONEY")
+	assert(printed[5] == ns.L.SOLO_PARTY_SPENT and printed[6] == "−100c", "exactly -10% of the purse before spending qualifies")
+	assert(positions[1][1] ~= positions[2][1] and positions[2][1] ~= positions[3][1], "consecutive bursts use different places")
+	assert(visuals[4][1] ~= visuals[6][1] and visuals[4][2] ~= visuals[6][2], "loot and expenses use different typefaces and sizes")
+	layer:GetScript("OnUpdate")(layer, 2)
+	assert(not layer:IsShown(), "animation releases the overlay")
+
+	EnterWorld(0)
+	money = 11
+	Fire("PLAYER_MONEY")
+	Fire("CHAT_MSG_MONEY", "Ihr plündert 10 Kupfer")
+	Fire("CHAT_MSG_MONEY", "Ihr plündert 1 Kupfer")
+	timers[3].fn()
+	assert(printed[8] == "+10c" and printed[10] == "+1c", "cash from zero and a second loot line in the same tick")
+	Fire("CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer")
+	SetEnabled(false)
+	assert(timers[4].cancelled and not layer:IsShown(), "switching off clears pending loot and active effects")
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(#printed == 10, "switching off unregisters the events")
+	solo.options[2].func()
+	assert(#printed == 16 and not solo.db.enabled and money == 11, "preview shows three effects without changing the mode or wallet")
+	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString = unpack(saved, 1, 5)
+	print("solo party OK")
+end)()
+;(function()
 	-- The stats pane rebuilds a provider from its original rows and reuses frames for new rows.
 	local rank = ns:GetModule("StatRank")
 	local savedWeights, savedEnabled = ns.StatWeights, rank.db.enabled

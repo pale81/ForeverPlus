@@ -329,6 +329,7 @@ local PAGES = {
 		{ "Transports", header = L.TRANSPORTS_TITLE },
 		{ "DataCapture", header = L.DATA_TITLE },
 		{ "Moments", header = L.MOMENTS_TITLE },
+		{ "SoloParty", header = L.SOLO_PARTY_TITLE },
 		{ "Info", header = L.INFO_TITLE },
 		{ "Errors", header = L.ERRORS_TITLE },
 	},

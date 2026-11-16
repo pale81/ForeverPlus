@@ -78,6 +78,7 @@ Modules\Roleplay.lua
 Modules\Flight.lua
 Modules\Waypoint.lua
 Modules\Moments.lua
+Modules\SoloParty.lua
 Modules\StatRank.lua
 Modules\Errors.lua
 Modules\Dresser.lua

@@ -13,8 +13,10 @@ local Helpers = ns:NewModule("Helpers", {
 		openButton = true,
 		fishing = true,
 		fishingEquip = false,
+		fishingRestore = true,
 		knownRecipes = true,
 	},
+	charDefaults = { fishingWeapons = {} },
 })
 
 local function IsRed(color)
@@ -308,14 +310,16 @@ end
 
 ---------------------------------------------------------------------------
 -- Only a short, still right-click on the world arms the next click.
--- The secure button equips a pole or casts Fishing, one action per pair.
+-- The secure button equips a pole, casts Fishing or restores the previous weapons.
 ---------------------------------------------------------------------------
 local FISHING = { 18248, 7732, 7731, 7620 }
 local MAIN_HAND = INVSLOT_MAINHAND or 16
+local OFF_HAND = INVSLOT_OFFHAND or 17
 local DOUBLE_CLICK = 0.4
 local CLICK_TIME, CLICK_MOVE = 0.3, 6
 local fishButton, bindingTimer
-local pressTime, pressX, pressY
+local pressTime, pressX, pressY, pressShift
+local weaponsTimer
 
 local function FishingSpell()
 	for _, spellID in ipairs(FISHING) do
@@ -338,6 +342,50 @@ local function HasFishingPole()
 end
 
 ns.HasFishingPole = HasFishingPole
+
+local function RememberFishingWeapons()
+	if not (Helpers.db.fishing and Helpers.db.fishingRestore) then
+		return
+	end
+	local main = GetInventoryItemID("player", MAIN_HAND)
+	local off = GetInventoryItemID("player", OFF_HAND)
+	if ns.Secret(main) or ns.Secret(off) or IsFishingPole(main) then
+		return
+	end
+	local weapons = Helpers.cdb.fishingWeapons
+	weapons.main, weapons.off = main, off
+end
+
+function Helpers:PLAYER_EQUIPMENT_CHANGED(_, slot)
+	if slot ~= MAIN_HAND and slot ~= OFF_HAND then
+		return
+	end
+	-- Equipping a two-handed pole can update the two slots separately.
+	if weaponsTimer then
+		weaponsTimer:Cancel()
+	end
+	weaponsTimer = ns.NewTimer("Helpers: remember fishing weapons", 0.5, function()
+		weaponsTimer = nil
+		RememberFishingWeapons()
+	end)
+end
+
+local function EquipLine(slot, itemID, modifier)
+	return ("/equipslot [@mouseover,noexists,nocombat,nomounted,%s] %d item:%d"):format(modifier, slot, itemID)
+end
+
+local function RestoreWeaponsMacro()
+	local weapons = Helpers.cdb.fishingWeapons
+	if not weapons.main or C_Item.GetItemCount(weapons.main) == 0 then
+		return
+	end
+	local text = EquipLine(MAIN_HAND, weapons.main, "mod:shift")
+	local off = weapons.off
+	if off and C_Item.GetItemCount(off) >= (off == weapons.main and 2 or 1) then
+		text = text .. "\n" .. EquipLine(OFF_HAND, off, "mod:shift")
+	end
+	return text
+end
 
 local function FindFishingPole()
 	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
@@ -412,6 +460,7 @@ function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
 	if mouseButton == "RightButton" and not bindingTimer and CanArmFishing() then
 		pressTime = GetTime()
 		pressX, pressY = GetCursorPosition()
+		pressShift = IsShiftKeyDown()
 	end
 end
 
@@ -421,33 +470,49 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 	end
 	local x, y = GetCursorPosition()
 	local short = GetTime() - pressTime <= CLICK_TIME and math.abs(x - pressX) + math.abs(y - pressY) <= CLICK_MOVE
+	local shift = pressShift
 	pressTime = nil
-	if not short or not CanArmFishing() then
+	if not short or shift ~= IsShiftKeyDown() or not CanArmFishing() then
 		return
 	end
 	-- After the release has been handled by the game.
 	ns.After("Helpers: GLOBAL_MOUSE_UP (timer)", 0, function()
-		if bindingTimer or not CanArmFishing() then
+		if bindingTimer or shift ~= IsShiftKeyDown() or not CanArmFishing() then
 			return
 		end
-		local spellID = FishingSpell()
-		if not spellID then
-			return
-		end
-		if HasFishingPole() then
+		local hasPole = HasFishingPole()
+		if hasPole and not shift then
+			local spellID = FishingSpell()
+			if not spellID then
+				return
+			end
 			fishButton:SetAttribute("type", "spell")
 			fishButton:SetAttribute("spell", spellID)
 			fishButton:SetAttribute("useOnKeyDown", true)
 		else
-			local pole = Helpers.db.fishingEquip and not GetCursorInfo() and FindFishingPole()
-			if not pole then
+			if GetCursorInfo() then
+				return
+			end
+			local macro
+			if shift then
+				if hasPole and Helpers.db.fishingRestore and not IsAltKeyDown() and not IsControlKeyDown() then
+					macro = RestoreWeaponsMacro()
+				end
+			elseif Helpers.db.fishingEquip and FishingSpell() then
+				local pole = FindFishingPole()
+				if pole then
+					RememberFishingWeapons()
+					macro = EquipLine(MAIN_HAND, pole, "nomod")
+				end
+			end
+			if not macro then
 				return
 			end
 			fishButton:SetAttribute("type", "macro")
-			fishButton:SetAttribute("macrotext", ("/equipslot [@mouseover,noexists,nocombat,nomounted] %d item:%d"):format(MAIN_HAND, pole))
+			fishButton:SetAttribute("macrotext", macro)
 			fishButton:SetAttribute("useOnKeyDown", false)
 		end
-		SetOverrideBindingClick(fishButton, true, "BUTTON2", "ForeverPlusFishButton", "LeftButton")
+		SetOverrideBindingClick(fishButton, true, shift and "SHIFT-BUTTON2" or "BUTTON2", "ForeverPlusFishButton", "LeftButton")
 		bindingTimer = ns.NewTimer("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
 	end)
 end
@@ -535,6 +600,7 @@ function Helpers:Update()
 	end
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", db.fishing)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", db.fishing)
+	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.fishing and db.fishingRestore)
 	pressTime = nil
 	ns.RunOutOfCombat(ClearFishBinding)
 	UpdateOpenButton()
@@ -565,10 +631,14 @@ function Helpers:OnLogin()
 		hooksecurefunc("MerchantFrame_UpdateMerchantInfo", MarkMerchant)
 	end
 	self:Update()
+	RememberFishingWeapons()
 end
 
-function Helpers:OnOptionChanged()
+function Helpers:OnOptionChanged(key)
 	self:Update()
+	if key == "fishing" or key == "fishingRestore" then
+		RememberFishingWeapons()
+	end
 end
 
 Helpers.options = {
@@ -577,5 +647,6 @@ Helpers.options = {
 	{ key = "openButton", type = "toggle", name = L.HELPERS_OPEN_BUTTON, desc = L.HELPERS_OPEN_BUTTON_DESC },
 	{ key = "fishing", type = "toggle", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
 	{ key = "fishingEquip", type = "toggle", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing", new = true },
+	{ key = "fishingRestore", type = "toggle", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing", new = true },
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },
 }

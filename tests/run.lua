@@ -1297,10 +1297,14 @@ assert(proc(0, 1) == 13262, "disenchant")
 	local savedBind, savedClear, savedTimer = SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer
 	local savedCombat, savedMounted, savedFoci, savedExists = InCombatLockdown, IsMounted, GetMouseFoci, UnitExists
 	local savedPosition, savedInventory, savedCursor = GetCursorPosition, GetInventoryItemID, GetCursorInfo
+	local savedShift, savedAlt, savedCtrl, savedCount = IsShiftKeyDown, IsAltKeyDown, IsControlKeyDown, C_Item.GetItemCount
 	local savedInstant, savedSubclasses = C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass
 	local savedSlots, savedBag, savedTooltip = C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem
 	local button = _G.ForeverPlusFishButton
 	local savedAttribute, attrs = button.SetAttribute, {}
+	local savedWeapons = helpers.cdb.fishingWeapons
+	helpers.cdb.fishingWeapons = {}
+	local shift, offHand, bagCounts = false, 2, { [1] = 1, [2] = 1 }
 	local binding, timer, equipped, blocked, mouseover, focus, cursor = nil, nil, 1, false, false, nil, nil
 	local x = 100
 	button.SetAttribute = function(_, key, value) attrs[key] = value end
@@ -1315,8 +1319,12 @@ assert(proc(0, 1) == 13262, "disenchant")
 	GetMouseFoci = function() return { focus } end
 	UnitExists = function() return mouseover end
 	GetCursorPosition = function() return x, 100 end
-	GetInventoryItemID = function() return equipped end
+	GetInventoryItemID = function(_, slot) return slot == INVSLOT_MAINHAND and equipped or offHand end
 	GetCursorInfo = function() return cursor end
+	IsShiftKeyDown = function() return shift end
+	IsAltKeyDown = function() return false end
+	IsControlKeyDown = function() return false end
+	C_Item.GetItemCount = function(id) return bagCounts[id] or 0 end
 	Enum.ItemWeaponSubclass = { Fishingpole = 20 }
 	C_Item.GetItemInfoInstant = function(id) return id, nil, nil, nil, nil, 2, id >= 6256 and 20 or 7 end
 	local bagItems = { { itemID = 1 }, { itemID = 6257, isLocked = true }, { itemID = 6258 }, { itemID = 6256 } }
@@ -1351,7 +1359,7 @@ assert(proc(0, 1) == 13262, "disenchant")
 	assert(not binding, "camera turn does not arm fishing")
 	click()
 	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
-		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted] 16 item:6256",
+		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted,nomod] 16 item:6256",
 		"the first pair selects the unlocked pole for a guarded main-hand equip")
 	local equipTimer = timer
 	local postClick = button:GetScript("PostClick")
@@ -1359,21 +1367,36 @@ assert(proc(0, 1) == 13262, "disenchant")
 	assert(binding and not equipTimer.cancelled, "a secure mouse action can still be waiting for the release")
 	postClick(button, "LeftButton", false)
 	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
-	equipped = 6256
+	equipped, offHand = 6256, nil
 	click()
 	assert(binding and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == true,
 		"the next pair casts Fishing after the pole is equipped")
 	timer.expire()
 	assert(not binding, "an unused binding expires")
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
+	timer.expire()
+	shift = true
+	click()
+	local condition = "[@mouseover,noexists,nocombat,nomounted,mod:shift]"
+	assert(binding == "SHIFT-BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
+		and attrs.macrotext == "/equipslot " .. condition .. " 16 item:1\n/equipslot " .. condition .. " 17 item:2",
+		"with a pole equipped, the shifted pair restores the saved main hand and shield after the equipment event")
+	timer.expire()
+	bagCounts[1] = nil
+	click()
+	assert(not binding, "shift leaves the pole and normal click handling available if the old main hand is missing")
+	shift = false
 	equipped, bagItems = 1, {}
 	click()
 	assert(not binding, "no override when there is no pole to equip")
 
 	helpers.db.fishingEquip = false
+	helpers.cdb.fishingWeapons = savedWeapons
 	button.SetAttribute = savedAttribute
 	SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer = savedBind, savedClear, savedTimer
 	InCombatLockdown, IsMounted, GetMouseFoci, UnitExists = savedCombat, savedMounted, savedFoci, savedExists
 	GetCursorPosition, GetInventoryItemID, GetCursorInfo = savedPosition, savedInventory, savedCursor
+	IsShiftKeyDown, IsAltKeyDown, IsControlKeyDown, C_Item.GetItemCount = savedShift, savedAlt, savedCtrl, savedCount
 	C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass = savedInstant, savedSubclasses
 	C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem = savedSlots, savedBag, savedTooltip
 end)()
@@ -2277,7 +2300,10 @@ end)()
 		{ type = "button", name = "Mover 1" }, { type = "button", name = "Mover 2" }, { type = "button", name = "Mover 3" },
 	} }
 	local profiles = { name = "Profiles", db = {}, defaults = { auto = true }, options = ns:GetModule("Profiles").options }
-	local chat = { name = "Chat", db = {}, defaults = { tabFade = true }, options = { { key = "tabFade", type = "toggle", new = true } } }
+	local chat = { name = "Chat", db = {}, defaults = { tabFade = true, existing = false }, options = {
+		{ key = "tabFade", type = "toggle", new = true },
+		{ key = "existing", type = "toggle" },
+	} }
 	local modules = { Mover = mover, Profiles = profiles, Chat = chat }
 	local tabBadge
 	local settingsNS = setmetatable({
@@ -2293,6 +2319,7 @@ end)()
 	settingsNS:BuildSettings()
 	local auto, other = inits.ForeverPlus_Profiles_auto, inits.ForeverPlus_Chat_tabFade
 	assert(auto.category == main and other.category ~= main and auto.initializer.fpNewID, "both main page and subpage options have stable IDs")
+	assert(not inits.ForeverPlus_Chat_existing.initializer.fpNewID, "the initial build treats existing unmarked settings as the baseline")
 	-- Simulate a row with a label tooltip and a nested control, as in the settings list.
 	local row, label, control = NewFrame("Frame"), NewFrame("Frame"), NewFrame("Button")
 	row.fpNewBadge = false
@@ -2329,6 +2356,18 @@ end)()
 	settingsNS.db.settingsNewSeen[auto.initializer.fpNewID] = 3
 	Show(auto.initializer)
 	assert(not row.fpNewBadge:IsShown(), "previously dismissed rows stay dismissed")
+
+	chat.defaults.added, chat.defaults.classOption = false, false
+	chat.options[#chat.options + 1] = { key = "added", type = "toggle" }
+	chat.options[#chat.options + 1] = { key = "classOption", type = "toggle", newScope = "TestClass" }
+	settingsNS:BuildSettings()
+	local added = inits.ForeverPlus_Chat_added.initializer
+	assert(added.fpNewID and tabBadge:IsShown(), "an option added in an update is marked without an explicit new flag")
+	assert(not inits.ForeverPlus_Chat_classOption.initializer.fpNewID, "a class visited for the first time starts with a baseline")
+	TwoPasses(added)
+	settingsNS:BuildSettings()
+	Show(inits.ForeverPlus_Chat_added.initializer)
+	assert(not row.fpNewBadge:IsShown() and not tabBadge:IsShown(), "automatic dismissal survives rebuilding after a reload")
 	Settings, SettingsPanel, hooksecurefunc = savedSettings, savedPanel, savedHook
 	print("two mouseovers dismiss NEW on main and subpages OK")
 end)()

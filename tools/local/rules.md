@@ -10,6 +10,7 @@ Addon für WoW Forever (Client 1.60.x, Mainline-12-API, Spieltyp `camelot`). Lua
 ## Code
 - Taint-sicher: nur lesen, eigene Regionen hinzufügen, `hooksecurefunc`; Blizzards geschützte Funktionen nie anfassen.
 - Jede Funktion bekommt eine Option (Standard sinnvoll wählen). Verschiebbare Elemente starten gesperrt.
+- Neue Optionen bekommen die NEU-Marke automatisch. Bestehende Optionsschlüssel beibehalten, damit gespeicherte Einstellungen und bereits ausgeblendete Marken erhalten bleiben.
 - Texte in `Locales/deDE.lua` und `Locales/enUS.lua`, immer beide. Keine Addon-Namen in Menüs außer aus Urheberrechtsgründen.
 - Neue Blizzard-Globale in `.luacheckrc` (`read_globals`).
 - Messbar halten: Hooks und Skripte mit `ns.Measured` / `ns.SetUpdate` (siehe `/fp messen`).

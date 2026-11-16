@@ -4,6 +4,7 @@ local L = ns.L
 
 local mainCategory
 local newOptionsByCategory = {}
+local firstBuildByScope = {}
 local RefreshBadges
 local NEW_SEEN_LIMIT = 2
 
@@ -108,6 +109,29 @@ local function TrackNew(initializer, id)
 	end))
 end
 
+local function RegisterOptionBadge(initializer, category, id, markedNew, scope)
+	if not initializer then
+		return
+	end
+	scope = scope or "account"
+	local history = ns.db.settingsOptionHistory
+	local options = history[scope]
+	if not options then
+		options = {}
+		history[scope] = options
+		firstBuildByScope[scope] = true
+	end
+	if markedNew or options[id] == nil then
+		options[id] = markedNew == true or not firstBuildByScope[scope]
+	end
+	if options[id] then
+		TrackNew(initializer, id)
+		local ids = newOptionsByCategory[category] or {}
+		ids[#ids + 1] = id
+		newOptionsByCategory[category] = ids
+	end
+end
+
 -- New options carry the glowing label (see ShowRowBadge) instead of a coloured word in the name.
 local function OptionName(opt)
 	return opt.name
@@ -168,6 +192,7 @@ local function MainCheckbox(variable, key, default, name, desc, onChange)
 	end
 	local initializer = Settings.CreateCheckbox(mainCategory, setting, desc)
 	AddSearchTags(initializer, name, desc, key, "ForeverPlus")
+	RegisterOptionBadge(initializer, mainCategory, "option:Main:" .. key)
 end
 
 local function AddOption(module, category, layout, opt, initializers)
@@ -191,7 +216,8 @@ local function AddOption(module, category, layout, opt, initializers)
 		tbl[opt.key] = default
 	end
 
-	local variable = ("ForeverPlus_%s_%s"):format(module.name, opt.variable or opt.key)
+	local key = opt.variable or opt.key
+	local variable = ("ForeverPlus_%s_%s"):format(module.name, key)
 	local name = OptionName(opt)
 	local setting = Settings.RegisterAddOnSetting(category, variable, opt.key, tbl, VarType(default), name, default)
 	setting:SetValueChangedCallback(function(_, value)
@@ -214,13 +240,7 @@ local function AddOption(module, category, layout, opt, initializers)
 	end
 	if init then
 		AddSearchTags(init, opt.name, opt.desc, opt.key, module.title, opt._pageTitle, "ForeverPlus")
-		if opt.new then
-			local id = "option:" .. module.name .. ":" .. opt.key
-			TrackNew(init, id)
-			local ids = newOptionsByCategory[category] or {}
-			ids[#ids + 1] = id
-			newOptionsByCategory[category] = ids
-		end
+		RegisterOptionBadge(init, category, "option:" .. module.name .. ":" .. key, opt.new, opt.newScope)
 	end
 
 	if init and opt.parent then
@@ -520,6 +540,9 @@ local function HookBadges()
 end
 
 function ns:BuildSettings()
+	ns.db.settingsOptionHistory = ns.db.settingsOptionHistory or {}
+	firstBuildByScope = {}
+	newOptionsByCategory = {}
 	mainCategory = Settings.RegisterVerticalLayoutCategory("ForeverPlus")
 	local mainLayout = SettingsPanel:GetLayout(mainCategory)
 	mainLayout:AddInitializer(CreateSettingsListSectionHeaderInitializer(("ForeverPlus %s"):format(ns.version), L.ABOUT_TEXT))

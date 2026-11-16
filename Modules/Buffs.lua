@@ -1059,21 +1059,23 @@ function Buffs:options()
 	if #reminders > 0 then
 		options[#options + 1] = { type = "header", name = LOCALIZED_CLASS_NAMES_MALE[playerClass] or playerClass, desc = L.BUFFS_CLASS_DESC }
 	end
+	-- Each class has its own baseline, so logging into an alt doesn't mark its existing buffs as new.
+	local newScope = "Buffs:" .. playerClass
 	for _, reminder in ipairs(reminders) do
 		local label = L["BUFFS_" .. reminder.key] or reminder.key
 		options[#options + 1] = {
 			key = reminder.key, type = "toggle", name = label, db = classDB,
-			default = reminder.default ~= false, variable = playerClass .. "_" .. reminder.key,
+			default = reminder.default ~= false, variable = playerClass .. "_" .. reminder.key, newScope = newScope,
 		}
 		if reminder.items then
 			options[#options + 1] = {
 				key = ChoiceKey(reminder), type = "dropdown", name = L.BUFFS_CHOICE, db = classDB, parent = reminder.key,
-				default = "auto", values = PoisonChoices, variable = playerClass .. "_" .. ChoiceKey(reminder),
+				default = "auto", values = PoisonChoices, variable = playerClass .. "_" .. ChoiceKey(reminder), newScope = newScope,
 			}
 		elseif #reminder.cast > 1 then
 			options[#options + 1] = {
 				key = ChoiceKey(reminder), type = "dropdown", name = L.BUFFS_CHOICE, db = classDB, parent = reminder.key,
-				default = 0, values = SpellChoices(reminder), variable = playerClass .. "_" .. ChoiceKey(reminder),
+				default = 0, values = SpellChoices(reminder), variable = playerClass .. "_" .. ChoiceKey(reminder), newScope = newScope,
 			}
 		end
 	end

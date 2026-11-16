@@ -4313,7 +4313,7 @@ end)()
 	local menu = uv(uv(uv(talents.OnLogin, "SetupPlanner"), "CreatePlanBar"), "ShowBuildMenu")
 	local import = uv(menu, "ImportPlan")
 	local importLink = uv(import, "ImportLink")
-	local playerClass = uv(importLink, "playerClass")
+	local playerClass, playerClassName = uv(importLink, "playerClass"), uv(importLink, "playerClassName")
 	local active = uv(menu, "ActiveBuild")
 	local key = uv(uv(menu, "BuildList"), "PlanKey")
 	local savedFrame, savedTraits, savedClassTalents, savedSpec = PlayerSpellsFrame, C_Traits, C_ClassTalents, C_SpecializationInfo
@@ -4323,7 +4323,9 @@ end)()
 	setuv(queue, "updatePending", false)
 	ns.After = function(_, _, fn) fn() end
 	local savedSeq = talents.db.buildSeq
+	local className = GetLocale() == "deDE" and "Schamane" or "Shaman"
 	setuv(importLink, "playerClass", "SHAMAN")
+	setuv(importLink, "playerClassName", className)
 	local planKey = key()
 	local savedPlans, savedActive = talents.db.builds[planKey], talents.cdb.activeBuild[planKey]
 	talents.db.builds[planKey], talents.cdb.activeBuild[planKey] = nil, nil
@@ -4367,12 +4369,15 @@ end)()
 	local expected = "104729,104729,104729,104729,104729,104734,104734,104734,104735,104735,104732,"
 		.. "104753,104753,104753,104753,104753,104755,104755,104755,104756,104756,104749"
 	local plan = Import("2BCeej1BEcch?test=1#main")
+	local name = className .. " (0/11/11)"
+	assert(plan.name == name, "the import is named for the localized class and the point totals by tree")
 	assert(ns.TalentBuilds.Points(plan) == 22 and table.concat(plan.order, ",") == expected and #bought == 0,
 		"the exact Wowhead level order is stored, without buying any points")
 	talents:ApplyPlan()
 	assert(table.concat(bought, ",") == expected, "apply follows the Wowhead order")
 	nodes[104729].ranksPurchased = 2
 	plan = Import("2BCeej1BEcch")
+	assert(plan.name == name .. " (2)", "reimporting keeps both plans and uses the full point distribution in the name")
 	local remaining = expected:gsub("^104729,104729,", "")
 	assert(table.concat(plan.order, ",") == remaining, "the first two ranks were already learned: " .. table.concat(plan.order, ","))
 	nodes[104729].ranksPurchased = 0
@@ -4383,6 +4388,7 @@ end)()
 		"an order exceeding the link's ranks falls back with a message")
 	talents.db.builds[planKey], talents.cdb.activeBuild[planKey], talents.db.buildSeq = savedPlans, savedActive, savedSeq
 	setuv(importLink, "playerClass", playerClass)
+	setuv(importLink, "playerClassName", playerClassName)
 	PlayerSpellsFrame, C_Traits, C_ClassTalents, C_SpecializationInfo = savedFrame, savedTraits, savedClassTalents, savedSpec
 	ns.TalentGroups, ns.ShowEditWindow, ns.Print = savedGroups, savedEdit, savedPrint
 	ns.After = savedAfter

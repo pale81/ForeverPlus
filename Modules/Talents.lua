@@ -25,7 +25,7 @@ local Talents = ns:NewModule("Talents", {
 	},
 })
 
-local _, playerClass = UnitClass("player")
+local playerClassName, playerClass = UnitClass("player")
 
 ---------------------------------------------------------------------------
 -- Trainer spells from the client, the bundled trainer records and visits.
@@ -1188,10 +1188,9 @@ local function WowheadOrder(code, trees, ordered)
 end
 
 -- The ranks by place onto the talents of the game: ordered[tree] = { { nodeID, maxRanks }, … } row by row from the
--- left. The text "nodeID:rank,…" of a template, or nil when the link does not fit these trees (a place that does
--- not exist, more ranks than the talent has).
+-- left. Returns the template's "nodeID:rank,…" text and point totals by tree, or nil for an incompatible link.
 function Talents.LinkRanks(trees, ordered)
-	local parts = {}
+	local parts, points = {}, { 0, 0, 0 }
 	for tree = 1, 3 do
 		for place, rank in pairs(trees[tree]) do
 			local entry = ordered[tree] and ordered[tree][place]
@@ -1200,11 +1199,12 @@ function Talents.LinkRanks(trees, ordered)
 					return nil
 				end
 				parts[#parts + 1] = ("%d:%d"):format(entry[1], rank)
+				points[tree] = points[tree] + rank
 			end
 		end
 	end
 	table.sort(parts)
-	return table.concat(parts, ",")
+	return table.concat(parts, ","), points
 end
 
 -- The talents of the open window by tree (left to right), row and column.
@@ -1235,13 +1235,14 @@ local function ImportLink(frame, configID, text)
 	end
 	local nodes, rowOf = TreeState(frame, configID)
 	local ordered = OrderedNodes(nodes, rowOf)
-	local ranks = Talents.LinkRanks(trees, ordered)
+	local ranks, points = Talents.LinkRanks(trees, ordered)
 	if not ranks or ranks == "" then
 		ns.Print(L.TALENTS_TEMPLATE_BAD:format(L.TALENTS_TEMPLATE_OTHER_TREE))
 		return
 	end
 	local order = orderCode and WowheadOrder(orderCode, trees, ordered)
-	if ApplyTemplate({ ranks = ranks, order = order }, L.TALENTS_LINK_NAME) and orderCode and not order then
+	local name = L.TALENTS_LINK_NAME:format(playerClassName or playerClass, unpack(points))
+	if ApplyTemplate({ ranks = ranks, order = order }, name) and orderCode and not order then
 		ns.Print(L.TALENTS_LINK_ORDER_BAD)
 	end
 end

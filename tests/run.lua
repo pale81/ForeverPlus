@@ -1304,7 +1304,7 @@ assert(proc(0, 1) == 13262, "disenchant")
 	local savedSlots, savedBag, savedTooltip = C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem
 	local button = _G.ForeverPlusFishButton
 	local savedAttribute, attrs = button.SetAttribute, {}
-	local savedWeapons = helpers.cdb.fishingWeapons
+	local savedWeapons, savedEquip = helpers.cdb.fishingWeapons, helpers.db.fishingEquip
 	helpers.cdb.fishingWeapons = {}
 	local shift, offHand, bagCounts = false, 2, { [1] = 1, [2] = 1 }
 	local binding, timer, equipped, blocked, mouseover, focus, cursor = nil, nil, 1, false, false, nil, nil
@@ -1341,7 +1341,9 @@ assert(proc(0, 1) == 13262, "disenchant")
 		helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
 	end
 
-	assert(helpers.db.fishingEquip == false, "equipping is opt-in")
+	assert(helpers.db.fishingMenu and helpers.db.fishing and savedEquip and helpers.db.fishingRestore,
+		"the rod and all three angler options are enabled by default")
+	helpers.db.fishingEquip = false
 	click()
 	assert(not binding, "no override without an equipped pole while the option is off")
 	helpers.db.fishingEquip = true
@@ -1392,7 +1394,7 @@ assert(proc(0, 1) == 13262, "disenchant")
 	click()
 	assert(not binding, "no override when there is no pole to equip")
 
-	helpers.db.fishingEquip = false
+	helpers.db.fishingEquip = savedEquip
 	helpers.cdb.fishingWeapons = savedWeapons
 	button.SetAttribute = savedAttribute
 	SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer = savedBind, savedClear, savedTimer

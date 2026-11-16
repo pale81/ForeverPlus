@@ -13,7 +13,7 @@ local Helpers = ns:NewModule("Helpers", {
 		openButton = true,
 		fishingMenu = true,
 		fishing = true,
-		fishingEquip = false,
+		fishingEquip = true,
 		fishingRestore = true,
 		knownRecipes = true,
 	},

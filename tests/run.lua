@@ -1350,14 +1350,19 @@ assert(proc(0, 1) == 13262, "disenchant")
 	helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
 	assert(not binding, "camera turn does not arm fishing")
 	click()
-	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "item" and attrs.item == "item:6256",
-		"the first pair equips the unlocked pole with no unmet requirements")
+	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
+		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted] 16 item:6256",
+		"the first pair selects the unlocked pole for a guarded main-hand equip")
 	local equipTimer = timer
-	button:GetScript("PostClick")()
+	local postClick = button:GetScript("PostClick")
+	postClick(button, "LeftButton", true)
+	assert(binding and not equipTimer.cancelled, "a secure mouse action can still be waiting for the release")
+	postClick(button, "LeftButton", false)
 	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
 	equipped = 6256
 	click()
-	assert(binding and attrs.type == "spell" and attrs.spell == 7620, "the next pair casts Fishing after the pole is equipped")
+	assert(binding and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == true,
+		"the next pair casts Fishing after the pole is equipped")
 	timer.expire()
 	assert(not binding, "an unused binding expires")
 	equipped, bagItems = 1, {}

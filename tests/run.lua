@@ -3148,13 +3148,13 @@ end)()
 	print("dialog portrait OK")
 end)()
 ;(function()
-	-- Experimental dialogue uses the same actions, with a separate subtitle and target-only playback.
+	-- Voice-only dialogue keeps choices and only provides subtitles for unread speech.
 	local dialog = ns:GetModule("Dialog")
-	local savedSpoken, savedCommand, savedTarget, savedCreate = _G.Spoken, SlashCmdList.SPOKEN, TargetFrame, CreateFrame
+	local savedSpoken, savedCommand, savedCreate = _G.Spoken, SlashCmdList.SPOKEN, CreateFrame
 	local savedGUID, savedExists, savedGossip = UnitGUID, UnitExists, C_GossipInfo
 	local wasEnabled, wasCinematic = dialog.db.enabled, dialog.db.cinematic
-	local guid, target = "Creature-0-1-1-1-1-1", "Creature-0-1-1-1-1-2"
-	local clip, animated, selected, displayID
+	local guid = "Creature-0-1-1-1-1-1"
+	local clip, selected, modelCreated
 	local callbacks = {}
 	local style = "subtitle"
 	_G.Spoken = {
@@ -3168,22 +3168,13 @@ end)()
 		style = command == "style voice" and "none" or "subtitle"
 	end
 	CreateFrame = function(kind, name, ...)
-		local frame = savedCreate(kind, name, ...)
-		if kind == "DressUpModel" then
-			frame.SetUnit = function() error("restricted unit") end
-			frame.SetDisplayInfo = function(_, id) displayID = id end
-			frame.GetModelFileID = function() return displayID and 1 end
-			frame.SetAnimation = function(_, id) animated = id end
+		if kind == "DressUpModel" or kind == "PlayerModel" or kind == "ModelScene" or kind == "Model" then
+			modelCreated = true
 		end
-		return frame
+		return savedCreate(kind, name, ...)
 	end
-	local portrait = CreateFrame("Frame")
-	portrait.GetSize = function() error("restricted region") end
-	TargetFrame = CreateFrame("Frame")
-	TargetFrame.GetPortrait = function() return portrait end
-	portrait.GetParent = function() return TargetFrame end
 	UnitExists = function(unit) return unit == "npc" or unit == "target" end
-	UnitGUID = function(unit) return unit == "npc" and guid or unit == "target" and target or nil end
+	UnitGUID = function(unit) return UnitExists(unit) and guid or nil end
 	C_GossipInfo = {
 		GetText = function() return "Ein Text ohne Aufnahme." end,
 		GetOptions = function() return { { name = "Weiter.", gossipOptionID = 17 } } end,
@@ -3204,24 +3195,17 @@ end)()
 		present = { portrait = { kind = "model", displayID = 123 } } }
 	clip = voice
 	callbacks.AUDIO_CHANGED()
-	assert(not rawget(_G, "ForeverPlusDialogTargetPortrait"), "a different target never gets an animated face")
 	assert(not frame.Subtitles:IsShown() and frame.pools.row[1]:IsShown(), "while speaking, only the choices remain")
-	target = guid
-	uv(dialog.Apply, "UpdateTalkingPortrait")()
-	local overlay = ForeverPlusDialogTargetPortrait
-	assert(overlay:IsShown() and not overlay.Back:IsShown() and displayID == 123, "a restricted unit uses the recording's display model")
-	overlay:GetScript("OnUpdate")(overlay, 0.16)
-	assert(overlay.Back:IsShown() and animated == 60, "playing voice animates only the target face")
 	clip = nil
 	callbacks.AUDIO_CHANGED()
-	assert(frame.Subtitles:IsShown() and not overlay:IsShown(), "an interrupted voice restores the unread text and static portrait")
+	assert(frame.Subtitles:IsShown(), "an interrupted voice restores the unread text")
 	clip = voice
 	callbacks.AUDIO_CHANGED()
 	clip = nil
 	callbacks.CLIP_STOPPED(voice, true)
 	callbacks.AUDIO_CHANGED()
-	assert(not overlay:IsShown() and not overlay:GetScript("OnUpdate"), "ending playback restores the static portrait")
 	assert(not frame.Subtitles:IsShown(), "a fully read page keeps only the choices")
+	assert(not modelCreated, "dialogue playback never creates a 3D model")
 	local row = frame.pools.row[1]
 	row:GetScript("OnClick")(row, "LeftButton")
 	assert(selected == 17, "the floating button selects the same dialogue option")
@@ -3231,9 +3215,9 @@ end)()
 		"disabling restores the reader style and ordinary dialogue layout")
 	dialog.db.enabled, dialog.db.cinematic = wasEnabled, wasCinematic
 	dialog:Apply()
-	_G.Spoken, SlashCmdList.SPOKEN, TargetFrame, CreateFrame = savedSpoken, savedCommand, savedTarget, savedCreate
+	_G.Spoken, SlashCmdList.SPOKEN, CreateFrame = savedSpoken, savedCommand, savedCreate
 	UnitGUID, UnitExists, C_GossipInfo = savedGUID, savedExists, savedGossip
-	print("dialog subtitles and target animation OK")
+	print("dialog subtitles without 3D models OK")
 end)()
 ;(function()
 	-- reputation flash and trivial messages

@@ -24,7 +24,7 @@ local Dialog = ns:NewModule("Dialog", {
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
 		portrait = true,       -- with a reader that shows the words itself: only the speaker's portrait, no text
-		cinematic = false,     -- experimental subtitles and animated target portrait
+		cinematic = false,     -- separate subtitles and choices with voice only in the reader
 	},
 })
 
@@ -1704,27 +1704,6 @@ function Dialog.Rerender()
 	end
 end
 
-local function UpdateTalkingPortrait()
-	if not cinematicActive then
-		Cinematic.StopPortrait()
-		return
-	end
-	local spoken = _G.Spoken
-	local clip = type(spoken) == "table" and PlayingClip(spoken)
-	local source = clip and type(clip.source) == "table" and clip.source.key
-	if not clip or clip.textOnly or (source ~= "gossip" and source ~= "quests") then
-		Cinematic.StopPortrait()
-		return
-	end
-	local guid, interaction = ClipSpeakerGUID(clip)
-	if current and not current.pending and MatchesVoice(current.view, clip) and not clip.unitIsObjectOrItem then
-		guid = guid or current.view.speakerGUID
-		interaction = InteractionUnit(current.view.kind)
-	end
-	Cinematic.UpdatePortrait(clip, guid, interaction)
-	return clip
-end
-
 -- Spoken may start the line several frames after the quest opens. Recheck on queue changes,
 -- including pause and stop, and leave other clips and frames alone.
 local boundSpoken
@@ -1735,10 +1714,9 @@ function Dialog.BindSpoken()
 		return
 	end
 	local ok = pcall(spoken.RegisterCallback, spoken, "AUDIO_CHANGED", ns.Measured("Dialog: Spoken", function()
-		local clip = UpdateTalkingPortrait()
 		if not current or current.pending then return end
 		if ScreenDialog(current.view) then
-			RefreshSubtitle(current.view, clip)
+			RefreshSubtitle(current.view, PlayingClip(spoken))
 		elseif Dialog.db.portrait and not InCombatLockdown() and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
 			Dialog.Rerender()
 		end
@@ -1882,7 +1860,6 @@ local function Show(view, fromBack)
 	local used = bubble.lastUsed
 	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
 	PlaceCurrent()
-	UpdateTalkingPortrait()
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
 	local token = showToken
@@ -2769,10 +2746,6 @@ function Dialog:Apply()
 	local on = self.db.enabled
 	cinematicActive = Cinematic.Configure(on and self.db.cinematic, self.cdb)
 	Dialog.BindSpoken()
-	for _, event in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
-		self:ToggleEvent(event, cinematicActive, UpdateTalkingPortrait)
-	end
-	UpdateTalkingPortrait()
 	ns.dialogBubbles = on
 	for event in pairs(VIEWS) do
 		self:ToggleEvent(event, on, self.OnConversation)
@@ -2862,9 +2835,6 @@ function Dialog.PrintStatus()
 		tostring(point), tostring(relativeTo and relativeTo.GetName and relativeTo:GetName() or relativeTo),
 		tostring(relativePoint), ns.Number(x, 0), ns.Number(y, 0), #options, #available, #active,
 		GossipFrame and GossipFrame:IsShown() and "ja" or "nein", GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)
-	if Dialog.db.cinematic then
-		ns.PrintAlways(L.DIALOG_CINEMATIC_STATUS, Cinematic.PortraitStatus())
-	end
 end
 
 function Dialog:OnLogin()

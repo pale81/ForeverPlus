@@ -236,15 +236,28 @@ function Helpers:MODIFIER_STATE_CHANGED(_, key, down)
 end
 
 ---------------------------------------------------------------------------
--- Button for lootable items (clams, opened lockboxes, bags of loot)
+-- Button for lootable items and quests started by bag items.
 ---------------------------------------------------------------------------
 local openButton
+
+function Helpers.QuestForItem(bag, slot)
+	if not C_Container.GetContainerItemQuestInfo then return end
+	local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
+	local id = quest and ns.Number(quest.questID, 0) or 0
+	return id > 0 and id or nil, quest and quest.isActive
+end
 
 local function FindLootable()
 	for bag = 0, NUM_BAG_SLOTS or 4 do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.hasLoot then
+			local questID, active
+			if info and not info.isLocked then
+				questID, active = Helpers.QuestForItem(bag, slot)
+			end
+			local startsQuest = questID and not active and not C_QuestLog.IsOnQuest(questID)
+				and not C_QuestLog.IsQuestFlaggedCompleted(questID)
+			if info and not info.isLocked and (info.hasLoot or startsQuest) then
 				local locked = false
 				for _, line in ipairs(TooltipLines(bag, slot)) do
 					if line.leftText == LOCKED then
@@ -273,6 +286,7 @@ local function UpdateOpenButton()
 		bag, slot, info = FindLootable()
 	end
 	if not bag then
+		button.bag, button.slot = nil, nil
 		button:SetAttribute("item", nil)
 		if Helpers.db.openButton and ns:IsEditModeActive() then
 			button.icon:SetTexture(134400)
@@ -847,6 +861,13 @@ function Helpers:OnLogin()
 			UpdateOpenButton()
 		end
 	end)
+	for _, event in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "QUEST_LOG_UPDATE" }) do
+		self:RegisterEvent(event, function()
+			if self.db.openButton then
+				UpdateOpenButton()
+			end
+		end)
+	end
 	for _, event in ipairs({ "NEW_RECIPE_LEARNED", "LEARNED_SPELL_IN_SKILL_LINE", "SKILL_LINES_CHANGED" }) do
 		self:RegisterEvent(event, self.ClearKnownCache)
 	end

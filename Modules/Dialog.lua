@@ -1537,7 +1537,7 @@ end
 
 local function HookWindows()
 	HideWindowAtOnce(GossipFrame, function() return true end)
-	HideWindowAtOnce(QuestFrame, function() return true end)
+	HideWindowAtOnce(QuestFrame, function() return not ns:GetModule("Readable").HasQuest() end)
 	HideWindowAtOnce(MerchantFrame, function() return Dialog.db.merchant end)
 	HideWindowAtOnce(ClassTrainerFrame, function() return Dialog.db.trainer end)
 end
@@ -1572,6 +1572,8 @@ local function UseBlizzard()
 	showToken = showToken + 1
 	Hide()
 end
+
+Dialog.ReleaseForReadable = UseBlizzard
 
 -- Keep watching during the brief wait, even though the bubble itself is hidden.
 function Dialog.WatchPlate()
@@ -2686,7 +2688,13 @@ function Dialog.AbandonQuest(questID)
 	end
 end
 
-function Dialog:OnConversation(event)
+function Dialog:OnConversation(event, itemID)
+	local readable = ns:GetModule("Readable")
+	if event == "QUEST_DETAIL" and readable.CanShowQuest(itemID) then
+		UseBlizzard() -- Readable also listens to this event, independently of the bubble option.
+		return
+	end
+	if readable.HasQuest() then readable.Hide() end
 	if not self.db.enabled or InCombatLockdown() then
 		return
 	end

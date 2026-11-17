@@ -68,15 +68,17 @@ end
 ---------------------------------------------------------------------------
 -- Blizzard's window: open but without room
 ---------------------------------------------------------------------------
-local savedScale -- the window's scale while it is collapsed
+local savedScale, savedWindow -- the window's scale while it is collapsed
 local holding = false
+local questView
 
-local function Collapse()
-	local window = ItemTextFrame
+local function Collapse(window)
+	window = window or savedWindow or ItemTextFrame
 	if not window or window:IsForbidden() then
 		return
 	end
 	savedScale = savedScale or ns.Number(window:GetScale(), 1)
+	savedWindow = window
 	holding = true
 	window:SetScale(0.001)
 	window:SetAlpha(0)
@@ -84,12 +86,13 @@ local function Collapse()
 end
 
 local function Release()
-	local window = ItemTextFrame
+	local window = savedWindow
 	if not savedScale or not window or window:IsForbidden() then
 		return
 	end
 	local scale = savedScale
 	savedScale = nil -- first: the hook below must not take the window back
+	savedWindow = nil
 	holding = true
 	window:SetScale(scale)
 	window:SetAlpha(1)
@@ -100,11 +103,11 @@ end
 local function KeepCollapsed(window)
 	for _, method in ipairs({ "SetScale", "SetAlpha" }) do
 		hooksecurefunc(window, method, ns.Measured("Readable: keep collapsed", function(self)
-			if holding or not savedScale or InCombatLockdown() then
+			if holding or not savedScale or savedWindow ~= self or InCombatLockdown() then
 				return
 			end
 			if ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0 then
-				Collapse()
+				Collapse(self)
 			end
 		end))
 	end
@@ -188,6 +191,18 @@ end
 -- The material
 ---------------------------------------------------------------------------
 local view
+
+function Readable.HasQuest()
+	return questView ~= nil
+end
+
+function Readable.Close()
+	if questView then
+		CloseQuest()
+	else
+		CloseItemText()
+	end
+end
 
 local function PageButton(parent, forward)
 	local button = CreateFrame("Button", nil, parent)
@@ -294,13 +309,26 @@ local function CreateView()
 	frame.Close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	frame.Close:SetPoint("TOPRIGHT", -2, -2)
 	frame.Close:SetScript("OnClick", function()
-		CloseItemText()
+		Readable.Close()
 	end)
+	frame.QuestButtons = {}
+	for index = 1, 2 do
+		local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+		button:SetSize(140, 26)
+		button:SetPoint("BOTTOM", frame, "BOTTOM", (index == 1 and -1 or 1) * 80, 14)
+		button:SetScript("OnClick", ns.Measured("Readable: quest action", function()
+			if InCombatLockdown() then return end
+			local action = questView and questView.buttons[index]
+			if action then action.action() end
+		end))
+		button:Hide()
+		frame.QuestButtons[index] = button
+	end
 	-- Right click closes; in a book a click on the left page turns back, on the right page forward.
 	frame:SetScript("OnMouseUp", function(self, button)
 		if button == "RightButton" then
-			CloseItemText()
-		elseif self.look == "BOOK" then
+			Readable.Close()
+		elseif self.look == "BOOK" and not questView then
 			local x = ns.Number(GetCursorPosition(), 0) / ns.Number(self:GetEffectiveScale(), 1)
 			local center = ns.Number(self:GetCenter(), 0)
 			Readable.Turn(x > center)
@@ -415,7 +443,7 @@ local function WithCreator(text)
 end
 
 -- Lays out the look: art, title with divider (first page), text pages, numbers and arrows.
-local function Draw(look, material, pages)
+local function Draw(look, material, pages, quest)
 	view = view or CreateView()
 	local frame = view
 	local gameBook = look == "BOOK" and C_Texture.GetAtlasInfo(LOOKS.BOOK.atlases[1]) ~= nil
@@ -444,7 +472,7 @@ local function Draw(look, material, pages)
 		frame.Art:SetTexCoord(unpack(geometry.coords))
 		frame.Art:SetVertexColor(style.tint[1], style.tint[2], style.tint[3])
 	end
-	local title = ItemTextGetItem() or ""
+	local title = quest and quest.blocks[1].title or ItemTextGetItem() or ""
 	local first = pages[1] and pages[1].page == 1
 	for index, holder in ipairs(frame.Pages) do
 		local area = geometry.pages[index]
@@ -466,9 +494,9 @@ local function Draw(look, material, pages)
 				(page.text or ""):find("^%s*<[Hh][Tt][Mm][Ll]") and "HTML" or "Text", #(page.text or ""),
 				tostring(file), Value(function() return size end), tostring(flags))
 			WatchPage(holder, ("Seite %d"):format(page.page))
-			SetPageText(holder, WithCreator(page.text), geometry.width - area[1] - area[3],
+			SetPageText(holder, quest and page.text or WithCreator(page.text), geometry.width - area[1] - area[3],
 				math.max(1, geometry.height - top - area[4]))
-			local several = look == "BOOK" or page.hasNext or page.page > 1
+			local several = not quest and (look == "BOOK" or page.hasNext or page.page > 1)
 			holder.Number:SetText(several and L.READABLE_PAGE:format(page.page) or "")
 			holder.Number:SetTextColor(style.divider[1], style.divider[2], style.divider[3])
 			holder.Head:SetText(not first and title or "")
@@ -495,8 +523,12 @@ local function Draw(look, material, pages)
 	frame.Prev:SetPoint("BOTTOMLEFT", area[1] - 10, area[4] - 52)
 	frame.Next:ClearAllPoints()
 	frame.Next:SetPoint("BOTTOMRIGHT", -(geometry.pages[2] or area)[3] + 10, area[4] - 52)
-	frame.Prev:SetShown(look == "BOOK" and Readable.CanTurn(false) or look ~= "BOOK" and pages[1].page > 1)
-	frame.Next:SetShown(look == "BOOK" and Readable.CanTurn(true) or look ~= "BOOK" and pages[1].hasNext)
+	frame.Prev:SetShown(not quest and (look == "BOOK" and Readable.CanTurn(false) or look ~= "BOOK" and pages[1].page > 1))
+	frame.Next:SetShown(not quest and (look == "BOOK" and Readable.CanTurn(true) or look ~= "BOOK" and pages[1].hasNext))
+	for index, button in ipairs(frame.QuestButtons) do
+		button:SetShown(quest ~= nil)
+		if quest then button:SetText(quest.buttons[index].text) end
+	end
 	frame.Dim:SetShown(Readable.db.dim)
 	frame:Show()
 end
@@ -506,6 +538,7 @@ function Readable.Show()
 	if not Readable.db.enabled then
 		return
 	end
+	if questView then Readable.Hide() end
 	local number, hasNext = ns.Number(ItemTextGetPage(), 1), ItemTextHasNextPage() and true or false
 	local text = ItemTextGetText() or ""
 	local look, material = Readable.Look(ItemTextGetMaterial(), number, hasNext)
@@ -536,6 +569,7 @@ function Readable.Show()
 end
 
 function Readable.Hide()
+	questView = nil
 	if view then
 		view:Hide()
 		view.Dim:Hide()
@@ -544,10 +578,74 @@ function Readable.Hide()
 	Release()
 end
 
+-- Item quests use QUEST_DETAIL, not ITEM_TEXT_READY. Match the event's item ID,
+-- or the offered quest against bag items on clients that omit that payload.
+function Readable.CanShowQuest(itemID)
+	if not Readable.db.enabled or InCombatLockdown() or QuestFlagsPVP() or QuestGetAutoAccept() then
+		return false
+	end
+	if ns.Number(itemID, 0) > 0 then return true end
+	if UnitExists("npc") then return false end
+	local id = ns.Number(GetQuestID(), 0)
+	if id <= 0 then return false end
+	local helpers = ns:GetModule("Helpers")
+	for bag = 0, NUM_BAG_SLOTS or 4 do
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			if helpers.QuestForItem(bag, slot) == id then return true end
+		end
+	end
+	return false
+end
+
+function Readable.QuestPages(quest)
+	local details = {}
+	for index = 3, #quest.blocks do
+		local block = quest.blocks[index]
+		if block.header then details[#details + 1] = block.header end
+		if block.text then details[#details + 1] = block.text end
+		for _, item in ipairs(block.items or {}) do
+			details[#details + 1] = (item.name or "") .. ((item.count or 1) > 1 and " × " .. item.count or "")
+		end
+		if block.money then details[#details + 1] = block.money end
+	end
+	return { { page = 1, text = quest.blocks[2].text }, { page = 2, text = table.concat(details, "\n\n") } }
+end
+
+function Readable.ShowQuest(_, _, itemID)
+	if not Readable.CanShowQuest(itemID) then
+		if questView then Readable.Hide() end
+		return false
+	end
+	local dialog = ns:GetModule("Dialog")
+	local ok, quest = pcall(dialog.DetailView)
+	if not ok or not quest then return false end
+	dialog.ReleaseForReadable()
+	Readable.Hide()
+	quest.itemID = itemID
+	questView = quest
+	Draw("BOOK", "Parchment", Readable.QuestPages(quest), quest)
+	Collapse(QuestFrame)
+	return true
+end
+
 function Readable:Apply()
 	local on = self.db.enabled
 	self:ToggleEvent("ITEM_TEXT_READY", on, Readable.Show)
-	self:ToggleEvent("ITEM_TEXT_CLOSED", on, Readable.Hide)
+	self:ToggleEvent("ITEM_TEXT_CLOSED", on, function()
+		if not questView then Readable.Hide() end
+	end)
+	self:ToggleEvent("QUEST_DETAIL", on, Readable.ShowQuest)
+	self:ToggleEvent("QUEST_ITEM_UPDATE", on, function()
+		if questView then Readable.ShowQuest(nil, "QUEST_ITEM_UPDATE", questView.itemID) end
+	end)
+	self:ToggleEvent("QUEST_FINISHED", on, function()
+		if questView then Readable.Hide() end
+	end)
+	for _, event in ipairs({ "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_GREETING", "GOSSIP_SHOW" }) do
+		self:ToggleEvent(event, on, function()
+			if questView then Readable.Hide() end
+		end)
+	end
 	if not on then
 		Readable.Hide()
 	elseif view then
@@ -560,11 +658,22 @@ function Readable:OnLogin()
 		KeepCollapsed(ItemTextFrame)
 		-- Blizzard shows its window after the page arrived: it is taken back as it shows.
 		ItemTextFrame:HookScript("OnShow", ns.Measured("Readable: window shown", function()
-			if Readable.db.enabled then
-				Collapse()
+			if Readable.db.enabled and not questView then
+				Collapse(ItemTextFrame)
 			end
 		end))
-		ItemTextFrame:HookScript("OnHide", ns.Measured("Readable: window hidden", Readable.Hide))
+		ItemTextFrame:HookScript("OnHide", ns.Measured("Readable: window hidden", function()
+			if not questView then Readable.Hide() end
+		end))
+	end
+	if QuestFrame then
+		KeepCollapsed(QuestFrame)
+		QuestFrame:HookScript("OnShow", ns.Measured("Readable: quest window shown", function()
+			if questView then Collapse(QuestFrame) end
+		end))
+		QuestFrame:HookScript("OnHide", ns.Measured("Readable: quest window hidden", function()
+			if questView then Readable.Hide() end
+		end))
 	end
 	self:Apply()
 end

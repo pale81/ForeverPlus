@@ -8868,4 +8868,113 @@ end)()
 	ns.CompareWinner, ns.EquipSlots, GetInventoryItemLink, C_Item.GetItemInfoInstant = savedWinner, savedSlots, savedWorn, savedInfo
 	print("compare tooltip without GetItem OK")
 end)()
+;(function()
+	-- Quest starters must be offered alongside containers, and disappear once accepted.
+	local H, R, D = ns:GetModule("Helpers"), ns:GetModule("Readable"), ns:GetModule("Dialog")
+	local savedLocked = LOCKED
+	LOCKED = "Locked"
+	local savedContainer, savedTooltip, savedLog = C_Container, C_TooltipInfo, C_QuestLog
+	local savedCombat, savedNpc, savedID = InCombatLockdown, UnitExists, GetQuestID
+	local savedPVP, savedAuto = QuestFlagsPVP, QuestGetAutoAccept
+	local savedDetail, savedAccept, savedClose = D.DetailView, AcceptQuest, CloseQuest
+	local savedEnabled, savedDialog = R.db.enabled, D.db.enabled
+	local savedAfter = C_Timer.After
+	local savedQuestFrame = QuestFrame
+	QuestFrame = NewFrame("Frame")
+	local active, complete, combat, npc, pvp = false, false, false, false, false
+	local bagItems = { { itemID = 10, hasLoot = true }, { itemID = 20 }, { itemID = 30, hasLoot = true } }
+	C_Container = {
+		GetContainerNumSlots = function(bag) return bag == 0 and #bagItems or 0 end,
+		GetContainerItemInfo = function(_, slot) return bagItems[slot] end,
+		GetContainerItemQuestInfo = function(_, slot)
+			return { questID = slot == 2 and 123 or nil, isActive = active, isQuestItem = slot == 2 }
+		end,
+	}
+	local locked = true
+	C_TooltipInfo = { GetBagItem = function(_, slot)
+		return { lines = locked and slot == 1 and { { leftText = LOCKED } } or {} }
+	end }
+	C_QuestLog = { IsOnQuest = function() return active end, IsQuestFlaggedCompleted = function() return complete end }
+	InCombatLockdown = function() return combat end
+	UnitExists = function() return npc end
+	GetQuestID = function() return 123 end
+	QuestFlagsPVP = function() return pvp end
+	QuestGetAutoAccept = function() return false end
+	local find = uv(uv(H.Update, "UpdateOpenButton"), "FindLootable")
+	local bag, slot = find()
+	assert(bag == 0 and slot == 2, "quest starter appears even though it has no loot")
+	active = true
+	assert(select(2, find()) == 3, "accepted quest starter skipped")
+	active, complete = false, true
+	assert(select(2, find()) == 3, "completed quest starter skipped")
+	complete = false
+	bagItems[2].isLocked = true
+	assert(select(2, find()) == 3, "locked slot skipped")
+	bagItems[2].isLocked, locked = false, false
+	assert(select(2, find()) == 1, "existing loot containers remain available")
+	R.db.enabled, D.db.enabled = true, false
+	assert(R.CanShowQuest(20) and R.CanShowQuest(), "event item or matching bag quest identifies the offer")
+	npc = true
+	assert(not R.CanShowQuest() and R.CanShowQuest(20), "NPC quests stay with the dialog, explicit item payload wins")
+	npc, pvp = false, true
+	assert(not R.CanShowQuest(20), "PvP confirmation stays with Blizzard")
+	pvp, combat = false, true
+	assert(not R.CanShowQuest(20), "no custom quest opening in combat")
+	combat = false
+	local accepted, closed = 0, 0
+	AcceptQuest = function() accepted = accepted + 1 end
+	CloseQuest = function() closed = closed + 1 end
+	D.DetailView = function() return {
+		blocks = { { title = "A dropped letter" }, { text = "Read this letter." }, { text = "Find the sender." },
+			{ header = "Reward", items = { { name = "Ring", count = 2 } } }, { money = "100 XP" } },
+		buttons = { { text = "Accept", action = function() AcceptQuest() end },
+			{ text = "Decline", action = function() CloseQuest() end } },
+	} end
+	C_Timer.After = function() end
+	local scale = 0.8
+	local savedScale, savedGetScale = QuestFrame.SetScale, QuestFrame.GetScale
+	QuestFrame.SetScale = function(_, value) scale = value end
+	QuestFrame.GetScale = function() return scale end
+	assert(R.ShowQuest(nil, "QUEST_DETAIL", 20) and R.HasQuest(), "item quest book works with dialog disabled")
+	assert(scale == 0.001 and QuestFrame.alpha == 0, "quest window carries the offer while collapsed")
+	local book = ForeverPlusReadable
+	assert(book.look == "BOOK" and not book.Prev:IsShown() and not book.Next:IsShown(), "quest is a two-page book without item paging")
+	local pages = R.QuestPages(D.DetailView())
+	assert(pages[1].text == "Read this letter." and pages[2].text:find("Find the sender.", 1, true)
+		and pages[2].text:find("Ring × 2", 1, true) and pages[2].text:find("100 XP", 1, true), "text, objectives and rewards retained")
+	book.QuestButtons[1]:GetScript("OnClick")()
+	assert(accepted == 1, "accept action reaches the quest API")
+	book.QuestButtons[2]:GetScript("OnClick")()
+	R.Close()
+	assert(closed == 2, "decline and close reach the quest API")
+	-- Both modules may receive QUEST_DETAIL, in either order.
+	D.db.enabled = true
+	D:OnConversation("QUEST_DETAIL", 20)
+	assert(R.HasQuest() and scale == 0.001, "dialog event delegates to the book")
+	R.ShowQuest(nil, "QUEST_DETAIL", 20)
+	R.Hide()
+	assert(scale == 0.8 and QuestFrame.alpha == 1 and not R.HasQuest(), "closing restores the original quest window scale")
+	local listeners = uv(ns.RegisterEvent, "listeners")
+	for _, dialogFirst in ipairs({ true, false }) do
+		local function bookEvent() listeners.QUEST_DETAIL[R](R, "QUEST_DETAIL", 20) end
+		if dialogFirst then D:OnConversation("QUEST_DETAIL", 20); bookEvent()
+		else bookEvent(); D:OnConversation("QUEST_DETAIL", 20) end
+		assert(R.HasQuest() and scale == 0.001, "both event orders keep the book and collapsed quest window")
+		listeners.QUEST_ITEM_UPDATE[R](R, "QUEST_ITEM_UPDATE")
+		assert(R.HasQuest() and scale == 0.001, "reward data updates keep the quest book")
+		listeners.QUEST_FINISHED[R](R, "QUEST_FINISHED")
+		assert(not R.HasQuest() and scale == 0.8, "quest finish releases the window")
+	end
+	R.db.enabled = false
+	assert(not R.ShowQuest(nil, "QUEST_DETAIL", 20), "existing readable setting disables item quest books")
+	QuestFrame.SetScale, QuestFrame.GetScale = savedScale, savedGetScale
+	QuestFrame = savedQuestFrame
+	C_Container, C_TooltipInfo, C_QuestLog = savedContainer, savedTooltip, savedLog
+	InCombatLockdown, UnitExists, GetQuestID = savedCombat, savedNpc, savedID
+	QuestFlagsPVP, QuestGetAutoAccept = savedPVP, savedAuto
+	D.DetailView, AcceptQuest, CloseQuest = savedDetail, savedAccept, savedClose
+	R.db.enabled, D.db.enabled, C_Timer.After = savedEnabled, savedDialog, savedAfter
+	LOCKED = savedLocked
+	print("quest starter open button and book OK")
+end)()
 dofile("bundled.lua")

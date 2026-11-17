@@ -22,7 +22,9 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 ## Sources reviewed
 
-**Solo Party lettering.** [Bangers](https://github.com/google/fonts/tree/main/ofl/bangers) and [Barlow Condensed Black](https://github.com/google/fonts/tree/main/ofl/barlowcondensed) ship under the SIL Open Font License 1.1. Their license notices are included in `Media/Fonts/`.
+**Solo Party lettering.** [Cinzel Decorative Bold](https://github.com/google/fonts/tree/main/ofl/cinzeldecorative) and [Alegreya SC ExtraBold](https://github.com/google/fonts/tree/main/ofl/alegreyasc) ship under the SIL Open Font License 1.1. Their license notices are included in `Media/Fonts/`.
+
+**Solo Party effects.** The game renders its own atlas textures, including the channel wisp and sparkles from the [Forever 1.60.1 cast bar](https://github.com/Gethe/wow-ui-source/blob/9dc84f0d3bbae1768ac3405b3716000bd93eda06/Interface/AddOns/Blizzard_UIPanels_Game/Mainline/CastingBarFrame.xml). The comic frames, bubbles and ripples use separate textures in `Media/`.
 
 **Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). The mean alpha threshold is 150/255, with 30/255 in the tail region (columns 13–24, rows 18–24, counted from the top left). The game renders its own Blizzard textures.
 

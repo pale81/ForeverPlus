@@ -4383,9 +4383,14 @@ end)()
 ;(function()
 	-- Solo Party uses independent events, even with the chat summaries disabled.
 	local solo = ns:GetModule("SoloParty")
-	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound }
+	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI }
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
-	local frames, played = {}, {}
+	local frames, played, effects = {}, {}, {}
+	C_TradeSkillUI = { GetProfessionInfoBySkillLineID = function(skill)
+		local names = { [356] = "Fischfang", [186] = "Bergbau" }
+		return { professionName = names[skill] }
+	end }
+	solo:OnLogin()
 	SOUNDKIT = ns.CopyDefaults(SOUNDKIT, {})
 	SOUNDKIT.UI_MISSION_SUCCESS_CHEERS = 74702
 	SOUNDKIT.UI_RAID_BOSS_DEFEATED = 50111
@@ -4418,9 +4423,19 @@ end)()
 		elseif layer and parent == layer then
 			frame.SetPoint = function(_, _, _, _, x, y) positions[#positions + 1] = { x, y } end
 		end
-		frame.CreateTexture = function()
+		frame.CreateTexture = function(_, _, drawLayer)
 			local texture = NewFrame("Texture")
-			texture.SetTexture = function(_, path) frames[#frames + 1] = path end
+			if drawLayer == "BACKGROUND" then
+				texture.SetTexture = function(_, path) frames[#frames + 1] = path end
+			else
+				local function Record(self, path)
+					effects[#frames] = effects[#frames] or {}
+					effects[#frames][self] = path
+				end
+				texture.SetTexture, texture.SetAtlas = Record, Record
+				texture.SetTexCoord = function(self, left) self.u = left end
+				texture.SetPoint = function(self, _, _, _, x, y) self.x, self.y = x, y end
+			end
 			return texture
 		end
 		frame.CreateFontString = function()
@@ -4448,6 +4463,13 @@ end)()
 		-- Other modules' world-entry callbacks need unrelated live data.
 		local listeners = uv(ns.RegisterEvent, "listeners")
 		listeners.PLAYER_ENTERING_WORLD[solo](solo, "PLAYER_ENTERING_WORLD")
+	end
+	local function Effect(index, name, left)
+		for texture, path in pairs(effects[index] or {}) do
+			if path:find(name, 1, true) and (left == nil or texture.u == left) then
+				return texture
+			end
+		end
 	end
 	assert(not solo.db.enabled and solo.db.sounds, "Solo Party defaults to off with sound available when enabled")
 	Fire("CHAT_MSG_SKILL", skill)
@@ -4481,6 +4503,8 @@ end)()
 	assert(printed[5] == ns.L.SOLO_PARTY_SPENT and printed[6] == "−100c", "exactly -10% of the purse before spending qualifies")
 	assert(#played == 3 and reward[played[1]] and reward[played[2]] and expense[played[3]], "each qualifying burst gets a sound from its pool")
 	assert(#frames == 3 and frames[1] ~= frames[2] and frames[2] ~= frames[3] and frames[1] ~= frames[3], "all three frames rotate")
+	assert(Effect(1, "ui-castingbar-full-glow-standard") and Effect(2, "UI-GoldIcon")
+		and Effect(3, "BonusChest-OrangeSmoke-Wide"), "rank, loot and spending have different art")
 	for _, path in ipairs(frames) do
 		local asset = assert(io.open(root .. "/Media/" .. path:match("[^\\]+$") .. ".tga", "rb"))
 		asset:close()
@@ -4505,9 +4529,14 @@ end)()
 	assert(timers[4].cancelled and not layer:IsShown(), "switching off clears pending loot and active effects")
 	Fire("CHAT_MSG_SKILL", skill)
 	assert(#printed == 10 and #played == 5, "switching off unregisters the events")
-	local preview = solo.options[3].func
+	local preview = solo.options[#solo.options].func
 	preview()
 	assert(#printed == 12 and #played == 6, "preview starts with one effect and one sound")
+	local bubble = assert(Effect(6, "SoloPartyWater", 0.5), "fishing has bubble particles")
+	assert(Effect(6, "SoloPartyWater", 0) and Effect(6, "Cast_Channel_WispGlow"), "fishing has ripples and the channel wisp")
+	local bubbleY = bubble.y
+	layer:GetScript("OnUpdate")(layer, 0.45)
+	assert(bubble.y > bubbleY and bubble:GetAlpha() > 0, "fishing bubbles rise and become visible")
 	timers[#timers].fn()
 	assert(#printed == 14 and #played == 7, "preview plays the second effect separately")
 	timers[#timers].fn()
@@ -4527,9 +4556,18 @@ end)()
 	money = 810
 	Fire("PLAYER_MONEY")
 	assert(#printed == 22 and #played == 10 and solo.db.enabled, "muting keeps qualifying pop-ups active")
+	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Fischfang' hat sich auf 51 erhöht.")
+	assert(Effect(#frames, "SoloPartyWater", 0.5), "the fishing effect follows the client-localized skill name")
+	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Bergbau' hat sich auf 51 erhöht.")
+	local smoke = assert(Effect(#frames, "BonusChest-OrangeSmoke-Wide"), "mining gets the forge effect")
+	solo.db.effects = false
+	solo:OnOptionChanged("effects")
+	assert(not smoke:IsShown(), "turning off the effects clears existing art immediately")
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(not effects[#frames] and printed[#printed - 1] == "Kürschnerei", "the frame and text continue without effects")
 	SetEnabled(false)
-	solo.db.sounds = true
-	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound = unpack(saved, 1, 7)
+	solo.db.sounds, solo.db.effects = true, true
+	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI = unpack(saved, 1, 8)
 	print("solo party OK")
 end)()
 ;(function()

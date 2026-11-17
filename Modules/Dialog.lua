@@ -428,8 +428,8 @@ local function CreatePortrait(frame)
 		disc:AddMaskTexture(mask)
 		return disc
 	end
-	local rim = Disc(0, size)
-	rim:SetColorTexture(unpack(ns.PANEL_BORDER))
+	holder.Rim = Disc(0, size)
+	holder.Rim:SetColorTexture(unpack(ns.PANEL_BORDER))
 	Disc(1, PORTRAIT_SIZE):SetColorTexture(0.04, 0.05, 0.09, 1)
 	holder.Face = Disc(2, PORTRAIT_SIZE)
 	holder:SetScript("OnHide", ns.Measured("Dialog: portrait hidden", function() Portrait.Stop(holder) end))

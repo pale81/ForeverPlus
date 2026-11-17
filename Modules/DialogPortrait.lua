@@ -3,6 +3,9 @@ local _, ns = ...
 local Portrait = {}
 ns.DialogPortrait = Portrait
 
+-- The bronze baked into Media/Bubble/bubble.tga by tools/build_bubble.py.
+local PLAYER_BORDER = { 214 / 255, 168 / 255, 104 / 255 }
+
 local function CreateCover(holder)
 	-- A model cannot take a texture mask. Cover its square corners above the model
 	-- instead of shrinking the viewport and cutting off the speaker's beard.
@@ -27,9 +30,11 @@ local function CreateCover(holder)
 	return cover
 end
 
-local function UpdateCover(holder)
+local function UpdateColors(holder)
+	local border = holder.dark and ns.PANEL_BORDER or PLAYER_BORDER
+	if holder.Rim then holder.Rim:SetColorTexture(unpack(border)) end
 	if not holder.Cover then return end
-	holder.Cover.Rim:SetColorTexture(unpack(ns.PANEL_BORDER))
+	holder.Cover.Rim:SetColorTexture(unpack(border))
 	if holder.dark then
 		holder.Cover.Fill:SetColorTexture(0.08, 0.08, 0.1, 1)
 	else
@@ -51,7 +56,7 @@ function Portrait.Stop(holder)
 end
 
 function Portrait.Update(holder, clip, enabled)
-	UpdateCover(holder)
+	UpdateColors(holder)
 	if not enabled or not clip or clip.textOnly then
 		Portrait.Stop(holder)
 		return
@@ -74,7 +79,7 @@ function Portrait.Update(holder, clip, enabled)
 	holder.talkingModel, holder.renderer, holder.clip = model, renderer, clip
 	if not holder.Cover then holder.Cover = CreateCover(holder) end
 	holder.Cover:SetFrameLevel(model:GetFrameLevel() + 1)
-	UpdateCover(holder)
+	UpdateColors(holder)
 	-- The renderer owns its model and animation scripts. Observe loading from our own
 	-- frame, so its secure script hooks remain intact across release and reuse.
 	model:SetAlpha(0)

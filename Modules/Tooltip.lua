@@ -859,7 +859,32 @@ local function ItemLinkOf(tooltip)
 		local data = tooltip:GetTooltipData()
 		link = type(data) == "table" and not Secret(data) and data.hyperlink or nil
 	end
+	if not link and type(tooltip.GetPrimaryTooltipInfo) == "function" then
+		local info = tooltip:GetPrimaryTooltipInfo()
+		local args = type(info) == "table" and not IsSecretData(info) and info.getterArgs
+		if type(args) == "table" and not IsSecretData(args) and not Secret(info.getterName) then
+			if info.getterName == "GetHyperlink" then
+				link = args[1]
+			elseif info.getterName == "GetInventoryItem" and type(args[2]) == "number" then
+				link = GetInventoryItemLink(args[1], args[2])
+			end
+		end
+	end
 	return type(link) == "string" and not Secret(link) and link or nil
+end
+
+-- Worn items by slot, in the order the game lists the comparison tooltips; used when a
+-- comparison tooltip does not reveal its item.
+local function WornLinksFor(link)
+	local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
+	local links = {}
+	for _, slot in ipairs(slots or {}) do
+		local worn = GetInventoryItemLink("player", slot)
+		if type(worn) == "string" and not Secret(worn) then
+			links[#links + 1] = worn
+		end
+	end
+	return links
 end
 
 local function UpdateCompareArrows(manager)
@@ -872,12 +897,22 @@ local function UpdateCompareArrows(manager)
 	if not link then
 		return
 	end
-	local worn, wornTips = {}, {}
+	local worn, wornTips, unknown = {}, {}, false
 	for _, shopping in ipairs(tooltip.shoppingTooltips) do
-		local wornLink = ItemLinkOf(shopping)
-		if wornLink then
-			worn[#worn + 1] = wornLink
+		if not shopping:IsForbidden() and shopping:IsShown() then
+			local wornLink = ItemLinkOf(shopping)
+			unknown = unknown or not wornLink
+			worn[#worn + 1] = wornLink or false
 			wornTips[#wornTips + 1] = shopping
+		end
+	end
+	if unknown then
+		local bySlot = WornLinksFor(link)
+		if #bySlot ~= #worn then
+			return
+		end
+		for index, wornLink in ipairs(worn) do
+			worn[index] = wornLink or bySlot[index]
 		end
 	end
 	if #worn == 0 then

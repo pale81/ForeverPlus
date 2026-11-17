@@ -8815,6 +8815,26 @@ end)()
 	assert(itemLinkOf(tip({ GetItem = function() return "Hose", link end })) == link, "link from GetItem")
 	assert(itemLinkOf(tip({ GetTooltipData = function() return { hyperlink = link } end })) == link, "link from tooltip data without GetItem")
 	assert(itemLinkOf(tip({})) == nil, "no link source: no error")
+	-- Comparison tooltips that reveal nothing: worn items come from the slots, in order
+	local update = uv(module.OnInitialize, "UpdateCompareArrows")
+	local savedWinner, savedSlots, savedWorn, savedInfo = ns.CompareWinner, ns.EquipSlots, GetInventoryItemLink, C_Item.GetItemInfoInstant
+	local seen
+	ns.CompareWinner = function(_, worn) seen = worn return "worn", 2 end
+	ns.EquipSlots = function() return { 11, 12 } end
+	GetInventoryItemLink = function(_, slot) return "item:" .. slot .. ":0:0:0" end
+	C_Item.GetItemInfoInstant = function() return 1, nil, nil, "INVTYPE_FINGER" end
+	local function shopping()
+		local shown = tip({})
+		shown.CreateTexture = function() return NewFrame("Texture") end
+		shown.GetLeftLine = function() return { GetStringWidth = function() return 10 end } end
+		shown.GetWidth = function() return 200 end
+		return shown
+	end
+	local first, second = shopping(), shopping()
+	local main = tip({ GetItem = function() return "Ring", link end, shoppingTooltips = { first, second } })
+	update({ tooltip = main })
+	assert(seen and seen[1] == "item:11:0:0:0" and seen[2] == "item:12:0:0:0", "worn items by slot order")
+	ns.CompareWinner, ns.EquipSlots, GetInventoryItemLink, C_Item.GetItemInfoInstant = savedWinner, savedSlots, savedWorn, savedInfo
 	print("compare tooltip without GetItem OK")
 end)()
 dofile("bundled.lua")

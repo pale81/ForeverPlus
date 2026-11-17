@@ -2983,6 +2983,81 @@ end)()
 	print("dialog portrait OK")
 end)()
 ;(function()
+	-- Experimental dialogue uses the same actions, with a separate subtitle and target-only playback.
+	local dialog = ns:GetModule("Dialog")
+	local savedSpoken, savedCommand, savedTarget, savedCreate = _G.Spoken, SlashCmdList.SPOKEN, TargetFrame, CreateFrame
+	local savedGUID, savedExists, savedGossip = UnitGUID, UnitExists, C_GossipInfo
+	local wasEnabled, wasCinematic = dialog.db.enabled, dialog.db.cinematic
+	local guid, target = "Creature-0-0-0-0-1-1", "Creature-0-0-0-0-1-2"
+	local clip, playbackChanged, animated, selected
+	local style = "subtitle"
+	_G.Spoken = {
+		GetPlayerStyle = function() return style end,
+		GetNowPlaying = function() return clip end,
+		IsPlaying = function() return clip ~= nil end,
+		RegisterCallback = function(_, _, fn) playbackChanged = fn end,
+	}
+	SlashCmdList.SPOKEN = function(command)
+		assert(command == "style voice" or command == "style subtitles", command)
+		style = command == "style voice" and "none" or "subtitle"
+	end
+	CreateFrame = function(kind, name, ...)
+		local frame = savedCreate(kind, name, ...)
+		if kind == "PlayerModel" then
+			frame.SetUnit = function(_, unit) return unit == "target" end
+			frame.GetModelFileID = function() return 1 end
+			frame.SetAnimation = function(_, id) animated = id end
+		end
+		return frame
+	end
+	local portrait = CreateFrame("Frame")
+	TargetFrame = CreateFrame("Frame")
+	TargetFrame.GetPortrait = function() return portrait end
+	portrait.GetParent = function() return TargetFrame end
+	UnitExists = function(unit) return unit == "npc" or unit == "target" end
+	UnitGUID = function(unit) return unit == "npc" and guid or unit == "target" and target or nil end
+	C_GossipInfo = {
+		GetText = function() return "Ein Text ohne Aufnahme." end,
+		GetOptions = function() return { { name = "Weiter.", gossipOptionID = 17 } } end,
+		GetActiveQuests = function() return {} end,
+		GetAvailableQuests = function() return {} end,
+		SelectOption = function(id) selected = id end,
+	}
+	dialog.db.enabled, dialog.db.cinematic = true, true
+	dialog:Apply()
+	dialog:OnConversation("GOSSIP_SHOW")
+	local frame = ForeverPlusDialogBubble
+	assert(style == "none" and frame:IsShown() and not frame.Dark:IsShown() and not frame.Portrait:IsShown(),
+		"voice only and floating controls without a nameplate or bubble")
+	assert(frame.Subtitles:IsShown() and frame.Subtitles.text:find(C_GossipInfo.GetText(), 1, true),
+		"unvoiced text stays visible in a separate subtitle")
+	assert(frame.pools.row[1].ButtonBack:IsShown() and #frame.rowActions == 1, "the dialogue choice is a separate button")
+	clip = { source = { key = "gossip" }, unitGUID = guid, text = C_GossipInfo.GetText() }
+	playbackChanged()
+	assert(not rawget(_G, "ForeverPlusDialogTargetPortrait"), "a different target never gets an animated face")
+	target = guid
+	uv(dialog.Apply, "UpdateTalkingPortrait")()
+	local overlay = ForeverPlusDialogTargetPortrait
+	assert(overlay:IsShown() and not overlay.Back:IsShown(), "the static target portrait stays until a model loads")
+	overlay:GetScript("OnUpdate")(overlay, 0.16)
+	assert(overlay.Back:IsShown() and animated == 60 and frame.Subtitles:IsShown(), "playing voice animates only the target face")
+	clip = nil
+	playbackChanged()
+	assert(not overlay:IsShown() and not overlay:GetScript("OnUpdate"), "ending playback restores the static portrait")
+	local row = frame.pools.row[1]
+	row:GetScript("OnClick")(row, "LeftButton")
+	assert(selected == 17, "the floating button selects the same dialogue option")
+	dialog.db.cinematic = false
+	dialog:Apply()
+	assert(style == "subtitle" and not frame.Subtitles:IsShown() and not frame.pools.row[1].ButtonBack:IsShown(),
+		"disabling restores the reader style and ordinary dialogue layout")
+	dialog.db.enabled, dialog.db.cinematic = wasEnabled, wasCinematic
+	dialog:Apply()
+	_G.Spoken, SlashCmdList.SPOKEN, TargetFrame, CreateFrame = savedSpoken, savedCommand, savedTarget, savedCreate
+	UnitGUID, UnitExists, C_GossipInfo = savedGUID, savedExists, savedGossip
+	print("dialog subtitles and target animation OK")
+end)()
+;(function()
 	-- reputation flash and trivial messages
 	local flash = ns:GetModule("RepFlash")
 	local ok, err = pcall(flash.Add, flash, "Eisenschmiede", 25)
@@ -4055,7 +4130,7 @@ end)()
 ;(function()
 	-- The NPC's plate whose fields Blizzard has not filled yet is found by its unit token.
 	local dialog = ns:GetModule("Dialog")
-	local find = uv(uv(dialog.GoBack, "Show"), "NpcNameplate")
+	local find = uv(dialog.WatchPlate, "NpcNameplate")
 	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
 	local plate = { IsForbidden = function() return false end } -- no unitToken yet
 	UnitExists = function(token) return token == "nameplate3" end
@@ -4072,7 +4147,7 @@ end)()
 ;(function()
 	-- The bubble stays wholly on the screen while the option "on screen" is on
 	local dialog = ns:GetModule("Dialog")
-	local place = uv(uv(dialog.GoBack, "Show"), "Place")
+	local place = uv(dialog.WatchPlate, "Place")
 	local clamped
 	local bubble = { ClearAllPoints = function() end, SetPoint = function() end, IsShown = function() return false end,
 		SetClampedToScreen = function(_, on) clamped = on end }
@@ -4169,7 +4244,7 @@ end)()
 ;(function()
 	-- A plate frame given to another unit still names the old unit token in its field: only the game's answer counts.
 	local dialog = ns:GetModule("Dialog")
-	local find = uv(uv(dialog.GoBack, "Show"), "NpcNameplate")
+	local find = uv(dialog.WatchPlate, "NpcNameplate")
 	local saved = { UnitExists, UnitGUID, C_NamePlate, UnitIsUnit }
 	local stale = { unitToken = "nameplate1", IsForbidden = function() return false end }
 	local right = { IsForbidden = function() return false end }

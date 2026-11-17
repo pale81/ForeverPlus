@@ -7,10 +7,12 @@
 -- quests) show Blizzard's own window instead.
 local _, ns = ...
 local L = ns.L
+local Cinematic = ns.DialogCinematic
 
 local Dialog = ns:NewModule("Dialog", {
 	title = L.DIALOG_TITLE,
 	order = 5.6,
+	charDefaults = {},
 	defaults = {
 		enabled = false,
 		style = "PLAYER",
@@ -22,6 +24,7 @@ local Dialog = ns:NewModule("Dialog", {
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
 		portrait = true,       -- with a reader that shows the words itself: only the speaker's portrait, no text
+		cinematic = false,     -- experimental subtitles and animated target portrait
 	},
 })
 
@@ -47,6 +50,7 @@ local current -- the view, reward choice and scroll position of the current step
 local history = {} -- earlier gossip and greeting steps of this conversation, for "back"
 local showToken = 0 -- counts the steps shown (a closing event only counts when no new step followed)
 local collapsed = {} -- Blizzard window -> original scale
+local cinematicActive
 
 -- The last steps of the bubble with their time (/fp blase verlauf), to see in what order things happened when a
 -- text shows up too early.
@@ -95,6 +99,9 @@ local OPEN_MAX = 0.5
 local OPEN_STEP = 0.002 -- smaller changes of the scale per picture do not count as moving
 local SCROLL_KINDS = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true, QUEST_PROGRESS = true,
 	QUEST_COMPLETE = true }
+local function ScreenDialog(view)
+	return cinematicActive and SCROLL_KINDS[view.kind] or false
+end
 local REVEAL_SPEEDS = { NORMAL = 70, SLOW = 28 } -- letters per second
 local reveal = { active = false }
 
@@ -307,6 +314,25 @@ local function SpokenFlag(spoken, method, arg)
 	end
 end
 
+local function PlayingClip(spoken)
+	local ok, clip = pcall(spoken.GetNowPlaying, spoken)
+	if ok and type(clip) == "table" and SpokenFlag(spoken, "IsPaused") ~= true
+		and SpokenFlag(spoken, "IsPlaying", clip) ~= false then
+		return clip
+	end
+end
+
+local function ClipMatches(view, clip, source)
+	if not clip or type(clip.source) ~= "table" or clip.source.key ~= source then return false end
+	if (view.questID and clip.questID ~= view.questID) or (view.speakerGUID and clip.unitGUID and clip.unitGUID ~= view.speakerGUID) then
+		return false
+	end
+	for _, block in ipairs(view.blocks) do
+		if block.speech and block.text ~= "" and block.text == clip.text then return true end
+	end
+	return false
+end
+
 -- The playing clip, rather than the narrator style, tells us whether this page is being read.
 function Dialog.SpokenReads(view)
 	local source = SPOKEN_SOURCE[view.kind]
@@ -319,23 +345,9 @@ function Dialog.SpokenReads(view)
 		-- Older players can only report whether they show the text for the source.
 		return SpokenFlag(spoken, "ShowsNarratorFor", source) == true
 	end
-	local ok, clip = pcall(spoken.GetNowPlaying, spoken)
-	if not ok or type(clip) ~= "table" or type(clip.source) ~= "table" or clip.source.key ~= source
-		or SpokenFlag(spoken, "IsPaused") == true or SpokenFlag(spoken, "IsPlaying", clip) == false then
-		return false
-	end
-	if (view.questID and clip.questID ~= view.questID) or (view.speakerGUID and clip.unitGUID and clip.unitGUID ~= view.speakerGUID) then
-		return false
-	end
-	if clip.textOnly and SpokenFlag(spoken, "ShowsNarratorFor", source) ~= true then
-		return false
-	end
-	for _, block in ipairs(view.blocks) do
-		if block.speech and block.text ~= "" and block.text == clip.text then
-			return true
-		end
-	end
-	return false
+	local clip = PlayingClip(spoken)
+	return ClipMatches(view, clip, source)
+		and (not clip.textOnly or SpokenFlag(spoken, "ShowsNarratorFor", source) == true)
 end
 
 -- The blocks of a step without what Spoken says: the quest title, the NPC's words and the objectives.
@@ -409,6 +421,7 @@ local function CreateBubble()
 	-- Player variant: the nine-slice art and tail of the chat bubbles.
 	frame.Art, frame.Tail = Dialog.CreateBubbleShape(frame)
 	frame.hasArt = frame.Art ~= nil
+	frame.Subtitles = false
 	frame.Portrait = CreatePortrait(frame)
 	frame.Abandon =CreateFrame("Button", nil, frame)
 	frame.Abandon:SetSize(16, 16)
@@ -734,12 +747,18 @@ local function CreateRow(frame)
 	row.Picked:SetPoint("BOTTOMRIGHT", 4, -2)
 	row.Picked:SetColorTexture(0.25, 0.9, 0.35, 0.16)
 	row.Picked:Hide()
+	row.ButtonBack = row:CreateTexture(nil, "BACKGROUND", nil, -2)
+	row.ButtonBack:SetAllPoints()
+	row.ButtonBack:SetColorTexture(0.05, 0.06, 0.09, 0.88)
+	row.ButtonBack:Hide()
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	row:EnableMouseWheel(true)
 	row:SetScript("OnMouseWheel", function(_, delta)
 		if bubble and current and current.view.kind == "TRAINER_SHOW" then
 			Dialog.TrainerScroll(delta)
 		elseif bubble and current and current.view.kind == "MERCHANT_SHOW" then
+			Dialog.ScrollContent(delta)
+		elseif current and ScreenDialog(current.view) then
 			Dialog.ScrollContent(delta)
 		end
 	end)
@@ -850,12 +869,14 @@ local RenderFailed -- set below, once Blizzard's window can take over
 local function RenderView(view)
 	local frame = bubble
 	local palette = Palette()
-	local usePlayer = Dialog.db.style == "PLAYER" and frame.hasArt
-	frame.Dark:SetShown(not usePlayer)
-	if usePlayer then
-		frame.DarkBorder:Hide()
-	else
+	local screen = ScreenDialog(view)
+	local usePlayer = not screen and Dialog.db.style == "PLAYER" and frame.hasArt
+	local useDark = not screen and not usePlayer
+	frame.Dark:SetShown(useDark)
+	if useDark then
 		frame.DarkBorder:ShowColor(unpack(ns.PANEL_BORDER))
+	else
+		frame.DarkBorder:Hide()
 	end
 	if frame.Art then
 		frame.Art:SetShown(usePlayer)
@@ -868,7 +889,7 @@ local function RenderView(view)
 	local scrolling = SCROLL_KINDS[view.kind] and true or false
 	local host = scrolling and frame.Content or frame
 	-- Portrait mode (see CreatePortrait): the speaker's face on top, the content below it.
-	local speaker = Dialog.PortraitUnit(view)
+	local speaker = not screen and Dialog.PortraitUnit(view) or nil
 	local portraitChanged = (speaker ~= nil) ~= frame.Portrait:IsShown()
 	frame.speaker = speaker
 	local faceRoom = speaker and PORTRAIT_SIZE + PORTRAIT_RIM * 2 + PORTRAIT_GAP or 0
@@ -927,11 +948,20 @@ local function RenderView(view)
 		end
 	end
 
-	if view.name and view.name ~= "" and not speaker then
+	local subtitles = screen and {} or nil
+	if subtitles then
+		FinishReveal()
+	end
+	if view.name and view.name ~= "" and not speaker and not screen then
 		AddText(view.name, palette.name)
 	end
 	for _, block in ipairs(speaker and Dialog.WithoutWords(view.blocks) or view.blocks) do
-		if block.title then
+		if subtitles and (block.title or block.text) then
+			local line = block.title or block.text
+			if line ~= "" then
+				subtitles[#subtitles + 1] = block.title and ("|cffffd100%s|r"):format(line) or line
+			end
+		elseif block.title then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
 		elseif block.text and block.speech then
 			AddSpeech(block.text, palette.text)
@@ -951,6 +981,7 @@ local function RenderView(view)
 				row:ClearAllPoints()
 				row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
 				row:SetWidth(WIDTH)
+				row.ButtonBack:SetShown(screen and info.action ~= nil)
 				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
 				row.Arrow:SetShown(info.upgrade and true or false)
 				row.Arrow:SetDesaturated(info.upgrade == "later")
@@ -1013,7 +1044,7 @@ local function RenderView(view)
 					end
 				end
 
-				local height = math.max(row.Text:GetStringHeight(), 16)
+				local height = math.max(row.Text:GetStringHeight(), screen and 22 or 16)
 				row:SetHeight(height)
 				if emphasised then
 					selectedTop, selectedHeight = y, height
@@ -1099,6 +1130,10 @@ local function RenderView(view)
 			AddText(block.money, palette.text)
 		end
 	end
+	if subtitles and #subtitles > 0 and view.name and view.name ~= "" then
+		table.insert(subtitles, 1, ("|cffffd100%s|r"):format(view.name))
+	end
+	Cinematic.ShowSubtitle(frame, subtitles and table.concat(subtitles, "\n\n"))
 	if frame.selectedRow > #frame.rowActions and not frame.reclamped then
 		-- The arrow row no longer exists: once more with the last one chosen, so the fonts match.
 		frame.selectedRow = math.max(1, #frame.rowActions)
@@ -1125,8 +1160,11 @@ local function RenderView(view)
 		frame.Scroll:SetSize(WIDTH, visible)
 		frame.Scroll.full, frame.Scroll.visible = full, visible
 		local offset = current.scrollOffset or 0
-		if portraitChanged and rewardTop then
+		if (portraitChanged or frame.screen ~= screen) and rewardTop then
 			offset = Dialog.ListOffset(offset, rewardTop, ITEM_SIZE, visible)
+		end
+		if screen and frame.cursorMoved then
+			offset = Dialog.ListOffset(offset, selectedTop, selectedHeight, visible)
 		end
 		Dialog.ScrollContent(nil, offset)
 		y = faceRoom + visible
@@ -1184,6 +1222,7 @@ local function RenderView(view)
 	end
 	frame:SetHeight(math.max(y, 20))
 	frame.lastUsed = used
+	frame.screen = screen
 end
 
 -- An error halfway left the bubble on screen with all its content hidden (empty until closed by hand): Blizzard's
@@ -1498,7 +1537,7 @@ end
 
 -- Keep watching during the brief wait, even though the bubble itself is hidden.
 function Dialog.WatchPlate()
-	if not current then
+	if not current or ScreenDialog(current.view) then
 		return
 	end
 	local nameplate = NpcNameplate()
@@ -1517,6 +1556,41 @@ function Dialog.WatchPlate()
 	elseif GetTime() - plateLostAt >= LOST_WAIT then
 		UseBlizzard()
 	end
+end
+
+local function PlaceCurrent()
+	local screen = ScreenDialog(current.view)
+	ns.ShowFriendlyPlates(not screen and Dialog.db.plates and npcGuid ~= nil, "dialog")
+	if screen then
+		WaitForPlate()
+		plateLostAt = nil
+		if plateWatch then plateWatch:Hide() end
+		bubble:SetClampedToScreen(true)
+		bubble:SetClampRectInsets(0, 0, 0, 0)
+		bubble:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
+		bubble:SetAlpha(1)
+		bubble:Show()
+		bubble.Fade:Stop()
+		return
+	end
+	local nameplate = NpcNameplate()
+	if nameplate then
+		Place(nameplate)
+		if not bubble:IsShown() then
+			-- Let the nameplate settle before the bubble fades in.
+			bubble.Fade:Stop()
+			bubble:SetAlpha(0)
+			bubble:Show()
+			Dialog.ShowWhenSettled()
+		end
+	else
+		WaitForPlate()
+	end
+	if not plateWatch then
+		plateWatch = CreateFrame("Frame")
+		ns.SetUpdate(plateWatch, "Dialog: plate watch", Dialog.WatchPlate)
+	end
+	plateWatch:Show()
 end
 
 RenderFailed = function(err)
@@ -1592,6 +1666,25 @@ function Dialog.Rerender()
 	end
 end
 
+local function UpdateTalkingPortrait()
+	if not cinematicActive then
+		Cinematic.StopPortrait()
+		return
+	end
+	local spoken = _G.Spoken
+	local clip = type(spoken) == "table" and PlayingClip(spoken)
+	local source = clip and type(clip.source) == "table" and clip.source.key
+	if not clip or clip.textOnly or (source ~= "gossip" and source ~= "quests") then
+		Cinematic.StopPortrait()
+		return
+	end
+	local guid = Readable(clip.unitGUID)
+	if not guid and current and not current.pending and not current.view.stale and ClipMatches(current.view, clip, source) then
+		guid = current.view.speakerGUID
+	end
+	Cinematic.UpdatePortrait(clip, guid)
+end
+
 -- Spoken may start the line several frames after the quest opens. Recheck on queue changes,
 -- including pause and stop, and leave other clips and frames alone.
 local boundSpoken
@@ -1602,7 +1695,8 @@ function Dialog.BindSpoken()
 		return
 	end
 	local ok = pcall(spoken.RegisterCallback, spoken, "AUDIO_CHANGED", ns.Measured("Dialog: Spoken", function()
-		if current and not current.pending and Dialog.db.portrait and not InCombatLockdown()
+		UpdateTalkingPortrait()
+		if current and not ScreenDialog(current.view) and not current.pending and Dialog.db.portrait and not InCombatLockdown()
 			and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
 			Dialog.Rerender()
 		end
@@ -1631,6 +1725,7 @@ function Dialog.Pending()
 	local token = pendingToken
 	Trace("Wahl getroffen: alter Schritt ausgeblendet")
 	FinishReveal()
+	Cinematic.ShowSubtitle(bubble, nil)
 	for _, pool in pairs(bubble.pools) do
 		for _, object in pairs(pool) do
 			object:SetAlpha(0)
@@ -1718,8 +1813,6 @@ local function Show(view, fromBack)
 		view.speakerGUID = ns.NpcBubbleGUID(false, InteractionUnit(view.kind))
 		npcGuid = view.speakerGUID or npcGuid or ns.NpcBubbleGUID(not current)
 	end
-	-- A plate already visible on the target can disappear as soon as the target changes.
-	ns.ShowFriendlyPlates(Dialog.db.plates and npcGuid ~= nil, "dialog")
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	local sameReward = current and view.kind == "QUEST_COMPLETE" and current.view.kind == view.kind
 		and view.questID and current.view.questID == view.questID
@@ -1738,24 +1831,8 @@ local function Show(view, fromBack)
 	end
 	local used = bubble.lastUsed
 	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
-	local nameplate = NpcNameplate()
-	if nameplate then
-		Place(nameplate)
-		if not bubble:IsShown() then
-			-- Let the nameplate settle before the bubble fades in.
-			bubble.Fade:Stop()
-			bubble:SetAlpha(0)
-			bubble:Show()
-			Dialog.ShowWhenSettled()
-		end
-	else
-		WaitForPlate()
-	end
-	if not plateWatch then
-		plateWatch = CreateFrame("Frame")
-		ns.SetUpdate(plateWatch, "Dialog: plate watch", Dialog.WatchPlate)
-	end
-	plateWatch:Show()
+	PlaceCurrent()
+	UpdateTalkingPortrait()
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
 	local token = showToken
@@ -2640,6 +2717,12 @@ end
 
 function Dialog:Apply()
 	local on = self.db.enabled
+	cinematicActive = Cinematic.Configure(on and self.db.cinematic, self.cdb)
+	Dialog.BindSpoken()
+	for _, event in ipairs({ "PLAYER_TARGET_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
+		self:ToggleEvent(event, cinematicActive, UpdateTalkingPortrait)
+	end
+	UpdateTalkingPortrait()
 	ns.dialogBubbles = on
 	for event in pairs(VIEWS) do
 		self:ToggleEvent(event, on, self.OnConversation)
@@ -2665,8 +2748,12 @@ function Dialog:Apply()
 	if not on then
 		Hide()
 	elseif current and bubble then
-		ns.ShowFriendlyPlates(self.db.plates and npcGuid ~= nil, "dialog")
+		local changed = bubble.screen ~= ScreenDialog(current.view)
+		ns.ShowFriendlyPlates(not ScreenDialog(current.view) and self.db.plates and npcGuid ~= nil, "dialog")
 		Render(current.view)
+		if changed and current then
+			PlaceCurrent()
+		end
 	end
 end
 
@@ -2744,7 +2831,11 @@ function Dialog:OnLogin()
 	end
 	HookWindows()
 	ns.OnAddOnLoaded("Blizzard_TrainerUI", HookWindows)
-	ns.OnAddOnLoaded("Spoken", Dialog.BindSpoken)
+	ns.OnAddOnLoaded("Spoken", function()
+		ns.After("Dialog: Spoken ready", 0, function()
+			if self.db.cinematic or self.cdb.spokenStyleBeforeCinematic then self:Apply() end
+		end)
+	end)
 	self:Apply()
 	-- Build the hidden shell during login warmup. Prepare common rows in separate slices.
 	ns.After("Dialog: prepare bubble", 2, function()
@@ -2784,6 +2875,7 @@ Dialog.options = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
 	{ key = "portrait", type = "toggle", name = L.DIALOG_PORTRAIT, desc = L.DIALOG_PORTRAIT_DESC, parent = "enabled", new = true },
+	{ key = "cinematic", type = "toggle", name = L.DIALOG_CINEMATIC, desc = L.DIALOG_CINEMATIC_DESC, parent = "enabled" },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },

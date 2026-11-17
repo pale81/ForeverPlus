@@ -134,6 +134,48 @@ local function SetCellProfit(cell, itemID, unitPrice, quantity)
 	}
 end
 
+-- Link of the item a result row shows: the auction's own link, else the sample link of its item key.
+-- Nothing for pets and other rows that are no item.
+function Auction.RowLink(rowData, itemKey)
+	local link = rowData and rowData.itemLink
+	if not link and itemKey and C_AuctionHouse and C_AuctionHouse.GetItemKeySampleLink then
+		link = C_AuctionHouse.GetItemKeySampleLink(itemKey)
+	end
+	if type(link) == "string" and not ns.Secret(link) and link:find("item:", 1, true) then
+		return link
+	end
+end
+
+-- The upgrade arrow of bags and loot on the icon of an item in the browse list (grey if only the level is missing).
+local itemArrows = setmetatable({}, { __mode = "k" })
+
+local function OnItemCell(cell, itemKey)
+	local state = false
+	-- Not in the list of one's own auctions (its cells have a prefix).
+	if not cell.Prefix and cell.Icon and cell.Icon:IsShown() and ns.ItemLinkUpgradeState then
+		local link = Auction.RowLink(cell.rowData, itemKey)
+		state = link and ns.ItemLinkUpgradeState(link) or false
+	end
+	local arrow = itemArrows[cell]
+	if not arrow and state then
+		arrow = cell:CreateTexture(nil, "OVERLAY", nil, 7)
+		arrow:SetAtlas("bags-greenarrow")
+		arrow:SetSize(10, 10)
+		arrow:SetPoint("TOPRIGHT", cell.Icon, "TOPRIGHT", 3, 3)
+		itemArrows[cell] = arrow
+	end
+	if arrow then
+		arrow:SetDesaturated(state == "later")
+		arrow:SetShown(state and true or false)
+	end
+end
+
+local function OnItemCellCleared(cell)
+	if itemArrows[cell] then
+		itemArrows[cell]:Hide()
+	end
+end
+
 local function OnUnitPriceCell(cell, rowData)
 	local itemID = rowData and ItemIDOf(rowData)
 	local show = Auction.db.vendorWarning and rowData and IsBelowVendor(itemID, rowData.unitPrice)
@@ -939,6 +981,13 @@ function Auction:OnLogin()
 			local mixin = _G[mixinName]
 			if mixin and mixin.Populate then
 				hooksecurefunc(mixin, "Populate", ns.Measured("Auction: " .. mixinName, fn))
+			end
+		end
+		local itemCell = _G.AuctionHouseTableCellItemDisplayMixin
+		if itemCell and itemCell.UpdateDisplay then
+			hooksecurefunc(itemCell, "UpdateDisplay", ns.Measured("Auction: upgrade arrow", OnItemCell))
+			if itemCell.ClearDisplay then
+				hooksecurefunc(itemCell, "ClearDisplay", ns.Measured("Auction: upgrade arrow", OnItemCellCleared))
 			end
 		end
 		if AuctionHouseFrame then

@@ -7711,6 +7711,36 @@ end)()
 		"filter status while searching and after")
 	assert(A.FilterStatusText(3, 2, false) == nil, "hits shown: no status line")
 	GetMoneyString = money
+	do
+		-- Upgrade arrow in the browse list
+		local savedAPI, savedState = C_AuctionHouse, ns.ItemLinkUpgradeState
+		local sample = "|Hitem:5::::|h[X]|h"
+		C_AuctionHouse = { GetItemKeySampleLink = function(key) return key.itemID == 5 and sample or nil end }
+		assert(A.RowLink({ itemLink = "|Hitem:9|h[Y]|h" }, { itemID = 5 }) == "|Hitem:9|h[Y]|h", "an auction's own link first")
+		assert(A.RowLink({}, { itemID = 5 }) == sample, "else the sample link of the item key")
+		assert(A.RowLink({}, { itemID = 6 }) == nil, "no sample link: no row link")
+		assert(A.RowLink({ itemLink = "|Hbattlepet:1|h[P]|h" }) == nil, "pets get no arrow")
+		local asked
+		ns.ItemLinkUpgradeState = function(link) asked = link return "later" end
+		local tex = { shown = false, desat = false }
+		function tex:SetAtlas() end
+		function tex:SetSize() end
+		function tex:SetPoint() end
+		function tex:SetDesaturated(v) self.desat = v end
+		function tex:SetShown(v) self.shown = v end
+		function tex:Hide() self.shown = false end
+		local cell = { Icon = { IsShown = function() return true end }, rowData = {},
+			CreateTexture = function() return tex end }
+		local onCell, onClear = uv(A.OnLogin, "OnItemCell"), uv(A.OnLogin, "OnItemCellCleared")
+		onCell(cell, { itemID = 5 })
+		assert(asked == sample and tex.shown and tex.desat, "grey arrow if only the level is missing")
+		onClear(cell)
+		assert(not tex.shown, "a cleared cell hides the arrow")
+		cell.Prefix = {}
+		onCell(cell, { itemID = 5 })
+		assert(not tex.shown, "own auctions get no arrow")
+		C_AuctionHouse, ns.ItemLinkUpgradeState = savedAPI, savedState
+	end
 	local savedAPI, savedStore, savedAfter, savedTime, savedProfile = C_AuctionHouse, ns.db.auctionPrices, C_Timer.After, time, debugprofilestop
 	local timers, reads, now, ticks = {}, 0, 1000, 0
 	C_Timer.After = function(_, fn) timers[#timers + 1] = fn end

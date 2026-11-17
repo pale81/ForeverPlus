@@ -255,6 +255,7 @@ read_globals = {
 	"GetNumLootItems",
 	"GetNumQuestChoices", "GetQuestReward", "GetQuestMoneyToGet", "AcceptQuest", "CompleteQuest", "AcknowledgeAutoAcceptQuest", "QuestFlagsPVP",
 	"GetPlayerFacing",
+	"GetCursorDelta", "IsMouseButtonDown", "UnitChannelInfo", "SetUIVisibility",
 	"SetLFGRoles",
 	"GetQuestDifficultyColor",
 	"QuestDifficultyColors",

@@ -15,6 +15,8 @@ local Helpers = ns:NewModule("Helpers", {
 		fishing = true,
 		fishingEquip = true,
 		fishingRestore = true,
+		fishingHideUI = false,
+		fishingSound = false,
 		knownRecipes = true,
 	},
 	charDefaults = { fishingWeapons = {} },
@@ -316,6 +318,8 @@ local FISHING_OPTIONS = {
 	{ key = "fishing", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
 	{ key = "fishingEquip", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing" },
 	{ key = "fishingRestore", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing" },
+	{ key = "fishingHideUI", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC, parent = "fishing", new = true },
+	{ key = "fishingSound", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC, parent = "fishing", new = true },
 }
 local ROD_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerRod]]
 local ROD_SIZE = 28
@@ -341,7 +345,21 @@ local function OpenFishingMenu()
 	MenuUtil.CreateContextMenu(fishingMenu, function(_, root)
 		root:CreateTitle(L.HELPERS_FISHING_MODE)
 		for _, option in ipairs(FISHING_OPTIONS) do
-			local row = ns.CreateOptionCheckbox(root, option.name, "Helpers", option.key, option.desc)
+			local name = option.name
+			local id = "option:Helpers:" .. option.key
+			local seen = ns.db.settingsNewSeen
+			local isNew = option.new and (not seen or (seen[id] or 0) < 2)
+			if isNew then
+				name = name .. " |cffcda4f6" .. L.SETTINGS_NEW .. "|r"
+			end
+			local row = ns.CreateOptionCheckbox(root, name, "Helpers", option.key, option.desc)
+			if isNew then
+				row:SetOnEnter(ns.Measured("Helpers: see new fishing option", function()
+					local counts = ns.db.settingsNewSeen or {}
+					counts[id] = (counts[id] or 0) + 1
+					ns.db.settingsNewSeen = counts
+				end))
+			end
 			local parent = option.parent
 			if parent then
 				row:SetEnabled(function() return Helpers.db[parent] end)
@@ -425,10 +443,11 @@ end
 local FISHING = { 18248, 7732, 7731, 7620 }
 local MAIN_HAND = INVSLOT_MAINHAND or 16
 local OFF_HAND = INVSLOT_OFFHAND or 17
-local DOUBLE_CLICK = 0.4
-local CLICK_TIME, CLICK_MOVE = 0.3, 6
-local fishButton, bindingTimer
+local DOUBLE_CLICK = 0.30
+local CLICK_TIME, CLICK_MOVE = 0.22, 6
+local fishButton, bindingTimer, mouseTracker
 local pressTime, pressX, pressY, pressShift
+local mouseMovement
 local weaponsTimer
 
 local function FishingSpell()
@@ -437,6 +456,78 @@ local function FishingSpell()
 			return spellID
 		end
 	end
+end
+
+local function IsFishingChannel()
+	local name, _, _, _, _, _, _, spellID = UnitChannelInfo("player")
+	if ns.Secret(spellID) or ns.Secret(name) then
+		return false
+	end
+	for _, id in ipairs(FISHING) do
+		if spellID == id then
+			return true
+		end
+	end
+	-- Some clients report the fishing channel's spell, not the learned rank.
+	return name ~= nil and name == C_Spell.GetSpellName(7620)
+end
+
+local FISHING_SOUND_CVARS = { "Sound_SFXVolume", "Sound_MusicVolume", "Sound_AmbienceVolume", "Sound_DialogVolume" }
+local fishingVolumes, fishingHidUI
+
+local function SetFishingSound(active)
+	if active and not fishingVolumes then
+		fishingVolumes = {}
+		for _, key in ipairs(FISHING_SOUND_CVARS) do
+			local original = GetCVar(key)
+			local volume = tonumber(original)
+			if volume then
+				local wanted = key == "Sound_SFXVolume" and math.max(0.65, volume) or volume * 0.25
+				if wanted ~= volume then
+					SetCVar(key, tostring(wanted))
+					fishingVolumes[key] = { original = original, applied = GetCVar(key) }
+				end
+			end
+		end
+	elseif not active and fishingVolumes then
+		for key, state in pairs(fishingVolumes) do
+			if GetCVar(key) == state.applied then
+				SetCVar(key, state.original)
+			end
+		end
+		fishingVolumes = nil
+	end
+end
+
+local function SetFishingPresentation(active)
+	local hide = active and Helpers.db.fishingHideUI
+	if hide and not fishingHidUI and UIParent:IsShown() then
+		fishingHidUI = true
+		SetUIVisibility(false)
+	elseif not hide and fishingHidUI then
+		fishingHidUI = nil
+		if not UIParent:IsShown() then
+			SetUIVisibility(true)
+		end
+	end
+	SetFishingSound(active and Helpers.db.fishingSound)
+end
+
+local function RefreshFishingPresentation()
+	local db = Helpers.db
+	SetFishingPresentation(db.fishing and (db.fishingHideUI or db.fishingSound)
+		and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and IsFishingChannel())
+end
+
+local function FishingChannelChanged(_, _, unit)
+	if not ns.Secret(unit) and unit == "player" then
+		-- Let the game update the channel before reading it, including after a recast.
+		ns.After("Helpers: refresh fishing presentation", 0, RefreshFishingPresentation)
+	end
+end
+
+local function EndFishingPresentation()
+	SetFishingPresentation(false)
 end
 
 local function IsFishingPole(itemID)
@@ -528,9 +619,21 @@ local function ClearFishBinding()
 	ClearOverrideBindings(fishButton)
 	bindingTimer:Cancel()
 	bindingTimer = nil
+	ns.SetUpdate(mouseTracker, "Helpers: watch right click", nil)
+end
+
+local function TrackFishMouse()
+	local dx, dy = GetCursorDelta()
+	mouseMovement = mouseMovement + math.abs(dx) + math.abs(dy)
+	if mouseMovement > CLICK_MOVE or (pressTime and GetTime() - pressTime > CLICK_TIME) then
+		pressTime = nil
+		ns.SetUpdate(mouseTracker, "Helpers: watch right click", nil)
+		ClearFishBinding()
+	end
 end
 
 local function CreateFishButton()
+	mouseTracker = CreateFrame("Frame", "ForeverPlusFishingMotion", UIParent)
 	fishButton = CreateFrame("Button", "ForeverPlusFishButton", UIParent, "SecureActionButtonTemplate, SecureHandlerStateTemplate")
 	fishButton:RegisterForClicks("AnyUp", "AnyDown")
 	-- Remove the binding even if combat starts between the two clicks.
@@ -571,6 +674,8 @@ function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
 		pressTime = GetTime()
 		pressX, pressY = GetCursorPosition()
 		pressShift = IsShiftKeyDown()
+		mouseMovement = 0
+		ns.SetUpdate(mouseTracker, "Helpers: watch right click", TrackFishMouse)
 	end
 end
 
@@ -579,26 +684,28 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 		return
 	end
 	local x, y = GetCursorPosition()
+	local dx, dy = GetCursorDelta()
 	local short = GetTime() - pressTime <= CLICK_TIME and math.abs(x - pressX) + math.abs(y - pressY) <= CLICK_MOVE
+		and math.abs(dx) + math.abs(dy) <= CLICK_MOVE
 	local shift = pressShift
 	pressTime = nil
+	ns.SetUpdate(mouseTracker, "Helpers: watch right click", nil)
 	if not short or shift ~= IsShiftKeyDown() or not CanArmFishing() then
 		return
 	end
 	-- After the release has been handled by the game.
 	ns.After("Helpers: GLOBAL_MOUSE_UP (timer)", 0, function()
-		if bindingTimer or shift ~= IsShiftKeyDown() or not CanArmFishing() then
+		if bindingTimer or IsMouseButtonDown("RightButton") or shift ~= IsShiftKeyDown() or not CanArmFishing() then
 			return
 		end
 		local hasPole = HasFishingPole()
 		if hasPole and not shift then
 			local spellID = FishingSpell()
-			if not spellID then
+			if not spellID or IsFishingChannel() then
 				return
 			end
 			fishButton:SetAttribute("type", "spell")
 			fishButton:SetAttribute("spell", spellID)
-			fishButton:SetAttribute("useOnKeyDown", true)
 		else
 			if GetCursorInfo() then
 				return
@@ -620,10 +727,12 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 			end
 			fishButton:SetAttribute("type", "macro")
 			fishButton:SetAttribute("macrotext", macro)
-			fishButton:SetAttribute("useOnKeyDown", false)
 		end
+		fishButton:SetAttribute("useOnKeyDown", false)
 		SetOverrideBindingClick(fishButton, true, shift and "SHIFT-BUTTON2" or "BUTTON2", "ForeverPlusFishButton", "LeftButton")
 		bindingTimer = ns.NewTimer("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
+		mouseMovement = 0
+		ns.SetUpdate(mouseTracker, "Helpers: watch right click", TrackFishMouse)
 	end)
 end
 
@@ -711,10 +820,21 @@ function Helpers:Update()
 	self:ToggleEvent("GLOBAL_MOUSE_DOWN", db.fishing)
 	self:ToggleEvent("GLOBAL_MOUSE_UP", db.fishing)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", db.fishing and db.fishingRestore)
+	local presentFishing = db.fishing and (db.fishingHideUI or db.fishingSound)
+	self:ToggleEvent("UNIT_SPELLCAST_CHANNEL_START", presentFishing, FishingChannelChanged)
+	self:ToggleEvent("UNIT_SPELLCAST_CHANNEL_STOP", presentFishing, FishingChannelChanged)
+	self:ToggleEvent("PLAYER_REGEN_DISABLED", presentFishing, EndFishingPresentation)
+	self:ToggleEvent("PLAYER_DEAD", presentFishing, EndFishingPresentation)
+	self:ToggleEvent("PLAYER_LEAVING_WORLD", presentFishing, EndFishingPresentation)
+	self:ToggleEvent("PLAYER_LOGOUT", presentFishing, EndFishingPresentation)
 	pressTime = nil
+	if mouseTracker then
+		ns.SetUpdate(mouseTracker, "Helpers: watch right click", nil)
+	end
 	ns.RunOutOfCombat(ClearFishBinding)
 	UpdateOpenButton()
 	RefreshFishingMenu()
+	RefreshFishingPresentation()
 end
 
 function Helpers:OnLogin()

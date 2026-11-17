@@ -182,6 +182,9 @@ UnitIsDeadOrGhost = function() return false end
 min, max, floor = math.min, math.max, math.floor
 wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
 GetMouseFoci = function() return {} end
+GetCursorDelta = function() return 0, 0 end
+IsMouseButtonDown = function() return false end
+UnitChannelInfo = function() end
 UnitOnTaxi = function() return false end
 IsFlying = function() return false end
 GetNumTrainerServices = function() return 0 end
@@ -1334,9 +1337,11 @@ assert(proc(0, 1) == 13262, "disenchant")
 	local savedCombat, savedMounted, savedFoci, savedExists = InCombatLockdown, IsMounted, GetMouseFoci, UnitExists
 	local savedPosition, savedInventory, savedCursor = GetCursorPosition, GetInventoryItemID, GetCursorInfo
 	local savedShift, savedAlt, savedCtrl, savedCount = IsShiftKeyDown, IsAltKeyDown, IsControlKeyDown, C_Item.GetItemCount
+	local savedDelta, savedMouseDown = GetCursorDelta, IsMouseButtonDown
 	local savedInstant, savedSubclasses = C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass
 	local savedSlots, savedBag, savedTooltip = C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem
 	local button = _G.ForeverPlusFishButton
+	local tracker = _G.ForeverPlusFishingMotion
 	local savedAttribute, attrs = button.SetAttribute, {}
 	local savedWeapons, savedEquip = helpers.cdb.fishingWeapons, helpers.db.fishingEquip
 	helpers.cdb.fishingWeapons = {}
@@ -1395,6 +1400,21 @@ assert(proc(0, 1) == 13262, "disenchant")
 	x = 180
 	helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
 	assert(not binding, "camera turn does not arm fishing")
+	helpers:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	GetCursorDelta = function() return 8, 0 end
+	tracker:GetScript("OnUpdate")(tracker)
+	GetCursorDelta = savedDelta
+	helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
+	assert(not binding, "camera motion cancels the gesture even if the pointer stayed locked in place")
+	click()
+	GetCursorDelta = function() return 0, 8 end
+	tracker:GetScript("OnUpdate")(tracker)
+	GetCursorDelta = savedDelta
+	assert(not binding, "mouse movement during the double-click window releases the camera binding")
+	IsMouseButtonDown = function() return true end
+	click()
+	IsMouseButtonDown = savedMouseDown
+	assert(not binding, "a physical press that is already underway keeps its native release")
 	click()
 	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
 		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted,nomod] 16 item:6256",
@@ -1407,8 +1427,8 @@ assert(proc(0, 1) == 13262, "disenchant")
 	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
 	equipped, offHand = 6256, nil
 	click()
-	assert(binding and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == true,
-		"the next pair casts Fishing after the pole is equipped")
+	assert(binding and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == false,
+		"the next pair casts Fishing on release after the pole is equipped")
 	timer.expire()
 	assert(not binding, "an unused binding expires")
 	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
@@ -1434,6 +1454,7 @@ assert(proc(0, 1) == 13262, "disenchant")
 	SetOverrideBindingClick, ClearOverrideBindings, C_Timer.NewTimer = savedBind, savedClear, savedTimer
 	InCombatLockdown, IsMounted, GetMouseFoci, UnitExists = savedCombat, savedMounted, savedFoci, savedExists
 	GetCursorPosition, GetInventoryItemID, GetCursorInfo = savedPosition, savedInventory, savedCursor
+	GetCursorDelta = savedDelta
 	IsShiftKeyDown, IsAltKeyDown, IsControlKeyDown, C_Item.GetItemCount = savedShift, savedAlt, savedCtrl, savedCount
 	C_Item.GetItemInfoInstant, Enum.ItemWeaponSubclass = savedInstant, savedSubclasses
 	C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, C_TooltipInfo.GetBagItem = savedSlots, savedBag, savedTooltip
@@ -1465,8 +1486,9 @@ print("helpers OK")
 		generate(region, {
 			CreateTitle = function(_, text) title = text end,
 			CreateCheckbox = function(_, text, checked, toggle)
-				local row = { checked = checked, toggle = toggle, SetEnabled = function(self, fn) self.enabled = fn end }
-				rows[text] = row
+				local row = { checked = checked, toggle = toggle, text = text,
+					SetEnabled = function(self, fn) self.enabled = fn end, SetOnEnter = function() end }
+				rows[(text:gsub(" |cffcda4f6.-|r$", ""))] = row
 				return row
 			end,
 		})
@@ -1489,6 +1511,9 @@ print("helpers OK")
 	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")
 	local mode, equip, restore = rows[ns.L.HELPERS_FISHING], rows[ns.L.HELPERS_FISHING_EQUIP], rows[ns.L.HELPERS_FISHING_RESTORE]
 	assert(mode.checked() and equip.enabled() and restore.enabled(), "all three fishing settings are available from the same menu")
+	local hide, sound = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND]
+	assert(not hide.checked() and not sound.checked() and hide.text:find(ns.L.SETTINGS_NEW, 1, true)
+		and sound.text:find(ns.L.SETTINGS_NEW, 1, true), "presentation options start off and are marked NEW")
 	mode.toggle()
 	assert(not helpers.db.fishing and not equip.enabled() and menu:IsShown(), "turning off fishing leaves the menu available to turn it back on")
 	mode.toggle()
@@ -1504,6 +1529,46 @@ print("helpers OK")
 	ForeverPlusFishingMenu, CreateFrame, MenuUtil = savedMenu, savedCreate, savedMenuUtil
 	IsModifierKeyDown, ns.IsEditModeActive = savedModifier, savedEdit
 	setuv(create, "fishingMenu", savedMenu)
+end)()
+;(function()
+	local savedChannel, savedVisibility, savedGet, savedSet = UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar
+	local originalVisibility = UIParent:IsShown()
+	local spellID
+	local volumes = { Sound_SFXVolume = "0.2", Sound_MusicVolume = "0.4", Sound_AmbienceVolume = "0.8", Sound_DialogVolume = "0.6" }
+	UnitChannelInfo = function()
+		if spellID then return C_Spell.GetSpellName(spellID), nil, nil, nil, nil, nil, nil, spellID end
+	end
+	SetUIVisibility = function(visible) UIParent:SetShown(visible) end
+	GetCVar = function(key) return volumes[key] end
+	SetCVar = function(key, value) volumes[key] = value end
+	local event = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
+	UIParent:Show()
+	ns.SetOption("Helpers", "fishingHideUI", true)
+	ns.SetOption("Helpers", "fishingSound", true)
+	spellID = 10
+	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
+	assert(UIParent:IsShown() and volumes.Sound_MusicVolume == "0.4", "an unrelated channel leaves the UI and volumes alone")
+	spellID = 7620
+	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
+	assert(not UIParent:IsShown() and volumes.Sound_SFXVolume == "0.65" and volumes.Sound_MusicVolume == "0.1",
+		"a real Fishing channel hides the UI and makes effects easier to hear")
+	volumes.Sound_DialogVolume = "0.7"
+	spellID = nil
+	event(nil, "UNIT_SPELLCAST_CHANNEL_STOP", "player")
+	assert(UIParent:IsShown() and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4"
+		and volumes.Sound_AmbienceVolume == "0.8" and volumes.Sound_DialogVolume == "0.7",
+		"channel end restores the UI and original volumes while preserving a manual change")
+	UIParent:Hide()
+	spellID = 7620
+	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
+	event(nil, "PLAYER_LOGOUT")
+	assert(not UIParent:IsShown() and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4",
+		"logout restores the volumes and leaves an already-hidden UI hidden")
+	spellID = nil
+	ns.SetOption("Helpers", "fishingHideUI", false)
+	ns.SetOption("Helpers", "fishingSound", false)
+	UIParent:SetShown(originalVisibility)
+	UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar = savedChannel, savedVisibility, savedGet, savedSet
 end)()
 print("ttd OK")
 -- Junk marks tell random suffixes apart

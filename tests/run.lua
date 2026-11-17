@@ -3065,7 +3065,7 @@ end)()
 	print("dialog OK")
 end)()
 ;(function()
-	-- The actual line spoken switches the portrait on and off, even in voice-only mode.
+	-- Voiced lines stay compact after completion, even in voice-only mode.
 	local dialog = ns:GetModule("Dialog")
 	local blocks = { { title = "Die Jagd" }, { text = "Worte", speech = true }, { text = "Ziel", objective = true },
 		{ text = "Noch nicht", dim = true }, { rows = {} }, { items = {} }, { money = "5s" } }
@@ -3073,7 +3073,7 @@ end)()
 	assert(#kept == 4 and kept[1].dim and kept[2].rows and kept[3].items and kept[4].money, "title, words and objective dropped")
 	assert(#blocks == 7, "the view's own blocks stay whole")
 	local saved = _G.Spoken
-	local clip, notifyAudio, paused
+	local clip, notifyAudio, notifyStopped, paused
 	_G.Spoken = {
 		IsCompatible = function() return true end,
 		ShowsNarratorFor = function() return false end, -- "voice only"
@@ -3084,6 +3084,8 @@ end)()
 			if event == "AUDIO_CHANGED" then
 				assert(not notifyAudio, "subscribe once to playback changes")
 				notifyAudio = fn
+			elseif event == "CLIP_STOPPED" then
+				notifyStopped = fn
 			end
 		end,
 	}
@@ -3133,19 +3135,160 @@ end)()
 	item:GetScript("OnClick")(item)
 	local height = bubble.pools.text[2].GetStringHeight
 	bubble.pools.text[2].GetStringHeight = function() return 260 end
+	notifyStopped(clip, true)
+	clip = nil
+	notifyAudio()
+	assert(bubble.Portrait:IsShown() and item.Chosen:IsShown() and bubble.wordsHidden,
+		"completed speech stays hidden and preserves the selected reward")
+	dialog:OnConversation("QUEST_COMPLETE")
+	assert(bubble.Portrait:IsShown() and item.Chosen:IsShown() and bubble.wordsHidden,
+		"refreshing the same reward page does not restore completed speech")
+	clip = { source = { key = "quests" }, questID = GetQuestID(), text = GetRewardText() }
+	notifyStopped(clip, false)
 	clip = nil
 	notifyAudio()
 	assert(not bubble.Portrait:IsShown() and item.Chosen:IsShown() and bubble.Scroll:GetVerticalScroll() > 0,
-		"the text returns when playback ends and the selected reward stays in view")
+		"interrupted speech remains readable and the selected reward stays in view")
 	bubble.pools.text[2].GetStringHeight = height
 	UnitExists = function() return false end
 	clip = { source = { key = "quests" }, questID = GetQuestID(), text = GetRewardText() }
 	notifyAudio()
-	assert(not bubble.Portrait:IsShown(), "no speaker known: full bubble")
+	assert(not bubble.Portrait:IsShown() and bubble.wordsHidden, "a missing portrait does not repeat spoken words")
 	dialog.db.enabled, dialog.db.portrait = wasEnabled, wasPortrait
 	UnitExists, SetPortraitTexture = wasExists, savedDraw
 	_G.Spoken = saved
 	print("dialog portrait OK")
+end)()
+;(function()
+	-- Resolve automatic speech before drawing, including delayed and failed starts.
+	local dialog = ns:GetModule("Dialog")
+	local savedSpoken, savedReader, savedAfter = _G.Spoken, _G.VoiceOver, C_Timer.After
+	local savedGossip, savedExists, savedGUID = C_GossipInfo, UnitExists, UnitGUID
+	local wasEnabled, wasPortrait = dialog.db.enabled, dialog.db.portrait
+	local clip, queue, startup, lookup, autoplay, available = nil, {}, nil, 0, true, true
+	local lineText = "Diese Zeile kommt gleich."
+	local callbacks = {}
+	local guid = "Creature-0-1-1-1-1-1"
+	local function Voice(text)
+		return { source = { key = "gossip" }, text = text or C_GossipInfo.GetText(), unitGUID = guid }
+	end
+	_G.Spoken = {
+		GetNowPlaying = function() return clip end,
+		GetQueue = function() return queue end,
+		IsPlaying = function() return clip ~= nil end,
+		RegisterCallback = function(_, event, fn) callbacks[event] = fn end,
+	}
+	_G.VoiceOver = { Addon = {
+		IsAutoplayOn = function() return autoplay end,
+		GetVisibleLine = function(_, event)
+			lookup = lookup + 1
+			if event == "QUEST_COMPLETE" then
+				return { text = GetRewardText(), questID = GetQuestID(), unitGUID = guid }
+			end
+			assert(event == "GOSSIP_SHOW")
+			return available and Voice() or nil
+		end,
+	} }
+	C_Timer.After = function(delay, fn) if delay == 1.5 then startup = fn end end
+	UnitExists = function(unit) return unit == "npc" end
+	UnitGUID = function() return guid end
+	C_GossipInfo = {
+		GetText = function() return lineText end,
+		GetOptions = function() return { { name = "Weiter.", gossipOptionID = 11 } } end,
+		GetActiveQuests = function() return {} end,
+		GetAvailableQuests = function() return {} end,
+	}
+	dialog.db.enabled, dialog.db.portrait = true, true
+	dialog:OnConversation("GOSSIP_SHOW")
+	local frame = ForeverPlusDialogBubble
+	assert(frame.wordsHidden and frame.lastUsed.row == 1 and startup, "no text flash before automatic speech")
+	dialog.Rerender()
+	assert(lookup == 1, "recording lookup runs once per page")
+	queue = { Voice() }
+	startup()
+	assert(frame.wordsHidden, "a queued line remains hidden beyond the startup timeout")
+	clip = Voice("Eine andere Zeile.")
+	callbacks.AUDIO_CHANGED()
+	assert(frame.wordsHidden, "another playing line does not reveal the queued page")
+	queue = {}
+	clip = Voice()
+	callbacks.AUDIO_CHANGED()
+	callbacks.CLIP_STOPPED(clip, true)
+	clip = nil
+	callbacks.AUDIO_CHANGED()
+	assert(frame.wordsHidden and frame.lastUsed.row == 1, "no text returns after successful playback")
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(frame.wordsHidden and lookup == 1, "a duplicate gossip event does not repeat completed speech")
+	available = false
+	lineText = "Eine andere Seite ohne Aufnahme."
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(not frame.wordsHidden and frame.lastUsed.text == 2, "a missing recording remains readable immediately")
+	available, autoplay = true, false
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(not frame.wordsHidden, "autoplay off keeps the text readable")
+	autoplay = true
+	dialog:OnConversation("GOSSIP_SHOW")
+	startup()
+	assert(not frame.wordsHidden, "a resolved recording that never starts falls back to text")
+	dialog:OnConversation("GOSSIP_SHOW")
+	callbacks.CLIP_DROPPED(Voice(), "missing")
+	callbacks.AUDIO_CHANGED()
+	assert(not frame.wordsHidden, "a dropped recording restores text immediately")
+	dialog:OnConversation("QUEST_COMPLETE")
+	local rewardStartup = startup
+	assert(frame.wordsHidden, "a resolved quest recording is hidden before starting")
+	dialog:OnConversation("QUEST_COMPLETE")
+	rewardStartup()
+	assert(not frame.wordsHidden, "refreshing a reward page does not leave its startup timeout stuck")
+	dialog.db.enabled, dialog.db.portrait = wasEnabled, wasPortrait
+	_G.Spoken, _G.VoiceOver, C_Timer.After = savedSpoken, savedReader, savedAfter
+	C_GossipInfo, UnitExists, UnitGUID = savedGossip, savedExists, savedGUID
+	print("dialog voice lifecycle OK")
+end)()
+;(function()
+	-- Exercise the narrator renderer contract and bounded asynchronous model loading.
+	local portrait, saved = ns.DialogPortrait, _G.Spoken
+	local holder = { Face = NewFrame("Texture"), Scene = false }
+	local model = NewFrame("DressUpModel")
+	local file, acquired, updated, released, animated = nil, 0, 0, 0, 0
+	model.GetModelFileID = function() return file end
+	model:SetScript("OnUpdate", function() animated = animated + 1 end)
+	local renderer = {
+		Acquire = function() acquired = acquired + 1 model:Show() return model end,
+		Update = function(_, _, spec) updated = updated + 1 assert(spec.creatureID == 1) return file ~= nil end,
+		Release = function() released = released + 1 model:Hide() end,
+	}
+	_G.Spoken = { GetPortraitRenderer = function(_, kind) assert(kind == "model") return renderer end }
+	local clip = { present = { portrait = { kind = "model", creatureID = 1 } } }
+	local animate = model:GetScript("OnUpdate")
+	portrait.Update(holder, clip, true)
+	local tick = holder.Scene:GetScript("OnUpdate")
+	assert(holder.Face:IsShown() and model:GetAlpha() == 0, "keep the still portrait while the model loads")
+	tick(model, 0.5)
+	assert(updated == 1 and model:GetScript("OnUpdate") == animate, "load once and retain the renderer's animation script")
+	file = 119563
+	tick(model, 0.1)
+	model:GetScript("OnUpdate")(model, 0.1)
+	assert(not holder.Face:IsShown() and model:GetAlpha() == 1 and animated == 1, "animate only a loaded model")
+	portrait.Update(holder, clip, true)
+	assert(acquired == 1 and updated == 1, "redrawing the same clip does not reload the model")
+	portrait.Update(holder, nil, true)
+	assert(holder.Face:IsShown() and not model:IsShown() and not holder.Scene:GetScript("OnUpdate") and released == 1,
+		"finishing or pausing releases the model and stops its updates")
+	file = nil
+	portrait.Update(holder, clip, true)
+	holder.Scene:GetScript("OnUpdate")(holder.Scene, 2.1)
+	assert(not model:IsShown() and holder.Face:IsShown() and released == 2, "abandon an unloaded model after two seconds")
+	portrait.Update(holder, clip, true)
+	assert(acquired == 2, "a failed clip is not retried by every redraw")
+	local other = { present = clip.present }
+	portrait.Update(holder, other, false)
+	assert(acquired == 2, "the animation option prevents model acquisition")
+	portrait.Update(holder, other, true)
+	portrait.Stop(holder)
+	assert(not model:IsShown() and not holder.Scene:GetScript("OnUpdate") and released == 3, "closing stops a pending load")
+	_G.Spoken = saved
+	print("dialog portrait renderer OK")
 end)()
 ;(function()
 	-- Voice-only dialogue keeps choices and only provides subtitles for unread speech.

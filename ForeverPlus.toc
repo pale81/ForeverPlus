@@ -84,6 +84,7 @@ Modules\Errors.lua
 Modules\Dresser.lua
 Modules\Buffs.lua
 Modules\SpeechBubbles.lua
+Modules\DialogPortrait.lua
 Modules\DialogCinematic.lua
 Modules\Dialog.lua
 Modules\Readable.lua

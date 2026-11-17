@@ -8,6 +8,7 @@
 local _, ns = ...
 local L = ns.L
 local Cinematic = ns.DialogCinematic
+local Portrait = ns.DialogPortrait
 
 local Dialog = ns:NewModule("Dialog", {
 	title = L.DIALOG_TITLE,
@@ -23,7 +24,8 @@ local Dialog = ns:NewModule("Dialog", {
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
-		portrait = true,       -- with a reader that shows the words itself: only the speaker's portrait, no text
+		portrait = true,       -- only the speaker's portrait for voiced lines
+		portraitAnimation = true,
 		cinematic = false,     -- separate subtitles and choices with voice only in the reader
 	},
 })
@@ -341,21 +343,62 @@ local function ClipMatches(view, clip, source)
 	return false
 end
 
--- The playing clip, rather than the narrator style, tells us whether this page is being read.
+local function SameSpeech(first, second)
+	if not SPOKEN_SOURCE[first.kind] or first.kind ~= second.kind or first.questID ~= second.questID
+		or first.speakerGUID ~= second.speakerGUID then return false end
+	local a, b = {}, {}
+	for _, block in ipairs(first.blocks) do if block.speech then a[#a + 1] = block.text end end
+	for _, block in ipairs(second.blocks) do if block.speech then b[#b + 1] = block.text end end
+	if #a == 0 or #a ~= #b then return false end
+	for i, text in ipairs(a) do if text ~= b[i] then return false end end
+	return true
+end
+
+local function VoiceEnabled(view)
+	local source, spoken = SPOKEN_SOURCE[view.kind], _G.Spoken
+	return source and not view.stale and type(spoken) == "table" and SpokenFlag(spoken, "IsCompatible", 1) ~= false
+		and SpokenFlag(spoken, "IsPartOn", source) ~= false
+end
+
+-- Query the installed quest reader once, without starting playback. This avoids a text
+-- flash during its automatic quest detection and its optional NPC greeting delay.
+local function ExpectVoice(view)
+	local env = _G.VoiceOver
+	local reader = type(env) == "table" and rawget(env, "Addon")
+	if not VoiceEnabled(view) or type(reader) ~= "table" or type(reader.GetVisibleLine) ~= "function"
+		or SpokenFlag(reader, "IsAutoplayOn") ~= true
+		or (SPOKEN_SOURCE[view.kind] == "gossip" and SpokenFlag(reader, "IsNever") == true) then return false end
+	local ok, line = pcall(reader.GetVisibleLine, reader, view.kind)
+	if not ok or type(line) ~= "table" or line.textOnly then return false end
+	return ClipMatches(view, {
+		source = { key = SPOKEN_SOURCE[view.kind] }, text = line.text,
+		questID = line.questID, unitGUID = line.unitGUID,
+	}, SPOKEN_SOURCE[view.kind])
+end
+
+-- A voiced page stays compact before, during and after playback. A paused or
+-- interrupted line becomes readable again; choices and rewards always stay available.
 function Dialog.SpokenReads(view)
 	local source = SPOKEN_SOURCE[view.kind]
 	local spoken = _G.Spoken
-	if not source or view.stale or type(spoken) ~= "table" or SpokenFlag(spoken, "IsCompatible", 1) == false
-		or SpokenFlag(spoken, "IsPartOn", source) == false then
-		return false
-	end
+	if not VoiceEnabled(view) then return false end
 	if type(spoken.GetNowPlaying) ~= "function" then
 		-- Older players can only report whether they show the text for the source.
 		return SpokenFlag(spoken, "ShowsNarratorFor", source) == true
 	end
 	local clip = PlayingClip(spoken)
-	return ClipMatches(view, clip, source)
-		and (not clip.textOnly or SpokenFlag(spoken, "ShowsNarratorFor", source) == true)
+	if ClipMatches(view, clip, source) and not clip.textOnly then return true end
+	if current and current.view == view and current.readView == view then return true end
+	if SpokenFlag(spoken, "IsPaused") == true then return false end
+	if type(spoken.GetQueue) == "function" then
+		local ok, queue = pcall(spoken.GetQueue, spoken)
+		if ok and type(queue) == "table" then
+			for _, queued in ipairs(queue) do
+				if not queued.textOnly and ClipMatches(view, queued, source) then return true end
+			end
+		end
+	end
+	return current and current.view == view and current.expectVoice == true
 end
 
 -- The blocks of a step without what Spoken says: the quest title, the NPC's words and the objectives.
@@ -389,6 +432,7 @@ local function CreatePortrait(frame)
 	rim:SetColorTexture(unpack(ns.PANEL_BORDER))
 	Disc(1, PORTRAIT_SIZE):SetColorTexture(0.04, 0.05, 0.09, 1)
 	holder.Face = Disc(2, PORTRAIT_SIZE)
+	holder:SetScript("OnHide", ns.Measured("Dialog: portrait hidden", function() Portrait.Stop(holder) end))
 	-- The picture may not be loaded yet when the step shows: asked again once more a moment later.
 	function holder:Update(unit)
 		if unit and UnitExists(unit) then
@@ -878,7 +922,7 @@ local function MatchesVoice(view, clip)
 end
 
 local function RefreshSubtitle(view, clip)
-	if not ScreenDialog(view) or current.readView == view or MatchesVoice(view, clip) then
+	if not ScreenDialog(view) or Dialog.SpokenReads(view) or MatchesVoice(view, clip) then
 		Cinematic.ShowSubtitle(bubble, nil)
 		return
 	end
@@ -936,11 +980,15 @@ local function RenderView(view)
 	local scrolling = SCROLL_KINDS[view.kind] and true or false
 	local host = scrolling and frame.Content or frame
 	-- Portrait mode (see CreatePortrait): the speaker's face on top, the content below it.
-	local speaker = not screen and Dialog.PortraitUnit(view) or nil
+	local wordsHidden = not screen and Dialog.db.portrait and Dialog.SpokenReads(view) or false
+	local speaker = wordsHidden and Dialog.SpeakerUnit(view.kind) or nil
+	frame.wordsHidden = wordsHidden
 	local portraitChanged = (speaker ~= nil) ~= frame.Portrait:IsShown()
 	frame.speaker = speaker
 	local faceRoom = speaker and PORTRAIT_SIZE + PORTRAIT_RIM * 2 + PORTRAIT_GAP or 0
 	frame.Portrait:SetShown(speaker ~= nil)
+	local talking = PlayingClip(_G.Spoken)
+	Portrait.Update(frame.Portrait, speaker and MatchesVoice(view, talking) and talking, Dialog.db.portraitAnimation)
 	if speaker then
 		FinishReveal()
 		current.portraitShown = true
@@ -998,10 +1046,10 @@ local function RenderView(view)
 	if screen then
 		FinishReveal()
 	end
-	if view.name and view.name ~= "" and not speaker and not screen then
+	if view.name and view.name ~= "" and not wordsHidden and not screen then
 		AddText(view.name, palette.name)
 	end
-	for _, block in ipairs(speaker and Dialog.WithoutWords(view.blocks) or view.blocks) do
+	for _, block in ipairs(wordsHidden and Dialog.WithoutWords(view.blocks) or view.blocks) do
 		if block.title and not screen then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
 		elseif block.text and block.speech and not screen then
@@ -1546,6 +1594,7 @@ local function Hide()
 	Trace("Blase weg")
 	RestorePlate()
 	if bubble then
+		Portrait.Stop(bubble.Portrait)
 		bubble:Hide()
 		bubble:ClearAllPoints()
 	end
@@ -1719,16 +1768,27 @@ function Dialog.BindSpoken()
 		if not current or current.pending then return end
 		if ScreenDialog(current.view) then
 			RefreshSubtitle(current.view, PlayingClip(spoken))
-		elseif Dialog.db.portrait and not InCombatLockdown() and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
-			Dialog.Rerender()
+		else
+			local clip = PlayingClip(spoken)
+			Portrait.Update(bubble.Portrait, bubble.speaker and MatchesVoice(current.view, clip) and clip,
+				Dialog.db.portraitAnimation)
+			if InCombatLockdown() then return end
+			local hidden = Dialog.db.portrait and Dialog.SpokenReads(current.view) or false
+			if hidden ~= bubble.wordsHidden or Dialog.PortraitUnit(current.view) ~= bubble.speaker then
+				Dialog.Rerender()
+			end
 		end
 	end))
 	if ok then
 		boundSpoken = spoken
 		pcall(spoken.RegisterCallback, spoken, "CLIP_STOPPED", ns.Measured("Dialog: Spoken finished", function(clip, finished)
-			if finished and current and ScreenDialog(current.view) and MatchesVoice(current.view, clip) then
-				current.readView = current.view
+			if current and MatchesVoice(current.view, clip) then
+				current.expectVoice = nil
+				current.readView = finished and current.view or nil
 			end
+		end))
+		pcall(spoken.RegisterCallback, spoken, "CLIP_DROPPED", ns.Measured("Dialog: Spoken unavailable", function(clip)
+			if current and MatchesVoice(current.view, clip) then current.expectVoice = nil end
 		end))
 	end
 end
@@ -1752,6 +1812,7 @@ function Dialog.Pending()
 	local token = pendingToken
 	Trace("Wahl getroffen: alter Schritt ausgeblendet")
 	FinishReveal()
+	Portrait.Stop(bubble.Portrait)
 	Cinematic.ShowSubtitle(bubble, nil)
 	for _, pool in pairs(bubble.pools) do
 		for _, object in pairs(pool) do
@@ -1841,11 +1902,13 @@ local function Show(view, fromBack)
 		npcGuid = view.speakerGUID or npcGuid or ns.NpcBubbleGUID(not current)
 	end
 	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
+	local sameSpeech = current and SameSpeech(current.view, view)
+	local alreadyRead = sameSpeech and current.readView == current.view
 	local sameReward = current and view.kind == "QUEST_COMPLETE" and current.view.kind == view.kind
 		and view.questID and current.view.questID == view.questID
 	if sameReward then
-		if current.readView == current.view and current.view.blocks[2].text == view.blocks[2].text then
-			current.readView = view
+		if not sameSpeech then
+			current.readView, current.voiceChecked, current.expectVoice, current.voiceStartup = nil, nil, nil, nil
 		end
 		current.view, current.pending = view, nil
 		if current.selected and current.selected > view.choiceCount then
@@ -1854,7 +1917,22 @@ local function Show(view, fromBack)
 	else
 		current = { view = view }
 	end
+	if alreadyRead then current.readView = view end
 	Dialog.BindSpoken()
+	if not current.voiceChecked then
+		current.voiceChecked = true
+		current.expectVoice = not alreadyRead and (Dialog.db.portrait or ScreenDialog(view)) and ExpectVoice(view)
+		if current.expectVoice then
+			local startup = {}
+			current.voiceStartup = startup
+			ns.After("Dialog: voice startup", 1.5, function()
+				if current and current.voiceStartup == startup then
+					current.expectVoice, current.voiceStartup = nil, nil
+					if not current.pending then Dialog.Rerender() end
+				end
+			end)
+		end
+	end
 	Render(view)
 	if not current then
 		return -- drawing failed, Blizzard's window shows the step
@@ -2906,6 +2984,7 @@ Dialog.options = {
 		{ "INSTANT", L.DIALOG_SPEED_INSTANT }, { "NORMAL", L.DIALOG_SPEED_NORMAL }, { "SLOW", L.DIALOG_SPEED_SLOW },
 	}, new = true },
 	{ key = "portrait", type = "toggle", name = L.DIALOG_PORTRAIT, desc = L.DIALOG_PORTRAIT_DESC, parent = "enabled", new = true },
+	{ key = "portraitAnimation", type = "toggle", name = L.DIALOG_PORTRAIT_ANIMATION, desc = L.DIALOG_PORTRAIT_ANIMATION_DESC, parent = "portrait" },
 	{ key = "cinematic", type = "toggle", name = L.DIALOG_CINEMATIC, desc = L.DIALOG_CINEMATIC_DESC, parent = "enabled" },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },

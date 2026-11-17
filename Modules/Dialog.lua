@@ -315,6 +315,7 @@ local function SpokenFlag(spoken, method, arg)
 end
 
 local function PlayingClip(spoken)
+	if type(spoken) ~= "table" then return end
 	local ok, clip = pcall(spoken.GetNowPlaying, spoken)
 	if ok and type(clip) == "table" and SpokenFlag(spoken, "IsPaused") ~= true
 		and SpokenFlag(spoken, "IsPlaying", clip) ~= false then
@@ -322,9 +323,16 @@ local function PlayingClip(spoken)
 	end
 end
 
+local function ClipSpeakerGUID(clip)
+	local guid = Readable(clip.unitGUID)
+	-- A quest-log replay may use a synthetic creature GUID, which is not a live target.
+	if type(guid) == "string" and not guid:find("^Creature%-0%-0%-0%-0%-") then return guid end
+end
+
 local function ClipMatches(view, clip, source)
 	if not clip or type(clip.source) ~= "table" or clip.source.key ~= source then return false end
-	if (view.questID and clip.questID ~= view.questID) or (view.speakerGUID and clip.unitGUID and clip.unitGUID ~= view.speakerGUID) then
+	local guid = ClipSpeakerGUID(clip)
+	if (view.questID and clip.questID ~= view.questID) or (view.speakerGUID and guid and guid ~= view.speakerGUID) then
 		return false
 	end
 	for _, block in ipairs(view.blocks) do
@@ -864,6 +872,45 @@ end
 local Render
 local RenderFailed -- set below, once Blizzard's window can take over
 
+local function MatchesVoice(view, clip)
+	local source = SPOKEN_SOURCE[view.kind]
+	return source and not view.stale and clip and not clip.textOnly and ClipMatches(view, clip, source)
+end
+
+local function RefreshSubtitle(view, clip)
+	if not ScreenDialog(view) or current.readView == view or MatchesVoice(view, clip) then
+		Cinematic.ShowSubtitle(bubble, nil)
+		return
+	end
+	if not current.subtitleReady then
+		Cinematic.ShowSubtitle(bubble, nil)
+		if current.subtitleWaiting ~= view then
+			current.subtitleWaiting = view
+			-- Give autoplay a moment to resolve the recording before showing fallback text.
+			ns.After("Dialog: unvoiced text", 0.45, function()
+				if not current or current.view ~= view or current.pending then
+					if current and current.subtitleWaiting == view then current.subtitleWaiting = nil end
+					return
+				end
+				current.subtitleReady = true
+				RefreshSubtitle(view, PlayingClip(_G.Spoken))
+			end)
+		end
+		return
+	end
+	local text = {}
+	for _, block in ipairs(view.blocks) do
+		local line = block.title or block.text
+		if line and line ~= "" then
+			text[#text + 1] = block.title and ("|cffffd100%s|r"):format(line) or line
+		end
+	end
+	if #text > 0 and view.name and view.name ~= "" then
+		table.insert(text, 1, ("|cffffd100%s|r"):format(view.name))
+	end
+	Cinematic.ShowSubtitle(bubble, table.concat(text, "\n\n"))
+end
+
 -- Blocks: { text }, { title }, { rows }, { items, header, choose }, { money }.
 -- buttons: { text, action, enabled }.
 local function RenderView(view)
@@ -948,24 +995,18 @@ local function RenderView(view)
 		end
 	end
 
-	local subtitles = screen and {} or nil
-	if subtitles then
+	if screen then
 		FinishReveal()
 	end
 	if view.name and view.name ~= "" and not speaker and not screen then
 		AddText(view.name, palette.name)
 	end
 	for _, block in ipairs(speaker and Dialog.WithoutWords(view.blocks) or view.blocks) do
-		if subtitles and (block.title or block.text) then
-			local line = block.title or block.text
-			if line ~= "" then
-				subtitles[#subtitles + 1] = block.title and ("|cffffd100%s|r"):format(line) or line
-			end
-		elseif block.title then
+		if block.title and not screen then
 			AddText(block.title, palette.title, _G.GameFontNormalLarge and "GameFontNormalLarge" or nil)
-		elseif block.text and block.speech then
+		elseif block.text and block.speech and not screen then
 			AddSpeech(block.text, palette.text)
-		elseif block.text then
+		elseif block.text and not screen then
 			AddText(block.text, block.dim and palette.dim or palette.text)
 		elseif block.rows then
 			-- A long list (merchant) scrolls on its own, the text above and the money below stay.
@@ -1130,10 +1171,7 @@ local function RenderView(view)
 			AddText(block.money, palette.text)
 		end
 	end
-	if subtitles and #subtitles > 0 and view.name and view.name ~= "" then
-		table.insert(subtitles, 1, ("|cffffd100%s|r"):format(view.name))
-	end
-	Cinematic.ShowSubtitle(frame, subtitles and table.concat(subtitles, "\n\n"))
+	RefreshSubtitle(view, screen and PlayingClip(_G.Spoken))
 	if frame.selectedRow > #frame.rowActions and not frame.reclamped then
 		-- The arrow row no longer exists: once more with the last one chosen, so the fonts match.
 		frame.selectedRow = math.max(1, #frame.rowActions)
@@ -1678,11 +1716,13 @@ local function UpdateTalkingPortrait()
 		Cinematic.StopPortrait()
 		return
 	end
-	local guid = Readable(clip.unitGUID)
-	if not guid and current and not current.pending and not current.view.stale and ClipMatches(current.view, clip, source) then
-		guid = current.view.speakerGUID
+	local guid, interaction = ClipSpeakerGUID(clip)
+	if current and not current.pending and MatchesVoice(current.view, clip) and not clip.unitIsObjectOrItem then
+		guid = guid or current.view.speakerGUID
+		interaction = InteractionUnit(current.view.kind)
 	end
-	Cinematic.UpdatePortrait(clip, guid)
+	Cinematic.UpdatePortrait(clip, guid, interaction)
+	return clip
 end
 
 -- Spoken may start the line several frames after the quest opens. Recheck on queue changes,
@@ -1695,14 +1735,21 @@ function Dialog.BindSpoken()
 		return
 	end
 	local ok = pcall(spoken.RegisterCallback, spoken, "AUDIO_CHANGED", ns.Measured("Dialog: Spoken", function()
-		UpdateTalkingPortrait()
-		if current and not ScreenDialog(current.view) and not current.pending and Dialog.db.portrait and not InCombatLockdown()
-			and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
+		local clip = UpdateTalkingPortrait()
+		if not current or current.pending then return end
+		if ScreenDialog(current.view) then
+			RefreshSubtitle(current.view, clip)
+		elseif Dialog.db.portrait and not InCombatLockdown() and Dialog.PortraitUnit(current.view) ~= bubble.speaker then
 			Dialog.Rerender()
 		end
 	end))
 	if ok then
 		boundSpoken = spoken
+		pcall(spoken.RegisterCallback, spoken, "CLIP_STOPPED", ns.Measured("Dialog: Spoken finished", function(clip, finished)
+			if finished and current and ScreenDialog(current.view) and MatchesVoice(current.view, clip) then
+				current.readView = current.view
+			end
+		end))
 	end
 end
 
@@ -1817,6 +1864,9 @@ local function Show(view, fromBack)
 	local sameReward = current and view.kind == "QUEST_COMPLETE" and current.view.kind == view.kind
 		and view.questID and current.view.questID == view.questID
 	if sameReward then
+		if current.readView == current.view and current.view.blocks[2].text == view.blocks[2].text then
+			current.readView = view
+		end
 		current.view, current.pending = view, nil
 		if current.selected and current.selected > view.choiceCount then
 			current.selected = nil
@@ -2812,6 +2862,9 @@ function Dialog.PrintStatus()
 		tostring(point), tostring(relativeTo and relativeTo.GetName and relativeTo:GetName() or relativeTo),
 		tostring(relativePoint), ns.Number(x, 0), ns.Number(y, 0), #options, #available, #active,
 		GossipFrame and GossipFrame:IsShown() and "ja" or "nein", GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)
+	if Dialog.db.cinematic then
+		ns.PrintAlways(L.DIALOG_CINEMATIC_STATUS, Cinematic.PortraitStatus())
+	end
 end
 
 function Dialog:OnLogin()

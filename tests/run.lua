@@ -3001,8 +3001,10 @@ end)()
 		IsPlaying = function() return clip ~= nil and not paused end,
 		IsPaused = function() return paused == true end,
 		RegisterCallback = function(_, event, fn)
-			assert(event == "AUDIO_CHANGED" and not notifyAudio, "subscribe once to playback changes")
-			notifyAudio = fn
+			if event == "AUDIO_CHANGED" then
+				assert(not notifyAudio, "subscribe once to playback changes")
+				notifyAudio = fn
+			end
 		end,
 	}
 	local wasExists, wasEnabled, wasPortrait, savedDraw = UnitExists, dialog.db.enabled, dialog.db.portrait, SetPortraitTexture
@@ -3071,14 +3073,15 @@ end)()
 	local savedSpoken, savedCommand, savedTarget, savedCreate = _G.Spoken, SlashCmdList.SPOKEN, TargetFrame, CreateFrame
 	local savedGUID, savedExists, savedGossip = UnitGUID, UnitExists, C_GossipInfo
 	local wasEnabled, wasCinematic = dialog.db.enabled, dialog.db.cinematic
-	local guid, target = "Creature-0-0-0-0-1-1", "Creature-0-0-0-0-1-2"
-	local clip, playbackChanged, animated, selected
+	local guid, target = "Creature-0-1-1-1-1-1", "Creature-0-1-1-1-1-2"
+	local clip, animated, selected, displayID
+	local callbacks = {}
 	local style = "subtitle"
 	_G.Spoken = {
 		GetPlayerStyle = function() return style end,
 		GetNowPlaying = function() return clip end,
 		IsPlaying = function() return clip ~= nil end,
-		RegisterCallback = function(_, _, fn) playbackChanged = fn end,
+		RegisterCallback = function(_, event, fn) callbacks[event] = fn end,
 	}
 	SlashCmdList.SPOKEN = function(command)
 		assert(command == "style voice" or command == "style subtitles", command)
@@ -3086,14 +3089,16 @@ end)()
 	end
 	CreateFrame = function(kind, name, ...)
 		local frame = savedCreate(kind, name, ...)
-		if kind == "PlayerModel" then
-			frame.SetUnit = function(_, unit) return unit == "target" end
-			frame.GetModelFileID = function() return 1 end
+		if kind == "DressUpModel" then
+			frame.SetUnit = function() error("restricted unit") end
+			frame.SetDisplayInfo = function(_, id) displayID = id end
+			frame.GetModelFileID = function() return displayID and 1 end
 			frame.SetAnimation = function(_, id) animated = id end
 		end
 		return frame
 	end
 	local portrait = CreateFrame("Frame")
+	portrait.GetSize = function() error("restricted region") end
 	TargetFrame = CreateFrame("Frame")
 	TargetFrame.GetPortrait = function() return portrait end
 	portrait.GetParent = function() return TargetFrame end
@@ -3115,18 +3120,28 @@ end)()
 	assert(frame.Subtitles:IsShown() and frame.Subtitles.text:find(C_GossipInfo.GetText(), 1, true),
 		"unvoiced text stays visible in a separate subtitle")
 	assert(frame.pools.row[1].ButtonBack:IsShown() and #frame.rowActions == 1, "the dialogue choice is a separate button")
-	clip = { source = { key = "gossip" }, unitGUID = guid, text = C_GossipInfo.GetText() }
-	playbackChanged()
+	local voice = { source = { key = "gossip" }, unitGUID = guid, text = C_GossipInfo.GetText(),
+		present = { portrait = { kind = "model", displayID = 123 } } }
+	clip = voice
+	callbacks.AUDIO_CHANGED()
 	assert(not rawget(_G, "ForeverPlusDialogTargetPortrait"), "a different target never gets an animated face")
+	assert(not frame.Subtitles:IsShown() and frame.pools.row[1]:IsShown(), "while speaking, only the choices remain")
 	target = guid
 	uv(dialog.Apply, "UpdateTalkingPortrait")()
 	local overlay = ForeverPlusDialogTargetPortrait
-	assert(overlay:IsShown() and not overlay.Back:IsShown(), "the static target portrait stays until a model loads")
+	assert(overlay:IsShown() and not overlay.Back:IsShown() and displayID == 123, "a restricted unit uses the recording's display model")
 	overlay:GetScript("OnUpdate")(overlay, 0.16)
-	assert(overlay.Back:IsShown() and animated == 60 and frame.Subtitles:IsShown(), "playing voice animates only the target face")
+	assert(overlay.Back:IsShown() and animated == 60, "playing voice animates only the target face")
 	clip = nil
-	playbackChanged()
+	callbacks.AUDIO_CHANGED()
+	assert(frame.Subtitles:IsShown() and not overlay:IsShown(), "an interrupted voice restores the unread text and static portrait")
+	clip = voice
+	callbacks.AUDIO_CHANGED()
+	clip = nil
+	callbacks.CLIP_STOPPED(voice, true)
+	callbacks.AUDIO_CHANGED()
 	assert(not overlay:IsShown() and not overlay:GetScript("OnUpdate"), "ending playback restores the static portrait")
+	assert(not frame.Subtitles:IsShown(), "a fully read page keeps only the choices")
 	local row = frame.pools.row[1]
 	row:GetScript("OnClick")(row, "LeftButton")
 	assert(selected == 17, "the floating button selects the same dialogue option")

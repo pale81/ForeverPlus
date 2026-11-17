@@ -764,6 +764,44 @@ end
 ns.ItemLinkUpgradeState = LinkUpgradeState
 ns.RecipeUpgradeState = LinkUpgradeState
 
+-- Comparison tooltips: the hovered item (a link) against the worn items shown beside it (`worn`, links).
+-- Returns "hovered" and its upgrade state (true or "later"), or "worn" and the position of the best worn
+-- item in `worn`; nil if neither is clearly better or the data is missing. Same rule as the bag arrows.
+function ns.CompareWinner(link, worn)
+	if not Items.db or not Items.db.upgradeArrow or type(link) ~= "string" or ns.Secret(link)
+		or not C_Item.IsEquippableItem(link) then
+		return nil
+	end
+	local score, equippedScore = CompareScores(link)
+	if not score then
+		return nil
+	end
+	if score > equippedScore + 0.01 then
+		local state = LinkUpgradeState(link)
+		if state then
+			return "hovered", state
+		end
+		return nil
+	end
+	if equippedScore > score + 0.01 then
+		local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
+		local ranged = slots and slots[1] == INVSLOT_RANGED
+		local best, bestScore
+		for index, wornLink in ipairs(worn) do
+			if type(wornLink) == "string" and not ns.Secret(wornLink) then
+				local value = Score(wornLink, ranged)
+				if not bestScore or value > bestScore then
+					best, bestScore = index, value
+				end
+			end
+		end
+		if best then
+			return "worn", best
+		end
+	end
+	return nil
+end
+
 local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	local _, treeName = GetWeights()
 	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)

@@ -242,6 +242,7 @@ read_globals = {
 	"GameTooltip_Hide",
 	"GameTooltip_SetTitle",
 	"GameTooltip_ShowCompareItem",
+	"TooltipComparisonManager",
 	"TooltipUtil",
 	"GetCVar",
 	"GetCVarBool",

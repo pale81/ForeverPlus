@@ -811,6 +811,78 @@ local function AddChatItemUpgrade(tooltip, link)
 	chatItemArrow:Show()
 end
 
+-- Comparison tooltips: an arrow in the top right corner of the tooltip whose item is better (the hovered one or
+-- the worn one), by the same rule as the upgrade arrows. A long item name would run under it: then the arrow
+-- sits on the top edge instead.
+local compareArrows = {}
+local ARROW_SIZE, ARROW_INSET = 14, 5
+
+local function HideCompareArrows()
+	for _, arrow in pairs(compareArrows) do
+		arrow:Hide()
+	end
+end
+
+local function ShowCompareArrow(tooltip, state)
+	local arrow = compareArrows[tooltip]
+	if not arrow then
+		arrow = tooltip:CreateTexture(nil, "OVERLAY", nil, 7)
+		arrow:SetAtlas("bags-greenarrow")
+		arrow:SetSize(ARROW_SIZE, ARROW_SIZE)
+		compareArrows[tooltip] = arrow
+	end
+	local titleLine = tooltip:GetLeftLine(1)
+	local okTitle, titleWidth = pcall(titleLine.GetStringWidth, titleLine)
+	local okWidth, width = pcall(tooltip.GetWidth, tooltip)
+	local collides = okTitle and okWidth
+		and ns.Number(titleWidth, 0) + 10 > ns.Number(width, 0) - ARROW_SIZE - ARROW_INSET
+	arrow:ClearAllPoints()
+	if collides then
+		arrow:SetPoint("BOTTOMRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, 1)
+	else
+		arrow:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, -ARROW_INSET)
+	end
+	arrow:SetDesaturated(state == "later")
+	arrow:Show()
+end
+
+local function ItemLinkOf(tooltip)
+	if tooltip:IsForbidden() or not tooltip:IsShown() then
+		return nil
+	end
+	local _, link = tooltip:GetItem()
+	return type(link) == "string" and not Secret(link) and link or nil
+end
+
+local function UpdateCompareArrows(manager)
+	HideCompareArrows()
+	local tooltip = manager.tooltip
+	if not tooltip or tooltip:IsForbidden() or type(tooltip.shoppingTooltips) ~= "table" then
+		return
+	end
+	local link = ItemLinkOf(tooltip)
+	if not link then
+		return
+	end
+	local worn, wornTips = {}, {}
+	for _, shopping in ipairs(tooltip.shoppingTooltips) do
+		local wornLink = ItemLinkOf(shopping)
+		if wornLink then
+			worn[#worn + 1] = wornLink
+			wornTips[#wornTips + 1] = shopping
+		end
+	end
+	if #worn == 0 then
+		return
+	end
+	local winner, value = ns.CompareWinner(link, worn)
+	if winner == "hovered" then
+		ShowCompareArrow(tooltip, value)
+	elseif winner == "worn" then
+		ShowCompareArrow(wornTips[value], true)
+	end
+end
+
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
@@ -1063,13 +1135,18 @@ function Tooltip:OnInitialize()
 		end
 		tooltip.fpUnitSuffix = nil
 		HideChatItemArrow()
+		HideCompareArrows()
 		HideCompareTips()
 	end)
 	GameTooltip:HookScript("OnHide", ns.Measured("Tooltip: hide", function()
 		chatItemOwner, chatItemLink = nil, nil
 		HideChatItemArrow()
+		HideCompareArrows()
 		HideCompareTips()
 	end))
+	if TooltipComparisonManager and TooltipComparisonManager.RefreshItems then
+		hooksecurefunc(TooltipComparisonManager, "RefreshItems", ns.Measured("Tooltip: compare arrow", UpdateCompareArrows))
+	end
 	HookBronzeBorders()
 	if GameTooltip.SetTrainerService then
 		hooksecurefunc(GameTooltip, "SetTrainerService", ns.Measured("Tooltip: trainer compare", ShowTrainerCompare))

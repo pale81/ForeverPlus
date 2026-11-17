@@ -1943,6 +1943,22 @@ end)()
 	assert(conditional < normal and againstHumanoid > wornAgainst, "a situational cloak can win the Humanoid comparison")
 	assert(not IsUpgrade(0, 1, situational), "the generic arrow does not use the situational rating")
 
+	-- Comparison tooltips: the arrow goes to the better of the hovered and the worn item.
+	clear()
+	equipped = cloak
+	local winner, which = ns.CompareWinner(defender, { cloak })
+	assert(winner == "worn" and which == 1, "the better worn cloak gets the arrow")
+	equipped = defender
+	clear()
+	winner, which = ns.CompareWinner(cloak, { defender })
+	assert(winner == "hovered" and which == true, "the better hovered cloak gets the arrow")
+	equipped = cloak
+	clear()
+	assert(ns.CompareWinner(cloak, { cloak }) == nil, "equal items: no arrow")
+	itemsMod.db.upgradeArrow = false
+	assert(ns.CompareWinner(cloak, { defender }) == nil, "option off: no arrow")
+	itemsMod.db.upgradeArrow = true
+
 	clear()
 	ITEMS[cloak], ITEMS[defender], ITEMS[situational] = nil, nil, nil
 	itemsMod.db.upgradeScore = savedEnabled

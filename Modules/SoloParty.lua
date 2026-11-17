@@ -25,7 +25,7 @@ local STYLES = {
 
 local STAR = [[Interface\Cooldown\star4]]
 local WATER = MEDIA .. "SoloPartyWater"
-local GLOW = { atlas = "ui-castingbar-full-glow-standard", file = STAR }
+local SOFT_MASK = MEDIA .. "SoloPartyEffectMask"
 local SMOKE = { atlas = "BonusChest-OrangeSmoke-Wide", file = STAR }
 local MIST = { atlas = "UF-DruidCP-Smoke", file = STAR }
 local ARCANE = { atlas = "Cast_Channel_Sparkles_01", file = STAR }
@@ -35,7 +35,7 @@ local RIPPLE = { file = WATER, coords = { 0, 0.5, 0, 1 } }
 local BUBBLE = { file = WATER, coords = { 0.5, 1, 0, 1 }, blend = "BLEND" }
 local THEMES = {
 	skill = { paper = { 0.90, 0.87, 0.80 }, text = { 1, 0.94, 0.78 }, light = { 0.90, 0.78, 0.53 },
-		aura = GLOW, particle = MOTES, lift = 0.33 },
+		particle = MOTES, lift = 0.33 },
 	fishing = { paper = { 0.78, 0.91, 0.96 }, text = { 0.85, 0.98, 1 }, light = { 0.55, 0.83, 0.94 },
 		font = SMALL_CAPS, aura = RIPPLE, particle = BUBBLE, lift = 0.65 },
 	forge = { paper = { 0.95, 0.78, 0.61 }, text = { 1, 0.85, 0.64 }, light = { 1, 0.49, 0.20 },
@@ -45,19 +45,31 @@ local THEMES = {
 	arcane = { paper = { 0.89, 0.82, 0.95 }, text = { 0.95, 0.88, 1 }, light = { 0.63, 0.49, 0.92 },
 		aura = ARCANE, particle = MOTES, lift = 0.44 },
 	loot = { paper = { 1, 0.93, 0.77 }, text = { 1, 0.89, 0.57 }, light = { 1, 0.79, 0.34 },
-		aura = GLOW, particle = COIN, lift = 0.40 },
+		kit = "Mining", particle = COIN, lift = 0.40 },
 	spent = { paper = { 0.89, 0.72, 0.62 }, text = { 1, 0.82, 0.68 }, light = { 0.80, 0.38, 0.23 },
-		aura = SMOKE, particle = MOTES, lift = 0.12 },
+		kit = "Blacksmithing", aura = SMOKE, particle = MOTES, lift = 0.12 },
 }
 local SKILL_EFFECTS = {
-	[356] = "fishing", -- Fishing
-	[164] = "forge", [186] = "forge", [202] = "forge", -- Blacksmithing, Mining, Engineering
-	[171] = "nature", [182] = "nature", -- Alchemy, Herbalism
-	[333] = "arcane", -- Enchanting
+	[129] = { kit = "FirstAid" },
+	[164] = { kit = "Blacksmithing", theme = "forge" },
+	[165] = { kit = "Leatherworking" },
+	[171] = { kit = "Alchemy", theme = "nature" },
+	[182] = { kit = "Herbalism", theme = "nature" },
+	[185] = { kit = "Cooking" },
+	[186] = { kit = "Mining", theme = "forge" },
+	[197] = { kit = "Tailoring" },
+	[202] = { kit = "Engineering", theme = "forge" },
+	[333] = { kit = "Enchanting", theme = "arcane" },
+	[356] = { kit = "Fishing", theme = "fishing" },
+	[393] = { kit = "Skinning" },
+	[755] = { kit = "Jewelcrafting" },
+	[773] = { kit = "Inscription" },
+	[794] = { kit = "Archaeology" },
 }
-local skillThemes = { [L.SOLO_PARTY_PREVIEW_SKILL] = "fishing" }
+local skillEffectsByName = { [L.SOLO_PARTY_PREVIEW_SKILL] = SKILL_EFFECTS[356] }
 local POSITIONS = { { 0.21, 0.66 }, { 0.79, 0.37 }, { 0.50, 0.67 }, { 0.21, 0.37 }, { 0.79, 0.66 }, { 0.50, 0.38 } }
 local POP, HOLD, END = 0.22, 1.35, 1.78
+local BAND_Y = -0.29
 local root, cards, nextSlot = nil, {}, 0
 local lastBurst, lastSound = nil, {}
 local balance, lootTimer, previewTimer
@@ -96,6 +108,46 @@ local function SetEffectArt(texture, art)
 	texture:SetBlendMode(art.blend or "ADD")
 end
 
+local function GetBandAtlas(kit)
+	local atlas = "Skillbar_Fill_Flipbook_" .. kit
+	local info = C_Texture.GetAtlasInfo(atlas)
+	local height = info and info.height or 0
+	-- The profession book uses two columns of 34-pixel-high cells.
+	if height >= 34 and height % 34 == 0 then
+		return atlas, height / 34
+	end
+end
+
+local function SetBand(card, kit)
+	card.bandAnimation:Stop()
+	card.band:Hide()
+	card.flare:Hide()
+	if not kit then
+		return
+	end
+	local atlas, rows = GetBandAtlas(kit)
+	if not atlas and kit ~= "DefaultBlue" then
+		kit = "DefaultBlue"
+		atlas, rows = GetBandAtlas(kit)
+	end
+	if not atlas then
+		return
+	end
+	card.band:SetAtlas(atlas)
+	card.band:SetSize(card.width * 0.86, card.height * 0.32)
+	card.band:SetPoint("CENTER", card.art, "CENTER", 0, card.height * BAND_Y)
+	card.flipbook:SetFlipBookRows(rows)
+	card.flipbook:SetFlipBookFrames(rows * 2)
+	card.band:Show()
+
+	local flare = "Skillbar_Flare_" .. kit
+	if C_Texture.GetAtlasInfo(flare) then
+		card.flare:SetAtlas(flare)
+		card.flare:SetSize(card.width * 0.30, card.height * 0.25)
+		card.flare:Show()
+	end
+end
+
 local function AnimateEffects(card, age)
 	local theme = card.effects
 	if not theme then
@@ -103,10 +155,16 @@ local function AnimateEffects(card, age)
 	end
 	local progress = age / END
 	local pulse = math.sin(math.pi * progress)
-	card.aura:SetSize(card.width * (0.49 + 0.46 * progress), card.height * (0.46 + 0.25 * progress))
-	card.aura:SetAlpha(0.56 * pulse)
-	if card.wisp:IsShown() then
-		card.wisp:SetAlpha(0.28 * pulse)
+	if card.band:IsShown() then
+		card.band:SetAlpha(0.68 * pulse)
+		if card.flare:IsShown() then
+			card.flare:SetPoint("CENTER", card.art, "CENTER", card.width * (-0.34 + 0.68 * progress), card.height * BAND_Y)
+			card.flare:SetAlpha(0.50 * pulse)
+		end
+	end
+	if theme.aura then
+		card.aura:SetSize(card.width * (0.49 + 0.46 * progress), card.height * (0.46 + 0.25 * progress))
+		card.aura:SetAlpha(0.42 * pulse)
 	end
 	for i, particle in ipairs(card.particles) do
 		local phase = (progress + (i - 1) * 0.19) % 1
@@ -118,28 +176,25 @@ local function AnimateEffects(card, age)
 	end
 end
 
-local function SetEffects(card, theme)
+local function SetEffects(card, theme, kit)
 	card.effects = theme
-	card.aura:SetShown(theme ~= nil)
-	card.wisp:Hide()
+	SetBand(card, kit)
+	card.aura:SetShown(theme ~= nil and theme.aura ~= nil)
 	for _, particle in ipairs(card.particles) do
 		particle:SetShown(theme ~= nil)
 	end
 	if not theme then
 		return
 	end
-	SetEffectArt(card.aura, theme.aura)
-	card.aura:SetVertexColor(unpack(theme.light))
+	if theme.aura then
+		SetEffectArt(card.aura, theme.aura)
+		card.aura:SetVertexColor(unpack(theme.light))
+	end
 	for i, particle in ipairs(card.particles) do
 		SetEffectArt(particle, theme.particle)
 		particle:SetVertexColor(unpack(theme.light))
 		local size = (9 + i * 3) * card.height / 120
 		particle:SetSize(size, size)
-	end
-	if theme == THEMES.fishing and C_Texture.GetAtlasInfo("Cast_Channel_WispGlow") then
-		card.wisp:SetAtlas("Cast_Channel_WispGlow")
-		card.wisp:SetSize(card.width * 0.74, card.height * 0.36)
-		card.wisp:Show()
 	end
 	AnimateEffects(card, 0)
 end
@@ -151,6 +206,7 @@ local function Update(_, delta)
 			card.age = card.age + delta
 			local t = card.age
 			if t >= END then
+				card.bandAnimation:Stop()
 				card.art:Hide()
 			else
 				visible = true
@@ -181,25 +237,42 @@ local function CreateCard()
 	art:EnableMouse(false)
 	local burst = art:CreateTexture(nil, "BACKGROUND")
 	burst:SetAllPoints()
-	local aura = art:CreateTexture(nil, "ARTWORK")
+	local band = art:CreateTexture(nil, "ARTWORK")
+	local flare = art:CreateTexture(nil, "ARTWORK", nil, 1)
+	flare:SetBlendMode("ADD")
+	local bandMask = art:CreateMaskTexture()
+	bandMask:SetTexture(SOFT_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	bandMask:SetAllPoints(band)
+	band:AddMaskTexture(bandMask)
+	flare:AddMaskTexture(bandMask)
+	local bandAnimation = art:CreateAnimationGroup()
+	local flipbook = bandAnimation:CreateAnimation("FlipBook")
+	flipbook:SetTarget(band)
+	flipbook:SetDuration(2)
+	flipbook:SetFlipBookColumns(2)
+	flipbook:SetFlipBookFrameWidth(0)
+	flipbook:SetFlipBookFrameHeight(0)
+	local aura = art:CreateTexture(nil, "ARTWORK", nil, 2)
 	aura:SetPoint("CENTER", art, "CENTER", 0, -8)
-	local wisp = art:CreateTexture(nil, "ARTWORK", nil, 1)
-	wisp:SetBlendMode("ADD")
-	wisp:SetPoint("CENTER", art, "CENTER", 0, -8)
+	local auraMask = art:CreateMaskTexture()
+	auraMask:SetTexture(SOFT_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	auraMask:SetAllPoints(aura)
+	aura:AddMaskTexture(auraMask)
 	local particles = {}
 	for i = 1, 3 do
-		particles[i] = art:CreateTexture(nil, "ARTWORK", nil, 2)
+		particles[i] = art:CreateTexture(nil, "ARTWORK", nil, 3)
 	end
 	local label = art:CreateFontString(nil, "OVERLAY")
 	local value = art:CreateFontString(nil, "OVERLAY")
 	label:SetShadowOffset(1, -1)
 	label:SetShadowColor(0.05, 0.03, 0.02, 0.85)
 	value:SetShadowOffset(2, -2)
-	return { anchor = anchor, art = art, burst = burst, aura = aura, wisp = wisp, particles = particles,
+	return { anchor = anchor, art = art, burst = burst, aura = aura, particles = particles,
+		band = band, flare = flare, bandAnimation = bandAnimation, flipbook = flipbook,
 		label = label, value = value }
 end
 
-local function ShowBurst(kind, label, value, themeName)
+local function ShowBurst(kind, label, value, profession)
 	if not root then
 		root = CreateFrame("Frame", nil, UIParent)
 		root:SetAllPoints()
@@ -212,23 +285,21 @@ local function ShowBurst(kind, label, value, themeName)
 	local card = cards[nextSlot] or CreateCard()
 	cards[nextSlot] = card
 	local style = STYLES[kind]
-	local theme = THEMES[themeName or kind]
+	local theme = THEMES[profession and profession.theme or kind]
 	local size = style.size + math.random(-4, 4)
 	lastBurst = NextVariant(lastBurst, #BURSTS)
 	card.burst:SetTexture(BURSTS[lastBurst])
-	if card.label:SetFont(SMALL_CAPS, 20, "OUTLINE") == false then
-		card.label:SetFontObject(GameFontNormal)
+	if card.label:SetFont(SMALL_CAPS, 20, "") == false then
+		card.label:SetFont(GameFontNormal:GetFont(), 20, "")
 	end
-	if card.value:SetFont(theme.font or style.font, size, "OUTLINE") == false then
-		local face = GameFontNormal:GetFont()
-		card.value:SetFont(face, size, "OUTLINE")
+	if card.value:SetFont(theme.font or style.font, size, "") == false then
+		card.value:SetFont(GameFontNormal:GetFont(), size, "")
 	end
 	card.label:SetText(label)
 	card.value:SetText(value)
 	card.label:SetTextColor(0.94, 0.87, 0.72)
 	card.value:SetTextColor(unpack(theme.text))
-	local r, g, b = unpack(theme.light)
-	card.value:SetShadowColor(r * 0.27, g * 0.27, b * 0.27, 0.95)
+	card.value:SetShadowColor(0.05, 0.03, 0.02, 0.90)
 	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * 0.43)
 	card.value:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.24)
 	card.burst:SetVertexColor(unpack(theme.paper))
@@ -236,7 +307,11 @@ local function ShowBurst(kind, label, value, themeName)
 	local width, height = math.max(225, textWidth * 1.50 + 30), 55 + size * 1.45
 	card.width, card.height = width, height
 	card.art:SetSize(width, height)
-	SetEffects(card, SoloParty.db.effects and theme or nil)
+	if SoloParty.db.effects then
+		SetEffects(card, theme, profession and profession.kit or theme.kit or "DefaultBlue")
+	else
+		SetEffects(card)
+	end
 	local w, h = root:GetSize()
 	card.fit = math.min(1, w * 0.24 / width, h * 0.21 / height)
 	local point = POSITIONS[nextSlot]
@@ -247,6 +322,9 @@ local function ShowBurst(kind, label, value, themeName)
 	card.art:SetAlpha(0)
 	card.art:Show()
 	root:Show()
+	if card.band:IsShown() then
+		card.bandAnimation:Play()
+	end
 	PlayBurstSound(kind)
 end
 
@@ -303,7 +381,7 @@ end
 function SoloParty:CHAT_MSG_SKILL(_, message)
 	local name, rank = ns.ParseSkillRankMessage(message)
 	if name then
-		ShowBurst("skill", name, L.SOLO_PARTY_RANK:format(rank), skillThemes[name])
+		ShowBurst("skill", name, L.SOLO_PARTY_RANK:format(rank), skillEffectsByName[name])
 	end
 end
 
@@ -332,6 +410,7 @@ function SoloParty:OnOptionChanged(key)
 		end
 		if root then
 			for _, card in pairs(cards) do
+				card.bandAnimation:Stop()
 				card.art:Hide()
 			end
 			root:Hide()
@@ -341,11 +420,11 @@ end
 
 function SoloParty:OnLogin()
 	if C_TradeSkillUI and C_TradeSkillUI.GetProfessionInfoBySkillLineID then
-		for skillLine, theme in pairs(SKILL_EFFECTS) do
+		for skillLine, effect in pairs(SKILL_EFFECTS) do
 			local info = C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLine)
 			local name = info and info.professionName
 			if type(name) == "string" and not ns.Secret(name) and name ~= "" then
-				skillThemes[name] = theme
+				skillEffectsByName[name] = effect
 			end
 		end
 	end
@@ -353,7 +432,7 @@ function SoloParty:OnLogin()
 end
 
 local PREVIEW_STEPS = {
-	function() ShowBurst("skill", L.SOLO_PARTY_PREVIEW_SKILL, L.SOLO_PARTY_RANK:format(75), "fishing") end,
+	function() ShowBurst("skill", L.SOLO_PARTY_PREVIEW_SKILL, L.SOLO_PARTY_RANK:format(75), SKILL_EFFECTS[356]) end,
 	function() ShowMoney("loot", 12500) end,
 	function() ShowMoney("spent", 3500) end,
 }

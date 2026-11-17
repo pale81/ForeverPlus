@@ -4557,12 +4557,22 @@ end)()
 	-- Solo Party uses independent events, even with the chat summaries disabled.
 	local solo = ns:GetModule("SoloParty")
 	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI }
+	local getAtlasInfo = C_Texture.GetAtlasInfo
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
 	local frames, played, effects = {}, {}, {}
 	C_TradeSkillUI = { GetProfessionInfoBySkillLineID = function(skill)
-		local names = { [356] = "Fischfang", [186] = "Bergbau" }
+		local names = { [356] = "Fischfang", [186] = "Bergbau", [393] = "Kürschnerei",
+			[182] = "Kräuterkunde", [185] = "Kochkunst", [129] = "Erste Hilfe", [165] = "Lederverarbeitung" }
 		return { professionName = names[skill] }
 	end }
+	C_Texture.GetAtlasInfo = function(atlas)
+		local kit = atlas:match("^Skillbar_Fill_Flipbook_(.+)$")
+		if kit then
+			if kit == "Leatherworking" then return nil end
+			return { height = (kit == "Fishing" and 17 or 30) * 34 }
+		end
+		return getAtlasInfo(atlas)
+	end
 	solo:OnLogin()
 	SOUNDKIT = ns.CopyDefaults(SOUNDKIT, {})
 	SOUNDKIT.UI_MISSION_SUCCESS_CHEERS = 74702
@@ -4608,14 +4618,35 @@ end)()
 				texture.SetTexture, texture.SetAtlas = Record, Record
 				texture.SetTexCoord = function(self, left) self.u = left end
 				texture.SetPoint = function(self, _, _, _, x, y) self.x, self.y = x, y end
+				texture.AddMaskTexture = function(self, mask) self.mask = mask end
 			end
 			return texture
+		end
+		frame.CreateMaskTexture = function()
+			local mask = NewFrame("Mask")
+			mask.SetTexture = function(self, path) self.path = path end
+			return mask
+		end
+		frame.CreateAnimationGroup = function()
+			local group = NewFrame("AnimationGroup")
+			group.Play = function(self) self.playing = true end
+			group.Stop = function(self) self.playing = false end
+			group.CreateAnimation = function(_, animationType)
+				assert(animationType == "FlipBook", "profession fill uses a native flipbook")
+				local flipbook = NewFrame("FlipBook")
+				flipbook.SetTarget = function(self, target) target.group, target.flipbook = group, self end
+				flipbook.SetFlipBookRows = function(self, rows) self.rows = rows end
+				flipbook.SetFlipBookColumns = function(self, columns) self.columns = columns end
+				flipbook.SetFlipBookFrames = function(self, frames) self.frames = frames end
+				return flipbook
+			end
+			return group
 		end
 		frame.CreateFontString = function()
 			local region = NewFrame("FontString")
 			region.SetText = function(_, value) printed[#printed + 1] = value end
-			region.SetFont = function(_, font, size)
-				visuals[#visuals + 1] = { font, size }
+			region.SetFont = function(_, font, size, flags)
+				visuals[#visuals + 1] = { font, size, flags }
 				return true
 			end
 			return region
@@ -4676,8 +4707,13 @@ end)()
 	assert(printed[5] == ns.L.SOLO_PARTY_SPENT and printed[6] == "−100c", "exactly -10% of the purse before spending qualifies")
 	assert(#played == 3 and reward[played[1]] and reward[played[2]] and expense[played[3]], "each qualifying burst gets a sound from its pool")
 	assert(#frames == 3 and frames[1] ~= frames[2] and frames[2] ~= frames[3] and frames[1] ~= frames[3], "all three frames rotate")
-	assert(Effect(1, "ui-castingbar-full-glow-standard") and Effect(2, "UI-GoldIcon")
-		and Effect(3, "BonusChest-OrangeSmoke-Wide"), "rank, loot and spending have different art")
+	local skinning = assert(Effect(1, "Skillbar_Fill_Flipbook_Skinning"), "skinning uses its own profession art")
+	assert(skinning.group.playing and skinning.flipbook.rows == 30 and skinning.flipbook.columns == 2
+		and skinning.flipbook.frames == 60, "profession texture plays on its own frame grid")
+	assert(Effect(2, "Skillbar_Fill_Flipbook_Mining") and Effect(2, "UI-GoldIcon")
+		and Effect(3, "Skillbar_Fill_Flipbook_Blacksmithing") and Effect(3, "BonusChest-OrangeSmoke-Wide"),
+		"loot and spending combine the native profession motifs with coins and smoke")
+	assert(visuals[1][3] == "" and visuals[2][3] == "", "card text uses a shadow without an outline")
 	for _, path in ipairs(frames) do
 		local asset = assert(io.open(root .. "/Media/" .. path:match("[^\\]+$") .. ".tga", "rb"))
 		asset:close()
@@ -4685,7 +4721,7 @@ end)()
 	assert(positions[1][1] ~= positions[2][1] and positions[2][1] ~= positions[3][1], "consecutive bursts use different places")
 	assert(visuals[4][1] ~= visuals[6][1] and visuals[4][2] ~= visuals[6][2], "loot and expenses use different typefaces and sizes")
 	layer:GetScript("OnUpdate")(layer, 2)
-	assert(not layer:IsShown(), "animation releases the overlay")
+	assert(not layer:IsShown() and not skinning.group.playing, "animation releases the overlay and stops the flipbook")
 
 	EnterWorld(0)
 	money = 11
@@ -4706,10 +4742,15 @@ end)()
 	preview()
 	assert(#printed == 12 and #played == 6, "preview starts with one effect and one sound")
 	local bubble = assert(Effect(6, "SoloPartyWater", 0.5), "fishing has bubble particles")
-	assert(Effect(6, "SoloPartyWater", 0) and Effect(6, "Cast_Channel_WispGlow"), "fishing has ripples and the channel wisp")
-	local bubbleY = bubble.y
+	local fishingBand = assert(Effect(6, "Skillbar_Fill_Flipbook_Fishing"), "fishing uses the animated profession book fill")
+	local fishingFlare = assert(Effect(6, "Skillbar_Flare_Fishing"), "fishing uses the profession book flare")
+	assert(Effect(6, "SoloPartyWater", 0) and fishingBand.flipbook.frames == 34, "fishing keeps its ripples and uses its own frame count")
+	assert(fishingBand.mask == fishingFlare.mask and fishingBand.mask.path:find("SoloPartyEffectMask", 1, true),
+		"the art and moving flare share a feathered mask")
+	local bubbleY, flareX = bubble.y, fishingFlare.x
 	layer:GetScript("OnUpdate")(layer, 0.45)
 	assert(bubble.y > bubbleY and bubble:GetAlpha() > 0, "fishing bubbles rise and become visible")
+	assert(fishingFlare.x > flareX and fishingFlare.y < 0 and fishingFlare:GetAlpha() > 0, "the flare travels along the lower card")
 	timers[#timers].fn()
 	assert(#printed == 14 and #played == 7, "preview plays the second effect separately")
 	timers[#timers].fn()
@@ -4733,14 +4774,21 @@ end)()
 	assert(Effect(#frames, "SoloPartyWater", 0.5), "the fishing effect follows the client-localized skill name")
 	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Bergbau' hat sich auf 51 erhöht.")
 	local smoke = assert(Effect(#frames, "BonusChest-OrangeSmoke-Wide"), "mining gets the forge effect")
+	local mining = assert(Effect(#frames, "Skillbar_Fill_Flipbook_Mining"), "mining gets its animated profession texture")
+	for _, profession in ipairs({ { "Kräuterkunde", "Herbalism" }, { "Kochkunst", "Cooking" }, { "Erste Hilfe", "FirstAid" },
+		{ "Lederverarbeitung", "DefaultBlue" } }) do
+		Fire("CHAT_MSG_SKILL", "Eure Fertigkeit '" .. profession[1] .. "' hat sich auf 51 erhöht.")
+		assert(Effect(#frames, "Skillbar_Fill_Flipbook_" .. profession[2]), "profession kit or fallback for " .. profession[1])
+	end
 	solo.db.effects = false
 	solo:OnOptionChanged("effects")
-	assert(not smoke:IsShown(), "turning off the effects clears existing art immediately")
+	assert(not smoke:IsShown() and not mining:IsShown() and not mining.group.playing, "disabling effects clears and stops active art")
 	Fire("CHAT_MSG_SKILL", skill)
 	assert(not effects[#frames] and printed[#printed - 1] == "Kürschnerei", "the frame and text continue without effects")
 	SetEnabled(false)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI = unpack(saved, 1, 8)
+	C_Texture.GetAtlasInfo = getAtlasInfo
 	print("solo party OK")
 end)()
 ;(function()

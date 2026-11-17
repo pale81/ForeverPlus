@@ -12,8 +12,10 @@ local XPBar = ns:NewModule("XPBar", {
 		repFormat = "full",
 		questXP = true,
 		restedShimmer = true,
-		barWidth = 100,
-		barHeight = 100,
+		bar1Width = 100,
+		bar1Height = 100,
+		bar2Width = 100,
+		bar2Height = 100,
 	},
 })
 
@@ -21,10 +23,21 @@ local function Percent(value)
 	return ("%d%%"):format(value + 0.5)
 end
 
-local SIZE_OPTIONS = {
-	{ key = "barWidth", name = L.XP_BAR_WIDTH, desc = L.XP_BAR_WIDTH_DESC, min = 10, max = 100, step = 5, format = Percent },
-	{ key = "barHeight", name = L.XP_BAR_HEIGHT, desc = L.XP_BAR_HEIGHT_DESC, min = 30, max = 100, step = 5, format = Percent },
-}
+-- Each status bar container (1 = main, 2 = secondary, as in Edit Mode) has its own size.
+local SIZE_OPTIONS = {}
+local SIZE_KEYS = {}
+for index = 1, 2 do
+	local width, height = "bar" .. index .. "Width", "bar" .. index .. "Height"
+	SIZE_KEYS[width], SIZE_KEYS[height] = true, true
+	SIZE_OPTIONS[index] = {
+		{ key = width, name = L.XP_BAR_WIDTH, desc = L.XP_BAR_WIDTH_DESC, min = 10, max = 100, step = 5, format = Percent },
+		{ key = height, name = L.XP_BAR_HEIGHT, desc = L.XP_BAR_HEIGHT_DESC, min = 30, max = 100, step = 5, format = Percent },
+	}
+end
+
+local function ContainerIndex(container)
+	return container == SecondaryStatusTrackingBarContainer and 2 or 1
+end
 
 local QUEST_COLOR = { 0.4, 0.24, 0.09 } -- a dark, muted orange: apart from the purple fill and the blue of the rested bonus, but not in front
 local QUEST_ALPHA = 0.6 -- see-through, so the bar below shows a little
@@ -249,12 +262,32 @@ local function FitFrame(container, shrunk)
 	end
 end
 
+-- The section strokes keep their distance and size: a narrower bar gets fewer of them instead of squeezed ones.
+local function SegmentCount(expected, width, baseWidth)
+	return max(1, floor(expected * width / baseWidth + 0.5))
+end
+XPBar.SegmentCount = SegmentCount
+
+local dividing = false
+
+local function LayoutDividers(container)
+	local base = baseSizes[container]
+	local width = ns.Number(container:GetWidth())
+	if not (base and width and container.UpdateDividers and container.GetExpectedSegments) then
+		return
+	end
+	dividing = true
+	container:UpdateDividers(SegmentCount(container:GetExpectedSegments(), width, base[1]))
+	dividing = false
+end
+
 local function ApplySize(container)
 	local base = baseSizes[container]
 	if not base then
 		return
 	end
-	local width, height = ScaledSize(base[1], base[2], XPBar.db.barWidth, XPBar.db.barHeight)
+	local index = ContainerIndex(container)
+	local width, height = ScaledSize(base[1], base[2], XPBar.db["bar" .. index .. "Width"], XPBar.db["bar" .. index .. "Height"])
 	sizing = true
 	container:SetSize(width, height)
 	sizing = false
@@ -263,9 +296,7 @@ local function ApplySize(container)
 	if container.ResizeContainerBars then
 		container:ResizeContainerBars()
 	end
-	if container.UpdateDividers and container.GetExpectedSegments then
-		container:UpdateDividers(container:GetExpectedSegments())
-	end
+	LayoutDividers(container)
 end
 
 local function OnContainerSize(container)
@@ -288,6 +319,14 @@ local function HookContainer(container)
 	hookedContainers[container] = true
 	OnContainerSize(container)
 	hooksecurefunc(container, "SetSize", ns.Measured("XPBar: track native size", OnContainerSize))
+	if container.UpdateDividers then
+		-- The game lays the strokes out again for the current width (layout changes); keep the distance.
+		hooksecurefunc(container, "UpdateDividers", ns.Measured("XPBar: keep stroke distance", function(self, numSegments)
+			if not dividing and baseSizes[self] and numSegments ~= SegmentCount(numSegments, ns.Number(self:GetWidth(), 0), baseSizes[self][1]) then
+				LayoutDividers(self)
+			end
+		end))
+	end
 end
 
 local function ApplySizes()
@@ -301,41 +340,47 @@ local function SetupEditSizeControls()
 	if not (dialog and dialog.Settings and dialog.UpdateSettings) then
 		return
 	end
-	local controls, refresh
+	local controls, refresh = {}, {}
 	hooksecurefunc(dialog, "UpdateSettings", ns.Measured("XPBar: show Edit Mode size controls", function(self, system)
 		if system ~= self.attachedToSystem then
 			return
 		end
 		local shown = hookedContainers[system] == true and self.Settings:IsShown()
-		if shown and not controls then
-			controls = CreateFrame("Frame", nil, self.Settings)
-			controls.layoutIndex = 100
-			controls:SetSize(330, 72)
-			controls:Hide()
-			refresh = {}
-			local hint = controls:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		if shown and not controls[system] then
+			local frame = CreateFrame("Frame", nil, self.Settings)
+			frame.layoutIndex = 100
+			frame:SetSize(330, 72)
+			frame:Hide()
+			local sync = {}
+			local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 			hint:SetPoint("TOPLEFT", 4, -3)
-			hint:SetText(L.XP_BAR_SIZE_SHARED)
-			for index, option in ipairs(SIZE_OPTIONS) do
+			hint:SetText(L.XP_BAR_SIZE_HINT)
+			for index, option in ipairs(SIZE_OPTIONS[ContainerIndex(system)]) do
 				local y = -15 - (index - 1) * 27
-				local label = controls:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-				label:SetPoint("LEFT", controls, "TOPLEFT", 4, y - 13)
+				local label = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+				label:SetPoint("LEFT", frame, "TOPLEFT", 4, y - 13)
 				label:SetText(option.name)
-				local slider, sync = ns.CreateEditSlider(controls, XPBar, option)
-				slider:SetPoint("TOPLEFT", controls, "TOPLEFT", 125, y - 2)
+				local slider, refreshSlider = ns.CreateEditSlider(frame, XPBar, option)
+				slider:SetPoint("TOPLEFT", frame, "TOPLEFT", 125, y - 2)
 				slider:SetSize(146, 24)
-				refresh[index] = sync
+				sync[index] = refreshSlider
 			end
+			controls[system], refresh[system] = frame, sync
 		end
 		if shown then
-			for _, sync in ipairs(refresh) do sync() end
+			for _, sync in ipairs(refresh[system]) do sync() end
 		end
-		if controls and controls:IsShown() ~= shown then
-			controls:SetShown(shown)
-			-- UpdateSettings lays out the native rows first; include our rows before the dialog sizes itself.
-			if self.Settings:IsShown() then
-				self.Settings:Layout()
+		local changed
+		for owner, frame in pairs(controls) do
+			local visible = shown and owner == system
+			if frame:IsShown() ~= visible then
+				frame:SetShown(visible)
+				changed = true
 			end
+		end
+		-- UpdateSettings lays out the native rows first; include our rows before the dialog sizes itself.
+		if changed and self.Settings:IsShown() then
+			self.Settings:Layout()
 		end
 	end))
 end
@@ -371,6 +416,14 @@ function XPBar:ApplyTextSetting()
 end
 
 function XPBar:OnInitialize()
+	-- Until now one size applied to both bars.
+	if self.db.barWidth ~= nil or self.db.barHeight ~= nil then
+		for index = 1, 2 do
+			self.db["bar" .. index .. "Width"] = self.db.barWidth or self.db["bar" .. index .. "Width"]
+			self.db["bar" .. index .. "Height"] = self.db.barHeight or self.db["bar" .. index .. "Height"]
+		end
+		self.db.barWidth, self.db.barHeight = nil, nil
+	end
 	if self.db.alwaysText ~= nil then
 		self.db.textMode = self.db.alwaysText and "always" or "mouseover"
 		self.db.alwaysText = nil
@@ -401,7 +454,7 @@ function XPBar:OnOptionChanged(key)
 		self:ApplyTextSetting()
 	elseif key == "questXP" then
 		QueueScan()
-	elseif key == "barWidth" or key == "barHeight" then
+	elseif SIZE_KEYS[key] then
 		ApplySizes()
 	end
 	UpdateBars()

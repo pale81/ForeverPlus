@@ -892,29 +892,45 @@ GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3,
 	assert(w == 4 and h == 4, "never larger than the standard size")
 	local hookBars = uv(xp.OnLogin, "HookBars")
 	local hookContainer, onSize, applySizes = uv(hookBars, "HookContainer"), uv(uv(hookBars, "HookContainer"), "OnContainerSize"), uv(xp.OnOptionChanged, "ApplySizes")
-	local container = { width = 600, height = 17, calls = 0, resized = 0, dividers = 0, BarFrameTexture = { ClearAllPoints = function() end, SetPoint = function() end, GetAtlas = function() end } }
-	function container:GetWidth() return self.width end
-	function container:GetHeight() return self.height end
-	function container:SetSize(a, b) self.width, self.height = a, b end
-	function container:ResizeContainerBars() self.resized = self.resized + 1 end
-	function container:UpdateDividers() self.dividers = self.dividers + 1 end
-	function container:GetExpectedSegments() return 20 end
-	xp.db.barWidth, xp.db.barHeight = 50, 50
+	assert(xp.SegmentCount(20, 1000, 1000) == 20, "full width keeps all section strokes")
+	assert(xp.SegmentCount(20, 500, 1000) == 10, "half width keeps half the strokes at the same distance")
+	assert(xp.SegmentCount(20, 10, 1000) == 1, "at least one segment")
+	local function NewContainer(width)
+		local c = { width = width, height = 17, resized = 0, dividers = 0, segments = nil, BarFrameTexture = { ClearAllPoints = function() end, SetPoint = function() end, GetAtlas = function() end } }
+		function c:GetWidth() return self.width end
+		function c:GetHeight() return self.height end
+		function c:SetSize(a, b) self.width, self.height = a, b end
+		function c:ResizeContainerBars() self.resized = self.resized + 1 end
+		function c:UpdateDividers(n) self.dividers = self.dividers + 1; self.segments = n end
+		function c:GetExpectedSegments() return 20 end
+		return c
+	end
+	local container, second = NewContainer(600), NewContainer(600)
+	SecondaryStatusTrackingBarContainer = second
+	xp.db.bar1Width, xp.db.bar1Height, xp.db.bar2Width, xp.db.bar2Height = 50, 50, 100, 100
 	hookContainer(container)
-	assert(container.width == 300 and container.height == 8.5, "container shrunk on hook")
+	hookContainer(second)
+	assert(container.width == 300 and container.height == 8.5, "container 1 shrunk on hook")
+	assert(second.width == 600 and second.height == 17, "container 2 keeps its own (standard) size")
+	assert(container.segments == 10 and second.segments == 20, "strokes keep their distance on the narrower bar")
 	container:SetSize(800, 17) -- Blizzard or Edit Mode sets a new standard size
 	onSize(container)
-	assert(container.width == 400 and container.height == 8.5, "new standard size is shrunk again")
+	assert(container.width == 400 and container.height == 8.5 and container.segments == 10, "new standard size is shrunk again")
 	-- The built-in Edit Mode width slider keeps the height already set by us.
 	for _, width in ipairs({ 700, 900 }) do
 		container:SetSize(width, container:GetHeight())
 		onSize(container)
 		assert(container.width == width / 2 and container.height == 8.5, "the native width slider does not rescale height")
 	end
-	xp.db.barWidth, xp.db.barHeight = 100, 100
+	xp.db.bar2Width, xp.db.bar2Height = 25, 100
 	applySizes()
-	assert(container.width == 900 and container.height == 17, "100% restores the standard size")
-	assert(container.resized == 5 and container.dividers == 5, "bars and dividers follow every size change")
+	assert(second.width == 150 and second.height == 17 and second.segments == 5, "container 2 follows its own setting")
+	assert(container.width == 450 and container.segments == 10, "container 1 is not touched by setting 2")
+	xp.db.bar1Width, xp.db.bar1Height, xp.db.bar2Width, xp.db.bar2Height = 100, 100, 100, 100
+	applySizes()
+	assert(container.width == 900 and container.height == 17 and container.segments == 20, "100% restores the standard size and strokes")
+	assert(second.width == 600 and second.segments == 20, "100% restores container 2")
+	SecondaryStatusTrackingBarContainer = nil
 	print("xp bar size OK")
 end)()
 IsQuestLogSpecialItemInRange = function() return nil end

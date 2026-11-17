@@ -853,6 +853,40 @@ local SelectionLayout = {
 ns.editFrames = {}
 local editModeActive = false
 
+-- Addon-owned controls can live in Edit Mode without registering game layout settings.
+function ns.SetEditTooltip(region, name, desc)
+	if not desc then
+		return
+	end
+	region:HookScript("OnEnter", ns.Measured("Edit Mode: option tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, name)
+		GameTooltip:AddLine(desc, nil, nil, nil, true)
+		GameTooltip:Show()
+	end))
+	region:HookScript("OnLeave", GameTooltip_Hide)
+end
+
+function ns.CreateEditSlider(parent, module, option)
+	local slider = CreateFrame("Frame", nil, parent, "MinimalSliderWithSteppersTemplate")
+	local labels = MinimalSliderWithSteppersMixin.Label
+	slider:Init(module.db[option.key], option.min, option.max, (option.max - option.min) / option.step, {
+		[labels.Right] = option.format,
+	})
+	local refreshing
+	slider:RegisterCallback("OnValueChanged", ns.Measured(module.name .. ": Edit Mode slider", function(_, value)
+		if not refreshing and value ~= module.db[option.key] then
+			ns.SetOption(module.name, option.key, value)
+		end
+	end), slider)
+	ns.SetEditTooltip(slider.Slider, option.name, option.desc)
+	return slider, function()
+		refreshing = true
+		slider:SetValue(module.db[option.key])
+		refreshing = false
+	end
+end
+
 local function ApplyEditPosition(entry)
 	local frame, pos = entry.frame, entry.db
 	frame:ClearAllPoints()
@@ -892,25 +926,34 @@ local function CreateSelection(entry)
 	sel.Label = sel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	sel.Label:SetPoint("CENTER")
 	sel.Label:SetText(entry.label)
-	sel:SetScript("OnDragStart", function()
+	local dragged
+	sel:SetScript("OnDragStart", ns.Measured("Mover: start Edit Mode drag", function()
+		dragged = true
 		if InCombatLockdown() and frame:IsProtected() then
 			return
 		end
 		frame:SetMovable(true)
 		frame:StartMoving()
-	end)
+	end))
 	sel:SetScript("OnDragStop", function()
 		frame:StopMovingOrSizing()
 		frame:SetUserPlaced(false)
 		entry.db.x, entry.db.y = frame:GetLeft(), frame:GetTop()
 		ApplyEditPosition(entry)
 	end)
-	sel:SetScript("OnMouseDown", function(self)
+	sel:SetScript("OnMouseDown", ns.Measured("Mover: press Edit Mode selection", function(self, button)
+		if button == "LeftButton" then
+			dragged = false
+		end
 		NineSliceUtil.ApplyLayout(self, SelectionLayout, "editmode-actionbar-selected")
-	end)
-	sel:SetScript("OnMouseUp", function(self)
+	end))
+	sel:SetScript("OnMouseUp", ns.Measured("Mover: release Edit Mode selection", function(self, button)
 		NineSliceUtil.ApplyLayout(self, SelectionLayout, "editmode-actionbar-highlight")
-	end)
+		if entry.onClick and button == "LeftButton" and dragged == false and self:IsMouseOver() then
+			entry.onClick(frame)
+		end
+		dragged = nil
+	end))
 	-- Below the frame: "centre" puts it on the vertical centre line of the screen.
 	local center = CreateFrame("Button", nil, sel, "UIPanelButtonTemplate")
 	center:SetSize(76, 20)
@@ -955,7 +998,7 @@ end
 
 -- Registers a ForeverPlus frame for Edit Mode dragging and Alt-drag exclusion.
 -- defaultPoint: { point, relativeTo, relativePoint, x, y }
-function ns:RegisterEditFrame(frame, key, label, defaultPoint, onEditMode)
+function ns:RegisterEditFrame(frame, key, label, defaultPoint, onEditMode, onClick)
 	local positions = ns.db.frames
 	positions["FP:" .. key] = positions["FP:" .. key] or {}
 	local entry = {
@@ -964,6 +1007,7 @@ function ns:RegisterEditFrame(frame, key, label, defaultPoint, onEditMode)
 		defaultPoint = defaultPoint,
 		db = positions["FP:" .. key],
 		onEditMode = onEditMode,
+		onClick = onClick,
 	}
 	entry.reset = function()
 		positions["FP:" .. key] = {}

@@ -905,10 +905,16 @@ GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3,
 	container:SetSize(800, 17) -- Blizzard or Edit Mode sets a new standard size
 	onSize(container)
 	assert(container.width == 400 and container.height == 8.5, "new standard size is shrunk again")
+	-- The built-in Edit Mode width slider keeps the height already set by us.
+	for _, width in ipairs({ 700, 900 }) do
+		container:SetSize(width, container:GetHeight())
+		onSize(container)
+		assert(container.width == width / 2 and container.height == 8.5, "the native width slider does not rescale height")
+	end
 	xp.db.barWidth, xp.db.barHeight = 100, 100
 	applySizes()
-	assert(container.width == 800 and container.height == 17, "100% restores the standard size")
-	assert(container.resized == 3 and container.dividers == 3, "bars and dividers follow every size change")
+	assert(container.width == 900 and container.height == 17, "100% restores the standard size")
+	assert(container.resized == 5 and container.dividers == 5, "bars and dividers follow every size change")
 	print("xp bar size OK")
 end)()
 IsQuestLogSpecialItemInRange = function() return nil end

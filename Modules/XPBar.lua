@@ -17,6 +17,15 @@ local XPBar = ns:NewModule("XPBar", {
 	},
 })
 
+local function Percent(value)
+	return ("%d%%"):format(value + 0.5)
+end
+
+local SIZE_OPTIONS = {
+	{ key = "barWidth", name = L.XP_BAR_WIDTH, desc = L.XP_BAR_WIDTH_DESC, min = 10, max = 100, step = 5, format = Percent },
+	{ key = "barHeight", name = L.XP_BAR_HEIGHT, desc = L.XP_BAR_HEIGHT_DESC, min = 30, max = 100, step = 5, format = Percent },
+}
+
 local QUEST_COLOR = { 0.4, 0.24, 0.09 } -- a dark, muted orange: apart from the purple fill and the blue of the rested bonus, but not in front
 local QUEST_ALPHA = 0.6 -- see-through, so the bar below shows a little
 local SCAN_DELAY = 0.3
@@ -249,6 +258,7 @@ local function ApplySize(container)
 	sizing = true
 	container:SetSize(width, height)
 	sizing = false
+	base[3] = ns.Number(container:GetHeight())
 	FitFrame(container, width < base[1] or height < base[2])
 	if container.ResizeContainerBars then
 		container:ResizeContainerBars()
@@ -264,7 +274,9 @@ local function OnContainerSize(container)
 	end
 	local width, height = ns.Number(container:GetWidth()), ns.Number(container:GetHeight())
 	if width and height then
-		baseSizes[container] = { width, height }
+		local base = baseSizes[container]
+		-- The native width slider passes GetHeight() back to SetSize. In that case the height is already scaled.
+		baseSizes[container] = { width, (base and height == base[3]) and base[2] or height }
 	end
 	ApplySize(container)
 end
@@ -275,13 +287,57 @@ local function HookContainer(container)
 	end
 	hookedContainers[container] = true
 	OnContainerSize(container)
-	hooksecurefunc(container, "SetSize", OnContainerSize)
+	hooksecurefunc(container, "SetSize", ns.Measured("XPBar: track native size", OnContainerSize))
 end
 
 local function ApplySizes()
 	for container in pairs(baseSizes) do
 		ApplySize(container)
 	end
+end
+
+local function SetupEditSizeControls()
+	local dialog = EditModeSystemSettingsDialog
+	if not (dialog and dialog.Settings and dialog.UpdateSettings) then
+		return
+	end
+	local controls, refresh
+	hooksecurefunc(dialog, "UpdateSettings", ns.Measured("XPBar: show Edit Mode size controls", function(self, system)
+		if system ~= self.attachedToSystem then
+			return
+		end
+		local shown = hookedContainers[system] == true and self.Settings:IsShown()
+		if shown and not controls then
+			controls = CreateFrame("Frame", nil, self.Settings)
+			controls.layoutIndex = 100
+			controls:SetSize(330, 72)
+			controls:Hide()
+			refresh = {}
+			local hint = controls:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+			hint:SetPoint("TOPLEFT", 4, -3)
+			hint:SetText(L.XP_BAR_SIZE_SHARED)
+			for index, option in ipairs(SIZE_OPTIONS) do
+				local y = -15 - (index - 1) * 27
+				local label = controls:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+				label:SetPoint("LEFT", controls, "TOPLEFT", 4, y - 13)
+				label:SetText(option.name)
+				local slider, sync = ns.CreateEditSlider(controls, XPBar, option)
+				slider:SetPoint("TOPLEFT", controls, "TOPLEFT", 125, y - 2)
+				slider:SetSize(146, 24)
+				refresh[index] = sync
+			end
+		end
+		if shown then
+			for _, sync in ipairs(refresh) do sync() end
+		end
+		if controls and controls:IsShown() ~= shown then
+			controls:SetShown(shown)
+			-- UpdateSettings lays out the native rows first; include our rows before the dialog sizes itself.
+			if self.Settings:IsShown() then
+				self.Settings:Layout()
+			end
+		end
+	end))
 end
 
 local function HookBars()
@@ -334,6 +390,7 @@ function XPBar:OnLogin()
 		end
 	end)
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookBars)
+	ns.OnAddOnLoaded("Blizzard_EditMode", SetupEditSizeControls)
 	self:RegisterEvent("QUEST_LOG_UPDATE", QueueScan)
 	self:RegisterEvent("PLAYER_XP_UPDATE", UpdateBars)
 	QueueScan()
@@ -370,8 +427,4 @@ XPBar.options = {
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_REP_FORMAT_FULL },
 	} },
 	{ key = "questXP", type = "toggle", name = L.XP_QUEST_OVERLAY, desc = L.XP_QUEST_OVERLAY_DESC },
-	{ key = "barWidth", type = "slider", name = L.XP_BAR_WIDTH, desc = L.XP_BAR_WIDTH_DESC, min = 10, max = 100, step = 5, new = true,
-		format = function(v) return ("%d%%"):format(v + 0.5) end },
-	{ key = "barHeight", type = "slider", name = L.XP_BAR_HEIGHT, desc = L.XP_BAR_HEIGHT_DESC, min = 30, max = 100, step = 5, new = true,
-		format = function(v) return ("%d%%"):format(v + 0.5) end },
 }

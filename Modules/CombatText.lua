@@ -88,6 +88,7 @@ local PLACES = {
 	heal = { "CombatTextHeal", L.COMBATTEXT_PLACE_HEAL, { "CENTER", UIParent, "CENTER", 140, 40 } },
 }
 local anchors = {}
+local ShowEditOptions
 
 local frame
 local pool, active = {}, {}
@@ -102,7 +103,7 @@ local function CreateAnchors()
 		anchor:SetSize(90, 30)
 		anchor:SetPoint(unpack(place[3]))
 		anchors[key] = anchor
-		ns:RegisterEditFrame(anchor, place[1], place[2], place[3])
+		ns:RegisterEditFrame(anchor, place[1], place[2], place[3], nil, ShowEditOptions)
 	end
 end
 
@@ -303,40 +304,136 @@ function CombatText:OnLogin()
 	self:Apply()
 end
 
-function CombatText:OnOptionChanged()
-	self:Apply()
+function CombatText:OnOptionChanged(key)
+	if key == "enabled" then
+		self:Apply()
+	end
 end
 
-local function ColorChoices()
-	return {
-		{ "YELLOW", L.CHAT_COLOR_YELLOW }, { "ORANGE", L.CHAT_COLOR_ORANGE }, { "RED", L.CHAT_COLOR_RED },
-		{ "GREEN", L.CHAT_COLOR_GREEN }, { "BLUE", L.CHAT_COLOR_BLUE }, { "PURPLE", L.COMBATTEXT_COLOR_PURPLE },
-		{ "WHITE", L.CHAT_COLOR_WHITE }, { "GREY", L.CHAT_COLOR_GREY }, { "CLASS", L.COMBATTEXT_COLOR_CLASS },
-	}
+local COLOR_CHOICES = {
+	{ "YELLOW", L.CHAT_COLOR_YELLOW }, { "ORANGE", L.CHAT_COLOR_ORANGE }, { "RED", L.CHAT_COLOR_RED },
+	{ "GREEN", L.CHAT_COLOR_GREEN }, { "BLUE", L.CHAT_COLOR_BLUE }, { "PURPLE", L.COMBATTEXT_COLOR_PURPLE },
+	{ "WHITE", L.CHAT_COLOR_WHITE }, { "GREY", L.CHAT_COLOR_GREY }, { "CLASS", L.COMBATTEXT_COLOR_CLASS },
+}
+local COLOR_OPTIONS = {
+	{ "colorOutgoing", L.COMBATTEXT_COLOR_OUTGOING }, { "colorCrit", L.COMBATTEXT_COLOR_CRIT },
+	{ "colorIncoming", L.COMBATTEXT_COLOR_INCOMING }, { "colorHeal", L.COMBATTEXT_COLOR_HEAL },
+	{ "colorMiss", L.COMBATTEXT_COLOR_MISS },
+}
+local STYLE_OPTIONS = {
+	{ "targetPlate", L.COMBATTEXT_TARGET_PLATE, L.COMBATTEXT_TARGET_PLATE_DESC },
+	{ "critBold", L.COMBATTEXT_CRIT_BOLD, L.COMBATTEXT_CRIT_BOLD_DESC },
+	{ "critShake", L.COMBATTEXT_CRIT_SHAKE, L.COMBATTEXT_CRIT_SHAKE_DESC },
+	{ "critPop", L.COMBATTEXT_CRIT_POP, L.COMBATTEXT_CRIT_POP_DESC },
+}
+
+local editPanel
+
+local function Preview()
+	Spawn("1234", "outgoing", false)
+	Spawn("2468", "outgoing", true)
+	Spawn("312", "incoming", false)
+	Spawn("+540", "heal", false)
+	Spawn(_G.COMBAT_TEXT_MISS or "Miss", "miss", false)
 end
+
+local function EditLabel(panel, text, y, font)
+	local label = panel:CreateFontString(nil, "ARTWORK", font or "GameFontNormal")
+	label:SetPoint("TOPLEFT", 12, y)
+	label:SetText(text)
+end
+
+local function CreateEditOptions()
+	local panel = ns.CreatePanel("ForeverPlusCombatTextEditOptions", { close = true, movable = true })
+	panel.Title:SetText(L.COMBATTEXT_TITLE)
+	EditLabel(panel, L.COMBATTEXT_EDIT_SHARED, -31, "GameFontHighlightSmall")
+	EditLabel(panel, L.COMBATTEXT_SCALE, -55)
+
+	local slider, refreshScale = ns.CreateEditSlider(panel, CombatText, {
+		key = "scale", name = L.COMBATTEXT_SCALE, min = 0.6, max = 2, step = 0.1,
+		format = function(value) return ("%d%%"):format(value * 100 + 0.5) end,
+	})
+	slider:SetPoint("TOPRIGHT", -53, -49)
+	slider:SetSize(154, 24)
+
+	local checks = {}
+	local y = -81
+	for _, option in ipairs(COLOR_OPTIONS) do
+		local key, name = unpack(option)
+		EditLabel(panel, name, y - 5)
+		local dropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+		dropdown:SetPoint("TOPRIGHT", -12, y)
+		dropdown:SetWidth(138)
+		local function IsSelected(value)
+			return CombatText.db[key] == value
+		end
+		local SetSelected = ns.Measured("CombatText: Edit Mode color", function(value)
+			ns.SetOption("CombatText", key, value)
+		end)
+		dropdown:SetupMenu(function(_, root)
+			for _, choice in ipairs(COLOR_CHOICES) do
+				root:CreateRadio(choice[2], IsSelected, SetSelected, choice[1])
+			end
+		end)
+		y = y - 27
+	end
+	for _, option in ipairs(STYLE_OPTIONS) do
+		local key, name, desc = unpack(option)
+		local check = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+		check:SetPoint("TOPLEFT", 9, y)
+		check:SetSize(24, 24)
+		check.Text:SetText(name)
+		check:SetHitRectInsets(0, -check.Text:GetStringWidth(), 0, 0)
+		check:SetScript("OnClick", ns.Measured("CombatText: Edit Mode toggle", function(self)
+			ns.SetOption("CombatText", key, self:GetChecked())
+		end))
+		ns.SetEditTooltip(check, name, desc)
+		checks[key] = check
+		y = y - 24
+	end
+
+	local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	test:SetPoint("TOP", panel, "TOP", 0, y - 6)
+	test:SetSize(156, 22)
+	test:SetText(L.COMBATTEXT_TEST)
+	test:SetScript("OnClick", ns.Measured("CombatText: Edit Mode preview", Preview))
+	ns.SetEditTooltip(test, L.COMBATTEXT_TEST, L.COMBATTEXT_TEST_DESC)
+	panel:SetSize(350, -y + 40)
+	panel:HookScript("OnShow", ns.Measured("CombatText: refresh Edit Mode options", function()
+		refreshScale()
+		for key, check in pairs(checks) do
+			check:SetChecked(CombatText.db[key])
+		end
+	end))
+	return panel
+end
+
+ShowEditOptions = function(anchor)
+	if not ns:IsEditModeActive() then
+		return
+	end
+	editPanel = editPanel or CreateEditOptions()
+	editPanel:ClearAllPoints()
+	local right = ns.Number(anchor:GetRight(), 0)
+	if UIParent:GetWidth() - right >= editPanel:GetWidth() + 16 then
+		editPanel:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 12, 8)
+	else
+		editPanel:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -12, 8)
+	end
+	editPanel:Show()
+	editPanel:Raise()
+end
+
+EventRegistry:RegisterCallback("EditMode.Exit", ns.Measured("CombatText: close Edit Mode options", function()
+	if editPanel then
+		editPanel:Hide()
+	end
+end), CombatText)
 
 CombatText.options = {
 	{ key = "enabled", type = "toggle", name = L.COMBATTEXT_ENABLE, desc = L.COMBATTEXT_ENABLE_DESC, new = true },
 	{ key = "outgoing", type = "toggle", name = L.COMBATTEXT_OUTGOING, desc = L.COMBATTEXT_OUTGOING_DESC, parent = "enabled", new = true },
 	{ key = "ownOnly", type = "toggle", name = L.COMBATTEXT_OWN_ONLY, desc = L.COMBATTEXT_OWN_ONLY_DESC, parent = "outgoing", new = true },
-	{ key = "targetPlate", type = "toggle", name = L.COMBATTEXT_TARGET_PLATE, desc = L.COMBATTEXT_TARGET_PLATE_DESC, parent = "outgoing", new = true },
 	{ key = "incoming", type = "toggle", name = L.COMBATTEXT_INCOMING, desc = L.COMBATTEXT_INCOMING_DESC, parent = "enabled", new = true },
 	{ key = "heals", type = "toggle", name = L.COMBATTEXT_HEALS, desc = L.COMBATTEXT_HEALS_DESC, parent = "enabled", new = true },
-	{ key = "scale", type = "slider", name = L.COMBATTEXT_SCALE, parent = "enabled", min = 0.6, max = 2, step = 0.1,
-		format = function(v) return ("%d%%"):format(v * 100 + 0.5) end, new = true },
-	{ key = "critBold", type = "toggle", name = L.COMBATTEXT_CRIT_BOLD, desc = L.COMBATTEXT_CRIT_BOLD_DESC, parent = "enabled", new = true },
-	{ key = "critShake", type = "toggle", name = L.COMBATTEXT_CRIT_SHAKE, desc = L.COMBATTEXT_CRIT_SHAKE_DESC, parent = "enabled", new = true },
-	{ key = "critPop", type = "toggle", name = L.COMBATTEXT_CRIT_POP, desc = L.COMBATTEXT_CRIT_POP_DESC, parent = "enabled", new = true },
-	{ key = "colorOutgoing", type = "dropdown", name = L.COMBATTEXT_COLOR_OUTGOING, parent = "enabled", values = ColorChoices, new = true },
-	{ key = "colorCrit", type = "dropdown", name = L.COMBATTEXT_COLOR_CRIT, parent = "enabled", values = ColorChoices, new = true },
-	{ key = "colorIncoming", type = "dropdown", name = L.COMBATTEXT_COLOR_INCOMING, parent = "enabled", values = ColorChoices, new = true },
-	{ key = "colorHeal", type = "dropdown", name = L.COMBATTEXT_COLOR_HEAL, parent = "enabled", values = ColorChoices, new = true },
-	{ key = "colorMiss", type = "dropdown", name = L.COMBATTEXT_COLOR_MISS, parent = "enabled", values = ColorChoices, new = true },
-	{ type = "button", name = L.COMBATTEXT_TEST, text = L.QUESTS_TEST, desc = L.COMBATTEXT_TEST_DESC, func = function()
-		Spawn("1234", "outgoing", false)
-		Spawn("2468", "outgoing", true)
-		Spawn("312", "incoming", false)
-		Spawn("+540", "heal", false)
-		Spawn(_G.COMBAT_TEXT_MISS or "Miss", "miss", false)
-	end },
 }

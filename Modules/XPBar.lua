@@ -12,6 +12,8 @@ local XPBar = ns:NewModule("XPBar", {
 		repFormat = "full",
 		questXP = true,
 		restedShimmer = true,
+		barWidth = 100,
+		barHeight = 100,
 	},
 })
 
@@ -201,8 +203,90 @@ local function ShimmerOff(bar)
 	end
 end
 
+-- Extra shrinking of the bars (percent of the standard size, which Edit Mode may already have changed).
+-- baseSizes keeps that standard size per container: every SetSize that is not ours (Blizzard, Edit Mode) renews it.
+local MIN_INNER = 2 -- smallest height or width of the bar inside the frame
+local baseSizes = {}
+local hookedContainers = {}
+local sizing = false
+local fitted = {}
+
+local function ScaledSize(baseWidth, baseHeight, widthPercent, heightPercent)
+	local smallest = (STATUS_BAR_SIZE_ADJUSTMENT or 0) + MIN_INNER
+	return min(baseWidth, max(baseWidth * widthPercent / 100, smallest)), min(baseHeight, max(baseHeight * heightPercent / 100, smallest))
+end
+XPBar.ScaledSize = ScaledSize
+
+-- The frame picture has the size of its atlas; on a smaller bar it is stretched over the whole container.
+local function FitFrame(container, shrunk)
+	local frame = container.BarFrameTexture
+	if not frame or fitted[container] == shrunk then
+		return
+	end
+	if not shrunk and fitted[container] == nil then
+		return
+	end
+	fitted[container] = shrunk
+	frame:ClearAllPoints()
+	if shrunk then
+		frame:SetPoint("TOPLEFT", container, "TOPLEFT")
+		frame:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT")
+	else
+		frame:SetPoint("CENTER", container, "CENTER")
+		local atlas = frame:GetAtlas()
+		if atlas then
+			frame:SetAtlas(atlas, true)
+		end
+	end
+end
+
+local function ApplySize(container)
+	local base = baseSizes[container]
+	if not base then
+		return
+	end
+	local width, height = ScaledSize(base[1], base[2], XPBar.db.barWidth, XPBar.db.barHeight)
+	sizing = true
+	container:SetSize(width, height)
+	sizing = false
+	FitFrame(container, width < base[1] or height < base[2])
+	if container.ResizeContainerBars then
+		container:ResizeContainerBars()
+	end
+	if container.UpdateDividers and container.GetExpectedSegments then
+		container:UpdateDividers(container:GetExpectedSegments())
+	end
+end
+
+local function OnContainerSize(container)
+	if sizing then
+		return
+	end
+	local width, height = ns.Number(container:GetWidth()), ns.Number(container:GetHeight())
+	if width and height then
+		baseSizes[container] = { width, height }
+	end
+	ApplySize(container)
+end
+
+local function HookContainer(container)
+	if hookedContainers[container] then
+		return
+	end
+	hookedContainers[container] = true
+	OnContainerSize(container)
+	hooksecurefunc(container, "SetSize", OnContainerSize)
+end
+
+local function ApplySizes()
+	for container in pairs(baseSizes) do
+		ApplySize(container)
+	end
+end
+
 local function HookBars()
 	for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
+		HookContainer(container)
 		local bar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Experience]
 		if bar and not expBars[bar] then
 			expBars[bar] = true
@@ -260,6 +344,8 @@ function XPBar:OnOptionChanged(key)
 		self:ApplyTextSetting()
 	elseif key == "questXP" then
 		QueueScan()
+	elseif key == "barWidth" or key == "barHeight" then
+		ApplySizes()
 	end
 	UpdateBars()
 	for bar in pairs(expBars) do
@@ -284,4 +370,8 @@ XPBar.options = {
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_REP_FORMAT_FULL },
 	} },
 	{ key = "questXP", type = "toggle", name = L.XP_QUEST_OVERLAY, desc = L.XP_QUEST_OVERLAY_DESC },
+	{ key = "barWidth", type = "slider", name = L.XP_BAR_WIDTH, desc = L.XP_BAR_WIDTH_DESC, min = 10, max = 100, step = 5, new = true,
+		format = function(v) return ("%d%%"):format(v + 0.5) end },
+	{ key = "barHeight", type = "slider", name = L.XP_BAR_HEIGHT, desc = L.XP_BAR_HEIGHT_DESC, min = 30, max = 100, step = 5, new = true,
+		format = function(v) return ("%d%%"):format(v + 0.5) end },
 }

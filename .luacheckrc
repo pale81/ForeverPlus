@@ -165,6 +165,7 @@ read_globals = {
 	"ReloadUI",
 	"time",
 	"StatusTrackingBarManager",
+	"STATUS_BAR_SIZE_ADJUSTMENT",
 	"C_EventUtils",
 	"C_SpecializationInfo",
 	"UnitLevel",

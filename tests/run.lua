@@ -874,6 +874,40 @@ local bar = { currXP = 1250, maxBar = 5000, IsCapped = function() return false e
 for _, f in ipairs({ "percent", "both", "remaining", "full" }) do xp.db.format = f; textFn(bar) end
 -- Quest item pick
 GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3, false end end
+-- XP bar: extra shrinking
+;(function()
+	STATUS_BAR_SIZE_ADJUSTMENT = 3
+	local w, h = xp.ScaledSize(1000, 17, 100, 100)
+	assert(w == 1000 and h == 17, "100% leaves the size")
+	w, h = xp.ScaledSize(1000, 17, 50, 50)
+	assert(w == 500 and h == 8.5, "50% halves the size")
+	w, h = xp.ScaledSize(1000, 17, 10, 30)
+	assert(w == 100 and h == 5.1, "small sizes follow the percent")
+	w, h = xp.ScaledSize(1000, 17, 0, 0)
+	assert(w == 5 and h == 5, "never smaller than adjustment + 2")
+	w, h = xp.ScaledSize(4, 4, 100, 100)
+	assert(w == 4 and h == 4, "never larger than the standard size")
+	local hookBars = uv(xp.OnLogin, "HookBars")
+	local hookContainer, onSize, applySizes = uv(hookBars, "HookContainer"), uv(uv(hookBars, "HookContainer"), "OnContainerSize"), uv(xp.OnOptionChanged, "ApplySizes")
+	local container = { width = 600, height = 17, calls = 0, resized = 0, dividers = 0, BarFrameTexture = { ClearAllPoints = function() end, SetPoint = function() end, GetAtlas = function() end } }
+	function container:GetWidth() return self.width end
+	function container:GetHeight() return self.height end
+	function container:SetSize(a, b) self.width, self.height = a, b end
+	function container:ResizeContainerBars() self.resized = self.resized + 1 end
+	function container:UpdateDividers() self.dividers = self.dividers + 1 end
+	function container:GetExpectedSegments() return 20 end
+	xp.db.barWidth, xp.db.barHeight = 50, 50
+	hookContainer(container)
+	assert(container.width == 300 and container.height == 8.5, "container shrunk on hook")
+	container:SetSize(800, 17) -- Blizzard or Edit Mode sets a new standard size
+	onSize(container)
+	assert(container.width == 400 and container.height == 8.5, "new standard size is shrunk again")
+	xp.db.barWidth, xp.db.barHeight = 100, 100
+	applySizes()
+	assert(container.width == 800 and container.height == 17, "100% restores the standard size")
+	assert(container.resized == 3 and container.dividers == 3, "bars and dividers follow every size change")
+	print("xp bar size OK")
+end)()
 IsQuestLogSpecialItemInRange = function() return nil end
 C_QuestLog.GetDistanceSqToQuest = function() return 900 end
 C_QuestLog.IsComplete = function() return false end

@@ -1416,50 +1416,76 @@ local TRACKING_COLORS = {
 	["UI-HUD-ExperienceBar-Fill-Reputation-Faction-Blue"] = { 0, 0.39, 0.88 },
 }
 
--- Grey version of the unit frame bar, tinted by the bar colour.
-local function UseUnitBarTexture(statusBar)
-	statusBar:SetStatusBarTexture(BAR_ATLAS)
-	local texture = statusBar:GetStatusBarTexture()
-	if texture then
-		texture:SetDesaturated(true)
+local trackingBars = {}
+local tooltipBarAppearance
+
+local function RefreshTrackingBar(bar, state, textureChanged)
+	local color = Visuals.db.unitBars and not ns.Secret(state.asset) and TRACKING_COLORS[state.asset]
+	if color then
+		local originalColor = state.color or { bar:GetStatusBarColor() }
+		local originalDesaturation = state.desaturation or bar:GetStatusBarDesaturation()
+		state.applying = true
+		if bar:SetStatusBarTexture(BAR_ATLAS) then
+			state.color, state.desaturation = originalColor, originalDesaturation
+			bar:SetStatusBarDesaturation(1)
+			bar:SetStatusBarColor(color[1], color[2], color[3], originalColor[4])
+		end
+		state.applying = false
+	elseif state.color then
+		if not textureChanged then
+			state.applying = true
+			bar:SetStatusBarTexture(state.asset)
+			state.applying = false
+		end
+		bar:SetStatusBarDesaturation(state.desaturation)
+		bar:SetStatusBarColor(unpack(state.color))
+		state.color, state.desaturation = nil, nil
 	end
 end
 
-local styling = false
-local function StyleTrackingBar(statusBar, asset)
-	local color = not styling and Visuals.db.unitBars and TRACKING_COLORS[asset]
-	if not color then
+local function RefreshUnitBars()
+	for bar, state in pairs(trackingBars) do
+		RefreshTrackingBar(bar, state)
+	end
+	local bar = GameTooltip.StatusBar
+	local texture = bar and bar:GetStatusBarTexture()
+	if not texture then
 		return
 	end
-	styling = true
-	UseUnitBarTexture(statusBar)
-	statusBar:SetStatusBarColor(color[1], color[2], color[3])
-	styling = false
+	if Visuals.db.unitBars and not tooltipBarAppearance then
+		local asset = texture:GetAtlas() or texture:GetTexture()
+		local desaturation = bar:GetStatusBarDesaturation()
+		if asset and bar:SetStatusBarTexture(BAR_ATLAS) then
+			tooltipBarAppearance = { asset = asset, desaturation = desaturation }
+			bar:SetStatusBarDesaturation(1)
+		end
+	elseif not Visuals.db.unitBars and tooltipBarAppearance then
+		bar:SetStatusBarTexture(tooltipBarAppearance.asset)
+		bar:SetStatusBarDesaturation(tooltipBarAppearance.desaturation)
+		tooltipBarAppearance = nil
+	end
 end
 
-local barsHooked = false
-local function StyleUnitBars()
-	if not Visuals.db.unitBars or barsHooked then
-		return
-	end
-	barsHooked = true
-	if GameTooltip.StatusBar then
-		UseUnitBarTexture(GameTooltip.StatusBar)
-	end
-	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", function()
-		for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
-			for _, bar in pairs(container.bars or {}) do
-				local statusBar = bar.StatusBar
-				if statusBar then
-					hooksecurefunc(statusBar, "SetStatusBarTexture", StyleTrackingBar)
-					local texture = statusBar:GetStatusBarTexture()
-					if texture then
-						StyleTrackingBar(statusBar, texture:GetAtlas())
+local function HookTrackingBars()
+	for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
+		local indices = StatusTrackingBarInfo.BarsEnum
+		for _, index in ipairs({ indices.Experience, indices.Reputation }) do
+			local wrapper = container.bars and container.bars[index]
+			local bar = wrapper and wrapper.StatusBar
+			if bar and not trackingBars[bar] then
+				local texture = bar:GetStatusBarTexture()
+				local state = { asset = texture and texture:GetAtlas() }
+				trackingBars[bar] = state
+				hooksecurefunc(bar, "SetStatusBarTexture", ns.Measured("Visuals: tracking bar texture", function(_, asset)
+					if not state.applying then
+						state.asset = asset
+						RefreshTrackingBar(bar, state, true)
 					end
-				end
+				end))
+				RefreshTrackingBar(bar, state)
 			end
 		end
-	end)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1541,6 +1567,7 @@ end
 
 local function SetDragonHovered(button, hovered)
 	local group = button:GetParent()
+	if not group.baseShine then return end
 	if hovered then
 		if not CanUsePlayerDragon() then return end
 		group.hovered = button
@@ -1562,12 +1589,12 @@ local function PlaceDragonButtons(container, atlas, shape, width, height, baseSh
 		group:SetScript("OnHide", ns.Measured("Visuals: hide portrait dragon controls", function(self)
 			self.hovered, self.progress, self.animating = false, 0, false
 			ns.SetUpdate(self, "Visuals: portrait dragon", nil)
-			DrawDragonHover(self)
+			if self.baseShine then DrawDragonHover(self) end
 		end))
 		dragonButtons = group
 	end
 	group.hovered, group.animating = false, false
-	group.x, group.y, group.baseShine, group.progress = shape.x, shape.y, baseShine, 0
+	group.x, group.y, group.baseShine, group.progress = shape.x, shape.y, baseShine or false, 0
 	group:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
 	group:SetSize(width, height)
 	local cellWidth, cellHeight = width / DRAGON_GRID, height / DRAGON_GRID
@@ -1600,10 +1627,18 @@ function Visuals.ApplyPlayerDragon()
 		return
 	end
 	local data = DRAGONS[Visuals.db.playerDragon]
+	local roleplay = ns:GetModule("Roleplay")
+	local interactive = roleplay and roleplay.db and roleplay.db.playerPortraitClick
+	local shape = SHAPES[data and data[2] or "plain"]
+	local scale = Visuals.db.dragonScale / 100
+	local width, height = shape.width * scale, shape.height * scale
 	if not data then
 		if dragon then
 			dragon:Hide()
 			dragon.Bright:Hide()
+		end
+		if interactive then
+			PlaceDragonButtons(container, GOLD, shape, width, height)
 		end
 		return
 	end
@@ -1618,9 +1653,6 @@ function Visuals.ApplyPlayerDragon()
 	-- (absolute atlas coordinates showed only part of the dragon).
 	dragon:SetAtlas(data[1])
 	dragon:SetTexCoord(1, 0, 0, 1)
-	local shape = SHAPES[data[2]]
-	local scale = Visuals.db.dragonScale / 100
-	local width, height = shape.width * scale, shape.height * scale
 	dragon:SetSize(width, height)
 	dragon:SetPoint("CENTER", container, "TOPLEFT", shape.x, shape.y)
 	local greyDragon = data[3] == true
@@ -1640,8 +1672,6 @@ function Visuals.ApplyPlayerDragon()
 	bright:SetDesaturated(greyDragon)
 	bright:SetVertexColor(r, g, b)
 	bright:SetAlpha(baseShine)
-	local roleplay = ns:GetModule("Roleplay")
-	local interactive = roleplay and roleplay.db and roleplay.db.playerPortraitClick
 	bright:SetShown(tint ~= nil or interactive == true)
 	if interactive then
 		PlaceDragonButtons(container, data[1], shape, width, height, baseShine)
@@ -1700,7 +1730,8 @@ function Visuals:OnLogin()
 	UpdateAuraWatch()
 	RecolorAll()
 	UpdateCastWatch()
-	StyleUnitBars()
+	RefreshUnitBars()
+	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookTrackingBars)
 	Visuals.ApplyPlayerDragon()
 end
 
@@ -1741,11 +1772,7 @@ function Visuals:OnOptionChanged(key)
 	elseif key == "combatBuffRecommendation" then
 		UpdateCombatBuffWatch()
 	elseif key == "unitBars" then
-		if self.db.unitBars then
-			StyleUnitBars()
-		else
-			ns.Print(L.RELOAD_REQUIRED)
-		end
+		RefreshUnitBars()
 	else
 		UpdateAuraWatch()
 		RecolorAll()

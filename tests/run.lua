@@ -1061,56 +1061,53 @@ mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "LeftButton")
 assert(uv(mover.GLOBAL_MOUSE_UP, "moving") == nil, "locked: no move")
 ns.db.lockAll = false
 ns:SetAllLocked(false)
--- A window: a plain right-click on its free background locks and unlocks, a click on what is in it does not
-do
-	local window = NewFrame("Frame")
-	window.GetName = function() return "CharacterFrame" end
+-- Window locking uses the title row, including when Alt is held.
+;(function()
+	local window = {
+		GetLeft = function() return 10 end, GetRight = function() return 400 end,
+		GetTop = function() return 500 end, GetEffectiveScale = function() return 1 end,
+	}
 	local child = NewFrame("Frame")
-	local findTarget = uv(mover.GLOBAL_MOUSE_DOWN, "FindTarget")
-	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", function() return window, "CharacterFrame" end)
-	local savedWheel = uv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel")
-	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", function() end)
-	IsAltKeyDown = function() return false end
-	GetMouseFoci = function() return { window } end
-	ns.db.unlocked["CharacterFrame"] = nil
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == true, "right-click on the background unlocks without Alt")
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == nil, "and locks again")
-	GetMouseFoci = function() return { child } end
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == nil, "a right-click on something in the window stays the game's")
-	IsAltKeyDown = function() return true end
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == true, "with Alt anywhere in the window")
-	-- the title bar: the top strip of the window, also on the title's own frame, not on a button there
-	IsAltKeyDown = function() return false end
-	window.GetTop, window.GetLeft, window.GetRight = function() return 500 end, function() return 100 end, function() return 400 end
-	window.GetEffectiveScale = function() return 1 end
 	child.IsObjectType = function(_, kind) return kind == "Frame" end
-	local savedCursor = GetCursorPosition
-	GetCursorPosition = function() return 200, 490 end
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == nil, "a right-click on the title (even on its own frame) locks")
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == true, "and unlocks")
-	local closeButton = NewFrame("Button")
-	closeButton.IsObjectType = function(_, kind) return kind == "Button" end
-	GetMouseFoci = function() return { closeButton } end
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == true, "not on a button in the title bar")
-	GetMouseFoci = function() return { child } end
-	GetCursorPosition = function() return 200, 300 end
-	mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
-	assert(ns.db.unlocked["CharacterFrame"] == true, "below the title bar on something in the window: the game's")
-	assert(mover.InTitleBar(window, window) == false, "below the strip")
-	GetCursorPosition = function() return 399, 474 end
-	assert(mover.InTitleBar(window, child) == true, "title strip 26 units")
-	GetCursorPosition = savedCursor
-	ns.db.unlocked["CharacterFrame"] = nil
+	local findTarget = uv(mover.GLOBAL_MOUSE_DOWN, "FindTarget")
+	local savedWheel = uv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel")
+	local savedCursor, savedAlt, savedFoci = GetCursorPosition, IsAltKeyDown, GetMouseFoci
+	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", function() return window, "CharacterFrame" end)
+	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", function() end)
+	local function RightClick(region, x, y, alt)
+		IsAltKeyDown = function() return alt end
+		GetMouseFoci = function() return { region } end
+		GetCursorPosition = function() return x, y end
+		mover:GLOBAL_MOUSE_DOWN("GLOBAL_MOUSE_DOWN", "RightButton")
+	end
+
+	ns.db.unlocked.CharacterFrame = nil
+	RightClick(window, 200, 300, false)
+	RightClick(child, 200, 300, true)
+	assert(not ns.db.unlocked.CharacterFrame, "window contents cannot unlock the window")
+	RightClick(window, 200, 478, false)
+	assert(ns.db.unlocked.CharacterFrame, "a window without a title container uses the top row")
+
+	window.TitleContainer = {
+		GetTop = function() return 499 end, GetHeight = function() return 20 end,
+		GetLeft = function() return 40 end, GetRight = function() return 376 end,
+		GetEffectiveScale = function() return 1.2 end,
+	}
+	RightClick(child, 240, 568, true)
+	RightClick(window, 25, 590, false)
+	assert(ns.db.unlocked.CharacterFrame, "the real title bounds exclude nearby window content and trim")
+	local close = NewFrame("Button")
+	RightClick(close, 240, 590, true)
+	assert(ns.db.unlocked.CharacterFrame, "title bar controls keep their right-clicks")
+	RightClick(child, 240, 590, false)
+	assert(not ns.db.unlocked.CharacterFrame, "right-click on the title locks")
+	RightClick(window, 240, 590, true)
+	assert(ns.db.unlocked.CharacterFrame, "Alt-right-click on the title unlocks")
+	GetCursorPosition, IsAltKeyDown, GetMouseFoci = savedCursor, savedAlt, savedFoci
+	ns.db.unlocked.CharacterFrame = nil
 	setuv(mover.GLOBAL_MOUSE_DOWN, "FindTarget", findTarget)
 	setuv(mover.GLOBAL_MOUSE_DOWN, "UpdateWindowWheel", savedWheel)
-end
+end)()
 ns:ResetFramePositions()
 assert(entry and not ns:HasSavedPosition(entry))
 assert(next(ns.db.unlocked) == nil, "reset locks again")
@@ -2171,6 +2168,7 @@ do
 	radar.db.enabled, radar.db.minimap = true, true
 	local values = {}
 	Settings.SetValue = function(var, value) values[var] = value end
+	local setOption = ns.SetOption
 	ns.SetOption = function(moduleName, key, value) values["ForeverPlus_" .. moduleName .. "_" .. key] = value end
 	add(root)
 	assert(titles == 1 and #checkboxes >= 1, "radar entry added under a title") -- the harness runs OnLogin more than once
@@ -2181,6 +2179,7 @@ do
 	radar.db.minimap = false
 	checkboxes[1].set()
 	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_minimap == true, "click switches them on")
+	ns.SetOption = setOption
 end
 -- Flight popup: destinations by price, hovered one kept when the list is cut
 do
@@ -7255,6 +7254,7 @@ end)()
 	local texts, setters, nested = {}, {}, 0
 	local values = {}
 	Settings.SetValue = function(var, value) values[var] = value end
+	local setOption = ns.SetOption
 	ns.SetOption = function(moduleName, key, value) values["ForeverPlus_" .. moduleName .. "_" .. key] = value end
 	local function node(depth)
 		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
@@ -7288,6 +7288,7 @@ end)()
 	assert(values.ForeverPlus_WorldMap_flightPoints == false, "click switches the option")
 	setters[ns.L.RADAR_TITLE].set()
 	assert(values.ForeverPlus_RecipeRadar_enabled == true and values.ForeverPlus_RecipeRadar_worldMap ~= nil, "radar entry switches on")
+	ns.SetOption = setOption
 	print("map filter menu OK")
 end)()
 ;(function()
@@ -7976,6 +7977,69 @@ end)()
 	print("talent tree tooltip OK")
 end)()
 ;(function()
+	local visuals = ns:GetModule("Visuals")
+	local oldHook, oldTooltip = hooksecurefunc, GameTooltip
+	local oldManager, oldInfo = StatusTrackingBarManager, StatusTrackingBarInfo
+	local oldOption = visuals.db.unitBars
+	local unitAtlas = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-Health"
+	local xpAtlas, restedAtlas = "UI-HUD-ExperienceBar-Fill-Experience", "UI-HUD-ExperienceBar-Fill-Rested"
+	local repAtlas = "UI-HUD-ExperienceBar-Fill-Reputation-Faction-Green"
+	local tooltipFile = [[Interface\TargetingFrame\UI-TargetingFrame-BarFill]]
+
+	local function MakeBar(atlas, file)
+		local bar = { atlas = atlas, file = file, color = { 1, 1, 1, 0.85 }, desaturation = 0.25 }
+		function bar:GetStatusBarTexture()
+			return { GetAtlas = function() return self.atlas end, GetTexture = function() return self.file end }
+		end
+		function bar:SetStatusBarTexture(asset)
+			self.atlas, self.file = nil, nil
+			if asset == tooltipFile then self.file = asset else self.atlas = asset end
+			return true
+		end
+		function bar:GetStatusBarColor() return unpack(self.color) end
+		function bar:SetStatusBarColor(...) self.color = { ... } end
+		function bar:GetStatusBarDesaturation() return self.desaturation end
+		function bar:SetStatusBarDesaturation(value) self.desaturation = value end
+		return bar
+	end
+
+	local xp, rep, tooltip = MakeBar(xpAtlas), MakeBar(nil), MakeBar(nil, tooltipFile)
+	hooksecurefunc = function(frame, key, callback)
+		local original = assert(frame[key])
+		frame[key] = function(self, asset)
+			local result = original(self, asset)
+			callback(self, asset)
+			return result
+		end
+	end
+	GameTooltip = { StatusBar = tooltip }
+	StatusTrackingBarManager = { barContainers = { { bars = { { StatusBar = xp }, { StatusBar = rep } } } } }
+	StatusTrackingBarInfo = { BarsEnum = { Experience = 1, Reputation = 2 } }
+	ns.SetOption("Visuals", "unitBars", false)
+	uv(visuals.OnLogin, "HookTrackingBars")()
+	assert(xp.atlas == xpAtlas and tooltip.file == tooltipFile, "loading with the option off leaves default textures")
+	ns.SetOption("Visuals", "unitBars", true)
+	assert(xp.atlas == unitAtlas and xp.color[1] == 0.58 and xp.color[4] == 0.85
+		and xp.desaturation == 1 and tooltip.atlas == unitAtlas and tooltip.desaturation == 1, "enabling styles visible bars immediately")
+	xp:SetStatusBarTexture(restedAtlas)
+	rep:SetStatusBarTexture(repAtlas)
+	assert(xp.atlas == unitAtlas and xp.color[3] == 0.88 and rep.atlas == unitAtlas and rep.color[2] == 0.6,
+		"native rested and reputation texture updates keep the style and change the tint")
+	ns.SetOption("Visuals", "unitBars", false)
+	assert(xp.atlas == restedAtlas and rep.atlas == repAtlas and tooltip.file == tooltipFile
+		and xp.color[1] == 1 and xp.desaturation == 0.25 and tooltip.desaturation == 0.25, "disabling restores current native appearances")
+	xp:SetStatusBarTexture(xpAtlas)
+	assert(xp.atlas == xpAtlas, "the hook allows native textures while off")
+	ns.SetOption("Visuals", "unitBars", true)
+	assert(xp.atlas == unitAtlas and xp.color[1] == 0.58, "re-enabling uses the current native XP state")
+	ns.SetOption("Visuals", "unitBars", false)
+	local tracked = uv(uv(visuals.OnLogin, "HookTrackingBars"), "trackingBars")
+	tracked[xp], tracked[rep] = nil, nil
+	hooksecurefunc, GameTooltip, StatusTrackingBarManager, StatusTrackingBarInfo = oldHook, oldTooltip, oldManager, oldInfo
+	visuals.db.unitBars = oldOption
+	print("unit bar textures OK")
+end)()
+;(function()
 	local rp = ns:GetModule("Roleplay")
 	local now, player, friendly, own = 10000, true, true, false
 	local messages, timeout, save, encodedFixtures = {}, nil, nil, {}
@@ -7984,6 +8048,9 @@ end)()
 	targetFrame.GetPortrait = function() return NewFrame("Texture") end
 	local visuals = ns:GetModule("Visuals")
 	local oldDragon, oldScale = visuals.db.playerDragon, visuals.db.dragonScale
+	local oldGroup, oldArt = uv(visuals.ApplyPlayerDragon, "dragonButtons"), uv(visuals.ApplyPlayerDragon, "dragon")
+	setuv(visuals.ApplyPlayerDragon, "dragonButtons", nil)
+	setuv(visuals.ApplyPlayerDragon, "dragon", nil)
 	local modified, editMode = false, false
 	local playerFrame = NewFrame("Button")
 	playerFrame.unit = "player"
@@ -8070,8 +8137,8 @@ end)()
 	Deliver("Q:aca123", "Reader")
 	assert(messages[1].text == "N:aca123" and messages[1].target == "Reader-LocalRealm", "private profile returns no data")
 
-	visuals.db.playerDragon, visuals.db.dragonScale = "bronze", 100
-	visuals.ApplyPlayerDragon()
+	ns.SetOption("Visuals", "dragonScale", 100)
+	ns.SetOption("Visuals", "playerDragon", "none")
 	local group = ForeverPlusPlayerDragonButtons
 	local function DragonButtonAt(x, y)
 		for _, part in ipairs(group.parts) do
@@ -8080,6 +8147,12 @@ end)()
 			end
 		end
 	end
+	local hiddenButton = assert(DragonButtonAt(12, -49), "the hidden dragon has the plain hit area on first login")
+	assert(#dragonArt == 0 and not DragonButtonAt(53, -48), "the fallback creates no art and leaves the portrait centre free")
+	hiddenButton:GetScript("OnEnter")(hiddenButton)
+	assert(not group:GetScript("OnUpdate"), "the invisible dragon needs no hover animation")
+
+	ns.SetOption("Visuals", "playerDragon", "bronze")
 	local dragonButton = assert(DragonButtonAt(12, -49), "the dragon's body is clickable")
 	assert(not DragonButtonAt(53, -48), "the transparent portrait centre has no RP hit area")
 	assert(DragonButtonAt(85, -73) and not DragonButtonAt(90, -73), "the plain dragon reacts at the thin tail tip")
@@ -8105,7 +8178,13 @@ end)()
 	rp.db.playerPortraitClick = true
 	visuals.db.playerDragon = "none"
 	visuals.ApplyPlayerDragon()
-	assert(not group:IsShown() and not art:IsShown(), "hiding the dragon also removes the shortcut")
+	assert(group:IsShown() and not art:IsShown() and not shine:IsShown(), "hiding the dragon keeps only the shortcut")
+	hiddenButton:GetScript("OnClick")(hiddenButton)
+	assert(ForeverPlusRoleplayEditor:IsShown(), "the invisible dragon opens the RP editor")
+	ForeverPlusRoleplayEditor:Hide()
+	ns.SetOption("Roleplay", "playerPortraitClick", false)
+	assert(not group:IsShown(), "the RP option also disables the invisible shortcut")
+	ns.SetOption("Roleplay", "playerPortraitClick", true)
 	visuals.db.playerDragon, visuals.db.dragonScale = "silverWinged", 120
 	visuals.ApplyPlayerDragon()
 	assert(group:IsShown() and DragonButtonAt(12, -70) and not DragonButtonAt(70, -54), "the winged silhouette scales with the art")
@@ -8234,6 +8313,8 @@ end)()
 	assert(not button:IsShown() and not viewer:IsShown() and #messages == before, "disabling hides the UI and stops sharing")
 
 	visuals.db.playerDragon, visuals.db.dragonScale = oldDragon, oldScale
+	setuv(visuals.ApplyPlayerDragon, "dragonButtons", oldGroup)
+	setuv(visuals.ApplyPlayerDragon, "dragon", oldArt)
 	visuals.ApplyPlayerDragon()
 	for key, value in pairs(originals) do _G[key] = value end
 	C_Timer.After, ns.IsEditModeActive = oldAfter, oldEditMode

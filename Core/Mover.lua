@@ -1,5 +1,5 @@
--- Window mover (Alt + drag, Ctrl + mouse wheel to scale, Alt + right-click to
--- lock) for windows and ForeverPlus displays, and Edit Mode integration for
+-- Window mover (Alt + drag, Ctrl + mouse wheel to scale, right-click the title
+-- bar to lock), movable ForeverPlus displays, and Edit Mode integration for
 -- frames created by ForeverPlus.
 local _, ns = ...
 local L = ns.L
@@ -35,7 +35,7 @@ local movingKey
 local editModeCenter -- the Center button of Blizzard's Edit Mode dialog
 local SetupEditModeDialog
 
--- Everything starts locked; Alt + right-click unlocks single elements and
+-- Everything starts locked; right-click unlocks single elements and
 -- one switch locks everything again.
 local function IsLocked(key)
 	return ns.db.lockAll or not ns.db.unlocked[key]
@@ -331,22 +331,24 @@ end
 
 local altToggled -- the global handler toggled on this right-click already
 
--- The title bar of a window: the top strip (Blizzard's title is 20 units high), not on a button there (close,
--- maximise). Plain clicks there lock, unlock and move the window; the rest of the window stays the game's.
+-- Use the window's title container when it has one. Custom windows without
+-- one use the top strip, with inset controls such as Close excluded.
 local TITLE_HEIGHT = 26
 
 local function InTitleBar(frame, region)
 	if region ~= frame and region and region.IsObjectType and (region:IsObjectType("Button") or region:IsObjectType("EditBox")) then
 		return false
 	end
-	local top, left, right = frame:GetTop(), frame:GetLeft(), frame:GetRight()
-	local scale = ns.Number(frame:GetEffectiveScale(), 0)
-	if not (top and left and right) or scale <= 0 then
+	local title = frame.TitleContainer or frame
+	local top, left, right = ns.Number(title:GetTop()), ns.Number(title:GetLeft()), ns.Number(title:GetRight())
+	local height = title == frame and TITLE_HEIGHT or ns.Number(title:GetHeight())
+	local scale = ns.Number(title:GetEffectiveScale(), 0)
+	if not (top and left and right and height) or scale <= 0 then
 		return false
 	end
 	local x, y = GetCursorPosition()
 	x, y = ns.Number(x, 0) / scale, ns.Number(y, 0) / scale
-	return x >= left and x <= right and y <= top and y >= top - TITLE_HEIGHT
+	return x >= left and x <= right and y <= top and y >= top - height
 end
 Mover.InTitleBar = InTitleBar
 
@@ -367,18 +369,21 @@ function Mover:GLOBAL_MOUSE_DOWN(_, button)
 	if isWindow then
 		UpdateWindowWheel(frame, key)
 	end
-	if not IsAltKeyDown() then
-		-- Displays handle plain clicks themselves; windows on their title bar and their free background.
+	local alt = IsAltKeyDown()
+	if button == "RightButton" then
+		if (isWindow and InTitleBar(frame, region)) or (not isWindow and alt) then
+			altToggled = true
+			ToggleLock(key)
+		end
+		return
+	end
+	if not alt then
+		-- Displays handle plain dragging themselves.
 		if not isWindow or (region ~= frame and not InTitleBar(frame, region)) then
 			return
 		end
 	end
-	if button == "RightButton" then
-		-- A right-click on the title bar or the free background of a window locks and unlocks it, like on the
-		-- displays (they handle the plain click themselves); with Alt anywhere in the window.
-		altToggled = true
-		ToggleLock(key)
-	elseif button == "MiddleButton" and IsAltKeyDown() then
+	if button == "MiddleButton" and alt then
 		-- Alt + middle click: centre on the vertical middle line (only while unlocked).
 		if IsLocked(key) then
 			ns.Print(L.MOVER_CENTER_LOCKED)

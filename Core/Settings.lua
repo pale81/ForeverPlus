@@ -309,6 +309,7 @@ local PAGES = {
 		{ "QoL", header = L.QOL_ERRORS_HEADER, keys = Keys("hideErrors") },
 		{ "CombatText", header = L.COMBATTEXT_TITLE },
 		{ "MeterReset", header = L.METER_TITLE },
+		{ "DPSSim", header = L.DPSSIM_TITLE },
 	},
 	{ group = 3, title = L.BUFFS_TITLE, { "Buffs" } },
 	{ group = 3, title = L.TALENTS_TITLE, { "Talents" } },

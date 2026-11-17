@@ -103,6 +103,7 @@ Modules\ProfessionPlan.lua
 Modules\Visuals.lua
 Modules\XPBar.lua
 Modules\MeterReset.lua
+Modules\DPSSim.lua
 Modules\Fonts.lua
 
 Modules\RecipeRadar.lua

@@ -110,6 +110,7 @@ read_globals = {
 	"ERR_ZONE_EXPLORED", "ERR_ZONE_EXPLORED_XP",
 	"GetQuestID",
 	"C_PaperDollInfo",
+	"UnitDamage", "UnitAttackSpeed", "GetCritChance", "GetMeleeHaste", "GetSpellBonusDamage", "GetSpellCritChance",
 	"GossipOptionSort",
 	"C_PetInfo", "GetInventoryItemDurability", "PaperDollFrame",
 	"EditModeSystemSettingsDialog", "PlayerCastingBarFrame", "EditModeManagerFrame",

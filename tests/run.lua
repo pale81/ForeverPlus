@@ -8572,4 +8572,124 @@ end)()
 	for key, value in pairs(saved) do _G[key] = value end
 	print("dungeon journal map and boss details OK")
 end)()
+;(function()
+	local L = ns.L
+	local sim = ns:GetModule("DPSSim")
+	local armor = sim.cdb.armor
+	local mainID, enchant, extraEnchant, aura, speed, damage, inCombat = 7717, 29, nil, 6673, 2, 120, false
+	local unreadableSpell = false
+	local fakeSlots = { MainHand = 0, OffHand = 1, Ranged = 2 }
+	local old = {}
+	local function MockGlobals(fields)
+		for key, value in pairs(fields) do
+			old[key] = { rawget(_G, key) }
+			_G[key] = value
+		end
+	end
+	local function RecordText(self, text) self.testText = text end
+	local createFrame = CreateFrame
+	MockGlobals({
+		InCombatLockdown = function() return inCombat end,
+		GetInventoryItemID = function(_, slot) return slot == INVSLOT_MAINHAND and mainID or nil end,
+		GetInventoryItemLink = function(_, slot)
+			if slot == INVSLOT_MAINHAND then return "|Hitem:" .. mainID .. ":0|h[Test weapon]|h" end
+		end,
+		UnitDamage = function() return damage - 10, damage + 10, 0, 0, 0, 0, 1 end,
+		UnitAttackSpeed = function() return speed end,
+		GetCritChance = function() return 10 end,
+		GetMeleeHaste = function() return 25 end,
+		GetSpellBonusDamage = function() return 50 end,
+		GetSpellCritChance = function() return 20 end,
+		C_ClassTalents = { GetActiveConfigID = function() return nil end },
+		C_UnitAuras = { GetUnitAuras = function() return { { spellId = aura, applications = 0 } } end },
+		C_Item = {
+			GetItemInfoInstant = function()
+				return mainID, nil, nil, "INVTYPE_2HWEAPON", nil, Enum.ItemClass.Weapon, 1
+			end,
+			GetItemNameByID = function() return "Test weapon" end,
+			GetWeaponEnchantInfo = function(slot)
+				assert(slot == fakeSlots.MainHand)
+				return {
+					{ hasEnchant = enchant ~= nil, enchantID = enchant },
+					{ hasEnchant = extraEnchant ~= nil, enchantID = extraEnchant },
+				}
+			end,
+		},
+		C_Spell = {
+			GetSpellName = function(id) return "Imbue " .. id end,
+			GetSpellDescription = function(id)
+				if unreadableSpell then return nil end
+				if GetLocale() == "deDE" then
+					return ({
+						[8024] = "Jeder Treffer fügt 5 bis 20 zusätzlichen Feuerschaden zu. Hält 60 Minuten lang an.",
+						[8033] = "Eine Chance, zusätzlich 32 Frostschaden zu verursachen und die Bewegung um 25% zu verlangsamen.",
+						[8232] = "Eine Chance von 20%, dass Ihr 2 zusätzliche Angriffe mit 46 zusätzlicher Nahkampfangriffskraft erhaltet.",
+					})[id]
+				end
+				return ({
+					[8024] = "Each hit causes 5 to 20 additional Fire damage. Lasts for 60 minutes.",
+					[8033] = "A chance of causing 32 additional Frost damage and slowing movement speed by 25%.",
+					[8232] = "A 20% chance of granting you 2 extra attacks with 46 extra melee attack power.",
+				})[id]
+			end,
+		},
+		CreateFrame = function(kind, name, ...)
+			local frame = createFrame(kind, name, ...)
+			frame.SetText = RecordText
+			frame.SetEnabled = function(self, on) self.enabled = on end
+			frame.CreateFontString = function()
+				local label = NewFrame("FontString")
+				label.SetText = RecordText
+				return label
+			end
+			return frame
+		end,
+	})
+	local originalSlots = rawget(Enum, "WeaponSlot")
+	Enum.WeaponSlot = fakeSlots
+	SlashCmdList.FOREVERPLUS("dps")
+	local panel = ForeverPlusDPSSimWindow
+	local function Click(button) button:GetScript("OnClick")(button) end
+	assert(panel:IsShown() and panel.current.testText == L.DPSSIM_RESULT:format(46.20, 0),
+		"Rockbiter is present in the live weapon damage and must not be applied a second time")
+	Click(panel.save)
+	local reference = sim.cdb.baseline
+	assert(reference.imbue == 29 and panel.baseline.testText == L.DPSSIM_BASELINE:format(46.20), "save the current run")
+	enchant, damage = 5, 100
+	Click(panel.run)
+	assert(panel.currentSetup.testText:find("8024", 1, true), "loaded enchant identifies the spell rank")
+	assert(panel.current.testText == L.DPSSIM_RESULT:format(48.125, 9.625) and panel.delta.testText:find("+4.2%%"),
+		"Flametongue accounts for unhasted weapon speed, spell damage and crit")
+	assert(sim.cdb.baseline == reference and panel.note.testText == "", "repeat preserves the same reference and other inputs")
+	Click(panel.armor) -- 45% for both runs
+	assert(panel.baseline.testText == L.DPSSIM_BASELINE:format(36.30)
+		and panel.current.testText == L.DPSSIM_RESULT:format(39.875, 9.625), "armor affects both runs and only physical damage")
+	enchant = 2
+	Click(panel.run)
+	assert(panel.current.testText == L.DPSSIM_RESULT:format(30.25 + 37 * 1.1 * 0.375 / 2, 37 * 1.1 * 0.375 / 2)
+		and panel.currentSetup.testText:find(L.DPSSIM_FROST_APPROX, 1, true), "Frostbrand is a chance per swing and labeled as an estimate")
+	enchant, speed, aura = 283, 1, 1719
+	Click(panel.run)
+	assert(panel.current.testText == L.DPSSIM_RESULT:format(81.49, 20.99),
+		"Windfury adds two attacks with bonus AP and cannot proc on the next one-second swing")
+	assert(panel.note.testText == L.DPSSIM_CONTEXT_CHANGED, "notify when another buff also changed")
+	extraEnchant = 9999
+	Click(panel.run)
+	assert(panel.delta.testText == "" and panel.note.testText == L.DPSSIM_UNSUPPORTED_CHANGED,
+		"unmodeled changes do not produce a misleading comparison")
+	unreadableSpell = true
+	Click(panel.run)
+	assert(panel.currentSetup.testText == L.DPSSIM_SPELL_UNAVAILABLE and not panel.save.enabled)
+	inCombat = true
+	Click(panel.run)
+	assert(panel.currentSetup.testText == L.DPSSIM_COMBAT and panel.delta.testText == "" and not panel.save.enabled,
+		"combat errors clear the transient result without discarding the saved run")
+	assert(sim.cdb.baseline == reference)
+	Click(panel.clear)
+	assert(not sim.cdb.baseline and panel.baseline.testText == L.DPSSIM_NO_BASELINE)
+	sim.cdb.armor = armor
+	Enum.WeaponSlot = originalSlots
+	for key, value in pairs(old) do _G[key] = value[1] end
+	print("DPS simulator results and comparison OK")
+end)()
 dofile("bundled.lua")

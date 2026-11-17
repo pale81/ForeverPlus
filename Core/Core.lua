@@ -824,6 +824,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("WorldMap"):PrintStatus()
 	elseif msg == "dungeon" or msg == "journal" then
 		ns:GetModule("DungeonJournal").Toggle()
+	elseif msg == "dps" or msg == "sim" then
+		ns:GetModule("DPSSim").Open()
 	elseif msg == "rp" then
 		ns:GetModule("Roleplay").OpenEditor()
 	elseif msg == "mausrad" or msg == "wheel" then

@@ -10,6 +10,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		unitPrice = true,
 		stackSize = true,
 		trainerCompare = true,
+		chatItemLinks = true,
 		hoverName = true,
 		hoverLevel = true,
 		hoverHealth = true,
@@ -739,13 +740,94 @@ local function AddItemSections(tooltip, data)
 	tooltip:Show()
 end
 
+---------------------------------------------------------------------------
+-- Item links in chat use GameTooltip so item data updates and Shift work
+-- exactly as they do for the other item tooltips.
+---------------------------------------------------------------------------
+local chatItemOwner, chatItemLink, chatItemArrow
+
+local function IsSecretData(value)
+	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
+end
+
+local function IsChatItemTooltip(tooltip)
+	if tooltip ~= GameTooltip or not chatItemOwner or tooltip:GetOwner() ~= chatItemOwner then
+		return false
+	end
+	local info = tooltip:GetPrimaryTooltipInfo()
+	if IsSecretData(info) or not info or Secret(info.getterName) or info.getterName ~= "GetHyperlink" then
+		return false
+	end
+	local args = info.getterArgs
+	local link = not IsSecretData(args) and args and args[1]
+	return not Secret(link) and link == chatItemLink
+end
+
+local function HideChatItemArrow()
+	if chatItemArrow then
+		chatItemArrow:Hide()
+	end
+end
+
+local function HideChatItemTooltip()
+	local ownsTooltip = not GameTooltip:IsForbidden() and IsChatItemTooltip(GameTooltip)
+	chatItemOwner, chatItemLink = nil, nil
+	if ownsTooltip then
+		GameTooltip:Hide()
+	end
+end
+
+local function OnChatItemLinkEnter(_, chatFrame, link)
+	if not Tooltip.db.chatItemLinks or type(link) ~= "string" or Secret(link)
+		or not link:match("^item:%d+") or GameTooltip:IsForbidden() then
+		return
+	end
+	GameTooltip:SetOwner(chatFrame, "ANCHOR_CURSOR")
+	chatItemOwner, chatItemLink = chatFrame, link
+	GameTooltip:SetHyperlink(link)
+end
+
+local function OnChatItemLinkLeave(_, chatFrame)
+	if chatItemOwner and chatItemOwner == chatFrame then
+		HideChatItemTooltip()
+	end
+end
+
+local function AddChatItemUpgrade(tooltip, link)
+	local state = ns.ItemLinkUpgradeState(link)
+	if not state then
+		return
+	end
+	local color = state == "later" and GRAY_FONT_COLOR or GREEN_FONT_COLOR
+	GameTooltip_AddColoredLine(tooltip, L.ITEMS_UPGRADE_POPUP_HEAD, color, false, 16)
+	if not chatItemArrow then
+		chatItemArrow = tooltip:CreateTexture(nil, "OVERLAY")
+		chatItemArrow:SetAtlas("bags-greenarrow")
+		chatItemArrow:SetSize(12, 12)
+	end
+	chatItemArrow:ClearAllPoints()
+	chatItemArrow:SetPoint("RIGHT", tooltip:GetLeftLine(tooltip:NumLines()), "LEFT", -3, 0)
+	chatItemArrow:SetDesaturated(state == "later")
+	chatItemArrow:Show()
+end
+
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
 	end
 	ColorBorder(tooltip, data)
 	AddUnitPrice(tooltip, data)
+	local chatItem = IsChatItemTooltip(tooltip)
+	local link = chatItem and data.hyperlink
+	local compare = type(link) == "string" and not Secret(link) and C_Item.IsEquippableItem(link)
+	if compare then
+		AddChatItemUpgrade(tooltip, link)
+	end
 	AddItemSections(tooltip, data)
+	-- The game has already compared if its own setting or modifier is active.
+	if compare and not TooltipUtil.ShouldDoItemComparison(tooltip) then
+		GameTooltip_ShowCompareItem(tooltip)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -856,10 +938,6 @@ local function ShowTrainerCompare(tooltip, index)
 	end
 end
 
-local function IsSecretData(value)
-	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
-end
-
 local function HasSecretData(value, seen)
 	if IsSecretData(value) then
 		return true
@@ -958,10 +1036,15 @@ end
 function Tooltip:OnLogin()
 	self:RegisterEvent("UPDATE_MOUSEOVER_UNIT", ShowHoverName)
 	self:RegisterEvent("MODIFIER_STATE_CHANGED", OnShiftChanged)
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkEnter", ns.Measured("Tooltip: chat item enter", OnChatItemLinkEnter), self)
+	EventRegistry:RegisterCallback("ChatFrame.OnHyperlinkLeave", ns.Measured("Tooltip: chat item leave", OnChatItemLinkLeave), self)
 	self:ToggleEvent("INSPECT_READY", self.db.talentTree or self.db.hoverTalentIcon, OnInspectReady)
 end
 
 function Tooltip:OnOptionChanged(key)
+	if key == "chatItemLinks" and not self.db.chatItemLinks then
+		HideChatItemTooltip()
+	end
 	if key == "bronzeBorder" and not self.db.bronzeBorder then
 		ResetBronzeBorders()
 	end
@@ -979,9 +1062,14 @@ function Tooltip:OnInitialize()
 			hover:Hide()
 		end
 		tooltip.fpUnitSuffix = nil
+		HideChatItemArrow()
 		HideCompareTips()
 	end)
-	GameTooltip:HookScript("OnHide", HideCompareTips)
+	GameTooltip:HookScript("OnHide", ns.Measured("Tooltip: hide", function()
+		chatItemOwner, chatItemLink = nil, nil
+		HideChatItemArrow()
+		HideCompareTips()
+	end))
 	HookBronzeBorders()
 	if GameTooltip.SetTrainerService then
 		hooksecurefunc(GameTooltip, "SetTrainerService", ns.Measured("Tooltip: trainer compare", ShowTrainerCompare))
@@ -1008,6 +1096,7 @@ Tooltip.options = {
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
 	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },
+	{ key = "chatItemLinks", type = "toggle", name = L.TOOLTIP_CHAT_ITEM_LINKS, desc = L.TOOLTIP_CHAT_ITEM_LINKS_DESC },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 	{ key = "bronzeBorder", type = "toggle", name = L.TOOLTIP_BRONZE_BORDER, desc = L.TOOLTIP_BRONZE_BORDER_DESC, new = true },
 }

@@ -240,6 +240,8 @@ read_globals = {
 	"GameTooltip_AddNormalLine",
 	"GameTooltip_Hide",
 	"GameTooltip_SetTitle",
+	"GameTooltip_ShowCompareItem",
+	"TooltipUtil",
 	"GetCVar",
 	"GetCVarBool",
 	"GetFonts",

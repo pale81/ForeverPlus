@@ -761,6 +761,7 @@ local function LinkUpgradeState(link)
 	return result
 end
 
+ns.ItemLinkUpgradeState = LinkUpgradeState
 ns.RecipeUpgradeState = LinkUpgradeState
 
 local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)

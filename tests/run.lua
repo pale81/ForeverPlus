@@ -2153,6 +2153,84 @@ end
 	module.db.shiftInfo = savedShiftInfo
 	print("Shift tooltip refresh OK")
 end)()
+;(function()
+	local module = ns:GetModule("Tooltip")
+	local enter, leave = uv(module.OnLogin, "OnChatItemLinkEnter"), uv(module.OnLogin, "OnChatItemLinkLeave")
+	local shiftChanged = uv(module.OnLogin, "OnShiftChanged")
+	local onItem = uv(module.OnInitialize, "OnItemTooltip")
+	local savedTooltip, savedUtil, savedCompare = GameTooltip, TooltipUtil, GameTooltip_ShowCompareItem
+	local savedShift, savedSections, savedArrow = IsShiftKeyDown, ns.itemSections, ns.ItemLinkUpgradeState
+	local savedGetter, savedEquippable = C_TooltipInfo.GetHyperlink, C_Item.IsEquippableItem
+	local savedFlag, savedCalls = module.db.shiftInfo, #TEST_POSTCALLS
+	local armor, food = "item:1234:0:0:0", "item:5678:0:0:0"
+	local shift, compared, lines, arrow = false, false, {}
+	local tip = NewFrame("GameTooltip")
+	GameTooltip, module.db.shiftInfo = tip, true
+	module:OnInitialize()
+	for i = #TEST_POSTCALLS, savedCalls + 1, -1 do TEST_POSTCALLS[i] = nil end
+	tip:Hide()
+	tip.SetOwner = function(self, owner) self.owner = owner end
+	tip.GetOwner = function(self) return self.owner end
+	tip.GetPrimaryTooltipInfo = function(self) return self.infoList and self.infoList[1] end
+	tip.AddLine = function(_, line) lines[line] = true end
+	tip.CreateTexture = function()
+		arrow = NewFrame("Texture")
+		arrow.SetDesaturated = function(self, value) self.desaturated = value end
+		return arrow
+	end
+	tip.Hide = function(self)
+		self.shown, compared = false, false
+		self:GetScript("OnHide")(self)
+	end
+	TooltipUtil = { ShouldDoItemComparison = function() return false end }
+	GameTooltip_ShowCompareItem = function() compared = true end
+	IsShiftKeyDown = function() return shift end
+	ns.itemSections = { { fn = function() return { { left = "Shift item info" } } end } }
+	ns.ItemLinkUpgradeState = function() return "later" end
+	C_Item.IsEquippableItem = function(link) return link == armor end
+	C_TooltipInfo.GetHyperlink = function(link)
+		return { hyperlink = link, type = Enum.TooltipDataType.Item, lines = {} }
+	end
+	tip.SetHyperlink = function(self, link)
+		lines, compared = {}, false
+		self:GetScript("OnTooltipCleared")(self)
+		local data = C_TooltipInfo.GetHyperlink(link)
+		self.infoList = { { getterName = "GetHyperlink", getterArgs = { link }, tooltipData = data } }
+		onItem(self, data)
+		self:Show()
+	end
+	tip.RefreshData = function(self) self:SetHyperlink(self.infoList[1].getterArgs[1]) end
+
+	enter(nil, ChatFrame1, "spell:1234")
+	assert(not tip:IsShown(), "non-item chat links have no item preview")
+	enter(nil, ChatFrame1, armor)
+	assert(tip:IsShown() and compared and arrow:IsShown() and arrow.desaturated and not lines["Shift item info"],
+		"chat equipment shows comparison and the level-gated upgrade arrow without opening a separate window")
+	shift = true
+	shiftChanged(nil, nil, "LSHIFT")
+	assert(lines["Shift item info"] and compared and arrow:IsShown(), "pressing Shift updates the open chat preview")
+	shift = false
+	shiftChanged(nil, nil, "LSHIFT")
+	assert(not lines["Shift item info"] and compared, "releasing Shift removes extras and keeps the comparison")
+	leave(nil, ChatFrame1)
+	assert(not tip:IsShown() and not compared and not arrow:IsShown(), "leaving the link closes the preview")
+	enter(nil, ChatFrame1, food)
+	assert(tip:IsShown() and not compared and not arrow:IsShown(), "non-equipment only shows the item tooltip")
+	tip:SetOwner(UIParent)
+	leave(nil, ChatFrame1)
+	assert(tip:IsShown(), "chat leave does not close a tooltip taken over by another frame")
+	enter(nil, ChatFrame1, armor)
+	module.db.chatItemLinks = false
+	module:OnOptionChanged("chatItemLinks")
+	enter(nil, ChatFrame1, armor)
+	assert(not tip:IsShown(), "disabling the option dismisses and prevents the hover preview")
+
+	GameTooltip, TooltipUtil, GameTooltip_ShowCompareItem = savedTooltip, savedUtil, savedCompare
+	IsShiftKeyDown, ns.itemSections, ns.ItemLinkUpgradeState = savedShift, savedSections, savedArrow
+	C_TooltipInfo.GetHyperlink, C_Item.IsEquippableItem = savedGetter, savedEquippable
+	module.db.shiftInfo, module.db.chatItemLinks = savedFlag, true
+	print("Chat item hover, comparison and Shift OK")
+end)()
 -- Tracking menu entries
 do
 	local mm = ns:GetModule("Minimap")

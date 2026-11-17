@@ -8803,4 +8803,18 @@ end)()
 	for key, value in pairs(old) do _G[key] = value[1] end
 	print("DPS simulator results and comparison OK")
 end)()
+;(function()
+	local module = ns:GetModule("Tooltip")
+	local itemLinkOf = uv(uv(module.OnInitialize, "UpdateCompareArrows"), "ItemLinkOf")
+	local link = "item:1234:0:0:0"
+	local function tip(extra)
+		local t = { IsForbidden = function() return false end, IsShown = function() return true end }
+		for key, value in pairs(extra) do t[key] = value end
+		return t
+	end
+	assert(itemLinkOf(tip({ GetItem = function() return "Hose", link end })) == link, "link from GetItem")
+	assert(itemLinkOf(tip({ GetTooltipData = function() return { hyperlink = link } end })) == link, "link from tooltip data without GetItem")
+	assert(itemLinkOf(tip({})) == nil, "no link source: no error")
+	print("compare tooltip without GetItem OK")
+end)()
 dofile("bundled.lua")

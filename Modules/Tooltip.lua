@@ -850,7 +850,15 @@ local function ItemLinkOf(tooltip)
 	if tooltip:IsForbidden() or not tooltip:IsShown() then
 		return nil
 	end
-	local _, link = tooltip:GetItem()
+	-- Comparison tooltips do not always offer GetItem; their data carries the link.
+	local link
+	if type(tooltip.GetItem) == "function" then
+		link = select(2, tooltip:GetItem())
+	end
+	if not link and type(tooltip.GetTooltipData) == "function" then
+		local data = tooltip:GetTooltipData()
+		link = type(data) == "table" and not Secret(data) and data.hyperlink or nil
+	end
 	return type(link) == "string" and not Secret(link) and link or nil
 end
 

@@ -143,7 +143,8 @@ GetProfessions = function() return 1, 2 end
 GetProfessionInfo = function(i) return "Prof", 1, 150, 300, 0, 0, i == 1 and 171 or 185 end
 C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true end
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
-C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end }
+C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end,
+	GetUnit = function() return { lines = {} } end }
 Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45 }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
@@ -173,6 +174,7 @@ C_Container = { GetContainerNumFreeSlots = function() return 3, 0 end, GetContai
 GetQuestLogSpecialItemInfo = function() end
 C_QuestLog = { GetQuestWatchType = function() return nil end, IsOnQuest = function() return false end, GetNumQuestWatches = function() return 0 end, GetInfo = function() return nil end, IsComplete = function() return false end, GetNumQuestLogEntries = function() return 9, 7 end, GetMaxNumQuestsCanAccept = function() return 25 end }
 C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+C_QuestLog.UnitIsRelatedToActiveQuest = function() return false end
 TRACKER_HEADER_QUESTS = "Quests"
 C_Spell = { GetSpellName = function(id) return "Spell"..id end, GetSpellTexture = function() return 1 end }
 C_SpellBook = { IsSpellKnown = function() return true end, FindSpellBookSlotForSpell = function() return 1 end }
@@ -7235,6 +7237,97 @@ end)()
 	C_QuestLog.UnitIsRelatedToActiveQuest = function() return false end
 	assert(not isQuestUnit("nameplate1"), "players are never quest units")
 	print("nameplate quest marker OK", plate ~= nil)
+end)()
+-- Quest symbols share the nameplate rules in the unit tooltip and above the cursor.
+;(function()
+	local tip, quests = ns:GetModule("Tooltip"), ns:GetModule("Quests")
+	local handler = uv(tip.OnInitialize, "OnUnitTooltip")
+	local withIcon = uv(handler, "WithQuestIcon")
+	local saved = { C_QuestLog, C_TooltipInfo, UnitIsPlayer, UnitCanAttack, UnitGUID, UnitName, UnitIsUnit,
+		GameTooltip.GetUnit, GameTooltip.IsForbidden, GameTooltipTextLeft1, issecretvalue, ns.QuestData }
+	local savedOptions = { tip.db.questIcon, quests.db.nameplateIcons, quests.db.dropObjectives }
+	local sources = ns:GetModule("LootSources")
+	local savedDrops = sources.DropsFrom
+	local state = uv(uv(quests.IsQuestUnit, "DropObjectives"), "state")
+	local related, player, scans = false, false, 0
+	local data = { lines = { { type = Enum.TooltipDataLineType.QuestObjective, leftText = "Rippchen: 2/6" } } }
+	C_QuestLog = { UnitIsRelatedToActiveQuest = function() return related end,
+		GetQuestObjectives = function() return { { text = "Rippchen: 2/6", numFulfilled = 2, numRequired = 6, finished = false } } end,
+		GetTitleForQuestID = function() return "Rippchen sammeln" end }
+	C_TooltipInfo = { GetUnit = function() scans = scans + 1 return data end }
+	UnitIsPlayer = function() return player end
+	UnitCanAttack = function() return true end
+	UnitGUID = function() return "Creature-0-0-0-0-123-0000000001" end
+	UnitName = function() return "Klippeneber" end
+	UnitIsUnit = function() return false end
+	GameTooltip.GetUnit = function() return "Klippeneber", "mouseover" end
+	GameTooltip.IsForbidden = function() return false end
+	local text = "Klippeneber"
+	GameTooltipTextLeft1 = { GetText = function() return text end, SetText = function(_, value) text = value end,
+		GetTextColor = function() return 0.2, 0.6, 1 end }
+	assert(tip.db.questIcon == true, "quest symbol is enabled by default")
+	quests.db.nameplateIcons = false
+	local marked = quests.unitIconPrefix .. "Klippeneber"
+	assert(withIcon("Klippeneber", "mouseover", data) == marked and scans == 0,
+		"tooltip objectives are reused even with nameplate symbols off")
+	handler(GameTooltip, data)
+	assert(text == marked, "quest symbol precedes the tooltip name")
+	handler(GameTooltip, data)
+	assert(text == marked, "tooltip updates do not duplicate the symbol")
+	data.lines[1].leftText = "Rippchen: 6/6"
+	related = true
+	handler(GameTooltip, data)
+	assert(text == "Klippeneber", "completed objectives remove the symbol despite the game's quest flag")
+	data.lines[1].leftText = "Rippchen: 2/6"
+	local showName = uv(tip.OnLogin, "ShowHoverName")
+	local frame = uv(showName, "GetHover")()
+	local savedSetText = frame.Name.SetText
+	local hoverText
+	frame.Name.SetText = function(_, value) hoverText = value end
+	uv(showName, "Layout")(frame, data)
+	assert(hoverText == marked, "same symbol precedes the name above the cursor")
+	frame:Show()
+	frame.object = false
+	UnitIsUnit = function() return true end
+	data.lines[1].leftText = "Rippchen: 6/6"
+	handler(GameTooltip, data)
+	assert(hoverText == "Klippeneber", "tooltip completion also updates the visible cursor name")
+	data.lines[1].leftText = "Rippchen: 2/6"
+	handler(GameTooltip, data)
+	assert(hoverText == marked, "tooltip updates restore the cursor symbol for open objectives")
+	tip.db.questIcon = false
+	tip:OnOptionChanged("questIcon")
+	assert(hoverText == "Klippeneber", "disabling immediately updates the visible cursor name")
+	handler(GameTooltip, data)
+	assert(text == "Klippeneber" and withIcon(marked, "mouseover", data) == "Klippeneber", "disabled symbol is removed")
+	tip.db.questIcon = true
+	related = false
+	player = true
+	assert(withIcon("Klippeneber", "mouseover", data) == "Klippeneber", "players get no quest symbol")
+	player = false
+	issecretvalue = function(value) return value == "secret-name" or value == "secret-unit" end
+	assert(withIcon("secret-name", "mouseover", data) == "secret-name", "restricted names stay untouched")
+	assert(withIcon("Klippeneber", "secret-unit", data) == "Klippeneber", "restricted unit tokens are not queried")
+	assert(withIcon("Klippeneber", nil, data) == "Klippeneber", "missing unit tokens get no symbol")
+	data = { lines = {} }
+	assert(withIcon("Klippeneber", "mouseover", data) == "Klippeneber", "unrelated creatures get no symbol")
+	ns.QuestData = { targets = { [999999] = { { "i", 999998 } } } }
+	state[999999] = {}
+	sources.DropsFrom = function(itemID, key) return itemID == 999998 and key == "npc:123" end
+	quests.db.dropObjectives = true
+	assert(withIcon("Klippeneber", "mouseover", data) == marked, "recorded quest drops use the shared marker rules")
+	quests.db.dropObjectives = false
+	assert(withIcon("Klippeneber", "mouseover", data) == "Klippeneber", "recorded drops respect their own option")
+	GameTooltip.IsForbidden = function() return true end
+	handler(GameTooltip, data)
+	assert(text == "Klippeneber", "forbidden tooltips stay untouched")
+	state[999999] = nil
+	frame.Name.SetText = savedSetText
+	sources.DropsFrom = savedDrops
+	C_QuestLog, C_TooltipInfo, UnitIsPlayer, UnitCanAttack, UnitGUID, UnitName, UnitIsUnit,
+		GameTooltip.GetUnit, GameTooltip.IsForbidden, GameTooltipTextLeft1, issecretvalue, ns.QuestData = unpack(saved, 1, 12)
+	tip.db.questIcon, quests.db.nameplateIcons, quests.db.dropObjectives = unpack(savedOptions)
+	print("quest symbols in tooltip and cursor name OK")
 end)()
 -- Speech bubbles
 ;(function()

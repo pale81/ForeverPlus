@@ -151,14 +151,15 @@ end
 -- Nameplate quest icons
 ---------------------------------------------------------------------------
 local QUEST_ICON = [[Interface\GossipFrame\AvailableQuestIcon]]
+Quests.unitIconPrefix = "|T" .. QUEST_ICON .. ":0|t "
 local markers = {} -- nameplate -> marker frame
 
 local Secret = ns.Secret
 
 -- The quest lines in the tooltip of the unit: "open" when one objective is not done (or has no count), "done" when
 -- all of them are done (8/8), nil without quest lines; and the first open count, e.g. "3/8".
-local function QuestScan(unit)
-	local data = C_TooltipInfo.GetUnit(unit)
+local function QuestScan(unit, data)
+	data = data or C_TooltipInfo.GetUnit(unit)
 	local status, progress
 	for _, line in ipairs(data and data.lines or {}) do
 		if line.type == Enum.TooltipDataLineType.QuestObjective then
@@ -224,17 +225,18 @@ end
 
 -- Units of an active quest. The game's own flag misses some, for example
 -- creatures whose drop a quest asks for; their tooltip still lists the objective.
-local function IsQuestUnit(unit)
+local function IsQuestUnit(unit, data)
 	local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
 	if related and not Secret(related) then
 		-- The game keeps the flag after the objective is done: the tooltip then lists it as finished (8/8).
-		return QuestScan(unit) ~= "done"
+		return QuestScan(unit, data) ~= "done"
 	end
 	if Secret(related) or UnitIsPlayer(unit) or not UnitCanAttack("player", unit) then
 		return false
 	end
-	return QuestScan(unit) == "open" or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
+	return QuestScan(unit, data) == "open" or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
 end
+Quests.IsQuestUnit = IsQuestUnit
 
 local function GetMarker(nameplate)
 	local marker = markers[nameplate]

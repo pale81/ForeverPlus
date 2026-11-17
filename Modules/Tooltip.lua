@@ -12,6 +12,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		trainerCompare = true,
 		chatItemLinks = true,
 		hoverName = true,
+		questIcon = true,
 		hoverLevel = true,
 		hoverHealth = true,
 		hoverFullName = false,
@@ -263,6 +264,22 @@ local function Secret(value)
 	return ns.Secret(value)
 end
 
+-- The same open objectives and icon as the nameplates, independent of their visibility option.
+local function WithQuestIcon(name, unit, data)
+	if Secret(name) or type(name) ~= "string" or name == "" or Secret(unit) or not unit then
+		return name
+	end
+	local quests = ns:GetModule("Quests")
+	local prefix = quests.unitIconPrefix
+	if name:find(prefix, 1, true) == 1 then
+		name = name:sub(#prefix + 1)
+	end
+	if Tooltip.db.questIcon and quests.IsQuestUnit(unit, data) then
+		return prefix .. name
+	end
+	return name
+end
+
 -- Only for units in the 3D world (or their nameplates), not unit frames.
 local function OverWorld()
 	local focus = GetMouseFoci()[1]
@@ -350,7 +367,7 @@ local function LayoutHoverText(frame, name, level, showHealth)
 	end
 end
 
-local function Layout(frame)
+local function Layout(frame, data)
 	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
 	-- First name and surname, as Blizzard's own unit display does.
 	if Tooltip.db.hoverFullName and not Secret(name) and NameUtil and NameUtil.FormatUnitNameForDisplay then
@@ -384,6 +401,7 @@ local function Layout(frame)
 	if tree and tree.icon then
 		name = ("|T%d:0|t "):format(tree.icon) .. name
 	end
+	name = WithQuestIcon(name, "mouseover", data)
 	local levelText = Tooltip.db.hoverLevel and not Secret(level) and (level and level > 0 and level or "??")
 	LayoutHoverText(frame, name, levelText, Tooltip.db.hoverHealth)
 	ApplyNameColor(frame, r, g, b)
@@ -556,7 +574,7 @@ end
 
 -- The name over the cursor takes the colour of the first tooltip line, so pets
 -- and other units whose colour the game decides while it builds the tooltip match it.
-local function SyncHoverColor(tooltip)
+local function SyncHoverColor(tooltip, data)
 	if not hover or not hover:IsShown() or hover.object or tooltip ~= GameTooltip or tooltip:IsForbidden() then
 		return
 	end
@@ -567,6 +585,10 @@ local function SyncHoverColor(tooltip)
 	local same = UnitIsUnit(unit, "mouseover")
 	if Secret(same) or not same then
 		return
+	end
+	-- Tooltip updates also remove the icon when this unit's objectives become complete.
+	if Tooltip.db.questIcon then
+		Layout(hover, data)
 	end
 	local first = GameTooltipTextLeft1
 	if first then
@@ -682,9 +704,20 @@ local function OnInspectReady(_, _, guid)
 end
 Tooltip.OnInspectReady = OnInspectReady
 
-local function OnUnitTooltip(tooltip)
+local function OnUnitTooltip(tooltip, data)
+	if tooltip == GameTooltip and not tooltip:IsForbidden() then
+		local _, unit = tooltip:GetUnit()
+		local first = GameTooltipTextLeft1
+		if first then
+			local name = first:GetText()
+			local marked = WithQuestIcon(name, unit, data)
+			if not Secret(name) and marked ~= name then
+				first:SetText(marked)
+			end
+		end
+	end
 	ClassColorTooltip(tooltip)
-	SyncHoverColor(tooltip)
+	SyncHoverColor(tooltip, data)
 	TreeTooltip(tooltip)
 end
 
@@ -1181,6 +1214,12 @@ function Tooltip:OnLogin()
 end
 
 function Tooltip:OnOptionChanged(key)
+	if key == "questIcon" then
+		if hover and hover:IsShown() and not hover.object then
+			Layout(hover)
+		end
+		ns.RefreshGameTooltip()
+	end
 	if key == "chatItemLinks" and not self.db.chatItemLinks then
 		HideChatItemTooltip()
 	end
@@ -1233,6 +1272,7 @@ Tooltip.options = {
 	{ key = "hoverObjects", type = "toggle", name = L.TOOLTIP_HOVER_OBJECTS, desc = L.TOOLTIP_HOVER_OBJECTS_DESC, parent = "hoverName" },
 	{ key = "hoverFullName", type = "toggle", name = L.TOOLTIP_HOVER_FULL_NAME, desc = L.TOOLTIP_HOVER_FULL_NAME_DESC, parent = "hoverName" },
 	{ key = "hoverHealth", type = "toggle", name = L.TOOLTIP_HOVER_HEALTH, desc = L.TOOLTIP_HOVER_HEALTH_DESC, parent = "hoverName" },
+	{ key = "questIcon", type = "toggle", name = L.TOOLTIP_QUEST_ICON, desc = L.TOOLTIP_QUEST_ICON_DESC },
 	{ key = "classColors", type = "toggle", name = L.TOOLTIP_CLASS_COLORS, desc = L.TOOLTIP_CLASS_COLORS_DESC },
 	{ key = "talentTree", type = "toggle", name = L.TOOLTIP_TALENT_TREE, desc = L.TOOLTIP_TALENT_TREE_DESC, new = true },
 	{ key = "hoverTalentIcon", type = "toggle", name = L.TOOLTIP_HOVER_TALENT_ICON, desc = L.TOOLTIP_HOVER_TALENT_ICON_DESC, parent = "hoverName", new = true },

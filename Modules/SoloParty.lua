@@ -1,4 +1,4 @@
--- Local comic bursts for skill ranks, looted coins and large expenses.
+-- Local comic bursts for skill ranks, experience, looted coins and large expenses.
 local _, ns = ...
 local L = ns.L
 
@@ -21,6 +21,7 @@ local STYLES = {
 	skill = { font = INSCRIPTION, size = 39 },
 	loot = { font = INSCRIPTION, size = 49 },
 	spent = { font = SMALL_CAPS, size = 40 },
+	xp = { font = INSCRIPTION, size = 44 },
 }
 
 local STAR = [[Interface\Cooldown\star4]]
@@ -59,6 +60,8 @@ local THEMES = {
 		aura = ARCANE, particle = MOTES, lift = 0.44 },
 	loot = { paper = { 1, 0.93, 0.77 }, text = { 1, 0.89, 0.57 }, light = { 1, 0.79, 0.34 },
 		particle = COIN, accent = MOTES, lift = 0.40 },
+	xp = { paper = { 0.80, 0.85, 0.97 }, text = { 0.86, 0.93, 1 }, light = { 0.45, 0.62, 1 },
+		aura = ARCANE, particle = MOTES, accent = MOTES, lift = 0.48 },
 	spent = { paper = { 0.89, 0.72, 0.62 }, text = { 1, 0.82, 0.68 }, light = { 0.80, 0.38, 0.23 },
 		aura = SMOKE, particle = MOTES, lift = 0.12 },
 }
@@ -86,6 +89,7 @@ local PARTICLE_PATHS = {
 local root, cards, nextSlot = nil, {}, 0
 local lastBurst, lastSound = nil, {}
 local balance, lootTimer, previewTimer
+local lastXP
 local lootAmounts, lootTotal = {}, 0
 
 -- Start at a random variant and use each one before repeating it.
@@ -276,8 +280,9 @@ local function ShowMoney(kind, amount)
 	ShowBurst(kind, label, sign .. GetMoneyString(amount, true))
 end
 
-local function ResetMoney()
+local function ResetBaselines()
 	balance = SoloParty.db.enabled and ns.Number(GetMoney()) or nil
+	lastXP = SoloParty.db.enabled and { ns.Number(UnitXP("player")), ns.Number(UnitXPMax("player")) } or nil
 	if lootTimer then
 		lootTimer:Cancel()
 		lootTimer = nil
@@ -320,6 +325,23 @@ function SoloParty:CHAT_MSG_MONEY(_, message)
 	end
 end
 
+-- Experience by the change of the experience points, whatever the source (kills, quests, discoveries).
+-- Like money, it must reach 10% of what the level needed before the change.
+function SoloParty:PLAYER_XP_UPDATE()
+	local previous = lastXP
+	local current, maximum = ns.Number(UnitXP("player")), ns.Number(UnitXPMax("player"))
+	lastXP = { current, maximum }
+	if previous and previous[1] and previous[2] and current then
+		local gained = current - previous[1]
+		if gained < 0 then
+			gained = previous[2] - previous[1] + current -- a level up
+		end
+		if gained > 0 and gained * 10 >= previous[2] then
+			ShowBurst("xp", L.SOLO_PARTY_XP, L.SOLO_PARTY_XP_VALUE:format(gained))
+		end
+	end
+end
+
 function SoloParty:CHAT_MSG_SKILL(_, message)
 	local name, rank = ns.ParseSkillRankMessage(message)
 	if name then
@@ -340,9 +362,10 @@ function SoloParty:OnOptionChanged(key)
 		return
 	end
 	local enabled = self.db.enabled
-	ResetMoney()
-	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, ResetMoney)
+	ResetBaselines()
+	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, ResetBaselines)
 	self:ToggleEvent("PLAYER_MONEY", enabled, self.PLAYER_MONEY)
+	self:ToggleEvent("PLAYER_XP_UPDATE", enabled, self.PLAYER_XP_UPDATE)
 	self:ToggleEvent("CHAT_MSG_MONEY", enabled, self.CHAT_MSG_MONEY)
 	self:ToggleEvent("CHAT_MSG_SKILL", enabled, self.CHAT_MSG_SKILL)
 	if not enabled then
@@ -376,6 +399,7 @@ local PREVIEW_STEPS = {
 	function() ShowBurst("skill", L.SOLO_PARTY_PREVIEW_SKILL, L.SOLO_PARTY_RANK:format(75), SKILL_EFFECTS[356]) end,
 	function() ShowMoney("loot", 12500) end,
 	function() ShowMoney("spent", 3500) end,
+	function() ShowBurst("xp", L.SOLO_PARTY_XP, L.SOLO_PARTY_XP_VALUE:format(450)) end,
 }
 
 local function Preview()

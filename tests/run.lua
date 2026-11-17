@@ -875,8 +875,6 @@ local barText = uv(uv(xp.OnLogin, "HookBars"), "UpdateBars")
 local textFn = uv(barText, "UpdateText")
 local bar = { currXP = 1250, maxBar = 5000, IsCapped = function() return false end, SetBarText = function(_, t) print("  xp:", t) end }
 for _, f in ipairs({ "percent", "both", "remaining", "full" }) do xp.db.format = f; textFn(bar) end
--- Quest item pick
-GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3, false end end
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3
@@ -933,6 +931,8 @@ GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3,
 	SecondaryStatusTrackingBarContainer = nil
 	print("xp bar size OK")
 end)()
+-- Quest item pick
+GetQuestLogSpecialItemInfo = function(i) if i == 1 then return "item:5", 123, 3, false end end
 IsQuestLogSpecialItemInRange = function() return nil end
 C_QuestLog.GetDistanceSqToQuest = function() return 900 end
 C_QuestLog.IsComplete = function() return false end
@@ -4847,6 +4847,8 @@ end)()
 	assert(#printed == 14 and #played == 7, "preview plays the second effect separately")
 	timers[#timers].fn()
 	assert(#printed == 16 and #played == 8 and expense[played[8]], "preview plays the expense sound separately")
+	timers[#timers].fn()
+	assert(#printed == 18 and #played == 9 and printed[18] == ns.L.SOLO_PARTY_XP_VALUE:format(450), "preview ends with the experience")
 	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
 
 	SetEnabled(true)
@@ -4855,13 +4857,13 @@ end)()
 		money = 900
 		Fire("PLAYER_MONEY")
 	end
-	assert(expense[played[9]] and played[9] ~= played[8] and played[8] ~= played[3] and played[9] ~= played[3]
-		and played[10] == played[3], "expenses use all three sounds before repeating")
+	assert(expense[played[10]] and played[10] ~= played[8] and played[8] ~= played[3] and played[10] ~= played[3]
+		and played[11] == played[3], "expenses use all three sounds before repeating")
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	money = 810
 	Fire("PLAYER_MONEY")
-	assert(#printed == 22 and #played == 10 and solo.db.enabled, "muting keeps qualifying pop-ups active")
+	assert(#printed == 24 and #played == 11 and solo.db.enabled, "muting keeps qualifying pop-ups active")
 	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Fischfang' hat sich auf 51 erhöht.")
 	assert(Effect(#frames, "SoloPartyWater", 0.5), "the fishing effect follows the client-localized skill name")
 	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Bergbau' hat sich auf 51 erhöht.")
@@ -4876,7 +4878,36 @@ end)()
 	assert(not smoke:IsShown() and not bubble:IsShown(), "disabling effects clears active art")
 	Fire("CHAT_MSG_SKILL", skill)
 	assert(not effects[#frames] and printed[#printed - 1] == "Kürschnerei", "the frame and text continue without effects")
+
+	-- Experience: 10% of the level's need before the gain, level-ups counted across the boundary.
+	local savedXP = { UnitXP, UnitXPMax }
+	local xp, xpMax = 0, 1000
+	UnitXP, UnitXPMax = function() return xp end, function() return xpMax end
+	solo.db.sounds = true
+	EnterWorld(1000)
+	local shown, sounds = #printed, #played
+	xp = 99
+	Fire("PLAYER_XP_UPDATE", "player")
+	assert(#printed == shown, "just below 10% of the level is quiet")
+	xp = 199
+	Fire("PLAYER_XP_UPDATE", "player")
+	assert(printed[shown + 1] == ns.L.SOLO_PARTY_XP and printed[shown + 2] == ns.L.SOLO_PARTY_XP_VALUE:format(100),
+		"exactly 10% of the level qualifies: " .. tostring(printed[shown + 2]))
+	assert(#played == sounds + 1 and reward[played[#played]], "experience uses the reward sounds")
+	xp, xpMax = 50, 1200
+	Fire("PLAYER_XP_UPDATE", "player")
+	assert(printed[shown + 4] == ns.L.SOLO_PARTY_XP_VALUE:format(851), "a level-up counts the rest of the old level: " .. tostring(printed[shown + 4]))
+	xp = "protected"
+	Fire("PLAYER_XP_UPDATE", "player")
+	xp = 400
+	Fire("PLAYER_XP_UPDATE", "player")
+	assert(#printed == shown + 4, "a protected value is ignored and restarts the baseline")
+	solo.db.sounds = false
 	SetEnabled(false)
+	xp = 900
+	Fire("PLAYER_XP_UPDATE", "player")
+	assert(#printed == shown + 4, "switching off unregisters the experience event")
+	UnitXP, UnitXPMax = unpack(savedXP, 1, 2)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI = unpack(saved, 1, 8)
 	print("solo party OK")

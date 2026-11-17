@@ -350,7 +350,7 @@ local WEAPON_ENCHANT_SPELLS = {
 
 -- Weapon imbues are no auras: they show up as weapon enchants. The enchant IDs and
 -- cast spells of the shaman imbues come from DPSSim (ns.WeaponImbues, filled at load).
-local imbueKinds, activeImbues = {}, {}
+local imbueKinds, activeImbues, activeEnchantLines = {}, {}, {}
 
 local function ImbueKind(spellID)
 	if not next(imbueKinds) then
@@ -383,6 +383,23 @@ local function ActiveAuraForItem(itemID)
 	end
 end
 
+-- Poisons, oils and stones: the weapon tooltip names the applied enchant ("Name (30 min)"),
+-- which starts with the item's own name.
+local function ActiveEnchantForItem(itemID)
+	if not next(activeEnchantLines) then
+		return
+	end
+	local itemName = C_Item.GetItemInfo(itemID)
+	if not itemName or ns.Secret(itemName) then
+		return
+	end
+	for line in pairs(activeEnchantLines) do
+		if line == itemName or line:sub(1, #itemName + 2) == itemName .. " (" then
+			return itemName
+		end
+	end
+end
+
 local function IsActiveSelfBuff(button)
 	local actionType, id = GetActionInfo(button.action)
 	if type(id) ~= "number" then
@@ -403,6 +420,10 @@ local function IsActiveSelfBuff(button)
 		-- their active effect is exposed as a helpful player aura.
 		buffButtons[button] = true
 		name = next(activeAuras) and ActiveAuraForItem(id)
+		if not name then
+			local enchantName = ActiveEnchantForItem(id)
+			return enchantName and not Visuals.db.activeBuffExceptions[enchantName] or false
+		end
 	else
 		buffButtons[button] = nil
 	end
@@ -422,7 +443,7 @@ local function SelfBuffsOnBars()
 				names[#names + 1] = name
 			end
 		elseif actionType == "item" and type(id) == "number" then
-			local name = ActiveAuraForItem(id)
+			local name = ActiveAuraForItem(id) or ActiveEnchantForItem(id)
 			if name and not seen[name] then
 				seen[name] = true
 				names[#names + 1] = name
@@ -514,49 +535,72 @@ local function RecolorBuffButtons()
 	end
 end
 
-local WEAPON_SLOTS = { "MainHand", "OffHand" }
+local WEAPON_SLOTS = { { "MainHand", INVSLOT_MAINHAND }, { "OffHand", INVSLOT_OFFHAND } }
 
--- Kinds of imbue currently on the weapons. In combat the data may be unreadable:
--- the last known set is kept then.
+-- Enchant lines of a weapon's tooltip: "Name (30 min)".
+local function EnchantLines(inventorySlot, lines)
+	local data = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and C_TooltipInfo.GetInventoryItem("player", inventorySlot)
+	for _, line in ipairs(data and data.lines or {}) do
+		local text = line.leftText
+		if type(text) == "string" and not ns.Secret(text) then
+			lines[text] = true
+		end
+	end
+end
+
+-- Kinds of imbue and enchant lines currently on the weapons. In combat the data may be
+-- unreadable: the last known set is kept then.
 local function ScanImbues()
-	local kinds = {}
-	for _, slotName in ipairs(WEAPON_SLOTS) do
-		local list = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[slotName])
+	local kinds, lines = {}, {}
+	for _, slot in ipairs(WEAPON_SLOTS) do
+		local list = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[slot[1]])
 		if ns.Secret(list) then
 			return nil
 		end
+		local enchanted = false
 		for _, enchant in pairs(list or {}) do
 			if ns.Secret(enchant) or ns.Secret(enchant.hasEnchant) then
 				return nil
 			end
 			if enchant.hasEnchant then
+				enchanted = true
 				local imbue = (ns.WeaponImbues or {})[ns.Number(enchant.enchantID)]
 				if imbue then
 					kinds[imbue.kind] = true
 				end
 			end
 		end
+		if enchanted then
+			EnchantLines(slot[2], lines)
+		end
 	end
-	return kinds
+	return kinds, lines
+end
+
+local function SameSet(a, b)
+	for key in pairs(a) do
+		if not b[key] then
+			return false
+		end
+	end
+	for key in pairs(b) do
+		if not a[key] then
+			return false
+		end
+	end
+	return true
 end
 
 local function UpdateImbues()
 	if not (C_Item and C_Item.GetWeaponEnchantInfo and Enum.WeaponSlot) then
 		return
 	end
-	local ok, kinds = pcall(ScanImbues)
+	local ok, kinds, lines = pcall(ScanImbues)
 	if not ok or not kinds then
 		return
 	end
-	local changed = false
-	for kind in pairs(kinds) do
-		changed = changed or not activeImbues[kind]
-	end
-	for kind in pairs(activeImbues) do
-		changed = changed or not kinds[kind]
-	end
-	if changed then
-		activeImbues = kinds
+	if not (SameSet(kinds, activeImbues) and SameSet(lines, activeEnchantLines)) then
+		activeImbues, activeEnchantLines = kinds, lines
 		RecolorBuffButtons()
 	end
 end
@@ -1351,7 +1395,7 @@ local function UpdateAuraWatch()
 			auraReadable = false
 			wipe(activeAuras)
 			wipe(auraIDs)
-			activeImbues = {}
+			activeImbues, activeEnchantLines = {}, {}
 		end
 		if paladinEnabled then
 			auraWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")

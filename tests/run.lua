@@ -2430,6 +2430,23 @@ print("active buff OK")
 	colorBtn(wind)
 	assert(not wind.icon.d, "exception keeps imbue normal")
 	vis.db.activeBuffExceptions = {}
+	-- Poisons and oils: the weapon tooltip carries the enchant line "Name (30 min)"
+	local savedTip = C_TooltipInfo.GetInventoryItem
+	local tip = { lines = { { leftText = "Sofort wirkendes Gift VII (30 Min.)" } } }
+	C_TooltipInfo.GetInventoryItem = function() return tip end
+	enchants[1], enchants[2] = { { hasEnchant = true, enchantID = 9999 } }, {}
+	C_Item.GetItemInfo = function(id) return id == 100 and "Sofort wirkendes Gift VII" or id == 101 and "Sofort wirkendes Gift" or "Anderes" end
+	C_Item.GetItemSpell = function() return nil end
+	GetActionInfo = function(slot) return "item", 100 + slot - 1 end
+	local poison, other = mkBtn(1), mkBtn(2)
+	updateAuras()
+	colorBtn(poison); colorBtn(other)
+	assert(poison.icon.d == true and not other.icon.d, "applied poison greyed, other item not")
+	enchants[1] = {}
+	updateAuras()
+	colorBtn(poison)
+	assert(poison.icon.d == false, "poison back to normal once the enchant is gone")
+	C_TooltipInfo.GetInventoryItem = savedTip
 	ns.WeaponImbues, Enum.WeaponSlot, C_Item, GetActionInfo = savedImbues, savedSlot, savedItem, savedInfo
 	C_Spell.GetSpellName, C_Spell.IsSelfBuff = savedName, savedSelf
 	auras = {}

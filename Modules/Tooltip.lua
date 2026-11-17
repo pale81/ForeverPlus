@@ -815,7 +815,7 @@ end
 -- the worn one), by the same rule as the upgrade arrows. A long item name would run under it: then the arrow
 -- sits on the top edge instead.
 local compareArrows = {}
-local ARROW_SIZE, ARROW_INSET = 14, 5
+local ARROW_SIZE, ARROW_INSET = 22, 6
 
 local function HideCompareArrows()
 	for _, arrow in pairs(compareArrows) do

@@ -162,8 +162,8 @@ local function OnItemCell(cell, itemKey)
 	if not arrow and state then
 		arrow = cell:CreateTexture(nil, "OVERLAY", nil, 7)
 		arrow:SetAtlas("bags-greenarrow")
-		arrow:SetSize(10, 10)
-		arrow:SetPoint("TOPRIGHT", cell.Icon, "TOPRIGHT", 3, 3)
+		arrow:SetSize(12, 12)
+		arrow:SetPoint("RIGHT", cell.Icon, "LEFT", -1, 0)
 		itemArrows[cell] = arrow
 	end
 	if arrow then

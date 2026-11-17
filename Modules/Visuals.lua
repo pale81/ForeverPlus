@@ -348,10 +348,23 @@ local WEAPON_ENCHANT_SPELLS = {
 	[51730] = true, -- Earthliving Weapon
 }
 
+-- Weapon imbues are no auras: they show up as weapon enchants. The enchant IDs and
+-- cast spells of the shaman imbues come from DPSSim (ns.WeaponImbues, filled at load).
+local imbueKinds, activeImbues = {}, {}
+
+local function ImbueKind(spellID)
+	if not next(imbueKinds) then
+		for _, imbue in pairs(ns.WeaponImbues or {}) do
+			imbueKinds[imbue.spellID] = imbue.kind
+		end
+	end
+	return imbueKinds[spellID]
+end
+
 local function IsSelfBuff(spellID)
 	local cached = selfBuffCache[spellID]
 	if cached == nil then
-		cached = WEAPON_ENCHANT_SPELLS[spellID] or (C_Spell.IsSelfBuff and C_Spell.IsSelfBuff(spellID)) and true or false
+		cached = ImbueKind(spellID) and true or WEAPON_ENCHANT_SPELLS[spellID] or (C_Spell.IsSelfBuff and C_Spell.IsSelfBuff(spellID)) and true or false
 		selfBuffCache[spellID] = cached
 	end
 	return cached
@@ -377,7 +390,12 @@ local function IsActiveSelfBuff(button)
 		return false
 	end
 	local name
-	if actionType == "spell" and IsSelfBuff(id) then
+	local imbueKind = actionType == "spell" and ImbueKind(id)
+	if imbueKind then
+		buffButtons[button] = true
+		local spellName = C_Spell.GetSpellName(id)
+		return activeImbues[imbueKind] and not (spellName and Visuals.db.activeBuffExceptions[spellName]) or false
+	elseif actionType == "spell" and IsSelfBuff(id) then
 		buffButtons[button] = true
 		name = next(activeAuras) and C_Spell.GetSpellName(id)
 	elseif actionType == "item" then
@@ -493,6 +511,53 @@ local function RecolorBuffButtons()
 		if not (Visuals.db.colorRange and outOfRange[button]) then
 			ColorButton(button)
 		end
+	end
+end
+
+local WEAPON_SLOTS = { "MainHand", "OffHand" }
+
+-- Kinds of imbue currently on the weapons. In combat the data may be unreadable:
+-- the last known set is kept then.
+local function ScanImbues()
+	local kinds = {}
+	for _, slotName in ipairs(WEAPON_SLOTS) do
+		local list = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[slotName])
+		if ns.Secret(list) then
+			return nil
+		end
+		for _, enchant in pairs(list or {}) do
+			if ns.Secret(enchant) or ns.Secret(enchant.hasEnchant) then
+				return nil
+			end
+			if enchant.hasEnchant then
+				local imbue = (ns.WeaponImbues or {})[ns.Number(enchant.enchantID)]
+				if imbue then
+					kinds[imbue.kind] = true
+				end
+			end
+		end
+	end
+	return kinds
+end
+
+local function UpdateImbues()
+	if not (C_Item and C_Item.GetWeaponEnchantInfo and Enum.WeaponSlot) then
+		return
+	end
+	local ok, kinds = pcall(ScanImbues)
+	if not ok or not kinds then
+		return
+	end
+	local changed = false
+	for kind in pairs(kinds) do
+		changed = changed or not activeImbues[kind]
+	end
+	for kind in pairs(activeImbues) do
+		changed = changed or not kinds[kind]
+	end
+	if changed then
+		activeImbues = kinds
+		RecolorBuffButtons()
 	end
 end
 
@@ -1147,6 +1212,7 @@ local function WaitForReadableAuras()
 end
 
 local function UpdateActiveAuras()
+	UpdateImbues()
 	if not (C_UnitAuras and (C_UnitAuras.GetUnitAuras or C_UnitAuras.GetAuraDataByIndex)) then
 		return
 	end
@@ -1249,6 +1315,9 @@ local function UpdateAuraWatch()
 	if enabled and not auraWatcher then
 		auraWatcher = CreateFrame("Frame")
 		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
+			if event == "UNIT_INVENTORY_CHANGED" then
+				UpdateImbues()
+			end
 			if AurasAreSecret() then
 				if event == "UNIT_AURA" then
 					if sealAuraID and updateInfo then
@@ -1282,6 +1351,7 @@ local function UpdateAuraWatch()
 			auraReadable = false
 			wipe(activeAuras)
 			wipe(auraIDs)
+			activeImbues = {}
 		end
 		if paladinEnabled then
 			auraWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")

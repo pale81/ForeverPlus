@@ -23,6 +23,7 @@ AddImbues("fire", { 5, 4, 3, 523, 1665, 1666 }, { 8024, 8027, 8030, 16339, 16341
 AddImbues("frost", { 2, 12, 524, 1667, 1668 }, { 8033, 8038, 10456, 16355, 16356 })
 AddImbues("wind", { 283, 284, 525, 1669 }, { 8232, 8235, 10486, 16362 })
 imbues[7566], imbues[7568], imbues[7569] = imbues[1668], imbues[1664], imbues[1669]
+ns.WeaponImbues = imbues -- enchant ID -> { kind, spellID }; also read by the active-buff greying
 
 local FROST_PPM = 9 -- approximation: the server's enchant proc frequency is not exposed
 local WIND_COOLDOWN = 1.5 -- SpellAuraOptions.ProcCategoryRecovery for 439431

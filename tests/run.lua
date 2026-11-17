@@ -2389,6 +2389,37 @@ auras = {}
 updateAuras(); colorBtn(seal)
 assert(seal.icon.d == false and seal.icon.r == 1, "seal back to normal")
 print("active buff OK")
+-- Weapon imbues are no auras: greyed by the weapon enchant that matches the spell
+;(function()
+	local savedImbues, savedSlot, savedItem, savedInfo = ns.WeaponImbues, Enum.WeaponSlot, C_Item, GetActionInfo
+	local savedName, savedSelf = C_Spell.GetSpellName, C_Spell.IsSelfBuff
+	ns.WeaponImbues = { [283] = { kind = "wind", spellID = 8232 }, [5] = { kind = "fire", spellID = 8024 } }
+	Enum.WeaponSlot = { MainHand = 1, OffHand = 2 }
+	local enchants = { [1] = { { hasEnchant = true, enchantID = 283 } }, [2] = {} }
+	C_Item = setmetatable({ GetWeaponEnchantInfo = function(slot) return enchants[slot] end }, { __index = savedItem })
+	C_Spell.IsSelfBuff = function() return false end
+	C_Spell.GetSpellName = function(id) return "Imbue " .. id end
+	GetActionInfo = function(slot) return "spell", slot == 1 and 8232 or 8024 end
+	local wind, fire = mkBtn(1), mkBtn(2)
+	updateAuras()
+	colorBtn(wind); colorBtn(fire)
+	assert(wind.icon.d == true and not fire.icon.d, "active windfury imbue greyed, fire imbue not")
+	enchants[1] = {}
+	updateAuras()
+	colorBtn(wind)
+	assert(wind.icon.d == false, "imbue back to normal once the enchant is gone")
+	enchants[1] = { { hasEnchant = true, enchantID = 283 } }
+	updateAuras()
+	vis.db.activeBuffExceptions = { ["Imbue 8232"] = true }
+	colorBtn(wind)
+	assert(not wind.icon.d, "exception keeps imbue normal")
+	vis.db.activeBuffExceptions = {}
+	ns.WeaponImbues, Enum.WeaponSlot, C_Item, GetActionInfo = savedImbues, savedSlot, savedItem, savedInfo
+	C_Spell.GetSpellName, C_Spell.IsSelfBuff = savedName, savedSelf
+	auras = {}
+	updateAuras()
+	print("weapon imbue OK")
+end)()
 -- Exceptions and timed measure
 vis.db.activeBuffExceptions = { ["Siegel der Rechtschaffenheit"] = true }
 auras = { { name = "Siegel der Rechtschaffenheit" } }

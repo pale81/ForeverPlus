@@ -3,11 +3,46 @@ local _, ns = ...
 local Portrait = {}
 ns.DialogPortrait = Portrait
 
+local function CreateCover(holder)
+	-- A model cannot take a texture mask. Cover its square corners above the model
+	-- instead of shrinking the viewport and cutting off the speaker's beard.
+	local cover = CreateFrame("Frame", nil, holder)
+	cover:SetAllPoints(holder)
+	cover:EnableMouse(false)
+	local cutout = cover:CreateMaskTexture()
+	cutout:SetAllPoints()
+	cutout:SetTexture([[Interface\AddOns\ForeverPlus\Media\Bubble\portrait-cutout]],
+		"CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	cover.Fill = cover:CreateTexture(nil, "ARTWORK", nil, 0)
+	cover.Fill:SetAllPoints()
+	cover.Fill:AddMaskTexture(cutout)
+	cover.Rim = cover:CreateTexture(nil, "ARTWORK", nil, 1)
+	cover.Rim:SetAllPoints()
+	cover.Rim:AddMaskTexture(cutout)
+	local round = cover:CreateMaskTexture()
+	round:SetAllPoints()
+	round:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	cover.Rim:AddMaskTexture(round)
+	cover:Hide()
+	return cover
+end
+
+local function UpdateCover(holder)
+	if not holder.Cover then return end
+	holder.Cover.Rim:SetColorTexture(unpack(ns.PANEL_BORDER))
+	if holder.dark then
+		holder.Cover.Fill:SetColorTexture(0.08, 0.08, 0.1, 1)
+	else
+		holder.Cover.Fill:SetColorTexture(14 / 255, 13 / 255, 17 / 255, 1)
+	end
+end
+
 function Portrait.Stop(holder)
 	if not holder then return end
 	local model, renderer = holder.talkingModel, holder.renderer
 	holder.talkingModel, holder.renderer, holder.clip = nil, nil, nil
 	holder.Face:Show()
+	if holder.Cover then holder.Cover:Hide() end
 	if holder.Scene then ns.SetUpdate(holder.Scene, "Dialog: portrait loading", nil) end
 	if model then
 		pcall(renderer.Release, model)
@@ -16,6 +51,7 @@ function Portrait.Stop(holder)
 end
 
 function Portrait.Update(holder, clip, enabled)
+	UpdateCover(holder)
 	if not enabled or not clip or clip.textOnly then
 		Portrait.Stop(holder)
 		return
@@ -28,15 +64,17 @@ function Portrait.Update(holder, clip, enabled)
 	local ok, renderer = pcall(spoken.GetPortraitRenderer, spoken, "model")
 	if not ok or type(renderer) ~= "table" or type(renderer.Acquire) ~= "function"
 		or type(renderer.Update) ~= "function" or type(renderer.Release) ~= "function" then return end
-	-- Models cannot take a texture mask. Keep the viewport inside the round face.
 	if not holder.Scene then
 		holder.Scene = CreateFrame("Frame", nil, holder)
 		holder.Scene:SetPoint("CENTER")
-		holder.Scene:SetSize(holder.Face:GetWidth() * 0.7, holder.Face:GetHeight() * 0.7)
+		holder.Scene:SetSize(holder.Face:GetWidth(), holder.Face:GetHeight())
 	end
 	local acquired, model = pcall(renderer.Acquire, holder.Scene, clip)
 	if not acquired or not model then return end
 	holder.talkingModel, holder.renderer, holder.clip = model, renderer, clip
+	if not holder.Cover then holder.Cover = CreateCover(holder) end
+	holder.Cover:SetFrameLevel(model:GetFrameLevel() + 1)
+	UpdateCover(holder)
 	-- The renderer owns its model and animation scripts. Observe loading from our own
 	-- frame, so its secure script hooks remain intact across release and reuse.
 	model:SetAlpha(0)
@@ -55,6 +93,7 @@ function Portrait.Update(holder, clip, enabled)
 		if loaded and ns.Number(file, 0) > 0 then
 			holder.Face:Hide()
 			model:SetAlpha(1)
+			holder.Cover:Show()
 			ns.SetUpdate(holder.Scene, "Dialog: portrait loading", nil)
 			return
 		elseif age < 2 then

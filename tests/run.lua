@@ -3251,6 +3251,13 @@ end)()
 	-- Exercise the narrator renderer contract and bounded asynchronous model loading.
 	local portrait, saved = ns.DialogPortrait, _G.Spoken
 	local holder = { Face = NewFrame("Texture"), Scene = false }
+	holder.Face.w, holder.Face.h = 64, 64
+	local savedCreate = CreateFrame
+	CreateFrame = function(...)
+		local frame = savedCreate(...)
+		frame.SetSize = function(self, width, height) self.w, self.h = width, height end
+		return frame
+	end
 	local model = NewFrame("DressUpModel")
 	local file, acquired, updated, released, animated = nil, 0, 0, 0, 0
 	model.GetModelFileID = function() return file end
@@ -3265,17 +3272,22 @@ end)()
 	local animate = model:GetScript("OnUpdate")
 	portrait.Update(holder, clip, true)
 	local tick = holder.Scene:GetScript("OnUpdate")
-	assert(holder.Face:IsShown() and model:GetAlpha() == 0, "keep the still portrait while the model loads")
+	assert(holder.Scene:GetWidth() == 64 and holder.Scene:GetHeight() == 64,
+		"use the entire face viewport instead of cropping the beard in an inscribed square")
+	assert(holder.Face:IsShown() and model:GetAlpha() == 0 and not holder.Cover:IsShown(),
+		"keep the still portrait while the model loads")
 	tick(model, 0.5)
 	assert(updated == 1 and model:GetScript("OnUpdate") == animate, "load once and retain the renderer's animation script")
 	file = 119563
 	tick(model, 0.1)
 	model:GetScript("OnUpdate")(model, 0.1)
-	assert(not holder.Face:IsShown() and model:GetAlpha() == 1 and animated == 1, "animate only a loaded model")
+	assert(not holder.Face:IsShown() and model:GetAlpha() == 1 and animated == 1 and holder.Cover:IsShown(),
+		"animate a loaded model with its circular cover above it")
 	portrait.Update(holder, clip, true)
 	assert(acquired == 1 and updated == 1, "redrawing the same clip does not reload the model")
 	portrait.Update(holder, nil, true)
-	assert(holder.Face:IsShown() and not model:IsShown() and not holder.Scene:GetScript("OnUpdate") and released == 1,
+	assert(holder.Face:IsShown() and not model:IsShown() and not holder.Cover:IsShown()
+		and not holder.Scene:GetScript("OnUpdate") and released == 1,
 		"finishing or pausing releases the model and stops its updates")
 	file = nil
 	portrait.Update(holder, clip, true)
@@ -3289,7 +3301,7 @@ end)()
 	portrait.Update(holder, other, true)
 	portrait.Stop(holder)
 	assert(not model:IsShown() and not holder.Scene:GetScript("OnUpdate") and released == 3, "closing stops a pending load")
-	_G.Spoken = saved
+	_G.Spoken, CreateFrame = saved, savedCreate
 	print("dialog portrait renderer OK")
 end)()
 ;(function()

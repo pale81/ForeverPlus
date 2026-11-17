@@ -987,6 +987,7 @@ local function RenderView(view)
 	frame.speaker = speaker
 	local faceRoom = speaker and PORTRAIT_SIZE + PORTRAIT_RIM * 2 + PORTRAIT_GAP or 0
 	frame.Portrait:SetShown(speaker ~= nil)
+	frame.Portrait.dark = useDark
 	local talking = PlayingClip(_G.Spoken)
 	Portrait.Update(frame.Portrait, speaker and MatchesVoice(view, talking) and talking, Dialog.db.portraitAnimation)
 	if speaker then

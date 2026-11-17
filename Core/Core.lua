@@ -834,6 +834,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Fonts").Inspect()
 	elseif msg == "taschen verlauf" or msg == "bags trace" then
 		ns:GetModule("Items").PrintTrace()
+	elseif msg == "vergleich" or msg == "compare" then
+		ns:GetModule("Tooltip").PrintCompareTrace()
 	elseif msg == "aufwertung" or msg == "upgrade" then
 		ns:GetModule("Items").PreviewUpgrade()
 	elseif msg == "junk" or msg == "schrott" then

@@ -8814,6 +8814,10 @@ end)()
 	end
 	assert(itemLinkOf(tip({ GetItem = function() return "Hose", link end })) == link, "link from GetItem")
 	assert(itemLinkOf(tip({ GetTooltipData = function() return { hyperlink = link } end })) == link, "link from tooltip data without GetItem")
+	local savedGuid = C_Item.GetItemLinkByGUID
+	C_Item.GetItemLinkByGUID = function(guid) return guid == "Item-1" and link or nil end
+	assert(itemLinkOf(tip({ GetTooltipData = function() return { guid = "Item-1" } end })) == link, "worn item by GUID")
+	C_Item.GetItemLinkByGUID = savedGuid
 	assert(itemLinkOf(tip({})) == nil, "no link source: no error")
 	-- Comparison tooltips that reveal nothing: worn items come from the slots, in order
 	local update = uv(module.OnInitialize, "UpdateCompareArrows")

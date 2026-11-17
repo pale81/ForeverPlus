@@ -857,7 +857,13 @@ local function ItemLinkOf(tooltip)
 	end
 	if not link and type(tooltip.GetTooltipData) == "function" then
 		local data = tooltip:GetTooltipData()
-		link = type(data) == "table" and not Secret(data) and data.hyperlink or nil
+		if type(data) == "table" and not Secret(data) then
+			link = data.hyperlink
+			-- Worn items in comparison tooltips come by GUID, without a hyperlink.
+			if not link and type(data.guid) == "string" and not Secret(data.guid) then
+				link = C_Item.GetItemLinkByGUID(data.guid)
+			end
+		end
 	end
 	if not link and type(tooltip.GetPrimaryTooltipInfo) == "function" then
 		local info = tooltip:GetPrimaryTooltipInfo()
@@ -887,28 +893,44 @@ local function WornLinksFor(link)
 	return links
 end
 
+-- What the last comparison saw, for /fp vergleich.
+local compareTrace = { calls = 0 }
+function Tooltip.PrintCompareTrace()
+	local t = compareTrace
+	ns.PrintAlways(L.TOOLTIP_COMPARE_TRACE, t.calls, tostring(t.link), tostring(t.shown), tostring(t.sources),
+		tostring(t.result))
+end
+
 local function UpdateCompareArrows(manager)
 	HideCompareArrows()
+	compareTrace.calls = compareTrace.calls + 1
+	compareTrace.link, compareTrace.shown, compareTrace.sources, compareTrace.result = nil, nil, nil, nil
 	local tooltip = manager.tooltip
 	if not tooltip or tooltip:IsForbidden() or type(tooltip.shoppingTooltips) ~= "table" then
+		compareTrace.result = "no tooltip"
 		return
 	end
 	local link = ItemLinkOf(tooltip)
+	compareTrace.link = link
 	if not link then
+		compareTrace.result = "hovered item unreadable"
 		return
 	end
-	local worn, wornTips, unknown = {}, {}, false
+	local worn, wornTips, unknown, sources = {}, {}, false, {}
 	for _, shopping in ipairs(tooltip.shoppingTooltips) do
 		if not shopping:IsForbidden() and shopping:IsShown() then
 			local wornLink = ItemLinkOf(shopping)
 			unknown = unknown or not wornLink
+			sources[#sources + 1] = wornLink and "link" or "none"
 			worn[#worn + 1] = wornLink or false
 			wornTips[#wornTips + 1] = shopping
 		end
 	end
+	compareTrace.shown, compareTrace.sources = #worn, table.concat(sources, ",")
 	if unknown then
 		local bySlot = WornLinksFor(link)
 		if #bySlot ~= #worn then
+			compareTrace.result = "slots " .. #bySlot .. " <> tooltips " .. #worn
 			return
 		end
 		for index, wornLink in ipairs(worn) do
@@ -916,9 +938,11 @@ local function UpdateCompareArrows(manager)
 		end
 	end
 	if #worn == 0 then
+		compareTrace.result = "no comparison tooltip shown"
 		return
 	end
 	local winner, value = ns.CompareWinner(link, worn)
+	compareTrace.result = tostring(winner) .. " " .. tostring(value)
 	if winner == "hovered" then
 		ShowCompareArrow(tooltip, value)
 	elseif winner == "worn" then

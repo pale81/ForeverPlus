@@ -14,6 +14,8 @@ local Auction = ns:NewModule("Auction", {
 		vendorProfit = false,
 		vendorBuyFilter = false,
 		vendorMinMargin = 10,
+		vendorQuickBuy = false,
+		vendorQuickBuyQty = 1,
 		duration24 = true,
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
@@ -555,6 +557,80 @@ local function HookBuyFilter()
 end
 
 ---------------------------------------------------------------------------
+-- Quick buy: a button in the price cell of a profitable commodity row starts Blizzard's own purchase for the
+-- cheapest offer (the buy dialog with its confirmation stays; it shows the real total). One click, one purchase.
+-- Item auctions (gear) need an auction ID from a search of their own: their row opens Blizzard's buy view as before.
+---------------------------------------------------------------------------
+-- itemID, quantity, unit price and expected total of a quick buy; nil for a row that cannot be bought this way.
+function Auction.QuickBuyPlan(rowData, quantity)
+	if not rowData or rowData.isVirtualEntry then
+		return nil
+	end
+	local unitPrice, available, itemID = rowData.minPrice, rowData.totalQuantity, ItemIDOf(rowData)
+	if not itemID or type(unitPrice) ~= "number" or unitPrice <= 0 or type(available) ~= "number" or available <= 0 then
+		return nil
+	end
+	local count = min(max(floor(quantity or 1), 1), available)
+	return itemID, count, unitPrice, unitPrice * count
+end
+
+local quickButtons = setmetatable({}, { __mode = "k" })
+
+local function ShowQuickBuyTooltip(button)
+	local row = button.rowData
+	local itemID, count, unitPrice = Auction.QuickBuyPlan(row, Auction.db.vendorQuickBuyQty)
+	if not itemID then
+		return
+	end
+	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+	GameTooltip:AddLine(L.AUCTION_QUICK_BUY_TOOLTIP:format(count, GetMoneyString(unitPrice, true)), 1, 1, 1, true)
+	local vendor = VendorPrice(itemID)
+	if vendor and vendor > unitPrice then
+		GameTooltip:AddLine(L.AUCTION_QUICK_BUY_PROFIT:format(GetMoneyString((vendor - unitPrice) * count, true)),
+			GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+	end
+	GameTooltip:Show()
+end
+
+-- Only from a real click: the purchase functions need a hardware event.
+local function OnQuickBuyClick(button)
+	local row, frame = button.rowData, AuctionHouseFrame
+	if not row or not frame or not frame.StartCommoditiesPurchase or not Profitable(row) then
+		return
+	end
+	local itemID, count, unitPrice, total = Auction.QuickBuyPlan(row, Auction.db.vendorQuickBuyQty)
+	if itemID then
+		frame:StartCommoditiesPurchase(itemID, count, unitPrice, total)
+	end
+end
+
+local function IsCommodityRow(rowData)
+	local info = rowData.itemKey and C_AuctionHouse.GetItemKeyInfo(rowData.itemKey)
+	return info and info.isCommodity and true or false
+end
+
+local function OnQuickBuyCell(cell, rowData)
+	local button = quickButtons[cell]
+	local show = Auction.db.vendorBuyFilter and Auction.db.vendorQuickBuy and rowData
+		and Auction.QuickBuyPlan(rowData, 1) ~= nil and IsCommodityRow(rowData)
+	if not button then
+		if not show then
+			return
+		end
+		button = CreateFrame("Button", nil, cell, "UIPanelButtonTemplate")
+		button:SetSize(52, 18)
+		button:SetPoint("LEFT", cell, "LEFT", 0, 0)
+		button:SetText(L.AUCTION_QUICK_BUY)
+		button:SetScript("OnClick", OnQuickBuyClick)
+		button:SetScript("OnEnter", ShowQuickBuyTooltip)
+		button:SetScript("OnLeave", GameTooltip_Hide)
+		quickButtons[cell] = button
+	end
+	button.rowData = show and rowData or nil
+	button:SetShown(show and true or false)
+end
+
+---------------------------------------------------------------------------
 -- Sell frames: merchant comparison and warning below the post button (above it sits the game's total price, which
 -- the lines covered)
 ---------------------------------------------------------------------------
@@ -983,6 +1059,10 @@ function Auction:OnLogin()
 				hooksecurefunc(mixin, "Populate", ns.Measured("Auction: " .. mixinName, fn))
 			end
 		end
+		local minPriceCell = _G.AuctionHouseTableCellMinPriceMixin
+		if minPriceCell and minPriceCell.Populate then
+			hooksecurefunc(minPriceCell, "Populate", ns.Measured("Auction: quick buy", OnQuickBuyCell))
+		end
 		local itemCell = _G.AuctionHouseTableCellItemDisplayMixin
 		if itemCell and itemCell.UpdateDisplay then
 			hooksecurefunc(itemCell, "UpdateDisplay", ns.Measured("Auction: upgrade arrow", OnItemCell))
@@ -1006,6 +1086,11 @@ function Auction:OnOptionChanged(key)
 		ApplyStartTab()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" then
 		ApplyBuyFilter()
+	elseif key == "vendorQuickBuy" then
+		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
+		if browseFrame and browseFrame.ItemList and browseFrame.ItemList.RefreshScrollFrame then
+			browseFrame.ItemList:RefreshScrollFrame()
+		end
 	end
 end
 
@@ -1015,6 +1100,9 @@ Auction.options = {
 	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
 	{ key = "vendorMinMargin", type = "slider", name = L.AUCTION_VENDOR_MIN_MARGIN, desc = L.AUCTION_VENDOR_MIN_MARGIN_DESC, parent = "vendorBuyFilter",
 		min = 0, max = 90, step = 1, format = function(v) return ("%d%%"):format(v) end },
+	{ key = "vendorQuickBuy", type = "toggle", name = L.AUCTION_QUICK_BUY_OPTION, desc = L.AUCTION_QUICK_BUY_DESC, parent = "vendorBuyFilter", new = true },
+	{ key = "vendorQuickBuyQty", type = "slider", name = L.AUCTION_QUICK_BUY_QTY, desc = L.AUCTION_QUICK_BUY_QTY_DESC, parent = "vendorQuickBuy",
+		min = 1, max = 200, step = 1 },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {

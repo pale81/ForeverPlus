@@ -6972,6 +6972,19 @@ end)()
 	A.db.vendorBuyFilter = false
 	print("auction filter OK")
 end)()
+-- Auction house: quick buy plan
+;(function()
+	local A = ns:GetModule("Auction")
+	local function row(price, quantity) return { itemKey = { itemID = 9001 }, minPrice = price, totalQuantity = quantity } end
+	local id, count, unit, total = A.QuickBuyPlan(row(40, 10), 3)
+	assert(id == 9001 and count == 3 and unit == 40 and total == 120, "quantity times the minimum price")
+	assert(select(2, A.QuickBuyPlan(row(40, 2), 5)) == 2, "never more than offered")
+	assert(select(2, A.QuickBuyPlan(row(40, 9), nil)) == 1 and select(2, A.QuickBuyPlan(row(40, 9), 0)) == 1, "at least one")
+	assert(A.QuickBuyPlan(row(40, 0), 1) == nil and A.QuickBuyPlan(row(0, 5), 1) == nil, "no offer, no price: no plan")
+	assert(A.QuickBuyPlan({ isVirtualEntry = true, minPrice = 5, totalQuantity = 5 }, 1) == nil, "virtual rows have no plan")
+	assert(A.QuickBuyPlan({ minPrice = 5, totalQuantity = 5 }, 1) == nil and A.QuickBuyPlan(nil, 1) == nil, "no item, no plan")
+	print("auction quick buy OK")
+end)()
 -- Bag sorting on open: one sort at a time, none while items are locked
 ;(function()
 	local items = ns:GetModule("Items")

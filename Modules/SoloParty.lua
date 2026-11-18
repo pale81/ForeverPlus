@@ -264,7 +264,8 @@ local function ShowBurst(kind, label, value, themeName)
 	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * 0.43)
 	card.value:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.24)
 	card.burst:SetVertexColor(unpack(theme.paper))
-	local textWidth = math.max(card.label:GetStringWidth(), card.value:GetStringWidth())
+	-- Critical damage may be secret. Its text and text width must stay out of layout calculations.
+	local textWidth = kind == "crit" and 220 or math.max(card.label:GetStringWidth(), card.value:GetStringWidth())
 	local width, height = math.max(225, textWidth * 1.50 + 30), 55 + size * 1.45
 	card.width, card.height = width, height
 	card.art:SetSize(width, height)
@@ -362,16 +363,18 @@ function SoloParty:UNIT_COMBAT(_, unit, event, flagText, amount)
 		or unit ~= "target" or event ~= "WOUND" or flagText ~= "CRITICAL" then
 		return
 	end
-	amount = ns.Number(amount)
-	if not amount or amount <= 0 then
+	if type(amount) ~= "number" or (not ns.Secret(amount) and amount <= 0) then
 		return
 	end
-	local hostile, selfTarget = UnitCanAttack("player", "target"), UnitIsUnit("target", "player")
-	if ns.Secret(hostile) or ns.Secret(selfTarget) or not hostile or selfTarget
+	local hostile = UnitCanAttack("player", "target")
+	if ns.Secret(hostile) or not hostile
 		or not ns:GetModule("CombatText").TargetInvolved() then
 		return
 	end
-	ShowBurst("crit", L.SOLO_PARTY_CRIT, ("%d"):format(amount))
+	local ok, text = pcall(string.format, "%d", amount)
+	if ok then
+		ShowBurst("crit", L.SOLO_PARTY_CRIT, text)
+	end
 end
 
 function SoloParty:OnOptionChanged(key)

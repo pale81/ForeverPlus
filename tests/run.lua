@@ -4911,7 +4911,10 @@ end)()
 	local layer
 	GetMoney = function() return money end
 	GetMoneyString = function(amount) return amount .. "c" end
-	issecretvalue = function(value) return value == "protected" end
+	local secretCrit = false
+	issecretvalue = function(value)
+		return value == "protected" or (secretCrit and (value == 1234 or value == "1234"))
+	end
 	ns.NewTimer = function(_, _, fn)
 		local timer = { fn = fn, Cancel = function(self) self.cancelled = true end }
 		timers[#timers + 1] = timer
@@ -4949,7 +4952,14 @@ end)()
 		end
 		frame.CreateFontString = function()
 			local region = NewFrame("FontString")
-			region.SetText = function(_, value) printed[#printed + 1] = value end
+			region.SetText = function(self, value)
+				self.secretText = issecretvalue(value)
+				printed[#printed + 1] = value
+			end
+			region.GetStringWidth = function(self)
+				assert(not self.secretText, "protected damage text must not be measured for layout")
+				return 80
+			end
 			region.SetFont = function(_, font, size, flags)
 				visuals[#visuals + 1] = { font, size, flags }
 				return true
@@ -5129,7 +5139,7 @@ end)()
 	local combat = ns:GetModule("CombatText")
 	local savedCombat = { UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled }
 	local hostile, selfTarget, threat, aimed = true, false, 1, false
-	UnitCanAttack = function() return hostile end
+	UnitCanAttack = function() return hostile and selfTarget ~= true end
 	UnitIsUnit = function(a) return a == "targettarget" and aimed or selfTarget end
 	UnitThreatSituation = function() return threat end
 	combat.db.enabled = false
@@ -5177,6 +5187,14 @@ end)()
 	solo:OnOptionChanged("sounds")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3000)
 	assert(#impactFiles == 7 and printed[#printed] == "3000", "muting suppresses the impact while keeping the critical card")
+	secretCrit = true
+	solo.db.sounds = true
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	assert(printed[#printed] == "1234" and #impactFiles == 8, "protected damage is displayed and still triggers the impact sound")
+	selfTarget = "protected"
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	assert(#impactFiles == 9, "restricted identity comparisons do not suppress hostile target criticals")
+	secretCrit = false
 	SetEnabled(false)
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true

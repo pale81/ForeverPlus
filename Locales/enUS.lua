@@ -56,6 +56,8 @@ L.ITEMS_MARKED = "%s marked as junk."
 L.ITEMS_UNMARKED = "%s is no longer junk."
 
 L.QOL_MOUSEOVER_HEADER = "Bars"
+L.WANDERLUST_TITLE = "Wanderlust"
+L.WANDERLUST_DESC = "Hides the entire interface after one minute out of combat and restores it as soon as combat starts. Escape or the Toggle UI binding shows it for another minute. Disabled by default."
 L.QOL_MOUSEOVER = "Show only on mouseover"
 L.QOL_MOUSEOVER_DESC = "Hides the chosen bars and frames until the mouse is over them. Everything is visible in Edit Mode."
 L.QOL_MOUSEOVER_MICRO = "Micro menu"

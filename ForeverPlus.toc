@@ -68,6 +68,7 @@ Modules\Transports.lua
 Modules\Library.lua
 Modules\Innkeepers.lua
 Modules\Companion.lua
+Modules\Wanderlust.lua
 Modules\EditLayouts.lua
 Modules\Profiles.lua
 Modules\LootSources.lua

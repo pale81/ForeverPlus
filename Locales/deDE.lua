@@ -55,6 +55,8 @@ L.ITEMS_MARKED = "%s als Schrott markiert."
 L.ITEMS_UNMARKED = "%s ist kein Schrott mehr."
 
 L.QOL_MOUSEOVER_HEADER = "Leisten"
+L.WANDERLUST_TITLE = "Wanderlust"
+L.WANDERLUST_DESC = "Blendet nach einer Minute ohne Kampf die gesamte Spieloberfläche aus und bei Kampfbeginn sofort wieder ein. Mit Escape oder der Taste zum Einblenden der Oberfläche bleibt sie für eine weitere Minute sichtbar. Standardmäßig aus."
 L.QOL_MOUSEOVER = "Nur bei Mouseover zeigen"
 L.QOL_MOUSEOVER_DESC = "Blendet die gewählten Leisten und Fenster aus, bis die Maus darüber ist. Im Bearbeitungsmodus ist alles sichtbar."
 L.QOL_MOUSEOVER_MICRO = "Mikromenü"

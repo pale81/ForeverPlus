@@ -340,6 +340,7 @@ local PAGES = {
 		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
+		{ "Wanderlust" },
 	},
 	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
 	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },

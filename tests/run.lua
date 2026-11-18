@@ -9291,4 +9291,5 @@ end)()
 	LOCKED = savedLocked
 	print("quest starter open button and book OK")
 end)()
+dofile("wanderlust.lua")
 dofile("bundled.lua")

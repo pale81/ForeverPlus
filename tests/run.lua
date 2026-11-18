@@ -4932,6 +4932,7 @@ end)()
 	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile }
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
 	local frames, played, effects = {}, {}, {}
+	local bloodTextures, bloodLayer = {}, nil
 	local details = {}
 	local savedRecord = solo.cdb.criticalRecord
 	solo.cdb.criticalRecord = 0
@@ -4993,10 +4994,14 @@ end)()
 					assert(not path:find("Skillbar_", 1, true), "the card does not draw profession-bar art")
 					effects[#frames] = effects[#frames] or {}
 					effects[#frames][self] = path
+					if path:find("SoloPartyBloodSplats", 1, true) then
+						bloodTextures[#bloodTextures + 1], bloodLayer = self, frame
+					end
 				end
 				texture.SetTexture, texture.SetAtlas = Record, Record
 				texture.SetTexCoord = function(self, left, _, top) self.u, self.v = left, top end
 				texture.SetPoint = function(self, _, _, _, x, y) self.x, self.y = x, y end
+				texture.SetRotation = function(self, angle) self.rotation = angle end
 				texture.AddMaskTexture = function(self, mask) self.mask = mask end
 			end
 			return texture
@@ -5275,7 +5280,44 @@ end)()
 	assert(#impactFiles == 8 and solo.cdb.criticalRecord == 3500, "login preserves the character's saved record")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3600)
 	assert(details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(100 / 35), "the percentage uses the persistent record")
+	assert(not solo.db.bloody and not bloodLayer, "Bloody defaults to off")
+	solo.db.bloody = true
+	solo:OnOptionChanged("bloody")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3500)
+	assert(not bloodLayer and solo.cdb.criticalRecord == 3600, "Bloody follows the critical-record threshold")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4000)
+	assert(frames[#frames]:find("SoloPartyBloody", 1, true) and #bloodTextures == 8 and bloodLayer:IsShown(),
+		"Bloody swaps the critical card and scatters eight splashes")
+	local previousSplashes = {}
+	for i, texture in ipairs(bloodTextures) do
+		assert(texture.x > 0 and texture.x < 1400 and texture.y > 0 and texture.y < 800, "blood splashes stay on screen")
+		previousSplashes[i] = { texture.x, texture.u, texture.v }
+	end
+	layer:GetScript("OnUpdate")(layer, 0.3)
+	assert(bloodTextures[1]:GetAlpha() > 0 and bloodTextures[8]:GetAlpha() > 0, "blood splashes become visible")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4100)
+	assert(#bloodTextures == 8, "consecutive bloody records reuse the eight textures")
+	for i, texture in ipairs(bloodTextures) do
+		local previous = previousSplashes[i]
+		assert(texture.x ~= previous[1] and (texture.u ~= previous[2] or texture.v ~= previous[3]),
+			"each consecutive bloody record changes the splash motif and position")
+	end
+	layer:GetScript("OnUpdate")(layer, 2.1)
+	assert(not bloodLayer:IsShown() and not layer:IsShown(), "blood splashes and the overlay expire together")
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(not frames[#frames]:find("SoloPartyBloody", 1, true) and not bloodLayer:IsShown(),
+		"ordinary events keep their existing cards")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4200)
+	solo.db.bloody = false
+	solo:OnOptionChanged("bloody")
+	assert(not bloodLayer:IsShown() and not frames[#frames]:find("SoloPartyBloody", 1, true),
+		"switching off Bloody clears splashes and restores the active card")
+	solo.db.bloody = true
+	solo:OnOptionChanged("bloody")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4300)
 	SetEnabled(false)
+	assert(not bloodLayer:IsShown(), "switching off Solo Party clears the blood overlay")
+	solo.db.bloody = false
 	solo.cdb.criticalRecord = savedRecord
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true

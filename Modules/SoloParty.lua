@@ -5,12 +5,14 @@ local L = ns.L
 local SoloParty = ns:NewModule("SoloParty", {
 	title = L.SOLO_PARTY_TITLE,
 	order = 5.37,
-	defaults = { enabled = false, sounds = true, effects = true, criticals = true },
+	defaults = { enabled = false, sounds = true, effects = true, criticals = true, bloody = false },
 	charDefaults = { criticalRecord = 0 },
 })
 
 local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
 local BURSTS = { MEDIA .. "SoloPartyBurst", MEDIA .. "SoloPartyCloud", MEDIA .. "SoloPartyBalloon" }
+local BLOODY_BURST = MEDIA .. "SoloPartyBloody"
+local BLOOD_SPLATS = MEDIA .. "SoloPartyBloodSplats"
 local SOUNDS = {
 	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
 	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
@@ -92,6 +94,7 @@ local PARTICLE_PATHS = {
 	{  0.30, -0.10,  0.12, 0.49, 0.11 },
 }
 local root, cards, nextSlot = nil, {}, 0
+local bloodFrame, bloodSplats
 local lastBurst, lastSound = nil, {}
 local balance, lootTimer, previewTimer
 local lastXP
@@ -178,8 +181,66 @@ local function SetEffects(card, theme)
 	AnimateEffects(card, 0)
 end
 
-local function Update(_, delta)
+local function HideBlood()
+	if bloodFrame then
+		bloodFrame:Hide()
+	end
+end
+
+local function SplashBlood()
+	if not bloodFrame then
+		bloodFrame = CreateFrame("Frame", nil, root)
+		bloodFrame:SetAllPoints(root)
+		bloodFrame:EnableMouse(false)
+		bloodSplats = {}
+		local firstVariant = math.random(0, 3)
+		for i = 1, 8 do
+			local texture = bloodFrame:CreateTexture(nil, "ARTWORK")
+			texture:SetTexture(BLOOD_SPLATS)
+			bloodSplats[i] = { texture = texture, variant = (firstVariant + i - 1) % 4 }
+		end
+	end
+	local w, h = root:GetSize()
+	local scale = math.min(w / 1200, h / 800)
+	for i, splat in ipairs(bloodSplats) do
+		splat.variant = NextVariant(splat.variant, 4)
+		local column, row = (splat.variant - 1) % 2, math.floor((splat.variant - 1) / 2)
+		splat.texture:SetTexCoord(column * 0.5, (column + 1) * 0.5, row * 0.5, (row + 1) * 0.5)
+		-- Jitter stays inside eight screen regions and advances each time, so consecutive impacts move.
+		splat.jitter = (splat.jitter and splat.jitter + math.random(25, 70) or math.random(0, 99)) % 100
+		local x = ((i - 1) % 4 + 0.20 + splat.jitter * 0.006) / 4
+		local y = (math.floor((i - 1) / 4) + 0.20 + math.random() * 0.60) / 2
+		local size = math.random(90, 190) * scale
+		splat.texture:SetSize(size, size)
+		splat.texture:SetPoint("CENTER", bloodFrame, "BOTTOMLEFT", x * w, y * h)
+		splat.texture:SetRotation(math.random() * math.pi * 2)
+		splat.texture:SetAlpha(0)
+		splat.opacity = math.random(65, 90) / 100
+		splat.age = -(i - 1) * 0.025
+	end
+	bloodFrame:Show()
+end
+
+local function UpdateBlood(delta)
+	if not bloodFrame or not bloodFrame:IsShown() then
+		return false
+	end
 	local visible = false
+	for _, splat in ipairs(bloodSplats) do
+		splat.age = splat.age + delta
+		local t = math.max(0, splat.age)
+		local alpha = math.min(1, t / 0.09) * math.max(0, 1 - (t - 0.65) / (END - 0.65))
+		splat.texture:SetAlpha(splat.opacity * alpha)
+		visible = visible or splat.age < END
+	end
+	if not visible then
+		HideBlood()
+	end
+	return visible
+end
+
+local function Update(_, delta)
+	local visible = UpdateBlood(delta)
 	for _, card in pairs(cards) do
 		if card.art:IsShown() then
 			card.age = card.age + delta
@@ -255,7 +316,9 @@ local function ShowBurst(kind, label, value, themeName, detail)
 	local theme = THEMES[themeName or kind]
 	local size = style.size + math.random(-4, 4)
 	lastBurst = NextVariant(lastBurst, #BURSTS)
-	card.burst:SetTexture(BURSTS[lastBurst])
+	card.normalBurst = BURSTS[lastBurst]
+	card.bloody = kind == "crit" and SoloParty.db.bloody
+	card.burst:SetTexture(card.bloody and BLOODY_BURST or card.normalBurst)
 	if card.label:SetFont(SMALL_CAPS, 20, "") == false then
 		card.label:SetFont(GameFontNormal:GetFont(), 20, "")
 	end
@@ -274,7 +337,11 @@ local function ShowBurst(kind, label, value, themeName, detail)
 	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * (detail and 0.72 or 0.43))
 	card.value:SetPoint("CENTER", card.art, "CENTER", 0, detail and 0 or -size * 0.24)
 	card.detail:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.72)
-	card.burst:SetVertexColor(unpack(theme.paper))
+	if card.bloody then
+		card.burst:SetVertexColor(1, 1, 1)
+	else
+		card.burst:SetVertexColor(unpack(theme.paper))
+	end
 	-- Keep the critical card wide enough for the damage and its percentage line.
 	local textWidth = kind == "crit" and 220 or math.max(card.label:GetStringWidth(), card.value:GetStringWidth())
 	local width, height = math.max(225, textWidth * 1.50 + 30), 55 + size * 1.45
@@ -294,6 +361,9 @@ local function ShowBurst(kind, label, value, themeName, detail)
 	card.art:SetAlpha(0)
 	card.art:Show()
 	root:Show()
+	if card.bloody then
+		SplashBlood()
+	end
 	PlayBurstSound(kind)
 end
 
@@ -401,6 +471,19 @@ function SoloParty:OnOptionChanged(key)
 	if key == "sounds" then
 		return
 	end
+	if key == "bloody" then
+		if not self.db.bloody then
+			HideBlood()
+			for _, card in pairs(cards) do
+				if card.bloody then
+					card.bloody = false
+					card.burst:SetTexture(card.normalBurst)
+					card.burst:SetVertexColor(unpack(THEMES.crit.paper))
+				end
+			end
+		end
+		return
+	end
 	if key == "criticals" then
 		self:ToggleEvent("UNIT_COMBAT", self.db.enabled and self.db.criticals, self.UNIT_COMBAT)
 		return
@@ -422,6 +505,7 @@ function SoloParty:OnOptionChanged(key)
 	self:ToggleEvent("CHAT_MSG_SKILL", enabled, self.CHAT_MSG_SKILL)
 	self:ToggleEvent("UNIT_COMBAT", enabled and self.db.criticals, self.UNIT_COMBAT)
 	if not enabled then
+		HideBlood()
 		if previewTimer then
 			previewTimer:Cancel()
 			previewTimer = nil
@@ -474,5 +558,6 @@ SoloParty.options = {
 	{ key = "sounds", type = "toggle", name = L.SOLO_PARTY_SOUNDS, desc = L.SOLO_PARTY_SOUNDS_DESC, new = true },
 	{ key = "effects", type = "toggle", name = L.SOLO_PARTY_EFFECTS, desc = L.SOLO_PARTY_EFFECTS_DESC, new = true },
 	{ key = "criticals", type = "toggle", name = L.SOLO_PARTY_CRITICALS, desc = L.SOLO_PARTY_CRITICALS_DESC, parent = "enabled", new = true },
+	{ key = "bloody", type = "toggle", name = L.SOLO_PARTY_BLOODY, desc = L.SOLO_PARTY_BLOODY_DESC, parent = "criticals", new = true },
 	{ type = "button", name = L.SOLO_PARTY_PREVIEW, text = L.SOLO_PARTY_PREVIEW_BUTTON, func = Preview },
 }

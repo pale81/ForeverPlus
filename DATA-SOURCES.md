@@ -24,7 +24,7 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 **Solo Party lettering.** [Cinzel Decorative Bold](https://github.com/google/fonts/tree/main/ofl/cinzeldecorative) and [Alegreya SC ExtraBold](https://github.com/google/fonts/tree/main/ofl/alegreyasc) ship under the SIL Open Font License 1.1. Their license notices are included in `Media/Fonts/`.
 
-**Solo Party effects.** The animated profession book is the visual reference for individual particles. The comic frames, water effects, leaves, strands, steam, healing sparks and feathered mask use separate textures in `Media/`. The game also renders its own smoke, sparkles and coin textures.
+**Solo Party effects.** The animated profession book is the visual reference for individual particles. The comic frames, water effects, leaves, strands, steam, healing sparks and feathered mask use separate textures in `Media/`. The game also renders its own smoke, sparkles and coin textures. Optional Bloody artwork uses a separate crimson card and four comic blood-splash sprites in `Media/SoloPartyBloody.tga` and `Media/SoloPartyBloodSplats.tga`.
 
 **Solo Party critical sounds.** Six native weapon impacts are referenced by FileDataID through `PlaySoundFile`. Two-handed sword critical flesh impacts 01–03 use 1240622, 1240623 and 1240624. Two-handed axe critical flesh impacts 01–03 use 1324858, 1324859 and 1324860. Names are mapped by the [community listfile](https://github.com/wowdev/wow-listfile). Audio stays in the game installation.
 

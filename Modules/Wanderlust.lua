@@ -1,10 +1,10 @@
--- Hide the interface after a quiet minute; the next combat brings it back.
+-- Hide the interface after a quiet minute; combat and abilities bring it back.
 local _, ns = ...
 local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false },
+	defaults = { enabled = false, showProfessions = false },
 })
 
 local QUIET_SECONDS = 60
@@ -70,6 +70,70 @@ local function Stop()
 	RestoreUI()
 end
 
+local professionSpells, professionNames
+local nativeProfessions = {}
+
+local function InvalidateProfessions()
+	professionSpells, professionNames = nil, nil
+end
+
+local function ReadProfessions()
+	professionSpells, professionNames = {}, {}
+	for _, index in pairs({ GetProfessions() }) do
+		local _, _, _, _, count, offset = GetProfessionInfo(index)
+		if count and offset then
+			for slot = offset + 1, offset + count do
+				local spell = C_SpellBook.GetSpellBookItemInfo(slot, Enum.SpellBookSpellBank.Player)
+				if spell then
+					local id = ns.Number(spell.spellID)
+					if id then professionSpells[id] = true end
+					if type(spell.name) == "string" and not ns.Secret(spell.name) then
+						professionNames[spell.name] = true
+					end
+				end
+			end
+		end
+	end
+end
+
+local function IsProfessionSpell(event, spellID)
+	local tradeskill
+	if event == "UNIT_SPELLCAST_START" then
+		tradeskill = select(6, UnitCastingInfo("player"))
+	elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
+		tradeskill = select(6, UnitChannelInfo("player"))
+	end
+	if tradeskill == true then
+		-- Keep the native classification for SUCCEEDED, after cast info disappears.
+		-- A skill-up can invalidate the spellbook cache before that event arrives.
+		if spellID then nativeProfessions[spellID] = true end
+		return true
+	end
+	if not spellID then return false end
+	if nativeProfessions[spellID] then return true end
+	if not professionSpells then ReadProfessions() end
+	if professionSpells[spellID] == nil then
+		local info = C_TradeSkillUI.GetProfessionInfoByRecipeID(spellID)
+		local name = C_Spell.GetSpellName(spellID)
+		-- The cast can use a different rank ID than the spellbook (notably Fishing).
+		professionSpells[spellID] = (info and ns.Number(info.professionID, 0) > 0)
+			or (type(name) == "string" and not ns.Secret(name) and professionNames[name]) or false
+	end
+	return professionSpells[spellID]
+end
+
+local function OnSpellCast(_, event, unit, _, spellID)
+	if ns.Secret(unit) or unit ~= "player" then return end
+	if InCombatLockdown() then
+		Stop()
+		return
+	end
+	if not hidUI and not UIParent:IsShown() then return end
+	if not Wanderlust.db.showProfessions and IsProfessionSpell(event, ns.Number(spellID)) then return end
+	RestoreUI()
+	StartTimer()
+end
+
 local function InteractionClosed()
 	-- The closing event can precede the native frame's OnHide. Check next frame,
 	-- also allowing a gossip-to-quest transition to open its replacement window.
@@ -78,6 +142,8 @@ end
 
 function Wanderlust:Apply()
 	local enabled = self.db.enabled
+	InvalidateProfessions()
+	nativeProfessions = {}
 	if enabled and not hooked then
 		hooked = true
 		UIParent:HookScript("OnShow", ns.Measured("Wanderlust: interface shown", OnUIShown))
@@ -87,6 +153,12 @@ function Wanderlust:Apply()
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, StartTimer)
 	self:ToggleEvent("PLAYER_LEAVING_WORLD", enabled, Stop)
 	self:ToggleEvent("PLAYER_LOGOUT", enabled, Stop)
+	for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_SUCCEEDED" }) do
+		self:ToggleEvent(event, enabled, OnSpellCast)
+	end
+	for _, event in ipairs({ "SPELLS_CHANGED", "SKILL_LINES_CHANGED" }) do
+		self:ToggleEvent(event, enabled and not self.db.showProfessions, InvalidateProfessions)
+	end
 	for _, event in ipairs({ "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
 		"MERCHANT_SHOW", "TRAINER_SHOW" }) do
 		self:ToggleEvent(event, enabled, Stop)
@@ -111,4 +183,5 @@ end
 
 Wanderlust.options = {
 	{ key = "enabled", type = "toggle", name = L.WANDERLUST_TITLE, desc = L.WANDERLUST_DESC },
+	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

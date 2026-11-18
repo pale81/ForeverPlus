@@ -23,6 +23,7 @@ local Dialog = ns:NewModule("Dialog", {
 		merchantHide = false,  -- hide wares that cannot be used or are known already
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
+		fallback = true,       -- keep the bubble available when the NPC has no nameplate
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
 		portrait = true,       -- only the speaker's portrait for voiced lines
 		portraitAnimation = true,
@@ -53,6 +54,7 @@ local history = {} -- earlier gossip and greeting steps of this conversation, fo
 local showToken = 0 -- counts the steps shown (a closing event only counts when no new step followed)
 local collapsed = {} -- Blizzard window -> original scale
 local cinematicActive
+local floating -- ordinary bubble at screen centre while its NPC has no nameplate
 
 -- The last steps of the bubble with their time (/fp blase verlauf), to see in what order things happened when a
 -- text shows up too early.
@@ -1467,6 +1469,7 @@ end
 local LOST_WAIT = 0.4 -- allow the nameplate to appear before showing Blizzard's window
 
 local function Place(nameplate)
+	floating = nil
 	Dialog.anchorPlate = nameplate
 	plateLostAt = nil
 	bubble:ClearAllPoints()
@@ -1499,6 +1502,7 @@ local function Place(nameplate)
 end
 
 local function WaitForPlate()
+	floating = nil
 	Dialog.anchorPlate = nil
 	bubble:Hide()
 	bubble.Fade:Stop()
@@ -1606,6 +1610,7 @@ local function Hide()
 		ns.SetUpdate(settler, "Dialog: opening", nil)
 	end
 	Dialog.anchorPlate = nil
+	floating = nil
 	FinishReveal()
 	reveal.key = nil -- a new talk says its words again
 	current = nil
@@ -1625,6 +1630,25 @@ end
 
 Dialog.ReleaseForReadable = UseBlizzard
 
+local function PlaceFallback()
+	if not current or floating then return end
+	Dialog.anchorPlate, floating = nil, true
+	RestorePlate()
+	bubble:ClearAllPoints()
+	bubble:SetClampedToScreen(true)
+	bubble:SetClampRectInsets(-INSET - SHADOW_ROOM, INSET + SHADOW_ROOM, INSET + SHADOW_ROOM, -INSET - SHADOW_ROOM)
+	bubble:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+	if bubble.Tail then bubble.Tail:Hide() end
+	-- Hiding the bubble while waiting released its model. Rebuild without discarding
+	-- the current step, scroll position or chosen quest reward.
+	if not current.pending then Render(current.view) end
+	if not current then return end
+	bubble.Fade:Stop()
+	bubble:SetAlpha(1)
+	bubble:Show()
+	Trace("Keine NPC-Plakette: Blase in Bildschirmmitte")
+end
+
 -- Keep watching during the brief wait, even though the bubble itself is hidden.
 function Dialog.WatchPlate()
 	if not current or ScreenDialog(current.view) then
@@ -1643,8 +1667,8 @@ function Dialog.WatchPlate()
 	elseif not plateLostAt then
 		Trace("Plakette des NPCs fehlt")
 		WaitForPlate()
-	elseif GetTime() - plateLostAt >= LOST_WAIT then
-		UseBlizzard()
+	elseif not floating and GetTime() - plateLostAt >= LOST_WAIT then
+		if Dialog.db.fallback then PlaceFallback() else UseBlizzard() end
 	end
 end
 
@@ -1652,6 +1676,7 @@ local function PlaceCurrent()
 	local screen = ScreenDialog(current.view)
 	ns.ShowFriendlyPlates(not screen and Dialog.db.plates and npcGuid ~= nil, "dialog")
 	if screen then
+		floating = nil
 		WaitForPlate()
 		plateLostAt = nil
 		if plateWatch then plateWatch:Hide() end
@@ -1673,7 +1698,7 @@ local function PlaceCurrent()
 			bubble:Show()
 			Dialog.ShowWhenSettled()
 		end
-	else
+	elseif not floating or not Dialog.db.fallback then
 		WaitForPlate()
 	end
 	if not plateWatch then
@@ -2861,7 +2886,7 @@ function Dialog:Apply()
 		local changed = bubble.screen ~= ScreenDialog(current.view)
 		ns.ShowFriendlyPlates(not ScreenDialog(current.view) and self.db.plates and npcGuid ~= nil, "dialog")
 		Render(current.view)
-		if changed and current then
+		if (changed or floating) and current then
 			PlaceCurrent()
 		end
 	end
@@ -2989,6 +3014,7 @@ Dialog.options = {
 	{ key = "cinematic", type = "toggle", name = L.DIALOG_CINEMATIC, desc = L.DIALOG_CINEMATIC_DESC, parent = "enabled" },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },
+	{ key = "fallback", type = "toggle", name = L.DIALOG_FALLBACK, desc = L.DIALOG_FALLBACK_DESC, parent = "enabled" },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
 	{ key = "merchantHide", type = "toggle", name = L.DIALOG_MERCHANT_HIDE, desc = L.DIALOG_MERCHANT_HIDE_DESC, parent = "merchant", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },

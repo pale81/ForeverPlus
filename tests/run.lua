@@ -4498,7 +4498,8 @@ end)()
 	local plateA, plateB, playerPlate = CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame")
 	local guid = { npc = "Creature-NPC", target = "Creature-NPC", nameplate1 = "Creature-NPC", nameplate3 = "Player-Self" }
 	local plates = { npc = plateA, nameplate1 = plateA, nameplate3 = playerPlate }
-	local saved = { C_NamePlate, UnitExists, UnitGUID, dialog.db.plates, dialog.db.hidePlate, dialog.db.enabled, dialog.db.style }
+	local saved = { C_NamePlate, UnitExists, UnitGUID, dialog.db.plates, dialog.db.hidePlate, dialog.db.enabled, dialog.db.style,
+		dialog.db.fallback }
 	local savedGet, savedSet = GetCVar, SetCVar
 	local cvars = { nameplateShowAll = "0", nameplateShowFriendlyNpcs = "1" }
 	GetCVar = function(cvar) return cvars[cvar] end
@@ -4518,6 +4519,7 @@ end)()
 	GossipFrame.GetScale = function() return scale end
 	GossipFrame.SetScale = function(_, value) scale = value end
 	dialog.db.plates, dialog.db.hidePlate = true, false
+	dialog.db.fallback = false
 	dialog.db.enabled, dialog.db.style = true, "PLAYER"
 	dialog:OnConversation("GOSSIP_SHOW")
 	assert(anchored == plateA and bubble.Tail:IsShown(), "on the NPC's plate")
@@ -4558,7 +4560,58 @@ end)()
 	GossipFrame, GetCVar, SetCVar = savedGossip, savedGet, savedSet
 	C_NamePlate, UnitExists, UnitGUID = unpack(saved, 1, 3)
 	dialog.db.plates, dialog.db.hidePlate, dialog.db.enabled, dialog.db.style = unpack(saved, 4, 7)
+	dialog.db.fallback = saved[8]
 	print("dialog plate reuse OK")
+end)()
+;(function()
+	-- Missing NPC nameplates must not prevent opening or retaining a quest reward.
+	local dialog = ns:GetModule("Dialog")
+	local hide = uv(dialog.Apply, "Hide")
+	hide()
+	local bubble = uv(uv(dialog.GoBack, "Show"), "bubble")
+	local saved = { C_NamePlate, UnitExists, UnitGUID, GetTime, C_Timer.After, GetQuestID,
+		dialog.db.enabled, dialog.db.fallback, dialog.db.cinematic, dialog.db.style }
+	local savedPoint, anchored = bubble.SetPoint
+	bubble.SetPoint = function(_, _, target) anchored = target end
+	local clock, plate, npc = 0, nil, CreateFrame("Frame")
+	GetTime = function() return clock end
+	C_Timer.After = function() end
+	GetQuestID = function() return 78 end
+	UnitExists = function(unit) return unit == "questnpc" or unit == "npc" or unit == "nameplate1" end
+	UnitGUID = function() return "Creature-NPC" end
+	C_NamePlate = { GetNamePlates = function() return {} end, GetNamePlateForUnit = function() return plate end }
+	dialog.db.enabled, dialog.db.fallback, dialog.db.cinematic = true, true, false
+	dialog.db.style = "PLAYER"
+	dialog:Apply()
+	dialog:OnConversation("QUEST_COMPLETE")
+	assert(not bubble:IsShown(), "briefly wait for the NPC nameplate")
+	clock = 0.5
+	dialog.WatchPlate()
+	assert(bubble:IsShown() and anchored == UIParent and not bubble.Tail:IsShown(),
+		"the quest bubble opens at screen centre without an NPC nameplate")
+	local choice = bubble.pools.item[2]
+	choice:GetScript("OnClick")(choice)
+	assert(choice.Chosen:IsShown(), "quest reward selection works without a nameplate")
+	dialog:OnConversation("QUEST_COMPLETE")
+	assert(bubble:IsShown() and choice.Chosen:IsShown() and anchored == UIParent,
+		"refreshing the same quest keeps the floating bubble and its selected reward")
+	plate = npc
+	dialog.WatchPlate()
+	assert(bubble:IsShown() and anchored == npc and bubble.Tail:IsShown() and choice.Chosen:IsShown(),
+		"a returning NPC nameplate reattaches the same quest bubble")
+	plate = nil
+	dialog.WatchPlate()
+	clock = 1.1
+	dialog.WatchPlate()
+	assert(bubble:IsShown() and anchored == UIParent and choice.Chosen:IsShown(),
+		"losing the nameplate preserves the bubble and reward choice")
+	hide()
+	bubble.SetPoint = savedPoint
+	C_NamePlate, UnitExists, UnitGUID, GetTime, C_Timer.After, GetQuestID = unpack(saved, 1, 6)
+	dialog.db.enabled, dialog.db.fallback, dialog.db.cinematic = unpack(saved, 7, 9)
+	dialog.db.style = saved[10]
+	dialog:Apply()
+	print("dialog quest without nameplate OK")
 end)()
 ;(function()
 	-- A plate frame given to another unit still names the old unit token in its field: only the game's answer counts.

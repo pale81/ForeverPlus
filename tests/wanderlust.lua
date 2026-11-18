@@ -26,6 +26,7 @@ function ns:NewModule(name, spec)
 	return spec
 end
 function ns.Measured(_, fn) return fn end
+function ns.After(_, _, fn) fn() end
 function ns.NewTimer(_, delay, fn)
 	local timer = { at = now + delay, callback = fn }
 	function timer:Cancel() self.cancelled = true end
@@ -33,8 +34,10 @@ function ns.NewTimer(_, delay, fn)
 	return timer
 end
 
+local globals = {}
 local chunk = assert(loadfile(root .. "/Modules/Wanderlust.lua"))
 setfenv(chunk, setmetatable({
+	_G = globals,
 	UIParent = ui,
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
@@ -150,5 +153,34 @@ combat = true
 Advance(60)
 assert(ui.shown, "a countdown callback checks lockdown even before the combat event arrives")
 combat = false
+Enable(false)
+
+Enable(true)
+Advance(60)
+assert(not ui.shown, "automatic hiding still works before a conversation")
+local questShown = true
+globals.QuestFrame = { IsShown = function() return questShown end }
+Fire("QUEST_DETAIL")
+assert(ui.shown and Pending() == 0, "opening a quest restores the automatically hidden interface")
+Advance(120)
+assert(ui.shown, "an open quest keeps its interface visible")
+questShown = false
+Fire("QUEST_FINISHED")
+Advance(59)
+assert(ui.shown, "closing a quest gives another full minute")
+Advance(1)
+assert(not ui.shown, "automatic hiding resumes after the quest closes")
+Fire("GOSSIP_SHOW")
+assert(ui.shown, "opening gossip restores automatic hiding too")
+questShown = true
+Fire("QUEST_DETAIL")
+Fire("GOSSIP_CLOSED")
+Advance(120)
+assert(ui.shown and Pending() == 0, "switching from gossip to a quest never starts a hide timer")
+questShown = false
+Fire("QUEST_FINISHED")
+SetVisibility(false)
+Fire("QUEST_DETAIL")
+assert(not ui.shown, "a conversation does not undo a manual UI hide")
 Enable(false)
 print("Wanderlust timing, combat, manual visibility and lifecycle OK")

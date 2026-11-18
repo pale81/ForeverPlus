@@ -10,6 +10,14 @@ local Wanderlust = ns:NewModule("Wanderlust", {
 local QUIET_SECONDS = 60
 local timer, hidUI, hooked, restoring
 
+local function InteractionOpen()
+	for _, name in ipairs({ "GossipFrame", "QuestFrame", "MerchantFrame", "ClassTrainerFrame" }) do
+		local frame = _G[name]
+		if frame and frame:IsShown() then return true end
+	end
+	return false
+end
+
 local function CancelTimer()
 	if timer then
 		timer:Cancel()
@@ -31,7 +39,7 @@ end
 
 local function StartTimer()
 	CancelTimer()
-	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() then
+	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() or InteractionOpen() then
 		return
 	end
 	local pending
@@ -40,7 +48,7 @@ local function StartTimer()
 			return
 		end
 		timer = nil
-		if Wanderlust.db.enabled and not InCombatLockdown() and UIParent:IsShown() then
+		if Wanderlust.db.enabled and not InCombatLockdown() and UIParent:IsShown() and not InteractionOpen() then
 			hidUI = true
 			SetUIVisibility(false)
 		end
@@ -62,6 +70,12 @@ local function Stop()
 	RestoreUI()
 end
 
+local function InteractionClosed()
+	-- The closing event can precede the native frame's OnHide. Check next frame,
+	-- also allowing a gossip-to-quest transition to open its replacement window.
+	ns.After("Wanderlust: interaction closed", 0, StartTimer)
+end
+
 function Wanderlust:Apply()
 	local enabled = self.db.enabled
 	if enabled and not hooked then
@@ -73,6 +87,13 @@ function Wanderlust:Apply()
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, StartTimer)
 	self:ToggleEvent("PLAYER_LEAVING_WORLD", enabled, Stop)
 	self:ToggleEvent("PLAYER_LOGOUT", enabled, Stop)
+	for _, event in ipairs({ "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
+		"MERCHANT_SHOW", "TRAINER_SHOW" }) do
+		self:ToggleEvent(event, enabled, Stop)
+	end
+	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "MERCHANT_CLOSED", "TRAINER_CLOSED" }) do
+		self:ToggleEvent(event, enabled, InteractionClosed)
+	end
 	if enabled then
 		StartTimer()
 	else

@@ -117,7 +117,7 @@ end
 -- A few minimap pin overlays ignore their parent alpha, so fading Minimap
 -- alone leaves those icons visible. Track only frames that opt out of alpha
 -- inheritance and drive them from the minimap's own mouseover state.
-local function UpdateIndependentMinimapOverlays(enabled)
+local function UpdateIndependentMinimapOverlays(enabled, hoverFrame)
 	local visited = {}
 	local function Scan(parent)
 		if not parent or visited[parent] then
@@ -129,7 +129,7 @@ local function UpdateIndependentMinimapOverlays(enabled)
 		visited[parent] = true
 		for _, child in ipairs({ parent:GetChildren() }) do
 			if (not child.IsForbidden or not child:IsForbidden()) and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha() then
-				SetFaded(child, enabled, Minimap)
+				SetFaded(child, enabled, hoverFrame or Minimap)
 			end
 			Scan(child)
 		end
@@ -158,13 +158,15 @@ function QoL:UpdateMouseover()
 	SetFaded(PlayerFrame, db.mouseover and db.mouseoverPlayer)
 	SetFaded(TargetFrame, db.mouseover and db.mouseoverTarget)
 	SetFaded(FocusFrame, db.mouseover and db.mouseoverTarget)
-	local fadeMinimap = db.mouseover and db.mouseoverMinimap
-	SetFaded(MinimapCluster, fadeMinimap)
+	local wanderlust = ns.WanderlustMinimapMouseover
+	local fadeMinimap = wanderlust or (db.mouseover and db.mouseoverMinimap)
+	local hoverFrame = wanderlust and MinimapCluster or nil
+	SetFaded(MinimapCluster, fadeMinimap, hoverFrame)
 	-- Some minimap overlays ignore their parent's alpha and otherwise remain
 	-- visible when the cluster fades (notably the map backdrop and minimap).
-	SetFaded(Minimap, fadeMinimap)
-	SetFaded(MinimapBackdrop, fadeMinimap)
-	UpdateIndependentMinimapOverlays(fadeMinimap)
+	SetFaded(Minimap, fadeMinimap, hoverFrame)
+	SetFaded(MinimapBackdrop, fadeMinimap, hoverFrame)
+	UpdateIndependentMinimapOverlays(fadeMinimap, hoverFrame)
 end
 
 ---------------------------------------------------------------------------

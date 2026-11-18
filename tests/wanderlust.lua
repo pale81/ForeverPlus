@@ -6,13 +6,30 @@ local globals = {}
 local target, focus, bagsOpen, editMode, chatActive = false, false, false, false, nil
 local closeSounds = 0
 local panelWindows, specialFrames = {}, {}
+local secureCall, controller, secureWrap, stateDriver
+local regenQueue = {}
 local ui = { shown = true }
 function ui:IsShown() return self.shown end
+function ui:GetEffectiveScale() return 0.8 end
 function ui:HookScript(script, fn)
 	assert(script == "OnShow")
 	hooks = hooks + 1
 	self.onShow = fn
 end
+
+local function RunSecure(body, frame, header, state)
+	secureCall = true
+	assert(loadstring("return function(self, control, newstate)\n" .. body .. "\nend"))()(frame, header, state)
+	secureCall = false
+end
+
+local minimap = { parent = ui }
+function minimap:GetParent() return self.parent end
+function minimap:SetParent(parent)
+	assert(not combat or secureCall, "parent restoration during combat must run through a secure handler")
+	self.parent = parent
+end
+function minimap:IsForbidden() return false end
 
 local function SetVisibility(shown)
 	visibilityCalls = visibilityCalls + 1
@@ -25,17 +42,26 @@ local function SetVisibility(shown)
 		end
 	end
 	ui.shown = shown
+	if changed and shown and secureWrap then RunSecure(secureWrap, ui, controller) end
 	if changed and shown and ui.onShow then ui.onShow() end
 end
 
 local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
+	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
 function ns:NewModule(name, spec)
 	assert(name == "Wanderlust")
 	self.module = spec
-	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions }
+	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions,
+		minimapMouseover = spec.defaults.minimapMouseover }
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
+end
+local qol = { db = { mouseover = false, mouseoverMinimap = false } }
+function qol:UpdateMouseover() self.minimapFade = ns.WanderlustMinimapMouseover and true or false end
+function ns:GetModule(name) assert(name == "QoL") return qol end
+function ns.RunOutOfCombat(fn)
+	if combat then regenQueue[#regenQueue + 1] = fn else fn() end
 end
 function ns.Measured(_, fn) return fn end
 function ns:IsEditModeActive() return editMode end
@@ -65,6 +91,32 @@ local chunk = assert(loadfile(root .. "/Modules/Wanderlust.lua"))
 setfenv(chunk, setmetatable({
 	_G = globals,
 	UIParent = ui,
+	MinimapCluster = minimap,
+	CreateFrame = function(_, _, parent, template)
+		assert(not parent and template == "SecureHandlerStateTemplate", "minimap host must stay outside the hidden UI")
+		assert(not controller, "the secure minimap host is reused")
+		controller = { refs = {}, attributes = {} }
+		function controller:EnableMouse(enabled) assert(not enabled) end
+		function controller:SetFrameRef(name, frame) self.refs[name] = frame end
+		function controller:GetFrameRef(name) return self.refs[name] end
+		function controller:SetAttribute(name, value) self.attributes[name] = value end
+		function controller:GetAttribute(name) return self.attributes[name] end
+		function controller:SetScale(scale) self.scale = scale end
+		function controller:SetAllPoints(frame) self.anchor = frame end
+		function controller:WrapScript(frame, script, body)
+			assert(frame == ui and script == "OnShow")
+			secureWrap = body
+		end
+		return controller
+	end,
+	RegisterStateDriver = function(frame, state, condition)
+		assert(not combat and frame == controller and state == "combat" and condition == "[combat] 1; 0")
+		stateDriver = true
+	end,
+	UnregisterStateDriver = function(frame, state)
+		assert(not combat and frame == controller and state == "combat")
+		stateDriver = false
+	end,
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
 	UnitExists = function(unit) return unit == "target" and target or unit == "focus" and focus end,
@@ -96,6 +148,13 @@ local function Enable(enabled)
 	module:OnOptionChanged("enabled", enabled)
 end
 local function Fire(event, ...)
+	if event == "PLAYER_REGEN_DISABLED" and stateDriver then
+		RunSecure(controller.attributes["_onstate-combat"], controller, controller, "1")
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		local queue = regenQueue
+		regenQueue = {}
+		for _, fn in ipairs(queue) do fn() end
+	end
 	if events[event] then events[event](module, event, ...) end
 end
 local function Advance(seconds)
@@ -128,15 +187,20 @@ module:OnLogin()
 assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 0,
 	"disabled by default, with no timer, hook or events")
 assert(module.db.showProfessions == false, "profession abilities are excluded by default")
+assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
 Enable(true)
 assert(hooks == 1 and Pending() == 1, "enabling starts a single timer")
 Advance(59)
 assert(ui.shown and visibilityCalls == 0, "the interface stays visible for the first 59 seconds")
 Advance(1)
 assert(not ui.shown and visibilityCalls == 1 and Pending() == 0, "one full quiet minute hides the interface once")
+assert(minimap.parent == controller and qol.minimapFade and controller.scale == 0.8 and controller.anchor == ui,
+	"only the minimap stays outside the hidden UI, preserving the UI scale and anchors")
+assert(not qol.db.mouseover and not qol.db.mouseoverMinimap, "Wanderlust does not change normal mouseover settings")
 combat = true
 Fire("PLAYER_REGEN_DISABLED")
 assert(ui.shown and Pending() == 0, "combat restores the interface during lockdown without another timer")
+assert(minimap.parent == ui and not qol.minimapFade, "secure combat handling restores the minimap and normal fading")
 Advance(120)
 assert(ui.shown, "combat never hides the interface")
 combat = false
@@ -155,6 +219,7 @@ Advance(1)
 assert(not ui.shown, "the new minute expires after combat")
 
 SetVisibility(true)
+assert(minimap.parent == ui and not qol.minimapFade, "manually revealing the interface restores the minimap parent")
 Advance(59)
 assert(ui.shown, "manual recovery gives the player a full minute")
 Advance(1)
@@ -470,4 +535,29 @@ assert(not ui.shown, "forbidden frames are skipped without accessing their visib
 Enable(false)
 assert(closeSounds == 0, "automatic hiding never triggers a target-lost or window-close sound")
 for _, ticker in ipairs(tickers) do assert(ticker.cancelled, "disabling stops the window activity ticker") end
-print("Wanderlust timing, abilities, professions, targets, windows, silent hiding and lifecycle OK")
+
+panelWindows.TestForbiddenPanel = nil
+module.db.minimapMouseover = false
+Enable(true)
+Advance(60)
+assert(not ui.shown and minimap.parent == ui and not qol.minimapFade, "turning minimap mouseover off hides the entire interface")
+module.db.minimapMouseover = true
+module:OnOptionChanged("minimapMouseover", true)
+assert(not ui.shown and minimap.parent == controller and qol.minimapFade, "the minimap option can be enabled while Wanderlust is already hidden")
+module.db.minimapMouseover = false
+module:OnOptionChanged("minimapMouseover", false)
+assert(not ui.shown and minimap.parent == ui and not qol.minimapFade, "turning off minimap mouseover preserves the hidden interface")
+Enable(false)
+assert(ui.shown and minimap.parent == ui and not stateDriver, "disabling restores the minimap and unregisters its secure driver")
+
+module.db.minimapMouseover = true
+Enable(true)
+Advance(60)
+combat = true
+SetVisibility(true) -- The native UI can become visible before the combat event reaches addon code.
+assert(minimap.parent == ui and not qol.minimapFade, "the secure OnShow handler also restores the minimap during lockdown")
+combat = false
+Fire("PLAYER_REGEN_ENABLED")
+Enable(false)
+assert(not stateDriver and not ns.WanderlustMinimapMouseover, "deferred cleanup leaves no minimap override or driver active")
+print("Wanderlust timing, minimap mouseover, abilities, targets, windows and lifecycle OK")

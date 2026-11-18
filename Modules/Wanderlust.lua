@@ -4,11 +4,67 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showProfessions = false },
+	defaults = { enabled = false, showProfessions = false, minimapMouseover = true },
 })
 
 local QUIET_SECONDS = 60
 local timer, activityTicker, hidUI, hooked, restoring, blocked
+local minimapHost, minimapParent, minimapDriver
+
+local function UpdateMinimapFade(active)
+	ns.WanderlustMinimapMouseover = active or nil
+	ns:GetModule("QoL"):UpdateMouseover()
+end
+
+local function RestoreMinimap()
+	if not minimapHost or not (ns.WanderlustMinimapMouseover or minimapHost:GetAttribute("detached")) then return end
+	UpdateMinimapFade(false)
+	if not InCombatLockdown() and minimapHost:GetAttribute("detached") then
+		MinimapCluster:SetParent(minimapParent)
+		minimapHost:SetAttribute("detached", false)
+	end
+	-- The secure handlers can restore the parent during combat; removing a driver waits.
+	ns.RunOutOfCombat(function()
+		if minimapDriver and not ns.WanderlustMinimapMouseover then
+			UnregisterStateDriver(minimapHost, "combat")
+			minimapDriver = nil
+		end
+	end)
+end
+
+local function DetachMinimap()
+	if not Wanderlust.db.minimapMouseover or InCombatLockdown() or ns.WanderlustMinimapMouseover
+		or not MinimapCluster or MinimapCluster:IsForbidden() then return end
+	minimapParent = MinimapCluster:GetParent()
+	if not minimapHost then
+		minimapHost = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
+		minimapHost:EnableMouse(false)
+		minimapHost:SetFrameRef("minimap", MinimapCluster)
+		minimapHost:SetAttribute("_onstate-combat", [=[
+			if newstate == "1" and self:GetAttribute("detached") then
+				self:GetFrameRef("minimap"):SetParent(self:GetFrameRef("parent"))
+				self:SetAttribute("detached", false)
+			end
+		]=])
+		-- Manual Toggle UI and combat must both restore the parent without waiting for Lua lockdown to end.
+		minimapHost:WrapScript(UIParent, "OnShow", [=[
+			if control:GetAttribute("detached") then
+				control:GetFrameRef("minimap"):SetParent(control:GetFrameRef("parent"))
+				control:SetAttribute("detached", false)
+			end
+		]=])
+	end
+	minimapHost:SetFrameRef("parent", minimapParent)
+	minimapHost:SetScale(minimapParent:GetEffectiveScale())
+	minimapHost:SetAllPoints(UIParent)
+	MinimapCluster:SetParent(minimapHost)
+	minimapHost:SetAttribute("detached", true)
+	if not minimapDriver then
+		RegisterStateDriver(minimapHost, "combat", "[combat] 1; 0")
+		minimapDriver = true
+	end
+	UpdateMinimapFade(true)
+end
 
 local WINDOW_NAMES = {
 	"GossipFrame", "QuestFrame", "MerchantFrame", "ClassTrainerFrame", "WorldMapFrame", "SettingsPanel",
@@ -51,6 +107,7 @@ local function CancelTimer()
 end
 
 local function RestoreUI()
+	RestoreMinimap()
 	if hidUI then
 		hidUI = nil
 		if not UIParent:IsShown() then
@@ -80,6 +137,7 @@ local function StartTimer()
 			if blocked then return end
 			-- No open target or window is hidden, so its OnHide cannot play a close sound.
 			hidUI = true
+			DetachMinimap()
 			SetUIVisibility(false)
 		end
 	end)
@@ -90,6 +148,7 @@ local function OnUIShown()
 	-- Escape, Toggle UI and other features give the player another full minute.
 	-- A later manual hide now belongs to the player, not to Wanderlust.
 	hidUI = nil
+	RestoreMinimap()
 	if not restoring then
 		StartTimer()
 	end
@@ -188,6 +247,8 @@ end
 
 function Wanderlust:Apply()
 	local enabled = self.db.enabled
+	if not enabled or not self.db.minimapMouseover then RestoreMinimap()
+	elseif hidUI then DetachMinimap() end
 	InvalidateProfessions()
 	nativeProfessions = {}
 	if enabled and not hooked then
@@ -244,5 +305,6 @@ end
 
 Wanderlust.options = {
 	{ key = "enabled", type = "toggle", name = L.WANDERLUST_TITLE, desc = L.WANDERLUST_DESC },
+	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
 	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

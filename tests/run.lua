@@ -5318,6 +5318,25 @@ end)()
 	SetEnabled(false)
 	assert(not bloodLayer:IsShown(), "switching off Solo Party clears the blood overlay")
 	solo.db.bloody = false
+	local bloodyPreview
+	for _, option in ipairs(solo.options) do
+		if option.name == ns.L.SOLO_PARTY_BLOODY_PREVIEW then bloodyPreview = option.func end
+	end
+	assert(bloodyPreview and bloodyPreview ~= preview, "Bloody has its own test button alongside the unchanged general preview")
+	shown, sounds = #printed, #played
+	local record, timerCount = solo.cdb.criticalRecord, #timers
+	bloodyPreview()
+	assert(#printed == shown + 2 and printed[#printed - 1] == ns.L.SOLO_PARTY_CRIT and printed[#printed] == "1234"
+		and #played == sounds + 1 and frames[#frames]:find("SoloPartyBloody", 1, true) and bloodLayer:IsShown(),
+		"the Bloody test immediately shows only its critical card, splashes and impact sound")
+	assert(not solo.db.enabled and not solo.db.bloody and solo.cdb.criticalRecord == record and #timers == timerCount,
+		"the Bloody test changes no settings or saved record and schedules no preview sequence")
+	preview()
+	local pendingPreview = timers[#timers]
+	bloodyPreview()
+	assert(pendingPreview.cancelled and #timers == timerCount + 1,
+		"testing Bloody stops a pending general preview instead of mixing later preview steps into the test")
+	SetEnabled(false)
 	solo.cdb.criticalRecord = savedRecord
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
@@ -9479,6 +9498,44 @@ end)()
 	R.db.enabled, D.db.enabled, C_Timer.After = savedEnabled, savedDialog, savedAfter
 	LOCKED = savedLocked
 	print("quest starter open button and book OK")
+end)()
+;(function()
+	local qol = ns:GetModule("QoL")
+	local setFaded = uv(qol.UpdateMouseover, "SetFaded")
+	local fadeTargets = uv(setFaded, "fadeTargets")
+	local driver = uv(setFaded, "driver")
+	local savedMaster, savedMinimap, savedOverride = qol.db.mouseover, qol.db.mouseoverMinimap, ns.WanderlustMinimapMouseover
+	local savedHover, savedChildren = MinimapCluster.IsMouseOver, Minimap.GetChildren
+	local hover = false
+	local pin = NewFrame("Frame")
+	pin:SetAlpha(0.6)
+	pin.IsIgnoringParentAlpha = function() return true end
+	Minimap.GetChildren = function() return pin end
+	MinimapCluster.IsMouseOver = function() return hover end
+	qol.db.mouseover, qol.db.mouseoverMinimap = false, false
+	ns.WanderlustMinimapMouseover = nil
+	qol:UpdateMouseover()
+	assert(not fadeTargets[MinimapCluster] and not fadeTargets[Minimap], "normal settings leave the minimap always visible")
+	ns.WanderlustMinimapMouseover = true
+	qol:UpdateMouseover()
+	for _, frame in ipairs({ MinimapCluster, Minimap, MinimapBackdrop, pin }) do
+		assert(fadeTargets[frame].hoverFrame == MinimapCluster, "the entire minimap shares one hover area during Wanderlust")
+	end
+	driver:GetScript("OnUpdate")(driver, 0.25)
+	assert(MinimapCluster:GetAlpha() == 0 and Minimap:GetAlpha() == 0 and MinimapBackdrop:GetAlpha() == 0 and pin:GetAlpha() == 0,
+		"Wanderlust fades the map, border and independent pins away from the mouse")
+	hover = true
+	driver:GetScript("OnUpdate")(driver, 0.25)
+	assert(MinimapCluster:GetAlpha() == 1 and Minimap:GetAlpha() == 1 and MinimapBackdrop:GetAlpha() == 1 and pin:GetAlpha() == 0.6,
+		"hovering the cluster reveals the entire minimap, including independent pins")
+	ns.WanderlustMinimapMouseover = nil
+	qol:UpdateMouseover()
+	assert(not fadeTargets[MinimapCluster] and not fadeTargets[pin] and pin:GetAlpha() == 0.6
+		and not qol.db.mouseover and not qol.db.mouseoverMinimap, "leaving Wanderlust restores normal fading without changing saved settings")
+	qol.db.mouseover, qol.db.mouseoverMinimap, ns.WanderlustMinimapMouseover = savedMaster, savedMinimap, savedOverride
+	MinimapCluster.IsMouseOver, Minimap.GetChildren = savedHover, savedChildren
+	qol:UpdateMouseover()
+	print("Wanderlust minimap hover and normal settings OK")
 end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

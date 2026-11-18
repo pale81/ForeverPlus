@@ -300,7 +300,7 @@ local function CreateCard()
 		label = label, value = value, detail = detail }
 end
 
-local function ShowBurst(kind, label, value, themeName, detail)
+local function ShowBurst(kind, label, value, themeName, detail, bloodyPreview)
 	if not root then
 		root = CreateFrame("Frame", nil, UIParent)
 		root:SetAllPoints()
@@ -317,7 +317,7 @@ local function ShowBurst(kind, label, value, themeName, detail)
 	local size = style.size + math.random(-4, 4)
 	lastBurst = NextVariant(lastBurst, #BURSTS)
 	card.normalBurst = BURSTS[lastBurst]
-	card.bloody = kind == "crit" and SoloParty.db.bloody
+	card.bloody = kind == "crit" and (bloodyPreview or SoloParty.db.bloody)
 	card.burst:SetTexture(card.bloody and BLOODY_BURST or card.normalBurst)
 	if card.label:SetFont(SMALL_CAPS, 20, "") == false then
 		card.label:SetFont(GameFontNormal:GetFont(), 20, "")
@@ -553,11 +553,21 @@ local function Preview()
 	Advance()
 end
 
+local function PreviewBloody()
+	if previewTimer then
+		previewTimer:Cancel()
+		previewTimer = nil
+	end
+	ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234", nil, L.SOLO_PARTY_CRIT_GAIN:format(25), true)
+end
+
 SoloParty.options = {
 	{ key = "enabled", type = "toggle", name = L.SOLO_PARTY_ENABLED, desc = L.SOLO_PARTY_DESC, new = true },
 	{ key = "sounds", type = "toggle", name = L.SOLO_PARTY_SOUNDS, desc = L.SOLO_PARTY_SOUNDS_DESC, new = true },
 	{ key = "effects", type = "toggle", name = L.SOLO_PARTY_EFFECTS, desc = L.SOLO_PARTY_EFFECTS_DESC, new = true },
 	{ key = "criticals", type = "toggle", name = L.SOLO_PARTY_CRITICALS, desc = L.SOLO_PARTY_CRITICALS_DESC, parent = "enabled", new = true },
 	{ key = "bloody", type = "toggle", name = L.SOLO_PARTY_BLOODY, desc = L.SOLO_PARTY_BLOODY_DESC, parent = "criticals", new = true },
+	{ type = "button", name = L.SOLO_PARTY_BLOODY_PREVIEW, text = L.SOLO_PARTY_BLOODY_PREVIEW_BUTTON,
+		desc = L.SOLO_PARTY_BLOODY_PREVIEW_DESC, func = ns.Measured("SoloParty: test Bloody critical", PreviewBloody) },
 	{ type = "button", name = L.SOLO_PARTY_PREVIEW, text = L.SOLO_PARTY_PREVIEW_BUTTON, func = Preview },
 }

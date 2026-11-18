@@ -8051,6 +8051,54 @@ end)()
 	print("readable OK")
 end)()
 ;(function()
+	local readable = ns:GetModule("Readable")
+	local oldTooltip, oldContainerInfo = GameTooltip, C_Container.GetContainerItemInfo
+	local oldPage, oldTitle, oldText = ItemTextGetPage, ItemTextGetItem, ItemTextGetText
+	local oldStatus, oldEnabled, oldTitles = readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles
+	local title, line = "Chronik von Azeroth"
+	local getter = "GetBagItem"
+	local isReadable = true
+	GameTooltip = NewFrame("GameTooltip")
+	GameTooltip.GetProcessingTooltipInfo = function()
+		return { getterName = getter, getterArgs = { 0, 1 } }
+	end
+	GameTooltip.AddLine = function(_, value) line = value end
+	C_Container.GetContainerItemInfo = function(bag, slot)
+		if bag == 0 and slot == 1 then return { isReadable = isReadable } end
+	end
+	ItemTextGetPage = function() return 1 end
+	ItemTextGetItem = function() return title end
+	ItemTextGetText = function() return "Erste Seite" end
+	readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles = true, false, {}
+	local calls = {}
+	local addPostCall = TooltipDataProcessor.AddTooltipPostCall
+	TooltipDataProcessor.AddTooltipPostCall = function(kind, fn) calls[kind] = fn end
+	readable:OnInitialize()
+	TooltipDataProcessor.AddTooltipPostCall = addPostCall
+	local function Hover(kind, name)
+		line = nil
+		calls[kind](GameTooltip, { lines = { { leftText = name } } })
+		return line
+	end
+	local types = Enum.TooltipDataType
+	assert(Hover(types.Item, title) == ns.L.READABLE_UNREAD, "unopened book in the bag")
+	getter = "GetWorldCursor"
+	assert(Hover(types.Object, title) == nil, "no unread label on an unknown world object")
+	readable.Show()
+	assert(Hover(types.Object, title) == ns.L.READABLE_ALREADY_READ, "a text from the normal reading window counts")
+	getter = "GetBagItem"
+	assert(Hover(types.Item, title) == ns.L.READABLE_ALREADY_READ, "known book in the bag")
+	isReadable = false
+	assert(Hover(types.Item, title) == nil, "a non-readable item with the same title is ignored")
+	getter = "GetWorldCursor"
+	readable.db.readStatus = false
+	assert(Hover(types.Object, title) == nil, "tooltip option can be disabled")
+	GameTooltip, C_Container.GetContainerItemInfo = oldTooltip, oldContainerInfo
+	ItemTextGetPage, ItemTextGetItem, ItemTextGetText = oldPage, oldTitle, oldText
+	readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles = oldStatus, oldEnabled, oldTitles
+	print("read status on mouseover OK")
+end)()
+;(function()
 	-- Coordinates with one decimal place or, with the option, whole numbers
 	local M = ns:GetModule("Minimap")
 	local saved = M.db.wholeCoords

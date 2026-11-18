@@ -11,6 +11,10 @@ local Readable = ns:NewModule("Readable", {
 	defaults = {
 		enabled = true,
 		dim = true, -- darken the screen around the text
+		readStatus = true,
+	},
+	charDefaults = {
+		openedTitles = {},
 	},
 })
 
@@ -533,14 +537,62 @@ local function Draw(look, material, pages, quest)
 	frame:Show()
 end
 
--- ITEM_TEXT_READY: the page (also after turning) on its material.
+local function IsTitle(title)
+	return type(title) == "string" and not ns.Secret(title) and title ~= ""
+end
+
+local function ReadStatusTooltip(tooltip, data)
+	if not Readable.db.readStatus or tooltip ~= GameTooltip or tooltip:IsForbidden()
+		or type(data) ~= "table" or ns.Secret(data) then
+		return
+	end
+	local info = tooltip:GetProcessingTooltipInfo()
+	if type(info) ~= "table" or ns.Secret(info) then
+		return
+	end
+	local getter = info.getterName
+	if ns.Secret(getter) or (getter ~= "GetWorldCursor" and getter ~= "GetBagItem") then
+		return
+	end
+	local lines = data.lines
+	local first = type(lines) == "table" and not ns.Secret(lines) and lines[1]
+	local title = type(first) == "table" and not ns.Secret(first) and first.leftText
+	if not IsTitle(title) then
+		return
+	end
+	if getter == "GetBagItem" then
+		local args = info.getterArgs
+		if type(args) ~= "table" or ns.Secret(args) then return end
+		local bag, slot = ns.Number(args[1]), ns.Number(args[2])
+		local item = bag and slot and C_Container.GetContainerItemInfo(bag, slot)
+		local isReadable = type(item) == "table" and not ns.Secret(item) and item.isReadable
+		if ns.Secret(isReadable) or not isReadable then return end
+	end
+	-- The item text events supply the displayed title, without an item or object ID.
+	if Readable.cdb.openedTitles[title] then
+		tooltip:AddLine(L.READABLE_ALREADY_READ, 0.35, 1, 0.35)
+	elseif getter == "GetBagItem" then
+		tooltip:AddLine(L.READABLE_UNREAD, 1, 0.82, 0)
+	end
+end
+
+-- ITEM_TEXT_READY: record the first page and draw the page (also after turning) on its material.
 function Readable.Show()
+	local page = ns.Number(ItemTextGetPage())
+	local text
+	if Readable.db.readStatus and page == 1 then
+		local title = ItemTextGetItem()
+		text = ItemTextGetText()
+		if IsTitle(title) and type(text) == "string" and not ns.Secret(text) and text ~= "" then
+			Readable.cdb.openedTitles[title] = true
+		end
+	end
 	if not Readable.db.enabled then
 		return
 	end
 	if questView then Readable.Hide() end
-	local number, hasNext = ns.Number(ItemTextGetPage(), 1), ItemTextHasNextPage() and true or false
-	local text = ItemTextGetText() or ""
+	local number, hasNext = page or 1, ItemTextHasNextPage() and true or false
+	text = text or ItemTextGetText() or ""
 	local look, material = Readable.Look(ItemTextGetMaterial(), number, hasNext)
 	local action = Readable.TakePage(number, text, hasNext, look)
 	if action == "wait" then
@@ -630,7 +682,7 @@ end
 
 function Readable:Apply()
 	local on = self.db.enabled
-	self:ToggleEvent("ITEM_TEXT_READY", on, Readable.Show)
+	self:ToggleEvent("ITEM_TEXT_READY", on or self.db.readStatus, Readable.Show)
 	self:ToggleEvent("ITEM_TEXT_CLOSED", on, function()
 		if not questView then Readable.Hide() end
 	end)
@@ -651,6 +703,12 @@ function Readable:Apply()
 	elseif view then
 		view.Dim:SetShown(self.db.dim and view:IsShown())
 	end
+end
+
+function Readable:OnInitialize()
+	local callback = ns.Measured("Readable: read status tooltip", ReadStatusTooltip)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, callback)
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, callback)
 end
 
 function Readable:OnLogin()
@@ -685,4 +743,5 @@ end
 Readable.options = {
 	{ key = "enabled", type = "toggle", name = L.READABLE_ENABLE, desc = L.READABLE_ENABLE_DESC, new = true },
 	{ key = "dim", type = "toggle", name = L.READABLE_DIM, desc = L.READABLE_DIM_DESC, parent = "enabled", new = true },
+	{ key = "readStatus", type = "toggle", name = L.READABLE_STATUS, desc = L.READABLE_STATUS_DESC },
 }

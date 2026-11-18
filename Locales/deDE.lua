@@ -56,7 +56,7 @@ L.ITEMS_UNMARKED = "%s ist kein Schrott mehr."
 
 L.QOL_MOUSEOVER_HEADER = "Leisten"
 L.WANDERLUST_TITLE = "Wanderlust"
-L.WANDERLUST_DESC = "Blendet nach einer Minute ohne Kampf oder gewirkte Fähigkeit die gesamte Spieloberfläche aus. Kampfbeginn und eigene Fähigkeiten holen sie sofort zurück. Berufsfertigkeiten sind standardmäßig ausgenommen. Gespräche, Quests, Händler und Lehrer halten sie bis zum Schließen sichtbar. Escape oder die Taste zum Einblenden der Oberfläche zeigt sie für eine weitere Minute. Standardmäßig aus."
+L.WANDERLUST_DESC = "Blendet nach einer Minute ohne Kampf oder gewirkte Fähigkeit die gesamte Spieloberfläche lautlos aus. Bei ausgewähltem Ziel oder Fokus und offenen Fenstern (Karte, Taschen, Auktionshaus, Gespräche, Quests und weitere) bleibt sie sichtbar; die Minute beginnt erst danach neu. Kampfbeginn und eigene Fähigkeiten holen sie sofort zurück. Berufsfertigkeiten sind standardmäßig ausgenommen. Escape oder die Taste zum Einblenden der Oberfläche zeigt sie für eine weitere Minute. Standardmäßig aus."
 L.WANDERLUST_PROFESSIONS = "Auch bei Berufsfertigkeiten einblenden"
 L.WANDERLUST_PROFESSIONS_DESC = "Auch Herstellen, Sammelfertigkeiten, Angeln und andere Berufsfertigkeiten holen die von Wanderlust ausgeblendete Oberfläche zurück und starten die Minute neu. Aus: Berufsfertigkeiten unterbrechen Wanderlust nicht. Standardmäßig aus."
 L.QOL_MOUSEOVER = "Nur bei Mouseover zeigen"

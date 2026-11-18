@@ -1,7 +1,11 @@
 -- Deterministic time and native visibility events, isolated from the other modules.
 local root = (arg and arg[1]) or ".."
 local now, combat, visibilityCalls, hooks = 0, false, 0, 0
-local timers, events = {}, {}
+local timers, tickers, events = {}, {}, {}
+local globals = {}
+local target, focus, bagsOpen, editMode, chatActive = false, false, false, false, nil
+local closeSounds = 0
+local panelWindows, specialFrames = {}, {}
 local ui = { shown = true }
 function ui:IsShown() return self.shown end
 function ui:HookScript(script, fn)
@@ -13,6 +17,13 @@ end
 local function SetVisibility(shown)
 	visibilityCalls = visibilityCalls + 1
 	local changed = ui.shown ~= shown
+	if changed and not shown then
+		-- Model Blizzard's target-lost and window-close sounds on parent hiding.
+		if target or focus or bagsOpen then closeSounds = closeSounds + 1 end
+		for _, frame in pairs(globals) do
+			if frame.closeSound and frame:IsShown() then closeSounds = closeSounds + 1 end
+		end
+	end
 	ui.shown = shown
 	if changed and shown and ui.onShow then ui.onShow() end
 end
@@ -27,6 +38,7 @@ function ns:NewModule(name, spec)
 	return spec
 end
 function ns.Measured(_, fn) return fn end
+function ns:IsEditModeActive() return editMode end
 function ns.After(_, _, fn) fn() end
 function ns.NewTimer(_, delay, fn)
 	local timer = { at = now + delay, callback = fn }
@@ -35,7 +47,13 @@ function ns.NewTimer(_, delay, fn)
 	return timer
 end
 
-local globals = {}
+function ns.NewTicker(_, interval, fn)
+	local ticker = { at = now + interval, interval = interval, callback = fn }
+	function ticker:Cancel() self.cancelled = true end
+	tickers[#tickers + 1] = ticker
+	return ticker
+end
+
 local secret = {}
 local castingTrade, channelTrade = false, false
 local spellBook = { { spellID = 18248, name = "Fishing" }, { spellID = 8613, name = "Skinning" } }
@@ -49,6 +67,13 @@ setfenv(chunk, setmetatable({
 	UIParent = ui,
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
+	UnitExists = function(unit) return unit == "target" and target or unit == "focus" and focus end,
+	IsAnyBagOpen = function() return bagsOpen end,
+	ChatEdit_GetActiveWindow = function() return chatActive end,
+	UIPanelWindows = panelWindows,
+	UISpecialFrames = specialFrames,
+	PlaySound = function() error("Wanderlust must not add any interface sound") end,
+	SetCVar = function() error("Wanderlust must not mute game audio") end,
 	UnitCastingInfo = function() return nil, nil, nil, nil, nil, castingTrade end,
 	UnitChannelInfo = function() return nil, nil, nil, nil, nil, channelTrade end,
 	GetProfessions = function() return nil, 2 end, -- absent profession slots must not end the scan
@@ -74,13 +99,22 @@ local function Fire(event, ...)
 	if events[event] then events[event](module, event, ...) end
 end
 local function Advance(seconds)
-	now = now + seconds
-	for _, timer in ipairs(timers) do
-		if not timer.cancelled and not timer.fired and timer.at <= now then
-			timer.fired = true
-			timer.callback()
+	local deadline = now + seconds
+	while true do
+		local nextTimer
+		for _, list in ipairs({ timers, tickers }) do
+			for _, pending in ipairs(list) do
+				if not pending.cancelled and not pending.fired and pending.at <= deadline
+					and (not nextTimer or pending.at < nextTimer.at) then nextTimer = pending end
+			end
 		end
+		if not nextTimer then break end
+		now = nextTimer.at
+		if nextTimer.interval then nextTimer.at = now + nextTimer.interval
+		else nextTimer.fired = true end
+		nextTimer.callback()
 	end
+	now = deadline
 end
 local function Pending()
 	local count = 0
@@ -293,4 +327,147 @@ combat = false
 Enable(false)
 Fire("UNIT_SPELLCAST_START", "player", "disabled", 1001)
 assert(not next(events) and Pending() == 0, "disabling unregisters all ability and profession events")
-print("Wanderlust timing, abilities, professions, interactions and lifecycle OK")
+
+Enable(true)
+Advance(60)
+target = true
+Fire("PLAYER_TARGET_CHANGED")
+assert(ui.shown and Pending() == 0, "selecting a target immediately restores automatic hiding")
+Advance(120)
+assert(ui.shown, "the interface never hides with a selected target")
+target = false
+Fire("PLAYER_TARGET_CHANGED")
+Advance(59)
+assert(ui.shown, "clearing the target begins a full new minute")
+Advance(1)
+assert(not ui.shown, "hiding resumes after clearing the target")
+focus = true
+Fire("PLAYER_FOCUS_CHANGED")
+Advance(120)
+assert(ui.shown and Pending() == 0, "a focus target also prevents its target-lost sound on parent hiding")
+focus = false
+Fire("PLAYER_FOCUS_CHANGED")
+Advance(60)
+target = secret
+Fire("PLAYER_TARGET_CHANGED")
+Advance(120)
+assert(ui.shown, "a restricted target-existence result safely keeps the interface visible")
+target = false
+Fire("PLAYER_TARGET_CHANGED")
+Advance(60)
+Enable(false)
+
+local function Window(name, registry)
+	local frame = { shown = false, closeSound = true }
+	function frame:IsShown() return self.shown end
+	globals[name] = frame
+	if registry == "panel" then panelWindows[name] = {}
+	elseif registry == "special" then specialFrames[#specialFrames + 1] = name end
+	return frame
+end
+local function CheckWindow(frame, openEvent, closeEvent)
+	Enable(true)
+	Advance(60)
+	assert(not ui.shown, "the test window starts with an automatically hidden interface")
+	frame.shown = true
+	if openEvent then Fire(openEvent) else Advance(1) end
+	assert(ui.shown and Pending() == 0, "opening a window restores and holds the interface")
+	Advance(120)
+	assert(ui.shown, "the interface remains visible for as long as the window is open")
+	frame.shown = false
+	if closeEvent then Fire(closeEvent) else Advance(1) end
+	Advance(59)
+	assert(ui.shown, "closing a window gives a full fresh minute")
+	Advance(1)
+	assert(not ui.shown, "hiding resumes one minute after the window closes")
+	Enable(false)
+end
+
+local map = Window("WorldMapFrame")
+CheckWindow(map)
+CheckWindow(Window("AuctionHouseFrame", "panel"), "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED")
+CheckWindow(Window("BankFrame", "panel"), "BANKFRAME_OPENED", "BANKFRAME_CLOSED")
+CheckWindow(Window("MailFrame", "panel"), "MAIL_SHOW", "MAIL_CLOSED")
+CheckWindow(Window("StaticPopup1"))
+CheckWindow(Window("SettingsPanel"))
+CheckWindow(Window("ForeverPlusReadable"))
+Enable(true)
+-- Register these after enabling: addon windows are often created only on first use.
+Advance(60)
+local latePanel = Window("TestLateLoadedPanel", "panel")
+latePanel.shown = true
+Advance(1)
+assert(ui.shown and Pending() == 0, "a newly registered panel is discovered without reapplying settings")
+latePanel.shown = false
+Advance(1)
+Advance(60)
+local addonWindow = Window("TestAddonWindow", "special")
+addonWindow.shown = true
+Advance(1)
+assert(ui.shown and Pending() == 0, "a newly created Escape-registered addon window is discovered too")
+addonWindow.shown = false
+Advance(1)
+Enable(false)
+CheckWindow(latePanel)
+CheckWindow(addonWindow)
+
+Enable(true)
+Advance(60)
+bagsOpen = true
+Fire("BAG_OPEN", 0)
+Advance(120)
+assert(ui.shown and Pending() == 0, "open bags keep the interface visible")
+Fire("BAG_CLOSED", 1)
+Advance(120)
+assert(ui.shown and Pending() == 0, "closing one bag cannot restart hiding while another is open")
+bagsOpen = false
+Fire("BAG_CLOSED", 0)
+Advance(59)
+assert(ui.shown, "closing the last bag starts a new minute")
+Advance(1)
+assert(not ui.shown, "the interface hides after the last bag closes")
+Enable(false)
+
+Enable(true)
+Advance(59)
+map.shown = true
+Advance(1)
+assert(ui.shown and Pending() == 0, "a window opened at the timer deadline is checked again before hiding")
+addonWindow.shown = true
+map.shown = false
+Advance(120)
+assert(ui.shown and Pending() == 0, "closing one window keeps another open window protected")
+addonWindow.shown = false
+Advance(1)
+Advance(59)
+assert(ui.shown, "the minute restarts only after all windows close")
+Advance(1)
+assert(not ui.shown, "hiding resumes after all windows are closed")
+Enable(false)
+
+chatActive = Window("TestChatInput")
+CheckWindow(chatActive)
+chatActive = nil
+Enable(true)
+Advance(60)
+editMode = true
+Advance(1)
+Advance(120)
+assert(ui.shown and Pending() == 0, "editing the interface keeps it visible")
+editMode = false
+Advance(1)
+Advance(60)
+assert(not ui.shown, "leaving edit mode resumes hiding after a new minute")
+Enable(false)
+
+local forbidden = Window("TestForbiddenPanel", "panel")
+forbidden.shown, forbidden.closeSound = true, false
+function forbidden:IsForbidden() return true end
+function forbidden:IsShown() error("forbidden frames must not be inspected") end
+Enable(true)
+Advance(60)
+assert(not ui.shown, "forbidden frames are skipped without accessing their visibility")
+Enable(false)
+assert(closeSounds == 0, "automatic hiding never triggers a target-lost or window-close sound")
+for _, ticker in ipairs(tickers) do assert(ticker.cancelled, "disabling stops the window activity ticker") end
+print("Wanderlust timing, abilities, professions, targets, windows, silent hiding and lifecycle OK")

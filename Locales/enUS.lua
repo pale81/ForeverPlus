@@ -57,7 +57,7 @@ L.ITEMS_UNMARKED = "%s is no longer junk."
 
 L.QOL_MOUSEOVER_HEADER = "Bars"
 L.WANDERLUST_TITLE = "Wanderlust"
-L.WANDERLUST_DESC = "Hides the entire interface after one minute without combat or using an ability. Combat and your own abilities restore it immediately. Profession abilities are excluded by default. Conversations, quests, merchants and trainers keep it visible until closed. Escape or the Toggle UI binding shows it for another minute. Disabled by default."
+L.WANDERLUST_DESC = "Silently hides the entire interface after one minute without combat or using an ability. A selected target, focus or open window (map, bags, auction house, conversations, quests and others) keeps it visible; the minute restarts afterwards. Combat and your own abilities restore it immediately. Profession abilities are excluded by default. Escape or the Toggle UI binding shows it for another minute. Disabled by default."
 L.WANDERLUST_PROFESSIONS = "Also show for profession abilities"
 L.WANDERLUST_PROFESSIONS_DESC = "Crafting, gathering, Fishing and other profession abilities also restore the interface hidden by Wanderlust and restart the minute. Off: profession abilities do not interrupt Wanderlust. Disabled by default."
 L.QOL_MOUSEOVER = "Show only on mouseover"

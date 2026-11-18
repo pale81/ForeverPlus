@@ -215,6 +215,7 @@ read_globals = {
 	"ClearCursor",
 	"Constants",
 	"ContainerFrameCombinedBags",
+	"IsAnyBagOpen",
 	"ContainerFrameContainer",
 	"CreateFrame",
 	"CreateFromMixins",

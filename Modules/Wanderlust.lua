@@ -8,14 +8,39 @@ local Wanderlust = ns:NewModule("Wanderlust", {
 })
 
 local QUIET_SECONDS = 60
-local timer, hidUI, hooked, restoring
+local timer, activityTicker, hidUI, hooked, restoring, blocked
+
+local WINDOW_NAMES = {
+	"GossipFrame", "QuestFrame", "MerchantFrame", "ClassTrainerFrame", "WorldMapFrame", "SettingsPanel",
+	"GameMenuFrame", "PlayerSpellsFrame", "ProfessionsFrame", "AuctionHouseFrame", "BankFrame", "GuildBankFrame",
+	"MailFrame", "LootFrame", "TradeFrame", "TaxiFrame", "FlightMapFrame", "ForeverPlusReadable",
+	"StaticPopup1", "StaticPopup2", "StaticPopup3", "StaticPopup4",
+}
+
+local function WindowShown(frame)
+	return frame and (not frame.IsForbidden or not frame:IsForbidden()) and frame:IsShown()
+end
 
 local function InteractionOpen()
-	for _, name in ipairs({ "GossipFrame", "QuestFrame", "MerchantFrame", "ClassTrainerFrame" }) do
-		local frame = _G[name]
-		if frame and frame:IsShown() then return true end
+	if IsAnyBagOpen() or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then return true end
+	for _, name in ipairs(WINDOW_NAMES) do
+		if WindowShown(_G[name]) then return true end
+	end
+	-- Include panels loaded later and addon windows registered for Escape.
+	for name in pairs(UIPanelWindows) do
+		if WindowShown(_G[name]) then return true end
+	end
+	for _, name in ipairs(UISpecialFrames) do
+		if WindowShown(_G[name]) then return true end
 	end
 	return false
+end
+
+local function ActivityBlocked()
+	local target = UnitExists("target")
+	if ns.Secret(target) or target then return true end
+	local focus = UnitExists("focus")
+	return ns.Secret(focus) or focus or InteractionOpen()
 end
 
 local function CancelTimer()
@@ -39,16 +64,21 @@ end
 
 local function StartTimer()
 	CancelTimer()
-	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() or InteractionOpen() then
+	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() then
 		return
 	end
+	blocked = ActivityBlocked()
+	if blocked then return end
 	local pending
 	pending = ns.NewTimer("Wanderlust: hide interface", QUIET_SECONDS, function()
 		if timer ~= pending then
 			return
 		end
 		timer = nil
-		if Wanderlust.db.enabled and not InCombatLockdown() and UIParent:IsShown() and not InteractionOpen() then
+		if Wanderlust.db.enabled and not InCombatLockdown() and UIParent:IsShown() then
+			blocked = ActivityBlocked()
+			if blocked then return end
+			-- No open target or window is hidden, so its OnHide cannot play a close sound.
 			hidUI = true
 			SetUIVisibility(false)
 		end
@@ -68,6 +98,22 @@ end
 local function Stop()
 	CancelTimer()
 	RestoreUI()
+end
+
+local function RefreshActivity()
+	if not Wanderlust.db.enabled or InCombatLockdown() then return end
+	if ActivityBlocked() then
+		blocked = true
+		Stop()
+	elseif blocked then
+		blocked = false
+		StartTimer()
+	end
+end
+
+local function InteractionOpened()
+	blocked = true
+	Stop()
 end
 
 local professionSpells, professionNames
@@ -153,6 +199,8 @@ function Wanderlust:Apply()
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, StartTimer)
 	self:ToggleEvent("PLAYER_LEAVING_WORLD", enabled, Stop)
 	self:ToggleEvent("PLAYER_LOGOUT", enabled, Stop)
+	self:ToggleEvent("PLAYER_TARGET_CHANGED", enabled, RefreshActivity)
+	self:ToggleEvent("PLAYER_FOCUS_CHANGED", enabled, RefreshActivity)
 	for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_SUCCEEDED" }) do
 		self:ToggleEvent(event, enabled, OnSpellCast)
 	end
@@ -160,15 +208,28 @@ function Wanderlust:Apply()
 		self:ToggleEvent(event, enabled and not self.db.showProfessions, InvalidateProfessions)
 	end
 	for _, event in ipairs({ "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
-		"MERCHANT_SHOW", "TRAINER_SHOW" }) do
-		self:ToggleEvent(event, enabled, Stop)
+		"MERCHANT_SHOW", "TRAINER_SHOW", "BAG_OPEN", "AUCTION_HOUSE_SHOW", "BANKFRAME_OPENED", "GUILDBANKFRAME_OPENED",
+		"MAIL_SHOW", "TRADE_SHOW", "LOOT_OPENED", "TAXIMAP_OPENED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" }) do
+		self:ToggleEvent(event, enabled, InteractionOpened)
 	end
-	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "MERCHANT_CLOSED", "TRAINER_CLOSED" }) do
+	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "MERCHANT_CLOSED", "TRAINER_CLOSED", "BAG_CLOSED",
+		"AUCTION_HOUSE_CLOSED", "BANKFRAME_CLOSED", "GUILDBANKFRAME_CLOSED", "MAIL_CLOSED", "TRADE_CLOSED", "LOOT_CLOSED",
+		"TAXIMAP_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" }) do
 		self:ToggleEvent(event, enabled, InteractionClosed)
 	end
 	if enabled then
+		-- Catch direct frame Show/Hide calls and newly created addon windows too.
+		if not activityTicker then
+			activityTicker = ns.NewTicker("Wanderlust: window activity", 1, RefreshActivity)
+		end
+		RefreshActivity()
 		StartTimer()
 	else
+		if activityTicker then
+			activityTicker:Cancel()
+			activityTicker = nil
+		end
+		blocked = nil
 		Stop()
 	end
 end

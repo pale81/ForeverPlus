@@ -4932,6 +4932,9 @@ end)()
 	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile }
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
 	local frames, played, effects = {}, {}, {}
+	local details = {}
+	local savedRecord = solo.cdb.criticalRecord
+	solo.cdb.criticalRecord = 0
 	C_TradeSkillUI = { GetProfessionInfoBySkillLineID = function(skill)
 		local names = { [356] = "Fischfang", [186] = "Bergbau", [393] = "Kürschnerei",
 			[182] = "Kräuterkunde", [185] = "Kochkunst", [129] = "Erste Hilfe", [165] = "Lederverarbeitung" }
@@ -4966,7 +4969,7 @@ end)()
 	GetMoneyString = function(amount) return amount .. "c" end
 	local secretCrit = false
 	issecretvalue = function(value)
-		return value == "protected" or (secretCrit and (value == 1234 or value == "1234"))
+		return value == "protected" or (secretCrit and (value == 4000 or value == "4000"))
 	end
 	ns.NewTimer = function(_, _, fn)
 		local timer = { fn = fn, Cancel = function(self) self.cancelled = true end }
@@ -5003,18 +5006,24 @@ end)()
 			mask.SetTexture = function(self, path) self.path = path end
 			return mask
 		end
+		local fontCount = 0
 		frame.CreateFontString = function()
+			fontCount = fontCount + 1
+			local detail = fontCount == 3
 			local region = NewFrame("FontString")
 			region.SetText = function(self, value)
 				self.secretText = issecretvalue(value)
-				printed[#printed + 1] = value
+				local output = detail and details or printed
+				output[#output + 1] = value
 			end
 			region.GetStringWidth = function(self)
 				assert(not self.secretText, "protected damage text must not be measured for layout")
 				return 80
 			end
 			region.SetFont = function(_, font, size, flags)
-				visuals[#visuals + 1] = { font, size, flags }
+				if not detail then
+					visuals[#visuals + 1] = { font, size, flags }
+				end
 				return true
 			end
 			return region
@@ -5128,6 +5137,8 @@ end)()
 	timers[#timers].fn()
 	assert(#printed == 20 and #played == 10 and printed[19] == ns.L.SOLO_PARTY_CRIT and printed[20] == "1234"
 		and #impactFiles == 1, "preview ends with a critical hit and a weapon impact sound")
+	assert(details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(25) and solo.cdb.criticalRecord == 0,
+		"preview includes the percentage without setting a record")
 	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
 
 	SetEnabled(true)
@@ -5214,21 +5225,29 @@ end)()
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
 	assert(#printed == shown and #played == sounds, "only readable critical damage on an involved hostile target qualifies")
 	threat = 1
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
-	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1234"
-		and #played == sounds + 1 and impacts[played[#played]], "critical damage gets its card and weapon impact sound")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1000)
+	assert(solo.cdb.criticalRecord == 1000 and #printed == shown and #played == sounds, "the first critical silently sets the baseline")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1000)
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 999)
+	assert(#printed == shown and #played == sounds and solo.cdb.criticalRecord == 1000, "equal and smaller criticals remain silent")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1250)
+	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1250"
+		and #played == sounds + 1 and impacts[played[#played]], "a new record gets its card and weapon impact sound")
+	assert(solo.cdb.criticalRecord == 1250 and details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(25),
+		"1250 is 25 percent harder than the previous record of 1000")
 	assert(Effect(#frames, "star4"), "critical damage has sparks")
 	solo.db.criticals = false
 	solo:OnOptionChanged("criticals")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2000)
-	assert(#printed == shown + 2, "critical-hit option unregisters the listener")
+	assert(#printed == shown + 2 and solo.cdb.criticalRecord == 1250, "critical-hit option unregisters the listener")
 	solo.db.criticals = true
 	solo:OnOptionChanged("criticals")
 	threat, aimed = nil, true
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
-	assert(printed[shown + 4] == "2500", "an enemy attacking the player qualifies without a threat entry")
-	for _ = 1, 4 do
-		Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
+	assert(printed[shown + 4] == "2500" and details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(100),
+		"the next record compares with the highest amount saved so far")
+	for i = 1, 4 do
+		Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500 + i * 100)
 	end
 	local unique = {}
 	for i = 1, 6 do
@@ -5239,16 +5258,25 @@ end)()
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3000)
-	assert(#impactFiles == 7 and printed[#printed] == "3000", "muting suppresses the impact while keeping the critical card")
+	assert(#impactFiles == 7 and printed[#printed] == "3000" and solo.cdb.criticalRecord == 3000,
+		"muting suppresses the impact while still updating the record")
 	secretCrit = true
 	solo.db.sounds = true
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
-	assert(printed[#printed] == "1234" and #impactFiles == 8, "protected damage is displayed and still triggers the impact sound")
-	selfTarget = "protected"
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
-	assert(#impactFiles == 9, "restricted identity comparisons do not suppress hostile target criticals")
+	local recordLines = #printed
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4000)
+	assert(#printed == recordLines and #impactFiles == 7 and solo.cdb.criticalRecord == 3000,
+		"protected amounts do not claim an unverifiable record")
 	secretCrit = false
+	selfTarget = "protected"
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3500)
+	assert(#impactFiles == 8 and solo.cdb.criticalRecord == 3500, "restricted identity comparisons do not suppress readable records")
+	solo:OnLogin()
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3400)
+	assert(#impactFiles == 8 and solo.cdb.criticalRecord == 3500, "login preserves the character's saved record")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3600)
+	assert(details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(100 / 35), "the percentage uses the persistent record")
 	SetEnabled(false)
+	solo.cdb.criticalRecord = savedRecord
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile = unpack(saved, 1, 9)

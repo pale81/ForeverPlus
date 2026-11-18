@@ -145,6 +145,7 @@ local function Involved()
 	local threat = UnitThreatSituation("player", "target")
 	return Secret(threat) or threat ~= nil
 end
+CombatText.TargetInvolved = Involved
 
 local function Update(_, delta)
 	for index = #active, 1, -1 do

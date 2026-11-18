@@ -5053,7 +5053,10 @@ end)()
 	timers[#timers].fn()
 	assert(#printed == 16 and #played == 8 and expense[played[8]], "preview plays the expense sound separately")
 	timers[#timers].fn()
-	assert(#printed == 18 and #played == 9 and printed[18] == ns.L.SOLO_PARTY_XP_VALUE:format(450), "preview ends with the experience")
+	assert(#printed == 18 and #played == 9 and printed[18] == ns.L.SOLO_PARTY_XP_VALUE:format(450), "preview includes experience")
+	timers[#timers].fn()
+	assert(#printed == 20 and #played == 10 and printed[19] == ns.L.SOLO_PARTY_CRIT and printed[20] == "1234",
+		"preview ends with a critical hit")
 	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
 
 	SetEnabled(true)
@@ -5062,13 +5065,13 @@ end)()
 		money = 900
 		Fire("PLAYER_MONEY")
 	end
-	assert(expense[played[10]] and played[10] ~= played[8] and played[8] ~= played[3] and played[10] ~= played[3]
-		and played[11] == played[3], "expenses use all three sounds before repeating")
+	assert(expense[played[11]] and played[11] ~= played[8] and played[8] ~= played[3] and played[11] ~= played[3]
+		and played[12] == played[3], "expenses use all three sounds before repeating")
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	money = 810
 	Fire("PLAYER_MONEY")
-	assert(#printed == 24 and #played == 11 and solo.db.enabled, "muting keeps qualifying pop-ups active")
+	assert(#printed == 26 and #played == 12 and solo.db.enabled, "muting keeps qualifying pop-ups active")
 	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Fischfang' hat sich auf 51 erhöht.")
 	assert(Effect(#frames, "SoloPartyWater", 0.5), "the fishing effect follows the client-localized skill name")
 	Fire("CHAT_MSG_SKILL", "Eure Fertigkeit 'Bergbau' hat sich auf 51 erhöht.")
@@ -5113,6 +5116,48 @@ end)()
 	Fire("PLAYER_XP_UPDATE", "player")
 	assert(#printed == shown + 4, "switching off unregisters the experience event")
 	UnitXP, UnitXPMax = unpack(savedXP, 1, 2)
+
+	-- Critical hits work while the independent combat-text module is off.
+	local combat = ns:GetModule("CombatText")
+	local savedCombat = { UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled }
+	local hostile, selfTarget, threat, aimed = true, false, 1, false
+	UnitCanAttack = function() return hostile end
+	UnitIsUnit = function(a) return a == "targettarget" and aimed or selfTarget end
+	UnitThreatSituation = function() return threat end
+	combat.db.enabled = false
+	solo.db.effects, solo.db.sounds = true, true
+	shown, sounds = #printed, #played
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	assert(#printed == shown, "disabled Solo Party ignores critical hits")
+	SetEnabled(true)
+	for _, args in ipairs({ { "target", "WOUND", "", 1234 }, { "player", "WOUND", "CRITICAL", 50 },
+		{ "target", "HEAL", "CRITICAL", 1234 }, { "target", "WOUND", "protected", 1234 },
+		{ "target", "WOUND", "CRITICAL", "protected" }, { "target", "WOUND", "CRITICAL", 0 } }) do
+		Fire("UNIT_COMBAT", unpack(args))
+	end
+	hostile = false
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	hostile, selfTarget = true, true
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	selfTarget, threat = false, nil
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	assert(#printed == shown and #played == sounds, "only readable critical damage on an involved hostile target qualifies")
+	threat = 1
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
+	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1234"
+		and #played == sounds + 1 and reward[played[#played]], "critical damage gets its card and reward sound")
+	assert(Effect(#frames, "star4"), "critical damage has sparks")
+	solo.db.criticals = false
+	solo:OnOptionChanged("criticals")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2000)
+	assert(#printed == shown + 2, "critical-hit option unregisters the listener")
+	solo.db.criticals = true
+	solo:OnOptionChanged("criticals")
+	threat, aimed = nil, true
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
+	assert(printed[shown + 4] == "2500", "an enemy attacking the player qualifies without a threat entry")
+	SetEnabled(false)
+	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI = unpack(saved, 1, 8)
 	print("solo party OK")

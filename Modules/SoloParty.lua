@@ -1,11 +1,11 @@
--- Local comic bursts for skill ranks, experience, looted coins and large expenses.
+-- Local comic bursts for skill ranks, experience, critical hits, looted coins and large expenses.
 local _, ns = ...
 local L = ns.L
 
 local SoloParty = ns:NewModule("SoloParty", {
 	title = L.SOLO_PARTY_TITLE,
 	order = 5.37,
-	defaults = { enabled = false, sounds = true, effects = true },
+	defaults = { enabled = false, sounds = true, effects = true, criticals = true },
 })
 
 local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
@@ -22,6 +22,7 @@ local STYLES = {
 	loot = { font = INSCRIPTION, size = 49 },
 	spent = { font = SMALL_CAPS, size = 40 },
 	xp = { font = INSCRIPTION, size = 44 },
+	crit = { font = INSCRIPTION, size = 54 },
 }
 
 local STAR = [[Interface\Cooldown\star4]]
@@ -62,6 +63,8 @@ local THEMES = {
 		particle = COIN, accent = MOTES, lift = 0.40 },
 	xp = { paper = { 0.80, 0.85, 0.97 }, text = { 0.86, 0.93, 1 }, light = { 0.45, 0.62, 1 },
 		aura = ARCANE, particle = MOTES, accent = MOTES, lift = 0.48 },
+	crit = { paper = { 1, 0.83, 0.60 }, text = { 1, 0.87, 0.48 }, light = { 1, 0.52, 0.15 },
+		particle = MOTES, lift = 0.66 },
 	spent = { paper = { 0.89, 0.72, 0.62 }, text = { 1, 0.82, 0.68 }, light = { 0.80, 0.38, 0.23 },
 		aura = SMOKE, particle = MOTES, lift = 0.12 },
 }
@@ -349,8 +352,29 @@ function SoloParty:CHAT_MSG_SKILL(_, message)
 	end
 end
 
+function SoloParty:UNIT_COMBAT(_, unit, event, flagText, amount)
+	if ns.Secret(unit) or ns.Secret(event) or ns.Secret(flagText)
+		or unit ~= "target" or event ~= "WOUND" or flagText ~= "CRITICAL" then
+		return
+	end
+	amount = ns.Number(amount)
+	if not amount or amount <= 0 then
+		return
+	end
+	local hostile, selfTarget = UnitCanAttack("player", "target"), UnitIsUnit("target", "player")
+	if ns.Secret(hostile) or ns.Secret(selfTarget) or not hostile or selfTarget
+		or not ns:GetModule("CombatText").TargetInvolved() then
+		return
+	end
+	ShowBurst("crit", L.SOLO_PARTY_CRIT, ("%d"):format(amount))
+end
+
 function SoloParty:OnOptionChanged(key)
 	if key == "sounds" then
+		return
+	end
+	if key == "criticals" then
+		self:ToggleEvent("UNIT_COMBAT", self.db.enabled and self.db.criticals, self.UNIT_COMBAT)
 		return
 	end
 	if key == "effects" then
@@ -368,6 +392,7 @@ function SoloParty:OnOptionChanged(key)
 	self:ToggleEvent("PLAYER_XP_UPDATE", enabled, self.PLAYER_XP_UPDATE)
 	self:ToggleEvent("CHAT_MSG_MONEY", enabled, self.CHAT_MSG_MONEY)
 	self:ToggleEvent("CHAT_MSG_SKILL", enabled, self.CHAT_MSG_SKILL)
+	self:ToggleEvent("UNIT_COMBAT", enabled and self.db.criticals, self.UNIT_COMBAT)
 	if not enabled then
 		if previewTimer then
 			previewTimer:Cancel()
@@ -400,6 +425,7 @@ local PREVIEW_STEPS = {
 	function() ShowMoney("loot", 12500) end,
 	function() ShowMoney("spent", 3500) end,
 	function() ShowBurst("xp", L.SOLO_PARTY_XP, L.SOLO_PARTY_XP_VALUE:format(450)) end,
+	function() ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234") end,
 }
 
 local function Preview()
@@ -419,5 +445,6 @@ SoloParty.options = {
 	{ key = "enabled", type = "toggle", name = L.SOLO_PARTY_ENABLED, desc = L.SOLO_PARTY_DESC, new = true },
 	{ key = "sounds", type = "toggle", name = L.SOLO_PARTY_SOUNDS, desc = L.SOLO_PARTY_SOUNDS_DESC, new = true },
 	{ key = "effects", type = "toggle", name = L.SOLO_PARTY_EFFECTS, desc = L.SOLO_PARTY_EFFECTS_DESC, new = true },
+	{ key = "criticals", type = "toggle", name = L.SOLO_PARTY_CRITICALS, desc = L.SOLO_PARTY_CRITICALS_DESC, parent = "enabled", new = true },
 	{ type = "button", name = L.SOLO_PARTY_PREVIEW, text = L.SOLO_PARTY_PREVIEW_BUTTON, func = Preview },
 }

@@ -22,7 +22,7 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 ## Sources reviewed
 
-**Solo Party lettering.** [Cinzel Decorative Bold](https://github.com/google/fonts/tree/main/ofl/cinzeldecorative) and [Alegreya SC ExtraBold](https://github.com/google/fonts/tree/main/ofl/alegreyasc) ship under the SIL Open Font License 1.1. Their license notices are included in `Media/Fonts/`.
+**Solo Party lettering.** The cards use the current interface font selected in ForeverPlus, with a dark shadow and separate sizes for labels, amounts and record percentages.
 
 **Solo Party effects.** The animated profession book is the visual reference for individual particles. The comic frames, water effects, leaves, strands, steam, healing sparks and feathered mask use separate textures in `Media/`. The game also renders its own smoke, sparkles and coin textures. Optional Bloody artwork uses a separate crimson card and four comic blood-splash sprites in `Media/SoloPartyBloody.tga` and `Media/SoloPartyBloodSplats.tga`.
 

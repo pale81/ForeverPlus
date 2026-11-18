@@ -19,14 +19,12 @@ local SOUNDS = {
 		"UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER" },
 	crit = { 1240622, 1324858, 1240623, 1324859, 1240624, 1324860 }, -- Two-handed sword / axe critical flesh impacts.
 }
-local INSCRIPTION = MEDIA .. "Fonts\\CinzelDecorative-Bold.ttf"
-local SMALL_CAPS = MEDIA .. "Fonts\\AlegreyaSC-ExtraBold.ttf"
-local STYLES = {
-	skill = { font = INSCRIPTION, size = 39 },
-	loot = { font = INSCRIPTION, size = 49 },
-	spent = { font = SMALL_CAPS, size = 40 },
-	xp = { font = INSCRIPTION, size = 44 },
-	crit = { font = INSCRIPTION, size = 54 },
+local TEXT_SIZES = {
+	skill = 36,
+	loot = 44,
+	spent = 37,
+	xp = 40,
+	crit = 50,
 }
 
 local STAR = [[Interface\Cooldown\star4]]
@@ -48,7 +46,7 @@ local THEMES = {
 	skill = { paper = { 0.90, 0.87, 0.80 }, text = { 1, 0.94, 0.78 }, light = { 0.90, 0.78, 0.53 },
 		particle = MOTES, lift = 0.33 },
 	fishing = { paper = { 0.78, 0.91, 0.96 }, text = { 0.85, 0.98, 1 }, light = { 0.55, 0.83, 0.94 },
-		font = SMALL_CAPS, aura = RIPPLE, particle = BUBBLE, lift = 0.65 },
+		aura = RIPPLE, particle = BUBBLE, lift = 0.65 },
 	forge = { paper = { 0.95, 0.78, 0.61 }, text = { 1, 0.85, 0.64 }, light = { 1, 0.49, 0.20 },
 		aura = SMOKE, particle = MOTES, lift = 0.62 },
 	nature = { paper = { 0.87, 0.90, 0.70 }, text = { 0.91, 0.98, 0.75 }, light = { 0.60, 0.78, 0.34 },
@@ -268,6 +266,12 @@ local function Update(_, delta)
 	end
 end
 
+local function SetCardFont(text, size)
+	if text:SetFont(ns.GetFontFace(), size, "") == false then
+		text:SetFont(GameFontNormal:GetFont(), size, "")
+	end
+end
+
 local function CreateCard()
 	local anchor = CreateFrame("Frame", nil, root)
 	anchor:SetSize(1, 1)
@@ -294,7 +298,6 @@ local function CreateCard()
 	value:SetShadowOffset(2, -2)
 	detail:SetShadowOffset(1, -1)
 	detail:SetShadowColor(0.05, 0.03, 0.02, 0.90)
-	detail:SetFont(SMALL_CAPS, 18, "")
 	detail:SetTextColor(1, 0.89, 0.65)
 	return { anchor = anchor, art = art, burst = burst, aura = aura, particles = particles,
 		label = label, value = value, detail = detail }
@@ -312,23 +315,19 @@ local function ShowBurst(kind, label, value, themeName, detail, bloodyPreview)
 	nextSlot = nextSlot % #POSITIONS + 1
 	local card = cards[nextSlot] or CreateCard()
 	cards[nextSlot] = card
-	local style = STYLES[kind]
 	local theme = THEMES[themeName or kind]
-	local size = style.size + math.random(-4, 4)
+	local size = TEXT_SIZES[kind] + math.random(-3, 3)
 	lastBurst = NextVariant(lastBurst, #BURSTS)
 	card.normalBurst = BURSTS[lastBurst]
 	card.bloody = kind == "crit" and (bloodyPreview or SoloParty.db.bloody)
 	card.burst:SetTexture(card.bloody and BLOODY_BURST or card.normalBurst)
-	if card.label:SetFont(SMALL_CAPS, 20, "") == false then
-		card.label:SetFont(GameFontNormal:GetFont(), 20, "")
-	end
-	if card.value:SetFont(theme.font or style.font, size, "") == false then
-		card.value:SetFont(GameFontNormal:GetFont(), size, "")
-	end
+	SetCardFont(card.label, 18)
+	SetCardFont(card.value, size)
 	card.label:SetText(label)
 	card.value:SetText(value)
 	card.detail:SetShown(detail ~= nil)
 	if detail then
+		SetCardFont(card.detail, 17)
 		card.detail:SetText(detail)
 	end
 	card.label:SetTextColor(0.94, 0.87, 0.72)

@@ -4936,6 +4936,9 @@ end)()
 	local details = {}
 	local savedRecord = solo.cdb.criticalRecord
 	solo.cdb.criticalRecord = 0
+	local fontSettings = ns:GetModule("Fonts").db
+	local savedFace = fontSettings.face
+	fontSettings.face = "Fonts\\FRIZQT__.TTF"
 	C_TradeSkillUI = { GetProfessionInfoBySkillLineID = function(skill)
 		local names = { [356] = "Fischfang", [186] = "Bergbau", [393] = "Kürschnerei",
 			[182] = "Kräuterkunde", [185] = "Kochkunst", [129] = "Erste Hilfe", [165] = "Lederverarbeitung" }
@@ -5097,7 +5100,8 @@ end)()
 		asset:close()
 	end
 	assert(positions[1][1] ~= positions[2][1] and positions[2][1] ~= positions[3][1], "consecutive bursts use different places")
-	assert(visuals[4][1] ~= visuals[6][1] and visuals[4][2] ~= visuals[6][2], "loot and expenses use different typefaces and sizes")
+	assert(visuals[4][1] == ns.GetFontFace() and visuals[6][1] == ns.GetFontFace() and visuals[4][2] ~= visuals[6][2],
+		"cards use the selected interface typeface with different sizes")
 	layer:GetScript("OnUpdate")(layer, 2)
 	assert(not layer:IsShown(), "animation releases the overlay")
 
@@ -5341,6 +5345,7 @@ end)()
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile = unpack(saved, 1, 9)
+	fontSettings.face = savedFace
 	print("solo party OK")
 end)()
 ;(function()

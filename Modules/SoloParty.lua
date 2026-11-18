@@ -14,6 +14,7 @@ local SOUNDS = {
 	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
 	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
 		"UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER" },
+	crit = { 1240622, 1324858, 1240623, 1324859, 1240624, 1324860 }, -- Two-handed sword / axe critical flesh impacts.
 }
 local INSCRIPTION = MEDIA .. "Fonts\\CinzelDecorative-Bold.ttf"
 local SMALL_CAPS = MEDIA .. "Fonts\\AlegreyaSC-ExtraBold.ttf"
@@ -104,10 +105,14 @@ local function PlayBurstSound(kind)
 	if not SoloParty.db.sounds then
 		return
 	end
-	local group = kind == "spent" and "spent" or "reward"
+	local group = (kind == "crit" or kind == "spent") and kind or "reward"
 	local pool = SOUNDS[group]
 	local index = NextVariant(lastSound[group], #pool)
 	lastSound[group] = index
+	if group == "crit" then
+		PlaySoundFile(pool[index], "SFX")
+		return
+	end
 	local kit = SOUNDKIT[pool[index]]
 	if kit then
 		PlaySound(kit, "SFX")

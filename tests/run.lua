@@ -4876,7 +4876,7 @@ end)()
 ;(function()
 	-- Solo Party uses independent events, even with the chat summaries disabled.
 	local solo = ns:GetModule("SoloParty")
-	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI }
+	local saved = { CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile }
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
 	local frames, played, effects = {}, {}, {}
 	C_TradeSkillUI = { GetProfessionInfoBySkillLineID = function(skill)
@@ -4894,6 +4894,14 @@ end)()
 	SOUNDKIT.UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER = 43503
 	local reward = { [74702] = true, [50111] = true, [31757] = true }
 	local expense = { [43501] = true, [165976] = true, [43503] = true }
+	local impacts = { [1240622] = true, [1324858] = true, [1240623] = true, [1324859] = true, [1240624] = true, [1324860] = true }
+	local impactFiles = {}
+	PlaySoundFile = function(file, channel)
+		assert(impacts[file] and channel == "SFX", "critical sounds use the weapon impact files on the effects channel")
+		impactFiles[#impactFiles + 1] = file
+		played[#played + 1] = file
+		return true
+	end
 	PlaySound = function(kit, channel)
 		if reward[kit] or expense[kit] then
 			assert(channel == "SFX", "party sounds use the game's effects channel")
@@ -5055,8 +5063,8 @@ end)()
 	timers[#timers].fn()
 	assert(#printed == 18 and #played == 9 and printed[18] == ns.L.SOLO_PARTY_XP_VALUE:format(450), "preview includes experience")
 	timers[#timers].fn()
-	assert(#printed == 20 and #played == 10 and printed[19] == ns.L.SOLO_PARTY_CRIT and printed[20] == "1234",
-		"preview ends with a critical hit")
+	assert(#printed == 20 and #played == 10 and printed[19] == ns.L.SOLO_PARTY_CRIT and printed[20] == "1234"
+		and #impactFiles == 1, "preview ends with a critical hit and a weapon impact sound")
 	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
 
 	SetEnabled(true)
@@ -5145,7 +5153,7 @@ end)()
 	threat = 1
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
 	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1234"
-		and #played == sounds + 1 and reward[played[#played]], "critical damage gets its card and reward sound")
+		and #played == sounds + 1 and impacts[played[#played]], "critical damage gets its card and weapon impact sound")
 	assert(Effect(#frames, "star4"), "critical damage has sparks")
 	solo.db.criticals = false
 	solo:OnOptionChanged("criticals")
@@ -5156,10 +5164,23 @@ end)()
 	threat, aimed = nil, true
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
 	assert(printed[shown + 4] == "2500", "an enemy attacking the player qualifies without a threat entry")
+	for _ = 1, 4 do
+		Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
+	end
+	local unique = {}
+	for i = 1, 6 do
+		assert(not unique[impactFiles[i]], "all six critical impact sounds play before a repeat")
+		unique[impactFiles[i]] = true
+	end
+	assert(impactFiles[7] == impactFiles[1], "critical sound rotation starts again after six sounds")
+	solo.db.sounds = false
+	solo:OnOptionChanged("sounds")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3000)
+	assert(#impactFiles == 7 and printed[#printed] == "3000", "muting suppresses the impact while keeping the critical card")
 	SetEnabled(false)
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
-	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI = unpack(saved, 1, 8)
+	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile = unpack(saved, 1, 9)
 	print("solo party OK")
 end)()
 ;(function()

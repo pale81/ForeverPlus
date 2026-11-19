@@ -9710,5 +9710,79 @@ end)()
 	LOCKED = savedLocked
 	print("quest starter open button and book OK")
 end)()
+;(function()
+	-- Cinematic camera: the situation with the highest priority wins; switched off, every setting comes back.
+	local camera = ns:GetModule("Camera")
+	local db = { taxi = true, talk = true, combat = true, mounted = true, indoors = true, resting = true }
+	assert(camera.Pick({}, db) == nil, "nothing going on: own camera")
+	assert(camera.Pick({ mounted = true, combat = true }, db).key == "combat", "combat before mounted")
+	assert(camera.Pick({ taxi = true, talk = true }, db).key == "taxi", "flight path first")
+	db.combat = false
+	assert(camera.Pick({ mounted = true, combat = true }, db).key == "mounted", "switched-off situation skipped")
+	assert(camera.Ease(-1) == 0 and camera.Ease(0.5) == 0.5 and camera.Ease(2) == 1, "ease stays between 0 and 1")
+	assert(camera.Blend(2, 4, 0) == 2 and camera.Blend(2, 4, 1) == 4, "blend from start to end")
+
+	local saved = { GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop,
+		GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled }
+	local cvars = {
+		CameraKeepCharacterCentered = "1", CameraReduceUnexpectedMovement = "0", test_cameraDynamicPitch = "0",
+		test_cameraOverShoulder = "0", test_cameraDynamicPitchBaseFovPad = "0.4", cameraYawMoveSpeed = "180",
+		test_cameraTargetFocusEnemyEnable = "0", test_cameraTargetFocusInteractEnable = "0",
+	}
+	local zoom, now, spinning, state = 10, 0, nil, {}
+	GetCVar = function(key) return cvars[key] end
+	SetCVar = function(key, value) cvars[key] = tostring(value) end
+	GetCameraZoom = function() return zoom end
+	CameraZoomOut = function(delta) zoom = zoom + delta end
+	CameraZoomIn = function(delta) zoom = zoom - delta end
+	MoveViewLeftStart = function(speed) spinning = speed end
+	MoveViewLeftStop = function() spinning = nil end
+	GetTime = function() return now end
+	ns.NewTicker = function() return { Cancel = function() end } end
+	camera.State = function() return state end
+	camera.db.saved, camera.db.enabled = {}, true
+	camera:OnOptionChanged("enabled", true)
+	assert(cvars.CameraKeepCharacterCentered == "0" and cvars.test_cameraDynamicPitch == "1", "action camera on")
+	local function Finish()
+		local blender = uv(uv(camera.Apply, "BlendTo"), "blender")
+		now = now + 5
+		blender.scripts.OnUpdate(blender, 0)
+	end
+
+	state = { mounted = true }
+	camera.Update()
+	assert(zoom == 16, "mounted: far away")
+	state = { taxi = true, mounted = true }
+	camera.Update()
+	Finish()
+	assert(zoom == 22 and spinning and math.abs(spinning - 4 / 180) < 1e-9, "flight path: further, circling")
+	assert(cvars.test_cameraDynamicPitchBaseFovPad == "0.6", "flight path tilt reached")
+	state = { talk = true }
+	camera.Update()
+	Finish()
+	assert(spinning == nil and zoom == 5 and cvars.test_cameraOverShoulder == "1.2", "talk: close, over the shoulder")
+	assert(cvars.test_cameraTargetFocusInteractEnable == "1", "talk: looks at the other person")
+	state = {}
+	camera.Update()
+	Finish()
+	assert(zoom == 10, "own distance from before the first situation")
+	assert(cvars.test_cameraOverShoulder == "0" and cvars.test_cameraDynamicPitchBaseFovPad == "0.4", "own camera back")
+	assert(cvars.test_cameraTargetFocusInteractEnable == "0", "focus back")
+
+	state = { combat = true }
+	camera.db.combat = true
+	camera.Update()
+	cvars.test_cameraTargetFocusEnemyEnable = "2" -- the player changes it meanwhile
+	camera.db.enabled = false
+	camera:OnOptionChanged("enabled", false)
+	assert(zoom == 10 and next(camera.db.saved) == nil, "switched off: distance back, nothing kept")
+	assert(cvars.CameraKeepCharacterCentered == "1" and cvars.test_cameraDynamicPitch == "0", "settings back")
+	assert(cvars.test_cameraOverShoulder == "0", "shoulder back in the middle of a blend")
+	assert(cvars.test_cameraTargetFocusEnemyEnable == "2", "the player's own change stays")
+
+	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop = unpack(saved, 1, 7)
+	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled = unpack(saved, 8, 12)
+	print("cinematic camera OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

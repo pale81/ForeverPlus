@@ -103,6 +103,7 @@ Modules\TalentBuilds.lua
 Modules\Talents.lua
 Modules\ProfessionPlan.lua
 Modules\Visuals.lua
+Modules\Camera.lua
 Modules\XPBar.lua
 Modules\MeterReset.lua
 Modules\DPSSim.lua

@@ -1,4 +1,4 @@
--- Moments: a screenshot when a boss dies and at a level-up, and a fanfare at a level-up.
+-- Moments: a screenshot when a boss dies and at a level-up (without the interface), and a fanfare at a level-up.
 local _, ns = ...
 local L = ns.L
 
@@ -20,6 +20,7 @@ local Moments = ns:NewModule("Moments", {
 	defaults = {
 		shotBoss = false,
 		shotLevel = false,
+		shotHideUI = true,
 		levelSound = true,
 		levelSoundKit = "UI_RAID_BOSS_DEFEATED",
 	},
@@ -48,10 +49,45 @@ function Moments.ShotDue(now)
 	return true
 end
 
+-- The interface is only see-through for the picture (alpha, allowed in combat; hiding UIParent is not), the
+-- messages of the game stay: the level-up toast and the boss banner.
+local RESTORE_AFTER = 3 -- seconds: the interface comes back even when the game reports no picture
+local hidden -- while the interface is hidden: { alpha = previous alpha, kept = { [frame] = previous ignore } }
+
+function Moments.HideUI()
+	if hidden then
+		return
+	end
+	hidden = { alpha = UIParent:GetAlpha(), kept = {} }
+	for _, frame in pairs({ EventToastManagerFrame, BossBanner }) do -- pairs: a frame the client lacks is nil
+		hidden.kept[frame] = frame:IsIgnoringParentAlpha()
+		frame:SetIgnoreParentAlpha(true)
+	end
+	UIParent:SetAlpha(0)
+end
+
+function Moments.ShowUI()
+	if not hidden then
+		return
+	end
+	UIParent:SetAlpha(hidden.alpha)
+	for frame, ignore in pairs(hidden.kept) do
+		frame:SetIgnoreParentAlpha(ignore)
+	end
+	hidden = nil
+end
+
 local function Shoot()
 	if Moments.ShotDue(GetTime()) then
 		ns.After("Moments: screenshot", SHOT_DELAY, function()
-			Screenshot()
+			if not Moments.db.shotHideUI then
+				Screenshot()
+				return
+			end
+			Moments.HideUI()
+			-- one frame later: the picture shows the frame drawn without the interface
+			ns.After("Moments: screenshot without interface", 0, Screenshot)
+			ns.After("Moments: show interface", RESTORE_AFTER, Moments.ShowUI)
 		end)
 	end
 end
@@ -81,6 +117,9 @@ function Moments:Apply()
 		end
 	end)
 	self:ToggleEvent("BOSS_KILL", db.shotBoss, Shoot)
+	local restore = db.shotHideUI and (db.shotBoss or db.shotLevel)
+	self:ToggleEvent("SCREENSHOT_SUCCEEDED", restore, Moments.ShowUI)
+	self:ToggleEvent("SCREENSHOT_FAILED", restore, Moments.ShowUI)
 end
 
 function Moments:OnLogin()
@@ -97,6 +136,7 @@ end
 Moments.options = {
 	{ key = "shotBoss", type = "toggle", name = L.MOMENTS_SHOT_BOSS, desc = L.MOMENTS_SHOT_BOSS_DESC, new = true },
 	{ key = "shotLevel", type = "toggle", name = L.MOMENTS_SHOT_LEVEL, desc = L.MOMENTS_SHOT_LEVEL_DESC, new = true },
+	{ key = "shotHideUI", type = "toggle", name = L.MOMENTS_SHOT_HIDE_UI, desc = L.MOMENTS_SHOT_HIDE_UI_DESC, new = true },
 	{ key = "levelSound", type = "toggle", name = L.MOMENTS_SOUND, desc = L.MOMENTS_SOUND_DESC, new = true },
 	{ key = "levelSoundKit", type = "dropdown", name = L.MOMENTS_SOUND_KIT, parent = "levelSound", values = function()
 		local values = {}

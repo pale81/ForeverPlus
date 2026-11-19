@@ -4954,6 +4954,39 @@ end)()
 	assert(shots == 2 and sounds == 1, "level-up: picture and fanfare (" .. shots .. ", " .. sounds .. ")")
 	assert(kit == "fanfare" and moments.db.levelSoundKit == "UI_RAID_BOSS_DEFEATED", "the chosen sound of the game")
 	assert(moments.SoundKey("UI_EPICLOOT_TOAST") == "UI_RAID_BOSS_DEFEATED" and moments.SoundKey("UI_SCENARIO_ENDING") == "UI_SCENARIO_ENDING", "a removed short sound falls back to the first")
+	-- Without the interface: UIParent see-through for the picture, the level-up toast and the boss banner stay,
+	-- everything back afterwards (by the timer here, by the screenshot event in the game).
+	local savedFrames = { UIParent, EventToastManagerFrame, BossBanner, moments.db.shotHideUI }
+	local function Fake(alpha, ignore)
+		return { alpha = alpha, ignore = ignore,
+			GetAlpha = function(self) return self.alpha end, SetAlpha = function(self, a) self.alpha = a end,
+			IsIgnoringParentAlpha = function(self) return self.ignore end,
+			SetIgnoreParentAlpha = function(self, i) self.ignore = i end }
+	end
+	UIParent, EventToastManagerFrame, BossBanner = Fake(0.9), Fake(1, false), Fake(1, true)
+	local seen
+	Screenshot = function()
+		seen = { UIParent.alpha, EventToastManagerFrame.ignore, BossBanner.ignore }
+	end
+	moments.db.shotHideUI = true
+	moments:Apply()
+	now = 2200
+	Fire("PLAYER_LEVEL_UP", 22)
+	assert(seen and seen[1] == 0 and seen[2] == true and seen[3] == true, "picture: interface hidden, messages kept")
+	assert(UIParent.alpha == 0.9 and EventToastManagerFrame.ignore == false and BossBanner.ignore == true, "interface back as before")
+	moments.HideUI()
+	Fire("SCREENSHOT_SUCCEEDED")
+	assert(UIParent.alpha == 0.9 and EventToastManagerFrame.ignore == false, "back at the screenshot event")
+	BossBanner = nil
+	moments.HideUI()
+	assert(UIParent.alpha == 0 and EventToastManagerFrame.ignore == true, "a missing banner is no error")
+	moments.ShowUI()
+	moments.db.shotHideUI = false
+	seen = nil
+	now = 2300
+	Fire("PLAYER_LEVEL_UP", 23)
+	assert(seen and seen[1] == 0.9 and seen[2] == false, "option off: picture with the interface")
+	UIParent, EventToastManagerFrame, BossBanner, moments.db.shotHideUI = savedFrames[1], savedFrames[2], savedFrames[3], savedFrames[4]
 	SOUNDKIT.UI_RAID_BOSS_DEFEATED = nil
 	moments.PlayLevelSound = savedLevelSound
 	Screenshot, PlaySound, ns.After, GetTime = saved[1], saved[2], saved[3], saved[4]

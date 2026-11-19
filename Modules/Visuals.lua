@@ -1434,7 +1434,10 @@ local function OutlineFonts()
 		if not outlined[name] then
 			outlined[name] = true
 			-- Name plates keep the game's font: set again with one file it loses the glyphs of other alphabets.
-			local font = not name:find("NamePlate", 1, true) and _G[name]
+			-- Our own font families (ns.PlainFont, ns.FontObject) keep their flags: set again they lose their
+			-- alphabets too, and the book font became an outlined file of another alphabet.
+			local font = not name:find("NamePlate", 1, true) and not name:find("^ForeverPlusFontFamily")
+				and _G[name]
 			if type(font) == "table" and font.GetFont and not font:IsForbidden() then
 				if IsDarkFont(font) then
 					dark = dark or {}

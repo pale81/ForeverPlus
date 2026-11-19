@@ -8093,6 +8093,18 @@ end)()
 		assert(ns.PlainFont("TestBookFont") == plain, "made once")
 		CreateFontFamily = savedFamily
 	end
+	-- the outline option leaves our own font families alone when it runs again for a later addon (it made the
+	-- book font one outlined file of another alphabet)
+	do
+		local own = NewFont("ForeverPlusFontFamily999", 15)
+		own.face = "Fonts\\K_Pagetext.ttf"
+		local savedGetFonts = GetFonts
+		GetFonts = function() return { "ForeverPlusFontFamily999" } end
+		local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+		eventFrame:GetScript("OnEvent")(eventFrame, "ADDON_LOADED", "Blizzard_Test")
+		assert(own.flags == "", "own font family keeps no outline: " .. own.flags)
+		GetFonts, ForeverPlusFontFamily999 = savedGetFonts, nil
+	end
 	-- a book of five pages, as the game hands them out one at a time
 	local saved = { ItemTextFrame, ItemTextGetPage, ItemTextHasNextPage, ItemTextGetMaterial, ItemTextGetItem,
 		ItemTextGetText, ItemTextGetCreator, ItemTextNextPage, ItemTextPrevPage, C_Timer.After }

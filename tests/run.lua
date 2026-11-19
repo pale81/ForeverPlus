@@ -8097,14 +8097,16 @@ end)()
 	local oldTooltip, oldContainerInfo = GameTooltip, C_Container.GetContainerItemInfo
 	local oldPage, oldTitle, oldText = ItemTextGetPage, ItemTextGetItem, ItemTextGetText
 	local oldStatus, oldEnabled, oldTitles = readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles
-	local title, line = "Chronik von Azeroth"
+	local title, line, red = "Chronik von Azeroth"
+	local oldGray = GRAY_FONT_COLOR
+	GRAY_FONT_COLOR = { GetRGB = function() return 0.5, 0.5, 0.5 end }
 	local getter = "GetBagItem"
 	local isReadable = true
 	GameTooltip = NewFrame("GameTooltip")
 	GameTooltip.GetProcessingTooltipInfo = function()
 		return { getterName = getter, getterArgs = { 0, 1 } }
 	end
-	GameTooltip.AddLine = function(_, value) line = value end
+	GameTooltip.AddLine = function(_, value, r) line, red = value, r end
 	C_Container.GetContainerItemInfo = function(bag, slot)
 		if bag == 0 and slot == 1 then return { isReadable = isReadable } end
 	end
@@ -8130,12 +8132,13 @@ end)()
 	assert(Hover(types.Object, title) == ns.L.READABLE_ALREADY_READ, "a text from the normal reading window counts")
 	getter = "GetBagItem"
 	assert(Hover(types.Item, title) == ns.L.READABLE_ALREADY_READ, "known book in the bag")
+	assert(red == 0.5, "already read is shown in grey")
 	isReadable = false
 	assert(Hover(types.Item, title) == nil, "a non-readable item with the same title is ignored")
 	getter = "GetWorldCursor"
 	readable.db.readStatus = false
 	assert(Hover(types.Object, title) == nil, "tooltip option can be disabled")
-	GameTooltip, C_Container.GetContainerItemInfo = oldTooltip, oldContainerInfo
+	GameTooltip, C_Container.GetContainerItemInfo, GRAY_FONT_COLOR = oldTooltip, oldContainerInfo, oldGray
 	ItemTextGetPage, ItemTextGetItem, ItemTextGetText = oldPage, oldTitle, oldText
 	readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles = oldStatus, oldEnabled, oldTitles
 	print("read status on mouseover OK")

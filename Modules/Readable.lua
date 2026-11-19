@@ -570,7 +570,7 @@ local function ReadStatusTooltip(tooltip, data)
 	end
 	-- The item text events supply the displayed title, without an item or object ID.
 	if Readable.cdb.openedTitles[title] then
-		tooltip:AddLine(L.READABLE_ALREADY_READ, 0.35, 1, 0.35)
+		tooltip:AddLine(L.READABLE_ALREADY_READ, GRAY_FONT_COLOR:GetRGB())
 	elseif getter == "GetBagItem" then
 		tooltip:AddLine(L.READABLE_UNREAD, 1, 0.82, 0)
 	end

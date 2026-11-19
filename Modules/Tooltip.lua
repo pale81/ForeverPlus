@@ -11,6 +11,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		stackSize = true,
 		trainerCompare = true,
 		chatItemLinks = true,
+		chatQuestLinks = true,
 		hoverName = true,
 		questIcon = true,
 		hoverLevel = true,
@@ -779,9 +780,10 @@ end
 
 ---------------------------------------------------------------------------
 -- Item links in chat use GameTooltip so item data updates and Shift work
--- exactly as they do for the other item tooltips.
+-- exactly as they do for the other item tooltips. Quest links get the same
+-- preview plus the quest level.
 ---------------------------------------------------------------------------
-local chatItemOwner, chatItemLink, chatItemArrow
+local chatItemOwner, chatItemLink, chatItemArrow, chatQuestLevelShown
 
 local function IsSecretData(value)
 	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
@@ -814,14 +816,55 @@ local function HideChatItemTooltip()
 	end
 end
 
+-- Level line of a quest link ("quest:ID:level:..."): the level from the link, otherwise from the data,
+-- in the game's quest difficulty colour; red with the required level while the player is below it.
+local function QuestLevelLine(link)
+	local questID, linkLevel = link:match("^quest:(%d+):?(%-?%d*)")
+	questID, linkLevel = tonumber(questID), tonumber(linkLevel)
+	local lib = ns.QuestieDB.Get()
+	local values = lib and lib.Quest.GetAll(questID, { "questLevel", "requiredLevel" })
+	local level = linkLevel and linkLevel > 0 and linkLevel or values and values[1]
+	local required = values and values[2]
+	if type(level) ~= "number" or level <= 0 then
+		level = required
+	end
+	if type(level) ~= "number" or level <= 0 then
+		return nil
+	end
+	if type(required) == "number" and required > UnitLevel("player") then
+		return L.TOOLTIP_QUEST_LEVEL_REQUIRED:format(level, required), RED_FONT_COLOR
+	end
+	return L.TOOLTIP_QUEST_LEVEL:format(level), GetQuestDifficultyColor(level)
+end
+
+local function AddChatQuestLevel(tooltip)
+	if chatQuestLevelShown or not chatItemLink or not chatItemLink:match("^quest:")
+		or not IsChatItemTooltip(tooltip) then
+		return
+	end
+	local text, color = QuestLevelLine(chatItemLink)
+	if text then
+		chatQuestLevelShown = true
+		GameTooltip_AddColoredLine(tooltip, text, color, false)
+		tooltip:Show()
+	end
+end
+
 local function OnChatItemLinkEnter(_, chatFrame, link)
-	if not Tooltip.db.chatItemLinks or type(link) ~= "string" or Secret(link)
-		or not link:match("^item:%d+") or GameTooltip:IsForbidden() then
+	if type(link) ~= "string" or Secret(link) or GameTooltip:IsForbidden() then
+		return
+	end
+	local isItem = Tooltip.db.chatItemLinks and link:match("^item:%d+")
+	local isQuest = Tooltip.db.chatQuestLinks and link:match("^quest:%d+")
+	if not isItem and not isQuest then
 		return
 	end
 	GameTooltip:SetOwner(chatFrame, "ANCHOR_CURSOR")
 	chatItemOwner, chatItemLink = chatFrame, link
 	GameTooltip:SetHyperlink(link)
+	if isQuest then
+		AddChatQuestLevel(GameTooltip) -- in case the quest data reached no post call
+	end
 end
 
 local function OnChatItemLinkLeave(_, chatFrame)
@@ -1224,7 +1267,7 @@ function Tooltip:OnOptionChanged(key)
 		end
 		ns.RefreshGameTooltip()
 	end
-	if key == "chatItemLinks" and not self.db.chatItemLinks then
+	if (key == "chatItemLinks" and not self.db.chatItemLinks) or (key == "chatQuestLinks" and not self.db.chatQuestLinks) then
 		HideChatItemTooltip()
 	end
 	if key == "bronzeBorder" and not self.db.bronzeBorder then
@@ -1243,13 +1286,13 @@ function Tooltip:OnInitialize()
 		if hover and hover.object then
 			hover:Hide()
 		end
-		tooltip.fpUnitSuffix = nil
+		tooltip.fpUnitSuffix, chatQuestLevelShown = nil, false
 		HideChatItemArrow()
 		HideCompareArrows()
 		HideCompareTips()
 	end)
 	GameTooltip:HookScript("OnHide", ns.Measured("Tooltip: hide", function()
-		chatItemOwner, chatItemLink = nil, nil
+		chatItemOwner, chatItemLink, chatQuestLevelShown = nil, nil, false
 		HideChatItemArrow()
 		HideCompareArrows()
 		HideCompareTips()
@@ -1268,6 +1311,9 @@ function Tooltip:OnInitialize()
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Tooltip: item", OnItemTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Tooltip: unit", OnUnitTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, ns.Measured("Tooltip: object", OnObjectTooltip))
+	if Enum.TooltipDataType.Quest then
+		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Quest, ns.Measured("Tooltip: chat quest", AddChatQuestLevel))
+	end
 end
 
 Tooltip.options = {
@@ -1285,6 +1331,7 @@ Tooltip.options = {
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
 	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },
 	{ key = "chatItemLinks", type = "toggle", name = L.TOOLTIP_CHAT_ITEM_LINKS, desc = L.TOOLTIP_CHAT_ITEM_LINKS_DESC },
+	{ key = "chatQuestLinks", type = "toggle", name = L.TOOLTIP_CHAT_QUEST_LINKS, desc = L.TOOLTIP_CHAT_QUEST_LINKS_DESC, new = true },
 	{ key = "qualityBorder", type = "toggle", name = L.TOOLTIP_QUALITY_BORDER, desc = L.TOOLTIP_QUALITY_BORDER_DESC },
 	{ key = "bronzeBorder", type = "toggle", name = L.TOOLTIP_BRONZE_BORDER, desc = L.TOOLTIP_BRONZE_BORDER_DESC, new = true },
 }

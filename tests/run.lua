@@ -2288,6 +2288,71 @@ end)()
 	module.db.shiftInfo, module.db.chatItemLinks = savedFlag, true
 	print("Chat item hover, comparison and Shift OK")
 end)()
+-- Quest links in chat: hover preview with the quest level in the difficulty colour
+;(function()
+	local module = ns:GetModule("Tooltip")
+	local enter, leave = uv(module.OnLogin, "OnChatItemLinkEnter"), uv(module.OnLogin, "OnChatItemLinkLeave")
+	local savedTooltip, savedAdd, savedDiff = GameTooltip, GameTooltip_AddColoredLine, GetQuestDifficultyColor
+	local savedGet, savedLevel, savedCalls = ns.QuestieDB.Get, UnitLevel, #TEST_POSTCALLS
+	local added, color = {}, nil
+	local quests = { [100] = { 12, 10 }, [200] = { 0, 15 }, [300] = { 30, 28 } }
+	local tip = NewFrame("GameTooltip")
+	GameTooltip = tip
+	module:OnInitialize()
+	for i = #TEST_POSTCALLS, savedCalls + 1, -1 do TEST_POSTCALLS[i] = nil end
+	tip:Hide()
+	tip.SetOwner = function(self, owner) self.owner = owner end
+	tip.GetOwner = function(self) return self.owner end
+	tip.GetPrimaryTooltipInfo = function(self) return self.infoList and self.infoList[1] end
+	tip.Hide = function(self)
+		self.shown = false
+		self:GetScript("OnHide")(self)
+	end
+	tip.SetHyperlink = function(self, link)
+		added, color = {}, nil
+		self:GetScript("OnTooltipCleared")(self)
+		self.infoList = { { getterName = "GetHyperlink", getterArgs = { link } } }
+		self:Show()
+	end
+	GameTooltip_AddColoredLine = function(_, text, c) added[#added + 1], color = text, c end
+	GetQuestDifficultyColor = function(level) return { difficulty = level } end
+	UnitLevel = function() return 14 end
+	ns.QuestieDB.Get = function()
+		return { Quest = { GetAll = function(id) local q = quests[id]; return q and { q[1], q[2] } end } }
+	end
+
+	enter(nil, ChatFrame1, "quest:100:12")
+	assert(tip:IsShown() and added[1] == ns.L.TOOLTIP_QUEST_LEVEL:format(12) and color.difficulty == 12,
+		"quest link shows its tooltip with the level in the difficulty colour")
+	enter(nil, ChatFrame1, "quest:100:12")
+	assert(#added == 1, "the level line is added only once per tooltip")
+	enter(nil, ChatFrame1, "quest:300:-1")
+	assert(added[1] == ns.L.TOOLTIP_QUEST_LEVEL_REQUIRED:format(30, 28) and color == RED_FONT_COLOR,
+		"a quest the player cannot accept yet shows level and required level in red")
+	enter(nil, ChatFrame1, "quest:200")
+	assert(added[1] == ns.L.TOOLTIP_QUEST_LEVEL_REQUIRED:format(15, 15), "without a quest level the required level is used")
+	enter(nil, ChatFrame1, "quest:999:7")
+	assert(added[1] == ns.L.TOOLTIP_QUEST_LEVEL:format(7) and color.difficulty == 7, "unknown quests use the link level")
+	enter(nil, ChatFrame1, "quest:998:0")
+	assert(tip:IsShown() and #added == 0, "without any level the quest tooltip stays without a level line")
+	leave(nil, ChatFrame1)
+	assert(not tip:IsShown(), "leaving the quest link closes the preview")
+	enter(nil, ChatFrame1, "quest:100:12")
+	module.db.chatQuestLinks = false
+	module:OnOptionChanged("chatQuestLinks")
+	assert(not tip:IsShown(), "disabling the option dismisses the quest preview")
+	enter(nil, ChatFrame1, "quest:100:12")
+	assert(not tip:IsShown(), "disabled quest previews stay hidden")
+	module.db.chatItemLinks = false
+	module.db.chatQuestLinks = true
+	enter(nil, ChatFrame1, "quest:100:12")
+	assert(tip:IsShown(), "quest previews do not depend on the item option")
+
+	GameTooltip, GameTooltip_AddColoredLine, GetQuestDifficultyColor = savedTooltip, savedAdd, savedDiff
+	ns.QuestieDB.Get, UnitLevel = savedGet, savedLevel
+	module.db.chatItemLinks, module.db.chatQuestLinks = true, true
+	print("Chat quest hover with level OK")
+end)()
 -- Tracking menu entries
 do
 	local mm = ns:GetModule("Minimap")
@@ -9723,12 +9788,14 @@ end)()
 	assert(camera.Blend(2, 4, 0) == 2 and camera.Blend(2, 4, 1) == 4, "blend from start to end")
 
 	local saved = { GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop,
-		GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled }
+		GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled, ns.NewTimer }
 	local cvars = {
 		CameraKeepCharacterCentered = "1", CameraReduceUnexpectedMovement = "0", test_cameraDynamicPitch = "0",
 		test_cameraOverShoulder = "0", test_cameraDynamicPitchBaseFovPad = "0.4", cameraYawMoveSpeed = "180",
-		test_cameraTargetFocusEnemyEnable = "0", test_cameraTargetFocusInteractEnable = "0",
+		test_cameraTargetFocusEnemyEnable = "0", test_cameraTargetFocusInteractEnable = "0", cameraZoomSpeed = "20",
 	}
+	local zoomSpeedBack
+	ns.NewTimer = function(_, _, fn) zoomSpeedBack = fn return { Cancel = function() zoomSpeedBack = nil end } end
 	local zoom, now, spinning, state = 10, 0, nil, {}
 	GetCVar = function(key) return cvars[key] end
 	SetCVar = function(key, value) cvars[key] = tostring(value) end
@@ -9762,16 +9829,28 @@ end)()
 	Finish()
 	assert(spinning == nil and zoom == 5 and cvars.test_cameraOverShoulder == "1.2", "talk: close, over the shoulder")
 	assert(cvars.test_cameraTargetFocusInteractEnable == "1", "talk: looks at the other person")
+	assert(cvars.cameraZoomSpeed == "20" and not zoomSpeedBack, "into a situation at the game's zoom speed")
 	state = {}
 	camera.Update()
+	assert(math.abs(tonumber(cvars.cameraZoomSpeed) - 5 / 3) < 1e-9, "back to the own camera: zoom takes 3 s")
+	now = now + 1.5
+	uv(uv(camera.Apply, "BlendTo"), "blender").scripts.OnUpdate(nil, 0)
+	assert(math.abs(tonumber(cvars.test_cameraOverShoulder) - 0.6) < 1e-9, "shoulder halfway after 1.5 s")
 	Finish()
+	zoomSpeedBack()
+	assert(cvars.cameraZoomSpeed == "20", "zoom speed back once there")
 	assert(zoom == 10, "own distance from before the first situation")
 	assert(cvars.test_cameraOverShoulder == "0" and cvars.test_cameraDynamicPitchBaseFovPad == "0.4", "own camera back")
 	assert(cvars.test_cameraTargetFocusInteractEnable == "0", "focus back")
 
+	state = { mounted = true }
+	camera.Update()
+	state = {}
+	camera.Update()
 	state = { combat = true }
 	camera.db.combat = true
 	camera.Update()
+	assert(cvars.cameraZoomSpeed == "20" and not zoomSpeedBack, "a new situation cuts the slow way back short")
 	cvars.test_cameraTargetFocusEnemyEnable = "2" -- the player changes it meanwhile
 	camera.db.enabled = false
 	camera:OnOptionChanged("enabled", false)
@@ -9781,11 +9860,9 @@ end)()
 	assert(cvars.test_cameraTargetFocusEnemyEnable == "2", "the player's own change stays")
 
 	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop = unpack(saved, 1, 7)
-	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled = unpack(saved, 8, 12)
+	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled, ns.NewTimer = unpack(saved, 8, 13)
 	print("cinematic camera OK")
 end)()
-dofile("wanderlust.lua")
-dofile("bundled.lua")
 ;(function()
 	-- Landing: a sound when IsFalling turns false, a step after a jump, a thud after a fall, silence when blocked or off
 	local landing = ns:GetModule("Landing")
@@ -9833,3 +9910,5 @@ dofile("bundled.lua")
 	IsFalling, IsSwimming, IsFlying, UnitOnTaxi, UnitIsDeadOrGhost, GetTime, PlaySoundFile, landing.db.enabled = unpack(saved, 1, 8)
 	print("landing OK")
 end)()
+dofile("wanderlust.lua")
+dofile("bundled.lua")

@@ -40,13 +40,16 @@ local CONTROL = {
 	{ "test_cameraDynamicPitch", "1" },
 }
 local DURATION = 1.2
+local BACK_DURATION = 3 -- back to the player's own camera: slower
+local ZOOM_SPEED = "cameraZoomSpeed"
 local DEFAULT_YAW_SPEED = 180
 
 local running, ticker, current
 local zoomBefore -- the player's own distance before the first situation that zooms
 local rotating = false
-local blend -- { from = { shoulder, pad }, to = { shoulder, pad }, start }
+local blend -- { from = { shoulder, pad }, to = { shoulder, pad }, start, duration }
 local blender
+local zoomTimer -- puts the zoom speed back once a slow zoom is done
 
 ---------------------------------------------------------------------------
 -- Pure logic
@@ -112,12 +115,26 @@ local function Zoom()
 	return ns.Number(GetCameraZoom and GetCameraZoom(), nil)
 end
 
-local function ZoomTo(distance)
+local function NormalZoomSpeed()
+	if zoomTimer then
+		zoomTimer:Cancel()
+		zoomTimer = nil
+		Set(ZOOM_SPEED, Original(ZOOM_SPEED))
+	end
+end
+
+-- Zooms to a distance; with a duration the game's zoom speed is lowered so the move takes that long.
+local function ZoomTo(distance, duration)
+	NormalZoomSpeed()
 	local now = Zoom()
 	if not now or not distance then
 		return
 	end
 	local delta = distance - now
+	if duration and math.abs(delta) > 0.1 then
+		Set(ZOOM_SPEED, math.max(1, math.min(50, math.abs(delta) / duration)))
+		zoomTimer = ns.NewTimer("Camera: zoom speed", duration, NormalZoomSpeed)
+	end
 	if delta > 0.1 then
 		CameraZoomOut(delta)
 	elseif delta < -0.1 then
@@ -142,7 +159,7 @@ local function Number(cvar, fallback)
 end
 
 local function BlendStep()
-	local t = (GetTime() - blend.start) / DURATION
+	local t = (GetTime() - blend.start) / blend.duration
 	Set(SHOULDER, Camera.Blend(blend.from[1], blend.to[1], t))
 	Set(PAD, Camera.Blend(blend.from[2], blend.to[2], t))
 	if t >= 1 then
@@ -151,11 +168,12 @@ local function BlendStep()
 	end
 end
 
-local function BlendTo(shoulder, pad)
+local function BlendTo(shoulder, pad, duration)
 	blend = {
 		from = { Number(SHOULDER, 0), Number(PAD, 0) },
 		to = { shoulder, pad },
 		start = GetTime(),
+		duration = duration,
 	}
 	blender = blender or CreateFrame("Frame")
 	ns.SetUpdate(blender, "Camera: blend", BlendStep)
@@ -171,14 +189,14 @@ function Camera.Apply(situation)
 	if situation then
 		zoomBefore = zoomBefore or Zoom()
 		ZoomTo(situation.zoom)
-		BlendTo(situation.shoulder, situation.pad)
+		BlendTo(situation.shoulder, situation.pad, DURATION)
 		Set(ENEMY, situation.enemy and "1" or "0")
 		Set(INTERACT, situation.interact and "1" or "0")
 		Rotate(situation.rotate)
 	else
-		ZoomTo(zoomBefore)
+		ZoomTo(zoomBefore, BACK_DURATION)
 		zoomBefore = nil
-		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0)
+		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, BACK_DURATION)
 		Set(ENEMY, Original(ENEMY) or "0")
 		Set(INTERACT, Original(INTERACT) or "0")
 		Rotate(nil)

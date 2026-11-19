@@ -32,6 +32,16 @@ local map = {}
 function map:GetRect() return 1000, 600, 100, 100 end
 function map:GetEffectiveScale() return 0.8 end
 local function Peeking() return ui.shown and ui.alpha == 0 and cluster.ignore end
+-- BankFrame_Open sets the portrait, then shows the frame. Its OnShow buys a free first tab (protected); it only
+-- stays Blizzard's own if the interface is already visible at Show, not revealed later by Wanderlust.
+local bank = { shown = false, closeSound = true }
+function bank:IsShown() return self.shown end
+function bank:SetPortraitToUnit() end
+local function OpenBank()
+	bank:SetPortraitToUnit("npc")
+	bank.shown = true
+	return ui.shown
+end
 
 local function SetVisibility(shown)
 	visibilityCalls = visibilityCalls + 1
@@ -90,6 +100,14 @@ local chunk = assert(loadfile(root .. "/Modules/Wanderlust.lua"))
 setfenv(chunk, setmetatable({
 	_G = globals,
 	UIParent = ui,
+	BankFrame = bank,
+	hooksecurefunc = function(object, method, hook)
+		local original = object[method]
+		object[method] = function(...)
+			original(...)
+			hook(...)
+		end
+	end,
 	MinimapCluster = cluster,
 	Minimap = map,
 	GetCursorPosition = function() return cursorX, cursorY end,
@@ -583,4 +601,22 @@ Over(true)
 Enable(false)
 assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"disabling during the minimap view restores the interface")
+;(function()
+	globals.BankFrame = bank
+	Enable(true)
+	Advance(60)
+	assert(not ui.shown, "the interface is hidden before talking to the banker")
+	assert(OpenBank(), "the interface is back before the bank window is shown, so its OnShow stays untainted")
+	Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 8)
+	assert(ui.shown and Pending() == 0, "the open bank holds the interface")
+	bank.shown = false
+	Fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 8)
+	assert(Pending() == 1, "closing the bank starts a new minute")
+	Enable(false)
+	SetVisibility(false)
+	assert(not OpenBank(), "with Wanderlust off, the bank leaves the player's own hide alone")
+	bank.shown = false
+	SetVisibility(true)
+	globals.BankFrame = nil
+end)()
 print("Wanderlust timing, minimap mouseover, abilities, targets, windows and lifecycle OK")

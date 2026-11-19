@@ -3,7 +3,8 @@ local _, ns = ...
 local L = ns.L
 local Journal = ns:NewModule("DungeonJournal", {
 	title = L.JOURNAL_TITLE, order = 12,
-	defaults = { enabled = true, bookButton = true, questWaypoint = true, mapZoom = true, bossDetails = true, bossLoot = true },
+	defaults = { enabled = true, bookButton = true, questWaypoint = true, mapZoom = true, bossDetails = true, bossLoot = true,
+		lootUpgradesOnly = false },
 })
 
 local data = ns.DungeonJournalData.instances
@@ -494,6 +495,23 @@ local function ItemInfo(id)
 	return name, not ns.Secret(link) and link or nil, ns.Number(quality)
 end
 
+-- Same rule as the green arrow in the bags: true (better and usable), "later" (only the level is missing),
+-- false, or nil while the item data loads (requested; the list refreshes when it arrives).
+local function UpgradeState(id)
+	local _, link = ItemInfo(id)
+	local state = link and ns.ItemLinkUpgradeState and ns.ItemLinkUpgradeState(link)
+	if state == nil and not requestedItems[id] then
+		requestedItems[id] = true
+		C_Item.RequestLoadItemDataByID(id)
+	end
+	return state
+end
+
+local function UpgradesAvailable()
+	local items = ns:GetModule("Items")
+	return items and items.db and items.db.upgradeArrow
+end
+
 local function ItemTooltip(row)
 	GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
 	GameTooltip:SetItemByID(row.item.id)
@@ -774,6 +792,7 @@ Render = function(reset)
 	frame.listTitle:SetShown(not (map or bossDetails))
 	frame.listNote:SetShown(not (map or bossDetails))
 	frame.character:SetShown(quests)
+	frame.upgradesOnly:SetShown(loot and UpgradesAvailable() and true or false)
 	frame.empty:Hide()
 	frame.art:SetTexture(entry.art ~= 0 and entry.art or nil)
 	frame.name:SetText(Name(selection, entry))
@@ -790,6 +809,15 @@ Render = function(reset)
 	end
 
 	local rows = loot and LootRows(entry) or quests and QuestRows(selection, characterOnly) or entry.bosses
+	local upgradesOnly = loot and UpgradesAvailable() and Journal.db.lootUpgradesOnly
+	if loot then
+		local shown = {}
+		for _, record in ipairs(rows) do
+			record.upgrade = UpgradesAvailable() and UpgradeState(record.id)
+			if not upgradesOnly or record.upgrade then shown[#shown + 1] = record end
+		end
+		rows = shown
+	end
 	if loot then
 		local boss = lootBoss and entry.bosses[lootBoss]
 		frame.listTitle:SetText(boss and L.JOURNAL_LOOT_BOSS:format(BossName(boss), #rows) or L.JOURNAL_LOOT_COUNT:format(#rows))
@@ -810,6 +838,10 @@ Render = function(reset)
 			row:HookScript("OnEnter", ns.Measured("DungeonJournal: entry tooltip", EntryTooltip))
 		end
 		row.text:SetTextColor(1, 0.82, 0)
+		if row.upgrade then
+			row.upgrade:SetDesaturated(loot and record.upgrade == "later")
+			row.upgrade:SetShown(loot and record.upgrade and true or false)
+		end
 		if loot then
 			local name, _, quality = ItemInfo(record.id)
 			local color = quality and ITEM_QUALITY_COLORS[quality]
@@ -817,6 +849,12 @@ Render = function(reset)
 			row.icon:SetDesaturated(false)
 			row.text:SetText(name)
 			if color then row.text:SetTextColor(color.r, color.g, color.b) end
+			if record.upgrade and not row.upgrade then
+				row.upgrade = row:CreateTexture(nil, "OVERLAY", nil, 7)
+				row.upgrade:SetAtlas("bags-greenarrow")
+				row.upgrade:SetSize(14, 14)
+				row.upgrade:SetPoint("TOPRIGHT", row.icon, "TOPRIGHT", 4, 4)
+			end
 			row.sub:SetText(BossName(record.boss) .. "  ·  " .. sources.DropRate(record.drops, record.windows))
 			row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
 		elseif quests then
@@ -842,7 +880,7 @@ Render = function(reset)
 	end
 	ShowRows(frame.entries, #rows, reset)
 	if #rows == 0 then
-		frame.empty:SetText(loot and L.JOURNAL_NO_LOOT
+		frame.empty:SetText(upgradesOnly and L.JOURNAL_NO_UPGRADES or loot and L.JOURNAL_NO_LOOT
 			or quests and (characterOnly and L.JOURNAL_NO_FILTERED_QUESTS or L.JOURNAL_NO_QUESTS)
 			or L.JOURNAL_NO_BOSSES)
 		frame.empty:Show()
@@ -1099,6 +1137,21 @@ local function CreateJournal()
 		characterOnly = button:GetChecked()
 		Render(true)
 	end))
+	panel.upgradesOnly = CreateFrame("CheckButton", nil, detail, "UICheckButtonTemplate")
+	panel.upgradesOnly:SetPoint("TOPLEFT", DETAIL_WIDTH - 185, -5)
+	panel.upgradesOnly:SetSize(26, 26)
+	panel.upgradesOnly.Text:SetText(L.JOURNAL_UPGRADES_ONLY)
+	panel.upgradesOnly:SetHitRectInsets(0, -panel.upgradesOnly.Text:GetStringWidth(), 0, 0)
+	panel.upgradesOnly:SetChecked(Journal.db.lootUpgradesOnly)
+	panel.upgradesOnly:SetScript("OnClick", ns.Measured("DungeonJournal: upgrades filter", function(button)
+		Journal.db.lootUpgradesOnly = button:GetChecked() and true or false
+		Render(true)
+	end))
+	panel.upgradesOnly:SetScript("OnEnter", ns.Measured("DungeonJournal: upgrades filter tooltip", function(button)
+		Tooltip(button, L.JOURNAL_UPGRADES_ONLY, L.JOURNAL_UPGRADES_ONLY_DESC)
+		GameTooltip:Show()
+	end))
+	panel.upgradesOnly:SetScript("OnLeave", GameTooltip_Hide)
 	panel.entries = List(detail, DETAIL_WIDTH - 33, 326)
 	panel.entries:SetPoint("TOPLEFT", 8, -41)
 	panel.listTitle = Label(detail, "GameFontNormal", "TOPLEFT", 12, -15)

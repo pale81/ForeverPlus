@@ -9316,6 +9316,8 @@ end)()
 	local loot = ns:GetModule("LootSources")
 	local savedSources, savedNames, savedCount = ns.db.lootSources, ns.db.lootNames, loot.count
 	local savedItem, savedColors, savedClick = C_Item, ITEM_QUALITY_COLORS, HandleModifiedItemClick
+	local savedState, items = ns.ItemLinkUpgradeState, ns:GetModule("Items")
+	ns.ItemLinkUpgradeState = function() return false end
 	ns.db.lootSources, ns.db.lootNames, loot.count = {}, {}, 0
 	loot.Record("Creature-0-1-2-3-990001-0", "npc:990001", { 777001, 777001 }, "Rotkralle")
 	local loads, linked, tipItem = {}, nil, nil
@@ -9374,6 +9376,47 @@ end)()
 	assert(ownRow and ownRow.text.testText == "Testklinge", "own item appears with its name")
 	ownRow:GetScript("OnClick")(ownRow, "LeftButton")
 	assert(linked == "|Hitem:777001|h[Testklinge]|h", "clicks pass the item link to the game")
+
+	-- Green arrow and the filter for upgrades the character can wear (same rule as the bags).
+	ns.ItemLinkUpgradeState = function(link) return link:find("777001", 1, true) and true or false end
+	panel.tabs.loot:GetScript("OnClick")()
+	assert(panel.upgradesOnly:IsShown(), "the loot tab offers the upgrade filter")
+	local function ShownItems()
+		local list = {}
+		for _, row in ipairs(panel.entries.rows) do
+			if row:IsShown() then list[#list + 1] = row end
+		end
+		return list
+	end
+	local arrows, plain = 0, 0
+	for _, row in ipairs(ShownItems()) do
+		if row.item.id == 777001 then
+			assert(row.upgrade and row.upgrade:IsShown(), "upgrade row has the green arrow")
+			arrows = arrows + 1
+		elseif not (row.upgrade and row.upgrade:IsShown()) then
+			plain = plain + 1
+		end
+	end
+	assert(arrows == 1 and plain > 0, "only upgrades get an arrow")
+	panel.upgradesOnly.GetChecked = function() return true end
+	panel.upgradesOnly:GetScript("OnClick")(panel.upgradesOnly)
+	local filtered = ShownItems()
+	assert(journal.db.lootUpgradesOnly and #filtered == 1 and filtered[1].item.id == 777001, "filter keeps only upgrades")
+	ns.ItemLinkUpgradeState = function() return false end
+	panel.tabs.loot:GetScript("OnClick")()
+	assert(#ShownItems() == 0 and panel.empty:IsShown() and panel.empty.testText == ns.L.JOURNAL_NO_UPGRADES,
+		"filter without upgrades says so")
+	panel.tabs.bosses:GetScript("OnClick")()
+	assert(not panel.upgradesOnly:IsShown(), "the filter belongs to the loot tab")
+	items.db.upgradeArrow = false
+	panel.tabs.loot:GetScript("OnClick")()
+	assert(not panel.upgradesOnly:IsShown() and #ShownItems() > 0, "without upgrade arrows the filter is off")
+	items.db.upgradeArrow = true
+	panel.upgradesOnly.GetChecked = function() return false end
+	panel.upgradesOnly:GetScript("OnClick")(panel.upgradesOnly)
+	panel.tabs.bosses:GetScript("OnClick")()
+	panel.entries.rows[1]:GetScript("OnClick")(panel.entries.rows[1], "LeftButton")
+	panel.bossDetails.lootButton:GetScript("OnClick")()
 	journal.db.bossLoot = false
 	journal:OnOptionChanged()
 	assert(not panel.tabs.loot:IsShown() and panel.bossDetails:IsShown() and not panel.bossDetails.lootButton:IsShown(),
@@ -9381,6 +9424,7 @@ end)()
 	journal.db.bossLoot = true
 	panel:GetScript("OnHide")()
 	C_Item, ITEM_QUALITY_COLORS, HandleModifiedItemClick = savedItem, savedColors, savedClick
+	ns.ItemLinkUpgradeState = savedState
 	ns.db.lootSources, ns.db.lootNames, loot.count, loot.merged = savedSources, savedNames, savedCount, nil
 
 	journal.db.bossDetails = false

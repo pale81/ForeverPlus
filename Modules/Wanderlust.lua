@@ -198,6 +198,13 @@ local function InteractionOpened()
 	Stop()
 end
 
+-- The bank's OnShow buys a free first tab (protected C_Bank.PurchaseBankTab). The interaction event reaches
+-- Blizzard first: if Wanderlust's SetUIVisibility(true) only afterwards made the shown bank visible, that OnShow
+-- ran tainted and the purchase was blocked. BankFrame_Open sets the portrait right before ShowUIPanel.
+local function BankOpening()
+	if Wanderlust.db.enabled then InteractionOpened() end
+end
+
 local professionSpells, professionNames
 local nativeProfessions = {}
 
@@ -275,6 +282,9 @@ function Wanderlust:Apply()
 	if enabled and not hooked then
 		hooked = true
 		UIParent:HookScript("OnShow", ns.Measured("Wanderlust: interface shown", OnUIShown))
+		if BankFrame and BankFrame.SetPortraitToUnit then
+			hooksecurefunc(BankFrame, "SetPortraitToUnit", ns.Measured("Wanderlust: bank opening", BankOpening))
+		end
 	end
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", enabled, Stop)
 	self:ToggleEvent("PLAYER_REGEN_ENABLED", enabled, StartTimer)

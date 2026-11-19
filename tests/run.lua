@@ -9786,3 +9786,50 @@ end)()
 end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
+;(function()
+	-- Landing: a sound when IsFalling turns false, a step after a jump, a thud after a fall, silence when blocked or off
+	local landing = ns:GetModule("Landing")
+	local Step = landing.Step
+	local st = {}
+	assert(Step(st, true, 10, false) == nil and Step(st, true, 10.3, false) == nil, "in the air: nothing yet")
+	assert(Step(st, false, 10.6, false) == "jump", "short airtime is a jump")
+	assert(Step(st, false, 10.7, false) == nil, "on the ground without a fall: nothing")
+	Step(st, true, 20, false)
+	assert(Step(st, false, 21.5, false) == "fall", "long airtime is a fall")
+	Step(st, true, 30, false)
+	assert(Step(st, false, 30.1, false) == nil, "a step off an edge is silent")
+	Step(st, true, 40, false)
+	assert(Step(st, false, 41, true) == nil and st.since == nil, "landing in water or on a flight path is silent")
+
+	local saved = { IsFalling, IsSwimming, IsFlying, UnitOnTaxi, UnitIsDeadOrGhost, GetTime, PlaySoundFile, landing.db.enabled }
+	local falling, swimming, now, played = false, false, 0, {}
+	IsFalling = function() return falling end
+	IsSwimming = function() return swimming end
+	IsFlying = function() return false end
+	UnitOnTaxi = function() return false end
+	UnitIsDeadOrGhost = function() return false end
+	GetTime = function() return now end
+	PlaySoundFile = function(file, channel) played[#played + 1] = { file, channel } return true end
+	landing.db.enabled = true
+	landing:Apply()
+	local watcher = uv(landing.Apply, "watcher")
+	local function Tick(isFalling, t)
+		falling, now = isFalling, t
+		watcher:GetScript("OnUpdate")(watcher, 0.016)
+	end
+	Tick(true, 100) Tick(true, 100.4) Tick(false, 100.6)
+	assert(#played == 1 and played[1][2] == "SFX", "a jump plays one sound on the effects channel")
+	local jumpFile = played[1][1]
+	Tick(true, 200) Tick(false, 201.4)
+	assert(#played == 2 and played[2][1] ~= jumpFile and played[2][1] >= 950654, "a fall plays a thud")
+	swimming = true
+	Tick(true, 300) Tick(false, 301)
+	assert(#played == 2, "into the water: silent")
+	swimming = false
+	landing.db.enabled = false
+	landing:OnOptionChanged("enabled", false)
+	assert(watcher:GetScript("OnUpdate") == nil, "option off: nothing watched")
+
+	IsFalling, IsSwimming, IsFlying, UnitOnTaxi, UnitIsDeadOrGhost, GetTime, PlaySoundFile, landing.db.enabled = unpack(saved, 1, 8)
+	print("landing OK")
+end)()

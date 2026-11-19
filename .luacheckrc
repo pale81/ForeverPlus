@@ -73,7 +73,7 @@ read_globals = {
 	"C_Trainer", "GetTrainerServiceTypeFilter", "SetTrainerServiceTypeFilter", "GetNumTrainerServices", "GetTrainerServiceInfo", "GetTrainerServiceSkillLine",
 	"IsControlKeyDown",
 	"NumTaxiNodes", "TaxiNodeCost", "TaxiNodeOnButtonLeave", "FlightMapFrame", "TaxiFrame", "TaxiNodeGetType", "TaxiNodeName", "TaxiNodeOnButtonEnter", "FlightMap_FlightPointPinMixin", "UnitHealth", "UnitGUID", "SetPortraitTexture",
-	"IsIndoors", "CameraZoomIn", "CameraZoomOut", "MoveViewLeftStart", "MoveViewLeftStop",
+	"IsIndoors", "CameraZoomIn", "CameraZoomOut",
 	"LOCKED", "IsMounted", "SetItemButtonDesaturated", "MERCHANT_ITEMS_PER_PAGE", "GetMerchantItemLink", "GetMerchantItemID",
 	"MerchantFrame_UpdateMerchantInfo", "ITEM_SPELL_KNOWN", "ClearOverrideBindings", "SetOverrideBindingClick", "NUM_BAG_SLOTS",
 	"GetNumLanguages", "GetLanguageByIndex", "FCFTab_UpdateAlpha", "QuestInfo_Display",

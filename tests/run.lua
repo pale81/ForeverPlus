@@ -9776,91 +9776,90 @@ end)()
 	print("quest starter open button and book OK")
 end)()
 ;(function()
-	-- Cinematic camera: the situation with the highest priority wins; switched off, every setting comes back.
+	-- Cinematic camera: the situation with the highest priority wins, every move is slow; switched off, every
+	-- setting comes back.
 	local camera = ns:GetModule("Camera")
-	local db = { taxi = true, talk = true, combat = true, mounted = true, indoors = true, resting = true }
-	assert(camera.Pick({}, db) == nil, "nothing going on: own camera")
-	assert(camera.Pick({ mounted = true, combat = true }, db).key == "combat", "combat before mounted")
+	local db = { taxi = true, talk = true, combat = true, mounted = true, indoors = true, resting = true, close = true }
+	assert(camera.Pick({}, db) == nil, "nothing at all: own camera")
+	assert(camera.Pick({ close = true }, db).key == "close", "no situation: still close")
+	assert(camera.Pick({ mounted = true, combat = true, close = true }, db).key == "combat", "combat before mounted")
 	assert(camera.Pick({ taxi = true, talk = true }, db).key == "taxi", "flight path first")
-	db.combat = false
+	db.combat, db.close = false, false
 	assert(camera.Pick({ mounted = true, combat = true }, db).key == "mounted", "switched-off situation skipped")
+	assert(camera.Pick({ close = true }, db) == nil, "close switched off: own camera")
 	assert(camera.Ease(-1) == 0 and camera.Ease(0.5) == 0.5 and camera.Ease(2) == 1, "ease stays between 0 and 1")
 	assert(camera.Blend(2, 4, 0) == 2 and camera.Blend(2, 4, 1) == 4, "blend from start to end")
 
-	local saved = { GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop,
+	local saved = { GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut,
 		GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled, ns.NewTimer }
 	local cvars = {
 		CameraKeepCharacterCentered = "1", CameraReduceUnexpectedMovement = "0", test_cameraDynamicPitch = "0",
-		test_cameraOverShoulder = "0", test_cameraDynamicPitchBaseFovPad = "0.4", cameraYawMoveSpeed = "180",
-		test_cameraTargetFocusEnemyEnable = "0", test_cameraTargetFocusInteractEnable = "0", cameraZoomSpeed = "20",
+		test_cameraOverShoulder = "0", test_cameraDynamicPitchBaseFovPad = "0.4",
+		test_cameraTargetFocusInteractEnable = "0", cameraZoomSpeed = "20",
 	}
 	local zoomSpeedBack
 	ns.NewTimer = function(_, _, fn) zoomSpeedBack = fn return { Cancel = function() zoomSpeedBack = nil end } end
-	local zoom, now, spinning, state = 10, 0, nil, {}
+	local zoom, now, state = 10, 0, {}
 	GetCVar = function(key) return cvars[key] end
 	SetCVar = function(key, value) cvars[key] = tostring(value) end
 	GetCameraZoom = function() return zoom end
 	CameraZoomOut = function(delta) zoom = zoom + delta end
 	CameraZoomIn = function(delta) zoom = zoom - delta end
-	MoveViewLeftStart = function(speed) spinning = speed end
-	MoveViewLeftStop = function() spinning = nil end
 	GetTime = function() return now end
 	ns.NewTicker = function() return { Cancel = function() end } end
 	camera.State = function() return state end
 	camera.db.saved, camera.db.enabled = {}, true
 	camera:OnOptionChanged("enabled", true)
 	assert(cvars.CameraKeepCharacterCentered == "0" and cvars.test_cameraDynamicPitch == "1", "action camera on")
-	local function Finish()
+	local function Near(cvar, value) return math.abs(tonumber(cvars[cvar]) - value) < 1e-9 end
+	local function Step(seconds)
 		local blender = uv(uv(camera.Apply, "BlendTo"), "blender")
-		now = now + 5
+		now = now + seconds
 		blender.scripts.OnUpdate(blender, 0)
 	end
 
-	state = { mounted = true }
+	state = { close = true }
 	camera.Update()
-	assert(zoom == 16, "mounted: far away")
-	state = { taxi = true, mounted = true }
+	assert(zoom == 4.5 and Near("cameraZoomSpeed", 5.5 / 2.5), "close over the shoulder, zoom takes 2.5 s")
+	Step(5)
+	zoomSpeedBack()
+	assert(cvars.test_cameraOverShoulder == "1" and cvars.cameraZoomSpeed == "20", "there; zoom speed back")
+	state = { mounted = true, close = true }
 	camera.Update()
-	Finish()
-	assert(zoom == 22 and spinning and math.abs(spinning - 4 / 180) < 1e-9, "flight path: further, circling")
-	assert(cvars.test_cameraDynamicPitchBaseFovPad == "0.6", "flight path tilt reached")
-	state = { talk = true }
+	assert(zoom == 7 and Near("cameraZoomSpeed", 1), "mounted: a little further, slowly")
+	Step(1.25)
+	assert(Near("test_cameraOverShoulder", 0.85), "shoulder halfway after 1.25 s")
+	Step(5)
+	state = { talk = true, close = true }
 	camera.Update()
-	Finish()
-	assert(spinning == nil and zoom == 5 and cvars.test_cameraOverShoulder == "1.2", "talk: close, over the shoulder")
+	Step(5)
+	assert(zoom == 3.5 and cvars.test_cameraOverShoulder == "1.1", "talk: very close")
 	assert(cvars.test_cameraTargetFocusInteractEnable == "1", "talk: looks at the other person")
-	assert(cvars.cameraZoomSpeed == "20" and not zoomSpeedBack, "into a situation at the game's zoom speed")
+	state = { close = true }
+	camera.Update()
+	Step(5)
+	assert(zoom == 4.5 and cvars.test_cameraTargetFocusInteractEnable == "0", "talk over: close again, focus off")
 	state = {}
 	camera.Update()
-	assert(math.abs(tonumber(cvars.cameraZoomSpeed) - 5 / 3) < 1e-9, "back to the own camera: zoom takes 3 s")
-	now = now + 1.5
-	uv(uv(camera.Apply, "BlendTo"), "blender").scripts.OnUpdate(nil, 0)
-	assert(math.abs(tonumber(cvars.test_cameraOverShoulder) - 0.6) < 1e-9, "shoulder halfway after 1.5 s")
-	Finish()
-	zoomSpeedBack()
-	assert(cvars.cameraZoomSpeed == "20", "zoom speed back once there")
+	assert(Near("cameraZoomSpeed", 5.5 / 3), "back to the own camera: zoom takes 3 s")
+	Step(5)
 	assert(zoom == 10, "own distance from before the first situation")
 	assert(cvars.test_cameraOverShoulder == "0" and cvars.test_cameraDynamicPitchBaseFovPad == "0.4", "own camera back")
-	assert(cvars.test_cameraTargetFocusInteractEnable == "0", "focus back")
 
-	state = { mounted = true }
-	camera.Update()
-	state = {}
-	camera.Update()
 	state = { combat = true }
 	camera.db.combat = true
 	camera.Update()
-	assert(cvars.cameraZoomSpeed == "20" and not zoomSpeedBack, "a new situation cuts the slow way back short")
-	cvars.test_cameraTargetFocusEnemyEnable = "2" -- the player changes it meanwhile
+	assert(zoom == 5.5 and Near("cameraZoomSpeed", 4.5 / 2.5), "combat cuts the way back short, slowly")
+	cvars.test_cameraTargetFocusInteractEnable = "2" -- the player changes it meanwhile
 	camera.db.enabled = false
 	camera:OnOptionChanged("enabled", false)
 	assert(zoom == 10 and next(camera.db.saved) == nil, "switched off: distance back, nothing kept")
 	assert(cvars.CameraKeepCharacterCentered == "1" and cvars.test_cameraDynamicPitch == "0", "settings back")
-	assert(cvars.test_cameraOverShoulder == "0", "shoulder back in the middle of a blend")
-	assert(cvars.test_cameraTargetFocusEnemyEnable == "2", "the player's own change stays")
+	assert(cvars.test_cameraOverShoulder == "0" and cvars.cameraZoomSpeed == "20", "back in the middle of a move")
+	assert(cvars.test_cameraTargetFocusInteractEnable == "2", "the player's own change stays")
 
-	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, MoveViewLeftStart, MoveViewLeftStop = unpack(saved, 1, 7)
-	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled, ns.NewTimer = unpack(saved, 8, 13)
+	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut = unpack(saved, 1, 5)
+	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled, ns.NewTimer = unpack(saved, 6, 11)
 	print("cinematic camera OK")
 end)()
 ;(function()

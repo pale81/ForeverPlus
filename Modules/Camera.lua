@@ -15,38 +15,38 @@ local Camera = ns:NewModule("Camera", {
 		mounted = true,
 		indoors = true,
 		resting = true,
+		close = true,
 		saved = {}, -- cvar -> { original =, applied = } while the module controls it
 	},
 })
 
 -- Highest priority first. zoom: distance in yards; shoulder: sideways offset; pad: how far the dynamic pitch
--- tilts the view; rotate: degrees per second around the character.
+-- tilts the view. A close, calm over-the-shoulder camera: the situations differ only a little from each other.
 local SITUATIONS = {
-	{ key = "taxi", zoom = 22, shoulder = 0, pad = 0.6, rotate = 4 },
-	{ key = "talk", zoom = 5, shoulder = 1.2, pad = 0.2, interact = true },
-	{ key = "combat", zoom = 14, shoulder = 0.6, pad = 0.4, enemy = true },
-	{ key = "mounted", zoom = 16, shoulder = 0, pad = 0.5 },
-	{ key = "indoors", zoom = 7, shoulder = 0.8, pad = 0.2 },
-	{ key = "resting", zoom = 8, shoulder = 1, pad = 0.3 },
+	{ key = "taxi", zoom = 9, shoulder = 0.6, pad = 0.35 },
+	{ key = "talk", zoom = 3.5, shoulder = 1.1, pad = 0.3, interact = true },
+	{ key = "combat", zoom = 5.5, shoulder = 0.9, pad = 0.35 },
+	{ key = "mounted", zoom = 7, shoulder = 0.7, pad = 0.35 },
+	{ key = "indoors", zoom = 3.5, shoulder = 0.9, pad = 0.3 },
+	{ key = "resting", zoom = 4, shoulder = 1, pad = 0.3 },
+	{ key = "close", zoom = 4.5, shoulder = 1, pad = 0.3 }, -- always: no situation, still close
 }
 Camera.SITUATIONS = SITUATIONS
 
 local SHOULDER, PAD = "test_cameraOverShoulder", "test_cameraDynamicPitchBaseFovPad"
-local ENEMY, INTERACT = "test_cameraTargetFocusEnemyEnable", "test_cameraTargetFocusInteractEnable"
+local INTERACT = "test_cameraTargetFocusInteractEnable"
 -- Set once while the module runs: without them the action camera does nothing.
 local CONTROL = {
 	{ "CameraKeepCharacterCentered", "0" },
 	{ "CameraReduceUnexpectedMovement", "0" },
 	{ "test_cameraDynamicPitch", "1" },
 }
-local DURATION = 1.2
+local DURATION = 2.5
 local BACK_DURATION = 3 -- back to the player's own camera: slower
 local ZOOM_SPEED = "cameraZoomSpeed"
-local DEFAULT_YAW_SPEED = 180
 
 local running, ticker, current
 local zoomBefore -- the player's own distance before the first situation that zooms
-local rotating = false
 local blend -- { from = { shoulder, pad }, to = { shoulder, pad }, start, duration }
 local blender
 local zoomTimer -- puts the zoom speed back once a slow zoom is done
@@ -142,18 +142,6 @@ local function ZoomTo(distance, duration)
 	end
 end
 
-local function Rotate(degrees)
-	if rotating then
-		MoveViewLeftStop()
-		rotating = false
-	end
-	if degrees and degrees > 0 then
-		local yawSpeed = tonumber(GetCVar("cameraYawMoveSpeed")) or DEFAULT_YAW_SPEED
-		MoveViewLeftStart(degrees / (yawSpeed > 0 and yawSpeed or DEFAULT_YAW_SPEED))
-		rotating = true
-	end
-end
-
 local function Number(cvar, fallback)
 	return tonumber(GetCVar(cvar)) or fallback
 end
@@ -188,18 +176,14 @@ function Camera.Apply(situation)
 	current = situation
 	if situation then
 		zoomBefore = zoomBefore or Zoom()
-		ZoomTo(situation.zoom)
+		ZoomTo(situation.zoom, DURATION)
 		BlendTo(situation.shoulder, situation.pad, DURATION)
-		Set(ENEMY, situation.enemy and "1" or "0")
 		Set(INTERACT, situation.interact and "1" or "0")
-		Rotate(situation.rotate)
 	else
 		ZoomTo(zoomBefore, BACK_DURATION)
 		zoomBefore = nil
 		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, BACK_DURATION)
-		Set(ENEMY, Original(ENEMY) or "0")
 		Set(INTERACT, Original(INTERACT) or "0")
-		Rotate(nil)
 	end
 end
 
@@ -218,6 +202,7 @@ function Camera.State()
 		mounted = Flag(IsMounted()),
 		indoors = Flag(IsIndoors()),
 		resting = Flag(IsResting()),
+		close = true,
 	}
 end
 
@@ -264,7 +249,6 @@ function Camera.Stop()
 	for _, event in ipairs(FAST_EVENTS) do
 		Camera:UnregisterEvent(event)
 	end
-	Rotate(nil)
 	ZoomTo(zoomBefore)
 	zoomBefore, current, blend = nil, nil, nil
 	if blender then
@@ -299,4 +283,5 @@ Camera.options = {
 	{ key = "mounted", type = "toggle", name = L.CAMERA_MOUNTED, desc = L.CAMERA_MOUNTED_DESC, parent = "enabled" },
 	{ key = "indoors", type = "toggle", name = L.CAMERA_INDOORS, desc = L.CAMERA_INDOORS_DESC, parent = "enabled" },
 	{ key = "resting", type = "toggle", name = L.CAMERA_RESTING, desc = L.CAMERA_RESTING_DESC, parent = "enabled" },
+	{ key = "close", type = "toggle", name = L.CAMERA_CLOSE, desc = L.CAMERA_CLOSE_DESC, parent = "enabled" },
 }

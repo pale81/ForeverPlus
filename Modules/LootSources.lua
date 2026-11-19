@@ -382,6 +382,8 @@ local function CreatureDrops(key)
 	return rows
 end
 
+LootSources.CreatureDrops = CreatureDrops
+
 local function MouseoverCreatureKey(data)
 	local guid = data and data.guid
 	local kind, id = ns.GuidParts(guid)
@@ -442,6 +444,8 @@ local function DropRate(drops, windows)
 	end
 	return L.LOOTSRC_SHARE:format(share, drops, windows)
 end
+
+LootSources.DropRate = DropRate
 
 local function OnUnitTooltip(tooltip, data)
 	if not LootSources.db.unitLoot or tooltip ~= GameTooltip or tooltip:IsForbidden()

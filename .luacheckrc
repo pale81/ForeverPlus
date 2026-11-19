@@ -64,6 +64,7 @@ read_globals = {
 	"GOLD_AMOUNT", "SILVER_AMOUNT", "COPPER_AMOUNT", "ChatTypeInfo", "ChatFrame_AddMessageEventFilter", "ChatFrame_RemoveMessageEventFilter",
 	"GameFontHighlight", "ITEM_QUALITY_COLORS", "NONE", "SetItemRef", "UnitIsDead",
 	"ProfessionsBookFrame",
+	"HandleModifiedItemClick",
 	"UnitHealthPercent",
 	"IsInInstance",
 	"UnitHealthMax", "UnitIsPlayer", "GetTrainerServiceSkillReq", "GetTrainerServiceLevelReq", "ProfessionsFrame", "GetBindingKey", "GetBindingText", "UnitPowerMax", "C_LFGListRoles", "UnitIsGroupLeader", "GROUP", "UnitCanAssist", "UnitIsConnected", "UnitCanAttack", "GameTooltipTextLeft1",

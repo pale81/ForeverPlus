@@ -9299,6 +9299,60 @@ end)()
 	panel.tabs.bosses:GetScript("OnClick")()
 	panel.entries.rows[1]:GetScript("OnClick")(panel.entries.rows[1], "LeftButton")
 	assert(panel.bossDetails:IsShown() and panel.bossDetails.title.testText == "Faldrim Anvilmar", "boss list opens the same view")
+
+	-- Boss loot: shipped records by the English name, own loot windows by the German name.
+	local loot = ns:GetModule("LootSources")
+	local savedSources, savedNames, savedCount = ns.db.lootSources, ns.db.lootNames, loot.count
+	local savedItem, savedColors, savedClick = C_Item, ITEM_QUALITY_COLORS, HandleModifiedItemClick
+	ns.db.lootSources, ns.db.lootNames, loot.count = {}, {}, 0
+	loot.Record("Creature-0-1-2-3-990001-0", "npc:990001", { 777001, 777001 }, "Rotkralle")
+	local loads, linked, tipItem = {}, nil, nil
+	C_Item = setmetatable({
+		GetItemInfo = function(id) if id == 777001 then return "Testklinge", "|Hitem:777001|h[Testklinge]|h", 2 end end,
+		GetItemIconByID = function() return 135 end,
+		RequestLoadItemDataByID = function(id) loads[id] = (loads[id] or 0) + 1 end,
+	}, { __index = savedItem })
+	ITEM_QUALITY_COLORS = { [2] = { r = 0, g = 1, b = 0 } }
+	HandleModifiedItemClick = function(link) linked = link end
+	GameTooltip.SetItemByID = function(_, id) tipItem = id end
+
+	local rethilgore = { 2748, "Rethilgore", "Rotkralle" }
+	local rows = journal.BossLoot(rethilgore)
+	local own, shipped = false, 0
+	for index, row in ipairs(rows) do
+		if row.id == 777001 then own = row else shipped = shipped + 1 end
+		assert(row.windows > 0 and (index == 1 or rows[index - 1].drops >= row.drops), "loot sorted by drops")
+	end
+	assert(own and own.drops == 1 and shipped > 0, "own window under the German name joins the shipped records")
+	assert(#journal.BossLoot({ 1, "Nobody", "Niemand" }) == 0, "unknown boss has no loot")
+
+	journal.Open(36)
+	panel.tabs.loot:GetScript("OnClick")()
+	local first = panel.entries.rows[1]
+	assert(panel.entries:IsShown() and first:IsShown() and first.item and not panel.empty:IsShown(), "loot tab lists Deadmines items")
+	assert(next(loads), "unknown item names are requested")
+	first:GetScript("OnEnter")(first)
+	assert(tipItem == first.item.id, "item rows show the item tooltip")
+	journal.Open(33)
+	panel.tabs.bosses:GetScript("OnClick")()
+	panel.entries.rows[1]:GetScript("OnClick")(panel.entries.rows[1], "LeftButton")
+	assert(panel.bossDetails.lootButton:IsShown(), "boss details offer the loot button")
+	panel.bossDetails.lootButton:GetScript("OnClick")()
+	assert(panel.listTitle.testText:find("Rethilgore", 1, true), "loot button filters to the selected boss")
+	local ownRow
+	for _, row in ipairs(panel.entries.rows) do if row:IsShown() and row.item.id == 777001 then ownRow = row end end
+	assert(ownRow and ownRow.text.testText == "Testklinge", "own item appears with its name")
+	ownRow:GetScript("OnClick")(ownRow, "LeftButton")
+	assert(linked == "|Hitem:777001|h[Testklinge]|h", "clicks pass the item link to the game")
+	journal.db.bossLoot = false
+	journal:OnOptionChanged()
+	assert(not panel.tabs.loot:IsShown() and panel.bossDetails:IsShown() and not panel.bossDetails.lootButton:IsShown(),
+		"turning off boss loot returns to the boss")
+	journal.db.bossLoot = true
+	panel:GetScript("OnHide")()
+	C_Item, ITEM_QUALITY_COLORS, HandleModifiedItemClick = savedItem, savedColors, savedClick
+	ns.db.lootSources, ns.db.lootNames, loot.count, loot.merged = savedSources, savedNames, savedCount, nil
+
 	journal.db.bossDetails = false
 	journal:OnOptionChanged()
 	assert(panel.entries:IsShown() and not panel.bossDetails:IsShown(), "turning off boss details restores the list")

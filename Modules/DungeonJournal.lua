@@ -3,7 +3,7 @@ local _, ns = ...
 local L = ns.L
 local Journal = ns:NewModule("DungeonJournal", {
 	title = L.JOURNAL_TITLE, order = 12,
-	defaults = { enabled = true, bookButton = true, questWaypoint = true, mapZoom = true, bossDetails = true },
+	defaults = { enabled = true, bookButton = true, questWaypoint = true, mapZoom = true, bossDetails = true, bossLoot = true },
 })
 
 local data = ns.DungeonJournalData.instances
@@ -26,8 +26,11 @@ local STATUS = {
 local frame, bookButton, catalog, selection, mapPage, selectedTab, selectedBoss
 local Render, RenderCatalog, Select
 local kind, characterOnly = "dungeon", true
-local requested = {}
-local tabs = { { "map", L.JOURNAL_MAP }, { "bosses", L.JOURNAL_BOSSES }, { "quests", L.JOURNAL_QUESTS } }
+local requested, requestedItems = {}, {}
+local lootBoss, lootIndex
+local tabs = {
+	{ "map", L.JOURNAL_MAP }, { "bosses", L.JOURNAL_BOSSES }, { "quests", L.JOURNAL_QUESTS }, { "loot", L.JOURNAL_LOOT },
+}
 
 local function Text(value)
 	return not ns.Secret(value) and type(value) == "string" and value ~= "" and value or nil
@@ -414,6 +417,94 @@ local function SelectBoss(index)
 	Render(true)
 end
 
+-- Creature name (lower case) -> set of "npc:<id>" keys, from the shipped loot data and the player's own
+-- loot windows; own names are in the client language, so German boss names find them too.
+local function AddLootName(index, name, key)
+	if type(name) ~= "string" or name == "" or name == "?" or key:sub(1, 4) ~= "npc:" then return end
+	local lower = name:lower()
+	index[lower] = index[lower] or {}
+	index[lower][key] = true
+end
+
+local function LootIndex()
+	if lootIndex then return lootIndex end
+	lootIndex = {}
+	for key, name in pairs(ns.LootData and ns.LootData.names or {}) do AddLootName(lootIndex, name, key) end
+	for key, entry in pairs(ns.db.lootSources or {}) do AddLootName(lootIndex, entry.name, key) end
+	for key, name in pairs(ns.db.lootNames or {}) do AddLootName(lootIndex, name, key) end
+	return lootIndex
+end
+
+-- Items seen on the corpses of a boss: { { id, drops, windows }, ... }, most frequent first.
+-- All creatures with the boss's English or German name count together.
+function Journal.BossLoot(boss)
+	local index, sources = LootIndex(), ns:GetModule("LootSources")
+	local keys = {}
+	for field = 2, 3 do
+		for key in pairs(boss[field] and index[boss[field]:lower()] or {}) do keys[key] = true end
+	end
+	local drops, windows, list = {}, 0, {}
+	for key in pairs(keys) do
+		local rows = sources.CreatureDrops(key)
+		if rows then
+			windows = windows + rows.windows
+			for _, row in ipairs(rows) do drops[row.id] = (drops[row.id] or 0) + row.drops end
+		end
+	end
+	for id, count in pairs(drops) do list[#list + 1] = { id = id, drops = count, windows = windows } end
+	table.sort(list, function(a, b)
+		if a.drops ~= b.drops then return a.drops > b.drops end
+		return a.id < b.id
+	end)
+	return list
+end
+
+local function LootRows(entry)
+	local rows = {}
+	for index, boss in ipairs(entry.bosses) do
+		if not lootBoss or lootBoss == index then
+			for _, item in ipairs(Journal.BossLoot(boss)) do
+				item.boss = boss
+				rows[#rows + 1] = item
+			end
+		end
+	end
+	return rows
+end
+
+local function ItemInfo(id)
+	local name, link, quality = C_Item.GetItemInfo(id)
+	if type(name) ~= "string" or ns.Secret(name) or name == "" then
+		if not requestedItems[id] then
+			requestedItems[id] = true
+			C_Item.RequestLoadItemDataByID(id)
+		end
+		return L.LOOTSRC_UNIT_ITEM:format(id)
+	end
+	return name, not ns.Secret(link) and link or nil, ns.Number(quality)
+end
+
+local function ItemTooltip(row)
+	GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+	GameTooltip:SetItemByID(row.item.id)
+	GameTooltip:Show()
+end
+
+local function OpenItem(row)
+	local _, link = ItemInfo(row.item.id)
+	if link and HandleModifiedItemClick then HandleModifiedItemClick(link) end
+end
+
+local function RefreshLoot()
+	if frame and frame:IsShown() and selectedTab == "loot" and not frame.lootRefresh then
+		frame.lootRefresh = true
+		ns.After("DungeonJournal: refresh loot", 0.15, function()
+			frame.lootRefresh = nil
+			if frame:IsShown() and selectedTab == "loot" then Render(false) end
+		end)
+	end
+end
+
 local function OpenBoss(button)
 	if not button.boss or not Journal.db.bossDetails then return end
 	GameTooltip:Hide()
@@ -608,7 +699,9 @@ local function DrawMap(id, entry)
 end
 
 local function OpenEntry(row, button)
-	if row.quest then
+	if row.item then
+		OpenItem(row)
+	elseif row.quest then
 		OpenQuest(row, button)
 	elseif button == "LeftButton" then
 		OpenBoss(row)
@@ -616,7 +709,7 @@ local function OpenEntry(row, button)
 end
 
 local function EntryTooltip(row)
-	if row.quest then QuestTooltip(row) else BossTooltip(row) end
+	if row.item then ItemTooltip(row) elseif row.quest then QuestTooltip(row) else BossTooltip(row) end
 end
 
 local function SpellTooltip(row)
@@ -634,6 +727,7 @@ local function DrawBossDetails(entry)
 	details.title:SetText(BossName(boss))
 	details.order:SetText(L.JOURNAL_ENCOUNTER:format(selectedBoss))
 	details.mapButton:SetShown(BossPage(entry, info) ~= nil)
+	details.lootButton:SetShown(Journal.db.bossLoot)
 	local note = info and info.note
 	details.note:SetText(note and note[german and 2 or 1] or "")
 	local noteHeight = note and details.note:GetStringHeight() + 12 or 0
@@ -657,10 +751,13 @@ end
 
 Render = function(reset)
 	local entry = data[selection]
+	if selectedTab == "loot" and not Journal.db.bossLoot then selectedTab, lootBoss = "bosses", nil end
 	local map = selectedTab == "map"
 	local quests = selectedTab == "quests"
-	local bossDetails = not (map or quests) and selectedBoss ~= nil and Journal.db.bossDetails
+	local loot = selectedTab == "loot"
+	local bossDetails = not (map or quests or loot) and selectedBoss ~= nil and Journal.db.bossDetails
 	for key, button in pairs(frame.tabs) do SelectTab(button, key == selectedTab) end
+	frame.tabs.loot:SetShown(Journal.db.bossLoot)
 	frame.map:SetShown(map)
 	frame.bossDetails:SetShown(bossDetails)
 	frame.entries:SetShown(not (map or bossDetails))
@@ -682,19 +779,37 @@ Render = function(reset)
 		return
 	end
 
-	local rows = quests and QuestRows(selection, characterOnly) or entry.bosses
-	frame.listTitle:SetText(quests and L.JOURNAL_QUEST_COUNT:format(#rows) or L.JOURNAL_BOSS_COUNT:format(#rows))
-	frame.listNote:SetText(quests and L.JOURNAL_QUEST_NOTE
-		or Journal.db.bossDetails and L.JOURNAL_BOSS_CLICK or L.JOURNAL_BOSS_NOTE)
+	local rows = loot and LootRows(entry) or quests and QuestRows(selection, characterOnly) or entry.bosses
+	if loot then
+		local boss = lootBoss and entry.bosses[lootBoss]
+		frame.listTitle:SetText(boss and L.JOURNAL_LOOT_BOSS:format(BossName(boss), #rows) or L.JOURNAL_LOOT_COUNT:format(#rows))
+		frame.listNote:SetText(L.JOURNAL_LOOT_NOTE)
+	else
+		frame.listTitle:SetText(quests and L.JOURNAL_QUEST_COUNT:format(#rows) or L.JOURNAL_BOSS_COUNT:format(#rows))
+		frame.listNote:SetText(quests and L.JOURNAL_QUEST_NOTE
+			or Journal.db.bossDetails and L.JOURNAL_BOSS_CLICK or L.JOURNAL_BOSS_NOTE)
+	end
+	local sources = ns:GetModule("LootSources")
 	for index, record in ipairs(rows) do
 		local row = Row(frame.entries, index, OpenEntry)
+		row.item = loot and record
 		row.quest = quests and record
-		row.boss, row.bossIndex, row.overlaps = not quests and record, index, false
+		row.boss, row.bossIndex, row.overlaps = not (quests or loot) and record, index, false
 		if not row:GetScript("OnEnter") then
 			row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 			row:HookScript("OnEnter", ns.Measured("DungeonJournal: entry tooltip", EntryTooltip))
 		end
-		if quests then
+		row.text:SetTextColor(1, 0.82, 0)
+		if loot then
+			local name, _, quality = ItemInfo(record.id)
+			local color = quality and ITEM_QUALITY_COLORS[quality]
+			row.icon:SetTexture(C_Item.GetItemIconByID(record.id) or 134400)
+			row.icon:SetDesaturated(false)
+			row.text:SetText(name)
+			if color then row.text:SetTextColor(color.r, color.g, color.b) end
+			row.sub:SetText(BossName(record.boss) .. "  ·  " .. sources.DropRate(record.drops, record.windows))
+			row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
+		elseif quests then
 			row.icon:SetTexture(record.state == "done" and ICON.done or ICON.quest)
 			row.icon:SetDesaturated(record.state == "done")
 			row.text:SetText(record.name)
@@ -717,7 +832,8 @@ Render = function(reset)
 	end
 	ShowRows(frame.entries, #rows, reset)
 	if #rows == 0 then
-		frame.empty:SetText(quests and (characterOnly and L.JOURNAL_NO_FILTERED_QUESTS or L.JOURNAL_NO_QUESTS)
+		frame.empty:SetText(loot and L.JOURNAL_NO_LOOT
+			or quests and (characterOnly and L.JOURNAL_NO_FILTERED_QUESTS or L.JOURNAL_NO_QUESTS)
 			or L.JOURNAL_NO_BOSSES)
 		frame.empty:Show()
 	end
@@ -749,7 +865,7 @@ end
 Select = function(id)
 	if not data[id] then return end
 	selection, kind = id, data[id].kind
-	selectedBoss = nil
+	selectedBoss, lootBoss = nil, nil
 	mapPage = (data[id].floors or data[id].minimap) and 1 or 0
 	SelectTab(frame.dungeons, kind == "dungeon")
 	SelectTab(frame.raids, kind == "raid")
@@ -848,6 +964,12 @@ local function CreateBossDetails(parent)
 		Render(true)
 	end)
 	details.mapButton:SetPoint("TOPRIGHT", -9, -8)
+	details.lootButton = PanelButton(details, 123, L.JOURNAL_LOOT, function()
+		GameTooltip:Hide()
+		selectedTab, lootBoss = "loot", selectedBoss
+		Render(true)
+	end)
+	details.lootButton:SetPoint("RIGHT", details.mapButton, "LEFT", -6, 0)
 	details.title = Label(details, "GameFontNormalLarge", "TOPLEFT", 12, -44)
 	details.order = Label(details, "GameFontHighlightSmall", "TOPLEFT", 12, -70)
 	details.note = Label(details, "GameFontHighlight", "TOPLEFT", 12, -96)
@@ -943,7 +1065,7 @@ local function CreateJournal()
 	for _, spec in ipairs(tabs) do
 		local key = spec[1]
 		local tab = Tab(panel, spec[2], function()
-			selectedTab = key
+			selectedTab, lootBoss = key, nil
 			if key == "bosses" then selectedBoss = nil end
 			Render(true)
 		end)
@@ -981,8 +1103,10 @@ local function CreateJournal()
 		panel.art:SetTexture(nil)
 		for _, tile in ipairs(panel.mapImage.tiles) do tile:SetTexture(nil) end
 		GameTooltip:Hide()
+		lootIndex = nil
 		Journal:UnregisterEvent("QUEST_LOG_UPDATE")
 		Journal:UnregisterEvent("QUEST_DATA_LOAD_RESULT")
+		Journal:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
 	end))
 	return panel
 end
@@ -1005,6 +1129,9 @@ function Journal.Open(id, mapID, x, y)
 		Journal:RegisterEvent("QUEST_LOG_UPDATE", RefreshQuests)
 		Journal:RegisterEvent("QUEST_DATA_LOAD_RESULT", function(_, _, questID, success)
 			if success and requested[questID] then RefreshQuests() end
+		end)
+		Journal:RegisterEvent("ITEM_DATA_LOAD_RESULT", function(_, _, itemID, success)
+			if ns.Number(itemID) and requestedItems[itemID] and not ns.Secret(success) and success then RefreshLoot() end
 		end)
 	end
 	if explicit or target ~= selection then
@@ -1099,5 +1226,6 @@ Journal.options = {
 	{ key = "questWaypoint", type = "toggle", name = L.JOURNAL_PICKUP_OPTION, parent = "enabled", new = true },
 	{ key = "mapZoom", type = "toggle", name = L.JOURNAL_ZOOM_OPTION, parent = "enabled", new = true },
 	{ key = "bossDetails", type = "toggle", name = L.JOURNAL_BOSS_OPTION, parent = "enabled", new = true },
+	{ key = "bossLoot", type = "toggle", name = L.JOURNAL_LOOT_OPTION, desc = L.JOURNAL_LOOT_OPTION_DESC, parent = "enabled" },
 	{ type = "button", name = L.JOURNAL_TITLE, text = L.JOURNAL_OPEN, func = function() Journal.Open() end },
 }

@@ -435,8 +435,9 @@ local function LootIndex()
 	return lootIndex
 end
 
--- Items seen on the corpses of a boss: { { id, drops, windows }, ... }, most frequent first.
--- All creatures with the boss's English or German name count together.
+-- Loot of a boss: { { id, drops, windows }, ... }, highest share first. Group loot rolls of the encounter
+-- (windows = recorded kills) come first; items seen on corpses of creatures with the boss's English or
+-- German name are added when the rolls do not list them.
 function Journal.BossLoot(boss)
 	local index, sources = LootIndex(), ns:GetModule("LootSources")
 	local keys = {}
@@ -451,9 +452,18 @@ function Journal.BossLoot(boss)
 			for _, row in ipairs(rows) do drops[row.id] = (drops[row.id] or 0) + row.drops end
 		end
 	end
-	for id, count in pairs(drops) do list[#list + 1] = { id = id, drops = count, windows = windows } end
+	local listed = {}
+	local rolls = ns.LootData and ns.LootData.encounters and ns.LootData.encounters[boss[1]]
+	for _, row in ipairs(rolls and rolls[2] or {}) do
+		list[#list + 1] = { id = row[1], drops = row[2], windows = rolls[1] }
+		listed[row[1]] = true
+	end
+	for id, count in pairs(drops) do
+		if not listed[id] then list[#list + 1] = { id = id, drops = count, windows = windows } end
+	end
 	table.sort(list, function(a, b)
-		if a.drops ~= b.drops then return a.drops > b.drops end
+		local shareA, shareB = a.drops / a.windows, b.drops / b.windows
+		if shareA ~= shareB then return shareA > shareB end
 		return a.id < b.id
 	end)
 	return list

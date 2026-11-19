@@ -9321,10 +9321,28 @@ end)()
 	local own, shipped = false, 0
 	for index, row in ipairs(rows) do
 		if row.id == 777001 then own = row else shipped = shipped + 1 end
-		assert(row.windows > 0 and (index == 1 or rows[index - 1].drops >= row.drops), "loot sorted by drops")
+		assert(row.windows > 0 and (index == 1 or rows[index - 1].drops / rows[index - 1].windows >= row.drops / row.windows),
+			"loot sorted by share")
 	end
 	assert(own and own.drops == 1 and shipped > 0, "own window under the German name joins the shipped records")
 	assert(#journal.BossLoot({ 1, "Nobody", "Niemand" }) == 0, "unknown boss has no loot")
+	local savedEncounters = ns.LootData.encounters
+	ns.LootData.encounters = { [2748] = { 4, { { 777001, 3 }, { 777002, 1 } } } }
+	local rolled = journal.BossLoot(rethilgore)
+	assert(rolled[1].id == 777001 and rolled[1].drops == 3 and rolled[1].windows == 4, "encounter rolls count per kill")
+	local seen = {}
+	for _, row in ipairs(rolled) do
+		assert(not seen[row.id], "an item from the rolls is not listed again from corpses")
+		seen[row.id] = true
+	end
+	assert(seen[777002] and #rolled > 2, "rolls and corpse records together")
+	ns.LootData.encounters = savedEncounters
+	local encounterRows = 0
+	for id, entry in pairs(savedEncounters) do
+		assert(type(id) == "number" and entry[1] > 0 and #entry[2] > 0, "shipped encounter loot is well formed")
+		encounterRows = encounterRows + 1
+	end
+	assert(encounterRows > 0, "encounter loot is shipped")
 
 	journal.Open(36)
 	panel.tabs.loot:GetScript("OnClick")()

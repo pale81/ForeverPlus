@@ -163,12 +163,30 @@ def loot_builds(checkout):
             yield directory, loot if include else None
 
 
+def add_encounter_rolls(encounters, rolls):
+    """Add the group loot rolls of boss encounters: encounter ID -> {'kills', 'items': {item: drops}}.
+
+    Forever hands out boss loot as rolls per encounter ("encounter:<DungeonEncounter ID>|threshold:<quality>"),
+    so it is missing from the corpse windows. Kills under different loot thresholds count together."""
+    for key, row in rolls.items():
+        match = re.match(r'^encounter:(\d+)(\||$)', key)
+        if not match or not row.get('kills'):
+            continue
+        entry = encounters.setdefault(int(match[1]), {'kills': 0, 'items': {}})
+        entry['kills'] += row['kills']
+        for item, info in (row.get('items') or {}).items():
+            entry['items'][int(item)] = entry['items'].get(int(item), 0) + (info.get('drops') or 0)
+    return encounters
+
+
 def build_loot(checkout):
-    sources, names = {}, {}
+    sources, names, encounters = {}, {}, {}
     for directory, loot in loot_builds(checkout):
         if loot:
             with open(loot, encoding='utf-8') as f:
-                for key, row in json.load(f).get('sources', {}).items():
+                export = json.load(f)
+                add_encounter_rolls(encounters, export.get('rolls', {}))
+                for key, row in export.get('sources', {}).items():
                     parts = key.split('|')
                     # Keep ordinary corpses, nodes and containers. Spell-tagged loot and fishing have separate rates.
                     if any(p.startswith('spell:') for p in parts) or not re.match(r'^(npc|object|item):\d+$', parts[0]):
@@ -216,6 +234,7 @@ def build_loot(checkout):
         '-- Combines Beta and live observations and player contributions.',
         '-- items[item] = { { source, recorded drops, loot windows of the source }, ... }',
         '-- source: "npc:<id>" a corpse, "object:<id>" a node or chest, "item:<id>" a container.',
+        '-- encounters[DungeonEncounter ID] = { recorded kills, { { item, drops }, ... } }: group loot rolls of bosses.',
         'local _, ns = ...',
         '',
         'ns.LootData = {',
@@ -227,10 +246,18 @@ def build_loot(checkout):
     for item in sorted(items):
         rows = sorted(items[item], key=lambda r: (-r[1] / r[2], r[0]))
         lines.append('\t\t[%d] = { %s },' % (item, ', '.join('{ "%s", %d, %d }' % r for r in rows)))
+    lines += ['\t},', '\tencounters = {']
+    bosses = 0
+    for encounter in sorted(encounters):
+        entry = encounters[encounter]
+        drops = sorted(((item, count) for item, count in entry['items'].items() if count > 0), key=lambda r: (-r[1], r[0]))
+        if drops:
+            bosses += 1
+            lines.append('\t\t[%d] = { %d, { %s } },' % (encounter, entry['kills'], ', '.join('{ %d, %d }' % r for r in drops)))
     lines += ['\t},', '}', '']
     with open(os.path.join(ROOT, 'Data', 'LootEG.lua'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
-    print('%d sources, %d items' % (len(used), len(items)))
+    print('%d sources, %d items, %d boss encounters' % (len(used), len(items), bosses))
 
 CELL = 1.5  # percent of a map: closer points are one
 ALLIANCE_MASK = 0x55155555b1354c4d  # the masks of the quests for one side (bit = race ID - 1)

@@ -4714,6 +4714,24 @@ end)()
 	print("flight time OK")
 end)()
 ;(function()
+	-- Flight bar: a middle-click hides it for this flight only, the flight is still timed.
+	local flight = ns:GetModule("Flight")
+	local savedBar, savedCurrent = uv(flight.OnBarClick, "bar"), uv(flight.Finish, "current")
+	local shown = true
+	local fake = { Hide = function() shown = false end }
+	setuv(flight.OnBarClick, "bar", fake)
+	local flying = { route = "A -> B", start = 0 }
+	setuv(flight.Finish, "current", flying)
+	flight.OnBarClick("LeftButton")
+	flight.OnBarClick("RightButton")
+	assert(shown, "other buttons leave the bar alone")
+	flight.OnBarClick("MiddleButton")
+	assert(not shown and uv(flight.Finish, "current") == flying, "hidden, the flight goes on being timed")
+	setuv(flight.OnBarClick, "bar", savedBar)
+	setuv(flight.Finish, "current", savedCurrent)
+	print("flight bar middle-click OK")
+end)()
+;(function()
 	-- Group finder: the roles chosen in the options are set, only while the option is on
 	local finder = ns:GetModule("GroupFinder")
 	assert(finder.PresetRoles({ presetRoles = false, roleTank = true }) == nil, "off: nothing set")

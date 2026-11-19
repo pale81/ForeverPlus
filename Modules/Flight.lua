@@ -200,6 +200,13 @@ local function UpdateBar()
 	end
 end
 
+-- Middle-click: the bar is hidden for this flight, the flight is still timed. The next flight shows it again.
+function Flight.OnBarClick(mouseButton)
+	if mouseButton == "MiddleButton" and bar then
+		bar:Hide()
+	end
+end
+
 -- Built like Blizzard's timer bars (breath, fatigue): the casting bar art
 -- with the name in the box below.
 local function CreateBar()
@@ -240,6 +247,9 @@ local function CreateBar()
 			UpdateBar()
 		end
 	end)
+	bar:HookScript("OnMouseUp", ns.Measured("Flight: bar click", function(_, mouseButton)
+		Flight.OnBarClick(mouseButton)
+	end))
 	ns:RegisterDisplay(bar, "FlightBar", function(frame)
 		frame:SetPoint("TOP", UIParent, "TOP", 0, -120)
 	end)

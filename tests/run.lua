@@ -9910,5 +9910,18 @@ end)()
 	IsFalling, IsSwimming, IsFlying, UnitOnTaxi, UnitIsDeadOrGhost, GetTime, PlaySoundFile, landing.db.enabled = unpack(saved, 1, 8)
 	print("landing OK")
 end)()
+;(function()
+	-- A timed measurement (middle click on the performance display) says in the chat that it has started
+	local saved = { ns.PrintAlways, C_Timer.NewTimer, ns.measureTimer, ns.measureUntil }
+	local said
+	ns.PrintAlways = function(msg, ...) said = msg:format(...) end
+	C_Timer.NewTimer = function() return { Cancel = function() end } end
+	ns.measureTimer = nil
+	ns.StartTimedMeasure(30)
+	assert(said == ns.L.TIMINGS_ON_TIMED:format(30) and said:find("30"), "start message with the duration")
+	ns.SetMeasuring(false)
+	ns.PrintAlways, C_Timer.NewTimer, ns.measureTimer, ns.measureUntil = unpack(saved, 1, 4)
+	print("timed measurement start OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

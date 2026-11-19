@@ -527,6 +527,7 @@ function ns.StartTimedMeasure(seconds, onDone)
 			onDone()
 		end
 	end)
+	ns.PrintAlways(ns.L.TIMINGS_ON_TIMED, seconds)
 end
 
 -- The longest entries, longest first.

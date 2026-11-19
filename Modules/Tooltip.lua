@@ -525,6 +525,10 @@ local function OnObjectTooltip(tooltip)
 		return
 	end
 	local r, g, b = first:GetTextColor()
+	-- Opened texts are grey; the reading module colours the tooltip line only after this call.
+	if ns:GetModule("Readable").WasOpened(name) then
+		r, g, b = GRAY_FONT_COLOR:GetRGB()
+	end
 	local frame = GetHover()
 	frame.object = true
 	frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)

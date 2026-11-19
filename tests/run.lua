@@ -1640,6 +1640,23 @@ do
 	GameTooltipTextLeft1 = { GetText = function() return "Briefkasten" end, GetTextColor = function() return 1, 0.82, 0 end }
 	GameTooltip.IsForbidden = function() return false end
 	objectCall(GameTooltip)
+	do
+		-- An opened text keeps its grey name over the cursor, also without the read status option.
+		local readable, hoverName = ns:GetModule("Readable"), uv(objectCall, "GetHover")().Name
+		local oldTitles, oldStatus, oldGray, oldColor = readable.cdb.openedTitles, readable.db.readStatus, GRAY_FONT_COLOR,
+			hoverName.SetTextColor
+		local red
+		hoverName.SetTextColor = function(_, r) red = r end
+		GRAY_FONT_COLOR = { GetRGB = function() return 0.5, 0.5, 0.5 end }
+		readable.cdb.openedTitles, readable.db.readStatus = {}, false
+		objectCall(GameTooltip)
+		assert(red == 1, "unopened object keeps its colour over the cursor")
+		readable.cdb.openedTitles.Briefkasten = true
+		objectCall(GameTooltip)
+		assert(red == 0.5, "opened text is grey over the cursor")
+		readable.cdb.openedTitles, readable.db.readStatus, GRAY_FONT_COLOR, hoverName.SetTextColor = oldTitles, oldStatus,
+			oldGray, oldColor
+	end
 
 	-- A readable name can still have secret font measurements after hovering a unit.
 	local frame = uv(objectCall, "GetHover")()
@@ -8097,8 +8114,9 @@ end)()
 	local oldTooltip, oldContainerInfo = GameTooltip, C_Container.GetContainerItemInfo
 	local oldPage, oldTitle, oldText = ItemTextGetPage, ItemTextGetItem, ItemTextGetText
 	local oldStatus, oldEnabled, oldTitles = readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles
-	local title, line, red = "Chronik von Azeroth"
-	local oldGray = GRAY_FONT_COLOR
+	local title, line, red, titleRed = "Chronik von Azeroth"
+	local oldGray, oldFirst = GRAY_FONT_COLOR, GameTooltipTextLeft1
+	GameTooltipTextLeft1 = { SetTextColor = function(_, r) titleRed = r end }
 	GRAY_FONT_COLOR = { GetRGB = function() return 0.5, 0.5, 0.5 end }
 	local getter = "GetBagItem"
 	local isReadable = true
@@ -8120,7 +8138,7 @@ end)()
 	readable:OnInitialize()
 	TooltipDataProcessor.AddTooltipPostCall = addPostCall
 	local function Hover(kind, name)
-		line = nil
+		line, titleRed = nil, nil
 		calls[kind](GameTooltip, { lines = { { leftText = name } } })
 		return line
 	end
@@ -8138,6 +8156,12 @@ end)()
 	getter = "GetWorldCursor"
 	readable.db.readStatus = false
 	assert(Hover(types.Object, title) == nil, "tooltip option can be disabled")
+	assert(titleRed == 0.5, "opened text keeps its grey title without the option")
+	assert(Hover(types.Object, "Anderes Buch") == nil and titleRed == nil, "unopened text keeps its title colour")
+	ItemTextGetItem = function() return "Anderes Buch" end
+	readable.Show()
+	assert(readable.cdb.openedTitles["Anderes Buch"], "texts are recorded without the option")
+	GameTooltipTextLeft1 = oldFirst
 	GameTooltip, C_Container.GetContainerItemInfo, GRAY_FONT_COLOR = oldTooltip, oldContainerInfo, oldGray
 	ItemTextGetPage, ItemTextGetItem, ItemTextGetText = oldPage, oldTitle, oldText
 	readable.db.readStatus, readable.db.enabled, readable.cdb.openedTitles = oldStatus, oldEnabled, oldTitles

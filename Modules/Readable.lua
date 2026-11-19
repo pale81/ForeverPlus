@@ -541,8 +541,14 @@ local function IsTitle(title)
 	return type(title) == "string" and not ns.Secret(title) and title ~= ""
 end
 
+-- A text this character has opened (recorded also while the read status is not shown).
+function Readable.WasOpened(title)
+	return IsTitle(title) and Readable.cdb.openedTitles[title] == true
+end
+
+-- Opened texts get a grey title (always); the status line only with the option.
 local function ReadStatusTooltip(tooltip, data)
-	if not Readable.db.readStatus or tooltip ~= GameTooltip or tooltip:IsForbidden()
+	if tooltip ~= GameTooltip or tooltip:IsForbidden()
 		or type(data) ~= "table" or ns.Secret(data) then
 		return
 	end
@@ -569,7 +575,15 @@ local function ReadStatusTooltip(tooltip, data)
 		if ns.Secret(isReadable) or not isReadable then return end
 	end
 	-- The item text events supply the displayed title, without an item or object ID.
-	if Readable.cdb.openedTitles[title] then
+	local opened = Readable.WasOpened(title)
+	local titleLine = GameTooltipTextLeft1
+	if opened and titleLine then
+		titleLine:SetTextColor(GRAY_FONT_COLOR:GetRGB())
+	end
+	if not Readable.db.readStatus then
+		return
+	end
+	if opened then
 		tooltip:AddLine(L.READABLE_ALREADY_READ, GRAY_FONT_COLOR:GetRGB())
 	elseif getter == "GetBagItem" then
 		tooltip:AddLine(L.READABLE_UNREAD, 1, 0.82, 0)
@@ -580,7 +594,7 @@ end
 function Readable.Show()
 	local page = ns.Number(ItemTextGetPage())
 	local text
-	if Readable.db.readStatus and page == 1 then
+	if page == 1 then
 		local title = ItemTextGetItem()
 		text = ItemTextGetText()
 		if IsTitle(title) and type(text) == "string" and not ns.Secret(text) and text ~= "" then
@@ -682,7 +696,7 @@ end
 
 function Readable:Apply()
 	local on = self.db.enabled
-	self:ToggleEvent("ITEM_TEXT_READY", on or self.db.readStatus, Readable.Show)
+	self:ToggleEvent("ITEM_TEXT_READY", true, Readable.Show)
 	self:ToggleEvent("ITEM_TEXT_CLOSED", on, function()
 		if not questView then Readable.Hide() end
 	end)

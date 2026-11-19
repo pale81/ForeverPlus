@@ -120,7 +120,14 @@ setfenv(chunk, setmetatable({
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
 	UnitExists = function(unit) return unit == "target" and target or unit == "focus" and focus end,
-	IsAnyBagOpen = function() return bagsOpen end,
+	-- Blizzard's IsAnyBagOpen builds its bag frame list on first use; called from addon code, that list stays
+	-- tainted and every later bag check, also the bank's OnShow, runs tainted (blocked bank tab purchase).
+	IsAnyBagOpen = function() error("Wanderlust must read the bag frames itself, not call IsAnyBagOpen") end,
+	ContainerFrameCombinedBags = { IsShown = function() return false end },
+	ContainerFrameContainer = { ContainerFrames = {
+		{ IsShown = function() return false end },
+		{ IsShown = function() return bagsOpen end },
+	} },
 	ChatEdit_GetActiveWindow = function() return chatActive end,
 	UIPanelWindows = panelWindows,
 	UISpecialFrames = specialFrames,

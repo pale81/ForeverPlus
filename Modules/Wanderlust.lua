@@ -60,8 +60,20 @@ local function WindowShown(frame)
 	return frame and (not frame.IsForbidden or not frame:IsForbidden()) and frame:IsShown()
 end
 
+-- Not IsAnyBagOpen(): it builds Blizzard's bag frame list on first use. Called from here (tainted, e.g. at login),
+-- that list stays tainted; every later bag check, also in the bank's OnShow, then runs tainted and the bank
+-- tab purchase is blocked (ADDON_ACTION_FORBIDDEN PurchaseBankTab). Reading the frames themselves writes nothing.
+local function AnyBagOpen()
+	if WindowShown(ContainerFrameCombinedBags) then return true end
+	local frames = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
+	for _, frame in ipairs(frames or {}) do
+		if WindowShown(frame) then return true end
+	end
+	return false
+end
+
 local function InteractionOpen()
-	if IsAnyBagOpen() or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then return true end
+	if AnyBagOpen() or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then return true end
 	for _, name in ipairs(WINDOW_NAMES) do
 		if WindowShown(_G[name]) then return true end
 	end

@@ -9666,43 +9666,5 @@ end)()
 	LOCKED = savedLocked
 	print("quest starter open button and book OK")
 end)()
-;(function()
-	local qol = ns:GetModule("QoL")
-	local setFaded = uv(qol.UpdateMouseover, "SetFaded")
-	local fadeTargets = uv(setFaded, "fadeTargets")
-	local driver = uv(setFaded, "driver")
-	local savedMaster, savedMinimap, savedOverride = qol.db.mouseover, qol.db.mouseoverMinimap, ns.WanderlustMinimapMouseover
-	local savedHover, savedChildren = MinimapCluster.IsMouseOver, Minimap.GetChildren
-	local hover = false
-	local pin = NewFrame("Frame")
-	pin:SetAlpha(0.6)
-	pin.IsIgnoringParentAlpha = function() return true end
-	Minimap.GetChildren = function() return pin end
-	MinimapCluster.IsMouseOver = function() return hover end
-	qol.db.mouseover, qol.db.mouseoverMinimap = false, false
-	ns.WanderlustMinimapMouseover = nil
-	qol:UpdateMouseover()
-	assert(not fadeTargets[MinimapCluster] and not fadeTargets[Minimap], "normal settings leave the minimap always visible")
-	ns.WanderlustMinimapMouseover = true
-	qol:UpdateMouseover()
-	for _, frame in ipairs({ MinimapCluster, Minimap, MinimapBackdrop, pin }) do
-		assert(fadeTargets[frame].hoverFrame == MinimapCluster, "the entire minimap shares one hover area during Wanderlust")
-	end
-	driver:GetScript("OnUpdate")(driver, 0.25)
-	assert(MinimapCluster:GetAlpha() == 0 and Minimap:GetAlpha() == 0 and MinimapBackdrop:GetAlpha() == 0 and pin:GetAlpha() == 0,
-		"Wanderlust fades the map, border and independent pins away from the mouse")
-	hover = true
-	driver:GetScript("OnUpdate")(driver, 0.25)
-	assert(MinimapCluster:GetAlpha() == 1 and Minimap:GetAlpha() == 1 and MinimapBackdrop:GetAlpha() == 1 and pin:GetAlpha() == 0.6,
-		"hovering the cluster reveals the entire minimap, including independent pins")
-	ns.WanderlustMinimapMouseover = nil
-	qol:UpdateMouseover()
-	assert(not fadeTargets[MinimapCluster] and not fadeTargets[pin] and pin:GetAlpha() == 0.6
-		and not qol.db.mouseover and not qol.db.mouseoverMinimap, "leaving Wanderlust restores normal fading without changing saved settings")
-	qol.db.mouseover, qol.db.mouseoverMinimap, ns.WanderlustMinimapMouseover = savedMaster, savedMinimap, savedOverride
-	MinimapCluster.IsMouseOver, Minimap.GetChildren = savedHover, savedChildren
-	qol:UpdateMouseover()
-	print("Wanderlust minimap hover and normal settings OK")
-end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

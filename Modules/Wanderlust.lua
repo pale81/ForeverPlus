@@ -9,61 +9,44 @@ local Wanderlust = ns:NewModule("Wanderlust", {
 
 local QUIET_SECONDS = 60
 local timer, activityTicker, hidUI, hooked, restoring, blocked
-local minimapHost, minimapParent, minimapDriver
+local PEEK_INTERVAL = 0.1
+local peek, peekArea, peekDriver, UpdatePeek
 
-local function UpdateMinimapFade(active)
-	ns.WanderlustMinimapMouseover = active or nil
-	ns:GetModule("QoL"):UpdateMouseover()
+-- Minimap on mouseover while Wanderlust hides the interface. SetUIVisibility(false) stops drawing the map itself and
+-- the game's blips ignore alpha, so a detached or faded minimap cannot work. Instead the interface comes back
+-- see-through (UIParent alpha 0) while the mouse is over the minimap; only the minimap ignores that alpha.
+local function SavePeekArea()
+	local left, bottom, width, height = Minimap:GetRect()
+	local scale = ns.Number(Minimap:GetEffectiveScale())
+	left, bottom, width, height = ns.Number(left), ns.Number(bottom), ns.Number(width), ns.Number(height)
+	-- In cursor coordinates, read while the interface is still shown.
+	peekArea = left and bottom and width and height and scale
+		and { left * scale, bottom * scale, (left + width) * scale, (bottom + height) * scale } or nil
 end
 
-local function RestoreMinimap()
-	if not minimapHost or not (ns.WanderlustMinimapMouseover or minimapHost:GetAttribute("detached")) then return end
-	UpdateMinimapFade(false)
-	if not InCombatLockdown() and minimapHost:GetAttribute("detached") then
-		MinimapCluster:SetParent(minimapParent)
-		minimapHost:SetAttribute("detached", false)
-	end
-	-- The secure handlers can restore the parent during combat; removing a driver waits.
+local function CursorOverMinimap()
+	if not peekArea then return false end
+	local x, y = GetCursorPosition()
+	return x >= peekArea[1] and x <= peekArea[3] and y >= peekArea[2] and y <= peekArea[4]
+end
+
+local function StartPeek()
+	peek = { alpha = UIParent:GetAlpha(), ignore = MinimapCluster:IsIgnoringParentAlpha() }
+	MinimapCluster:SetIgnoreParentAlpha(true)
+	UIParent:SetAlpha(0)
+	SetUIVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+end
+
+local function EndPeek(hide)
+	if not peek then return end
+	local saved = peek
+	peek = nil
+	-- Hide first, then restore the alpha: nothing flashes.
+	if hide and UIParent:IsShown() then SetUIVisibility(false) end
+	UIParent:SetAlpha(saved.alpha)
 	ns.RunOutOfCombat(function()
-		if minimapDriver and not ns.WanderlustMinimapMouseover then
-			UnregisterStateDriver(minimapHost, "combat")
-			minimapDriver = nil
-		end
+		if not peek then MinimapCluster:SetIgnoreParentAlpha(saved.ignore) end
 	end)
-end
-
-local function DetachMinimap()
-	if not Wanderlust.db.minimapMouseover or InCombatLockdown() or ns.WanderlustMinimapMouseover
-		or not MinimapCluster or MinimapCluster:IsForbidden() then return end
-	minimapParent = MinimapCluster:GetParent()
-	if not minimapHost then
-		minimapHost = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
-		minimapHost:EnableMouse(false)
-		minimapHost:SetFrameRef("minimap", MinimapCluster)
-		minimapHost:SetAttribute("_onstate-combat", [=[
-			if newstate == "1" and self:GetAttribute("detached") then
-				self:GetFrameRef("minimap"):SetParent(self:GetFrameRef("parent"))
-				self:SetAttribute("detached", false)
-			end
-		]=])
-		-- Manual Toggle UI and combat must both restore the parent without waiting for Lua lockdown to end.
-		minimapHost:WrapScript(UIParent, "OnShow", [=[
-			if control:GetAttribute("detached") then
-				control:GetFrameRef("minimap"):SetParent(control:GetFrameRef("parent"))
-				control:SetAttribute("detached", false)
-			end
-		]=])
-	end
-	minimapHost:SetFrameRef("parent", minimapParent)
-	minimapHost:SetScale(minimapParent:GetEffectiveScale())
-	minimapHost:SetAllPoints(UIParent)
-	MinimapCluster:SetParent(minimapHost)
-	minimapHost:SetAttribute("detached", true)
-	if not minimapDriver then
-		RegisterStateDriver(minimapHost, "combat", "[combat] 1; 0")
-		minimapDriver = true
-	end
-	UpdateMinimapFade(true)
 end
 
 local WINDOW_NAMES = {
@@ -107,9 +90,10 @@ local function CancelTimer()
 end
 
 local function RestoreUI()
-	RestoreMinimap()
+	EndPeek(false)
 	if hidUI then
 		hidUI = nil
+		UpdatePeek()
 		if not UIParent:IsShown() then
 			-- Use the same native API as the game's Toggle UI binding, including in combat.
 			restoring = true
@@ -121,7 +105,8 @@ end
 
 local function StartTimer()
 	CancelTimer()
-	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() then
+	-- hidUI: the interface is Wanderlust's, also while it is see-through over the minimap.
+	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() or hidUI then
 		return
 	end
 	blocked = ActivityBlocked()
@@ -137,18 +122,20 @@ local function StartTimer()
 			if blocked then return end
 			-- No open target or window is hidden, so its OnHide cannot play a close sound.
 			hidUI = true
-			DetachMinimap()
+			SavePeekArea()
 			SetUIVisibility(false)
+			UpdatePeek()
 		end
 	end)
 	timer = pending
 end
 
 local function OnUIShown()
+	if peek then return end -- Wanderlust's own see-through reveal over the minimap
 	-- Escape, Toggle UI and other features give the player another full minute.
 	-- A later manual hide now belongs to the player, not to Wanderlust.
 	hidUI = nil
-	RestoreMinimap()
+	UpdatePeek()
 	if not restoring then
 		StartTimer()
 	end
@@ -168,6 +155,42 @@ local function RefreshActivity()
 		blocked = false
 		StartTimer()
 	end
+end
+
+local function CheckPeek()
+	if InCombatLockdown() then return end -- the combat events bring the whole interface back
+	if peek then
+		RefreshActivity() -- e.g. Escape opened the game menu behind the see-through interface
+		if not peek then return end
+		if not UIParent:IsShown() then
+			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
+			EndPeek(false)
+			hidUI = nil
+			UpdatePeek()
+		elseif not CursorOverMinimap() then
+			EndPeek(true)
+		end
+	elseif not UIParent:IsShown() and CursorOverMinimap() then
+		StartPeek()
+	end
+end
+
+UpdatePeek = function()
+	local active = hidUI and Wanderlust.db.enabled and Wanderlust.db.minimapMouseover
+		and MinimapCluster and not MinimapCluster:IsForbidden() or false
+	if not active then EndPeek(true) end
+	if active and not peekDriver then
+		peekDriver = CreateFrame("Frame")
+		local elapsedSinceCheck = 0
+		ns.SetUpdate(peekDriver, "Wanderlust: minimap mouseover", function(_, elapsed)
+			elapsedSinceCheck = elapsedSinceCheck + elapsed
+			if elapsedSinceCheck >= PEEK_INTERVAL then
+				elapsedSinceCheck = 0
+				CheckPeek()
+			end
+		end)
+	end
+	if peekDriver then peekDriver:SetShown(active) end
 end
 
 local function InteractionOpened()
@@ -247,8 +270,6 @@ end
 
 function Wanderlust:Apply()
 	local enabled = self.db.enabled
-	if not enabled or not self.db.minimapMouseover then RestoreMinimap()
-	elseif hidUI then DetachMinimap() end
 	InvalidateProfessions()
 	nativeProfessions = {}
 	if enabled and not hooked then
@@ -293,6 +314,7 @@ function Wanderlust:Apply()
 		blocked = nil
 		Stop()
 	end
+	UpdatePeek()
 end
 
 function Wanderlust:OnLogin()

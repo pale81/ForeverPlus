@@ -6,30 +6,32 @@ local globals = {}
 local target, focus, bagsOpen, editMode, chatActive = false, false, false, false, nil
 local closeSounds = 0
 local panelWindows, specialFrames = {}, {}
-local secureCall, controller, secureWrap, stateDriver
-local regenQueue = {}
-local ui = { shown = true }
+local regenQueue, peekDriver = {}, nil
+local cursorX, cursorY = 0, 0
+local ui = { shown = true, alpha = 0.9 }
 function ui:IsShown() return self.shown end
-function ui:GetEffectiveScale() return 0.8 end
+function ui:GetAlpha() return self.alpha end
+function ui:SetAlpha(alpha) self.alpha = alpha end
 function ui:HookScript(script, fn)
 	assert(script == "OnShow")
 	hooks = hooks + 1
 	self.onShow = fn
 end
 
-local function RunSecure(body, frame, header, state)
-	secureCall = true
-	assert(loadstring("return function(self, control, newstate)\n" .. body .. "\nend"))()(frame, header, state)
-	secureCall = false
+-- The cluster stays in the interface; only its parent-alpha flag changes.
+local cluster = { ignore = false }
+function cluster:IsForbidden() return false end
+function cluster:IsIgnoringParentAlpha() return self.ignore end
+function cluster:SetIgnoreParentAlpha(ignore)
+	assert(not combat, "the minimap's parent-alpha flag only changes outside combat")
+	self.ignore = ignore
 end
-
-local minimap = { parent = ui }
-function minimap:GetParent() return self.parent end
-function minimap:SetParent(parent)
-	assert(not combat or secureCall, "parent restoration during combat must run through a secure handler")
-	self.parent = parent
-end
-function minimap:IsForbidden() return false end
+function cluster:SetParent() error("the minimap must stay in the interface") end
+-- 100 x 100 at (1000, 600) with a UI scale of 0.8: (800, 480) to (880, 560) in cursor coordinates.
+local map = {}
+function map:GetRect() return 1000, 600, 100, 100 end
+function map:GetEffectiveScale() return 0.8 end
+local function Peeking() return ui.shown and ui.alpha == 0 and cluster.ignore end
 
 local function SetVisibility(shown)
 	visibilityCalls = visibilityCalls + 1
@@ -42,7 +44,6 @@ local function SetVisibility(shown)
 		end
 	end
 	ui.shown = shown
-	if changed and shown and secureWrap then RunSecure(secureWrap, ui, controller) end
 	if changed and shown and ui.onShow then ui.onShow() end
 end
 
@@ -57,13 +58,11 @@ function ns:NewModule(name, spec)
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
 end
-local qol = { db = { mouseover = false, mouseoverMinimap = false } }
-function qol:UpdateMouseover() self.minimapFade = ns.WanderlustMinimapMouseover and true or false end
-function ns:GetModule(name) assert(name == "QoL") return qol end
 function ns.RunOutOfCombat(fn)
 	if combat then regenQueue[#regenQueue + 1] = fn else fn() end
 end
 function ns.Measured(_, fn) return fn end
+function ns.SetUpdate(frame, _, fn) frame.onUpdate = fn end
 function ns:IsEditModeActive() return editMode end
 function ns.After(_, _, fn) fn() end
 function ns.NewTimer(_, delay, fn)
@@ -91,31 +90,14 @@ local chunk = assert(loadfile(root .. "/Modules/Wanderlust.lua"))
 setfenv(chunk, setmetatable({
 	_G = globals,
 	UIParent = ui,
-	MinimapCluster = minimap,
-	CreateFrame = function(_, _, parent, template)
-		assert(not parent and template == "SecureHandlerStateTemplate", "minimap host must stay outside the hidden UI")
-		assert(not controller, "the secure minimap host is reused")
-		controller = { refs = {}, attributes = {} }
-		function controller:EnableMouse(enabled) assert(not enabled) end
-		function controller:SetFrameRef(name, frame) self.refs[name] = frame end
-		function controller:GetFrameRef(name) return self.refs[name] end
-		function controller:SetAttribute(name, value) self.attributes[name] = value end
-		function controller:GetAttribute(name) return self.attributes[name] end
-		function controller:SetScale(scale) self.scale = scale end
-		function controller:SetAllPoints(frame) self.anchor = frame end
-		function controller:WrapScript(frame, script, body)
-			assert(frame == ui and script == "OnShow")
-			secureWrap = body
-		end
-		return controller
-	end,
-	RegisterStateDriver = function(frame, state, condition)
-		assert(not combat and frame == controller and state == "combat" and condition == "[combat] 1; 0")
-		stateDriver = true
-	end,
-	UnregisterStateDriver = function(frame, state)
-		assert(not combat and frame == controller and state == "combat")
-		stateDriver = false
+	MinimapCluster = cluster,
+	Minimap = map,
+	GetCursorPosition = function() return cursorX, cursorY end,
+	CreateFrame = function(_, _, parent)
+		assert(not parent and not peekDriver, "one parentless driver checks the cursor")
+		peekDriver = { shown = true }
+		function peekDriver:SetShown(shown) self.shown = shown end
+		return peekDriver
 	end,
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
@@ -148,9 +130,7 @@ local function Enable(enabled)
 	module:OnOptionChanged("enabled", enabled)
 end
 local function Fire(event, ...)
-	if event == "PLAYER_REGEN_DISABLED" and stateDriver then
-		RunSecure(controller.attributes["_onstate-combat"], controller, controller, "1")
-	elseif event == "PLAYER_REGEN_ENABLED" then
+	if event == "PLAYER_REGEN_ENABLED" then
 		local queue = regenQueue
 		regenQueue = {}
 		for _, fn in ipairs(queue) do fn() end
@@ -182,6 +162,13 @@ local function Pending()
 	end
 	return count
 end
+local function Tick()
+	if peekDriver and peekDriver.shown then peekDriver.onUpdate(peekDriver, 0.1) end
+end
+local function Over(over)
+	cursorX, cursorY = over and 840 or 900, over and 520 or 520
+	Tick()
+end
 
 module:OnLogin()
 assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 0,
@@ -194,17 +181,28 @@ Advance(59)
 assert(ui.shown and visibilityCalls == 0, "the interface stays visible for the first 59 seconds")
 Advance(1)
 assert(not ui.shown and visibilityCalls == 1 and Pending() == 0, "one full quiet minute hides the interface once")
-assert(minimap.parent == controller and qol.minimapFade and controller.scale == 0.8 and controller.anchor == ui,
-	"only the minimap stays outside the hidden UI, preserving the UI scale and anchors")
-assert(not qol.db.mouseover and not qol.db.mouseoverMinimap, "Wanderlust does not change normal mouseover settings")
+assert(peekDriver and peekDriver.shown and not Peeking(), "a hidden interface watches the minimap area without showing anything")
+Over(false)
+assert(not ui.shown and visibilityCalls == 1, "the cursor away from the minimap leaves the interface hidden")
+Over(true)
+assert(Peeking() and visibilityCalls == 2 and Pending() == 0,
+	"the cursor over the minimap brings the interface back see-through, only the minimap visible, without a new minute")
+Over(true)
+assert(Peeking() and visibilityCalls == 2, "staying over the minimap changes nothing")
+Over(false)
+assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and visibilityCalls == 3,
+	"leaving the minimap hides the interface again, then restores its alpha and the minimap's flag")
+Over(true)
+assert(Peeking(), "the minimap appears again on the next visit")
 combat = true
 Fire("PLAYER_REGEN_DISABLED")
 assert(ui.shown and Pending() == 0, "combat restores the interface during lockdown without another timer")
-assert(minimap.parent == ui and not qol.minimapFade, "secure combat handling restores the minimap and normal fading")
+assert(ui.alpha == 0.9 and not peekDriver.shown, "combat over the minimap makes the whole interface visible again")
 Advance(120)
 assert(ui.shown, "combat never hides the interface")
 combat = false
 Fire("PLAYER_REGEN_ENABLED")
+assert(not cluster.ignore, "the minimap's parent-alpha flag is restored once combat ends")
 Advance(30)
 local interrupted = timers[#timers]
 combat = true
@@ -219,7 +217,7 @@ Advance(1)
 assert(not ui.shown, "the new minute expires after combat")
 
 SetVisibility(true)
-assert(minimap.parent == ui and not qol.minimapFade, "manually revealing the interface restores the minimap parent")
+assert(ui.alpha == 0.9 and not peekDriver.shown, "manually revealing the interface ends the minimap watch")
 Advance(59)
 assert(ui.shown, "manual recovery gives the player a full minute")
 Advance(1)
@@ -540,24 +538,49 @@ panelWindows.TestForbiddenPanel = nil
 module.db.minimapMouseover = false
 Enable(true)
 Advance(60)
-assert(not ui.shown and minimap.parent == ui and not qol.minimapFade, "turning minimap mouseover off hides the entire interface")
+Over(true)
+assert(not ui.shown and not peekDriver.shown, "turning minimap mouseover off hides the entire interface, minimap included")
 module.db.minimapMouseover = true
 module:OnOptionChanged("minimapMouseover", true)
-assert(not ui.shown and minimap.parent == controller and qol.minimapFade, "the minimap option can be enabled while Wanderlust is already hidden")
+Over(true)
+assert(Peeking(), "the minimap option can be enabled while Wanderlust is already hidden")
 module.db.minimapMouseover = false
 module:OnOptionChanged("minimapMouseover", false)
-assert(not ui.shown and minimap.parent == ui and not qol.minimapFade, "turning off minimap mouseover preserves the hidden interface")
+assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
+	"turning off minimap mouseover hides the see-through interface again and restores everything")
 Enable(false)
-assert(ui.shown and minimap.parent == ui and not stateDriver, "disabling restores the minimap and unregisters its secure driver")
+assert(ui.shown and ui.alpha == 0.9, "disabling restores the interface")
 
 module.db.minimapMouseover = true
 Enable(true)
 Advance(60)
-combat = true
-SetVisibility(true) -- The native UI can become visible before the combat event reaches addon code.
-assert(minimap.parent == ui and not qol.minimapFade, "the secure OnShow handler also restores the minimap during lockdown")
-combat = false
-Fire("PLAYER_REGEN_ENABLED")
+Over(true)
+local menu = Window("TestMenuPanel", "panel")
+menu.shown = true -- Escape over the see-through interface opens a menu
+Tick()
+assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
+	"a window opened over the see-through interface brings the whole interface back at once")
+menu.shown = false
+panelWindows.TestMenuPanel, globals.TestMenuPanel = nil, nil
+Advance(1)
+Advance(60)
+Over(true)
+assert(Peeking(), "hiding resumes after the window closes")
+SetVisibility(false) -- the player's own Toggle UI over the minimap
+Over(true)
+assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
+	"a manual hide during the minimap view stays hidden and is no longer Wanderlust's")
+Over(true)
+assert(not ui.shown, "the minimap no longer reveals an interface the player hid")
+SetVisibility(true)
+Advance(60)
+Over(true)
+Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "instant", 1002)
+assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and Pending() == 1,
+	"an ability over the see-through interface restores it fully and starts a new minute")
+Advance(60)
+Over(true)
 Enable(false)
-assert(not stateDriver and not ns.WanderlustMinimapMouseover, "deferred cleanup leaves no minimap override or driver active")
+assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
+	"disabling during the minimap view restores the interface")
 print("Wanderlust timing, minimap mouseover, abilities, targets, windows and lifecycle OK")

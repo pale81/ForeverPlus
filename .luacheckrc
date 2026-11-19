@@ -310,7 +310,6 @@ read_globals = {
 	"QuestObjectiveTracker",
 	"QuickJoinToastButton",
 	"RegisterStateDriver",
-	"UnregisterStateDriver",
 	"ReloadUI",
 	"RepairAllItems",
 	"SOUNDKIT",

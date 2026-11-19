@@ -3,14 +3,14 @@
 local _, ns = ...
 local L = ns.L
 
--- Sound files of the game (FileDataIDs, community listfile): heavy classic footsteps for a jump,
--- a dull thud on dirt and grass for a longer fall.
+-- Sound files of the game (FileDataIDs, community listfile): small classic footsteps for a jump (the heavy ones
+-- were too loud for every jump), a dull thud on dirt and grass for a longer fall.
 local JUMP_SOUNDS = {
-	540156, -- Sound/CHARACTER/FOOTSTEPS/mFootMediumLargeDirtA.ogg
-	540168, -- Sound/CHARACTER/FOOTSTEPS/mFootMediumLargeDirtD.ogg
-	540127, -- Sound/CHARACTER/FOOTSTEPS/mFootMediumLargeDirtG.ogg
-	540159, -- Sound/CHARACTER/FOOTSTEPS/mFootMediumLargeDirtH.ogg
-	540155, -- Sound/CHARACTER/FOOTSTEPS/mFootMediumLargeDirtI.ogg
+	540227, -- Sound/CHARACTER/FOOTSTEPS/mFootSmallDirtA.ogg
+	540136, -- Sound/CHARACTER/FOOTSTEPS/mFootSmallDirtB.ogg
+	540099, -- Sound/CHARACTER/FOOTSTEPS/mFootSmallDirtC.ogg
+	540201, -- Sound/CHARACTER/FOOTSTEPS/mFootSmallDirtD.ogg
+	540128, -- Sound/CHARACTER/FOOTSTEPS/mFootSmallDirtE.ogg
 }
 local FALL_SOUNDS = {
 	950654, -- Sound/DOODAD/FX_DeathThud_DirtGrass_med_01.OGG

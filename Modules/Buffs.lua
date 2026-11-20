@@ -201,13 +201,23 @@ local function TrackingActive(spellIDs)
 end
 Buffs.TrackingActive = TrackingActive
 
-local function WeaponEnchantTime(weapon)
-	local enchants = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[weapon])
+-- Seconds left on the weapon's timed enchant (imbue, poison, oil), nil when there is none. The list also holds
+-- the permanent enchant (enchantType Permanent): it is no imbue and must not stand in for its time.
+local function EnchantTimeLeft(enchants)
+	local permanent = Enum.ItemEnchantType and Enum.ItemEnchantType.Permanent
+	local best
 	for _, enchant in pairs(enchants or {}) do
-		if enchant.hasEnchant then
-			return (enchant.timeLeft or 0) / 1000
+		if enchant.hasEnchant and enchant.enchantType ~= permanent then
+			local left = (enchant.timeLeft or 0) / 1000
+			best = best and math.max(best, left) or left
 		end
 	end
+	return best
+end
+Buffs.EnchantTimeLeft = EnchantTimeLeft
+
+local function WeaponEnchantTime(weapon)
+	return EnchantTimeLeft(C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[weapon]))
 end
 
 local function HasWeapon(slot)

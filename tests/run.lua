@@ -9922,5 +9922,26 @@ end)()
 	ns.PrintAlways, C_Timer.NewTimer, ns.measureTimer, ns.measureUntil = unpack(saved, 1, 4)
 	print("timed measurement start OK")
 end)()
+
+-- Weapon reminder: a permanent enchant on the same weapon does not stand in for the imbue's time
+;(function()
+	local buffs = ns:GetModule("Buffs")
+	local saved = Enum.ItemEnchantType
+	Enum.ItemEnchantType = { None = 0, Permanent = 1, Temporary = 2, Imbue = 3 }
+	local imbue = { hasEnchant = true, enchantType = 3, timeLeft = 1680000 }
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = true, enchantType = 1, timeLeft = 0 }, imbue }) == 1680,
+		"permanent enchant listed first with no timer: imbue time counts")
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = true, enchantType = 1, timeLeft = 1 }, imbue }) == 1680,
+		"permanent enchant listed first with a tiny timer: imbue time counts")
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = true, enchantType = 1, timeLeft = 0 } }) == nil,
+		"only a permanent enchant: imbue missing")
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = false, enchantType = 0, timeLeft = 0 } }) == nil, "nothing on the weapon")
+	assert(buffs.EnchantTimeLeft(nil) == nil and buffs.EnchantTimeLeft({}) == nil, "no list")
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = true, enchantType = 2, timeLeft = 30000 } }) == 30, "temporary enchant counts")
+	assert(buffs.EnchantTimeLeft({ { hasEnchant = true, enchantType = 2, timeLeft = 30000 }, imbue }) == 1680,
+		"two timed entries: the longer one")
+	Enum.ItemEnchantType = saved
+	print("weapon enchant time OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

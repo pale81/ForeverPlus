@@ -419,17 +419,27 @@ local function OwnerName(owner)
 end
 
 -- An error in one listener goes to the error handler; the others still run.
+-- The game's stack ends at the xpcall below, so the message names the listener and the event.
+local runningOwner, runningEvent
+
 local function ErrorHandler(message)
+	if runningOwner and type(message) == "string" then
+		message = message .. " (ForeverPlus listener " .. OwnerName(runningOwner) .. ": " .. runningEvent .. ")"
+	end
 	return geterrorhandler()(message)
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, ...)
 	local set = listeners[event]
 	if set then
+		-- An event can fire inside another listener: restore the outer one afterwards.
+		local outerOwner, outerEvent = runningOwner, runningEvent
+		runningEvent = event
 		if ns.measuring or sessionSampler then
 			for owner, fn in pairs(set) do
 				local measurement = ActiveMeasurement()
 				local start = debugprofilestop()
+				runningOwner = owner
 				xpcall(fn, ErrorHandler, owner, event, ...)
 				local elapsed = debugprofilestop() - start
 				if measurement and measurement == ns.spikes and ns.measuring then
@@ -438,11 +448,13 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 					RecordFrameCall(OwnerName(owner) .. ": " .. event, elapsed)
 				end
 			end
-			return
+		else
+			for owner, fn in pairs(set) do
+				runningOwner = owner
+				xpcall(fn, ErrorHandler, owner, event, ...)
+			end
 		end
-		for owner, fn in pairs(set) do
-			xpcall(fn, ErrorHandler, owner, event, ...)
-		end
+		runningOwner, runningEvent = outerOwner, outerEvent
 	end
 end)
 

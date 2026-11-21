@@ -8986,6 +8986,16 @@ end)()
 	local first = heard
 	onEvent(nil, "FP_TEST_EVENT")
 	assert(first <= 1 and heard == first + 1, "listener added during an event")
+	-- An error names the listener and the event: the game's stack ends at the dispatcher's xpcall
+	local savedHandler, reported = geterrorhandler, {}
+	geterrorhandler = function() return function(message) reported[#reported + 1] = message end end
+	ns:RegisterEvent("FP_TEST_ERROR", { name = "Faulty" }, function() error("boom", 0) end)
+	ns:RegisterEvent("FP_TEST_ERROR", { name = "Healthy" }, function() heard = heard + 1 end)
+	heard = 0
+	onEvent(nil, "FP_TEST_ERROR")
+	geterrorhandler = savedHandler
+	assert(#reported == 1 and reported[1] == "boom (ForeverPlus listener Faulty: FP_TEST_ERROR)" and heard == 1,
+		"listener errors name the listener, the others still run: " .. tostring(reported[1]))
 	-- Timers run through the measurement
 	local savedAfter, savedTimer, savedTicker = C_Timer.After, C_Timer.NewTimer, C_Timer.NewTicker
 	C_Timer.After = function(_, fn) fn() end

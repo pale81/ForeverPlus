@@ -18,6 +18,7 @@ local Auction = ns:NewModule("Auction", {
 		vendorQuickBuyQty = 1,
 		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
 		scoreSort = false, -- the buy list by the rating of the items against what is worn
+		hideVendorItems = false, -- the buy list without goods a merchant sells freely for gold
 		duration24 = true,
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
@@ -267,9 +268,25 @@ local function Profitable(rowData)
 	return vendor > price and price <= vendor * (1 - margin)
 end
 
--- The view is Blizzard's list filtered for profit and/or sorted by rating.
+-- The view is Blizzard's list filtered for profit or without merchant goods, and/or sorted by rating.
 local function ViewActive()
-	return Auction.db.vendorBuyFilter or (Auction.db.scoreSort and ns.ItemLinkRating ~= nil)
+	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or (Auction.db.scoreSort and ns.ItemLinkRating ~= nil)
+end
+
+-- Goods a merchant sells for gold in unlimited stock: the bundled list and what this character saw at merchants.
+local merchantGoods
+
+function Auction.IsMerchantGood(itemID)
+	if not itemID then
+		return false
+	end
+	if not merchantGoods then
+		merchantGoods = {}
+		for _, id in ipairs(ns.VendorItemsEG or {}) do
+			merchantGoods[id] = true
+		end
+	end
+	return merchantGoods[itemID] or (Auction.cdb and Auction.cdb.vendorBuyPrices[itemID] ~= nil) or false
 end
 
 -- Ranks by rating: better and wearable now, better once the level is reached, other equipment, nothing to compare,
@@ -316,6 +333,9 @@ end
 
 -- Whether the view shows a row (nil while its merchant price is not known, with the item ID); notes its place.
 local function Judge(rowData, index)
+	if Auction.db.hideVendorItems and Auction.IsMerchantGood(ItemIDOf(rowData)) then
+		return false
+	end
 	if Auction.db.vendorBuyFilter then
 		local verdict, itemID = Profitable(rowData)
 		if not verdict then
@@ -1136,6 +1156,8 @@ function Auction:OnLogin()
 			if ns.ItemLinkRating then
 				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_SORT, "Auction", "scoreSort", L.AUCTION_SCORE_SORT_DESC)
 			end
+			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_HIDE_VENDOR_ITEMS, "Auction", "hideVendorItems",
+				L.AUCTION_HIDE_VENDOR_ITEMS_DESC)
 		end)
 	end
 	ns.OnAddOnLoaded("Blizzard_AuctionHouseUI", function()
@@ -1176,7 +1198,8 @@ function Auction:OnOptionChanged(key)
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
-	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort" then
+	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
+		or key == "hideVendorItems" then
 		ApplyBuyFilter()
 	elseif key == "vendorQuickBuy" then
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
@@ -1197,6 +1220,7 @@ Auction.options = {
 	{ key = "vendorQuickBuyQty", type = "slider", name = L.AUCTION_QUICK_BUY_QTY, desc = L.AUCTION_QUICK_BUY_QTY_DESC, parent = "vendorQuickBuy",
 		min = 1, max = 200, step = 1 },
 	{ key = "scoreSort", type = "toggle", name = L.AUCTION_SCORE_SORT, desc = L.AUCTION_SCORE_SORT_DESC, new = true },
+	{ key = "hideVendorItems", type = "toggle", name = L.AUCTION_HIDE_VENDOR_ITEMS, desc = L.AUCTION_HIDE_VENDOR_ITEMS_DESC, new = true },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {

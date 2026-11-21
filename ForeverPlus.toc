@@ -43,6 +43,7 @@ Data\Library.lua
 Data\Radar.lua
 Data\RadarEG.lua
 Data\LootEG.lua
+Data\VendorItemsEG.lua
 Data\QuestsEG.lua
 Data\Points.lua
 Data\FontFamilies.lua

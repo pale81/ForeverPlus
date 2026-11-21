@@ -7593,6 +7593,31 @@ end)()
 	C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID = savedCached, savedRequest
 	print("auction rating sort OK")
 end)()
+-- Auction house: merchant goods hidden from the buy list
+;(function()
+	local A = ns:GetModule("Auction")
+	local F = A.Filter
+	local savedAPI, savedCdb = C_AuctionHouse, A.cdb
+	C_AuctionHouse = { HasFullBrowseResults = function() return true end, RequestMoreBrowseResults = function() end }
+	A.cdb = { vendorBuyPrices = { [424242] = 5 } }
+	assert(A.IsMerchantGood(159) and A.IsMerchantGood(424242) and not A.IsMerchantGood(424243) and not A.IsMerchantGood(nil),
+		"bundled list and own merchant visits")
+	local function row(id) return { itemKey = { itemID = id }, minPrice = 10, totalQuantity = 1 } end
+	local provider
+	local frame = { browseResults = { row(424243), row(159), row(424242), row(424244) }, IsShown = function() return true end,
+		ItemList = { getNumEntries = function() return 0 end, searchStartedFunc = function() return true end,
+			SetDataProvider = function(_, _, entry, count) provider = { entry = entry, count = count } end,
+			RefreshScrollFrame = function() end } }
+	AuctionHouseFrame = { BrowseResultsFrame = frame }
+	A.db.vendorBuyFilter, A.db.scoreSort, A.db.hideVendorItems = false, false, true
+	F.Apply()
+	local r = frame.browseResults
+	assert(provider.count() == 2 and provider.entry(1) == r[1] and provider.entry(2) == r[4], "merchant goods left out, order kept")
+	A.db.hideVendorItems = false
+	F.Apply()
+	C_AuctionHouse, A.cdb = savedAPI, savedCdb
+	print("auction merchant goods OK")
+end)()
 -- Auction house: quick buy plan
 ;(function()
 	local A = ns:GetModule("Auction")

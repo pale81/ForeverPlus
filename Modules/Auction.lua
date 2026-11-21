@@ -17,9 +17,8 @@ local Auction = ns:NewModule("Auction", {
 		vendorQuickBuy = false,
 		vendorQuickBuyQty = 1,
 		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
-		scoreSort = false, -- the buy list by the rating of the items against what is worn
-		scoreOnlyBetter = true, -- with the rating sort: only items better than what is worn
-		scoreValueSort = false, -- with the rating sort: the most gain per gold first
+		scoreSort = false, -- "Upgrades": only items better than what is worn, the biggest gain first
+		scoreValueSort = false, -- "Value": only items better than what is worn, the most gain per gold first
 		hideVendorItems = false, -- the buy list without goods a merchant sells freely for gold
 		duration24 = true,
 		startTab = "buy",
@@ -159,6 +158,12 @@ local itemArrows = setmetatable({}, { __mode = "k" })
 local gainLabels = setmetatable({}, { __mode = "k" })
 local RowGain -- below, with the sorted view
 
+-- The buy list rated against what is worn: "Upgrades" (the biggest gain first) or "Value" (the most gain per gold
+-- first). Both show only items better than what is worn; they exclude each other.
+local function Rated()
+	return (Auction.db.scoreSort or Auction.db.scoreValueSort) and ns.ItemLinkRating ~= nil
+end
+
 -- The label text (with the gain per gold when that sorts) and whether it is a gain; nil for no rated equipment.
 function Auction.GainText(gain, perGold)
 	if type(gain) ~= "number" then
@@ -174,7 +179,7 @@ end
 
 local function UpdateGainLabel(cell)
 	local gain, perGold
-	if not cell.Prefix and Auction.db.scoreSort then
+	if not cell.Prefix and Rated() then
 		gain, perGold = RowGain(cell.rowData)
 	end
 	local text, better = Auction.GainText(gain, perGold)
@@ -210,9 +215,9 @@ local function OnItemCell(cell, itemKey)
 	if not arrow and state then
 		arrow = cell:CreateTexture(nil, "OVERLAY", nil, 7)
 		arrow:SetAtlas("bags-greenarrow")
-		-- on the icon: left of it lies outside the cell, where the list clips it
-		arrow:SetSize(10, 10)
-		arrow:SetPoint("TOPRIGHT", cell.Icon, "TOPRIGHT", 3, 3)
+		-- beside the icon, where it can be bigger than on it
+		arrow:SetSize(12, 12)
+		arrow:SetPoint("RIGHT", cell.Icon, "LEFT", -1, 0)
 		itemArrows[cell] = arrow
 	end
 	if arrow then
@@ -322,16 +327,12 @@ end
 
 -- The view is Blizzard's list filtered for profit or without merchant goods, and/or sorted by rating.
 local function ViewActive()
-	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or (Auction.db.scoreSort and ns.ItemLinkRating ~= nil)
-end
-
-local function OnlyBetter()
-	return Auction.db.scoreSort and Auction.db.scoreOnlyBetter and ns.ItemLinkRating ~= nil
+	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or Rated()
 end
 
 -- The view leaves rows out: it pages by itself, since Blizzard asks for more only near the end of its own list.
 local function Hiding()
-	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or OnlyBetter()
+	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or Rated()
 end
 
 -- Goods a merchant sells for gold: the bundled list, the recipes of the recipe vendors (Data/Radar.lua) and what this
@@ -376,7 +377,7 @@ end
 
 -- Place of a shown row: rank first (lower first), then value (higher first), then Blizzard's order.
 function Auction.SortKey(rowData, index)
-	if Auction.db.scoreSort and ns.ItemLinkRating then
+	if Rated() then
 		local itemID = ItemIDOf(rowData)
 		local link = Auction.RowLink(rowData, rowData.itemKey)
 		if not link and itemID and C_Item.IsItemDataCachedByID(itemID) then
@@ -441,7 +442,7 @@ end
 
 -- A row that passed the filters, if only better items are wanted: rated better than what is worn.
 local function Visible(rowData)
-	if not OnlyBetter() then
+	if not Rated() then
 		return true
 	end
 	local key = filter.keys[rowData]
@@ -777,6 +778,8 @@ function QueueRefresh(delay, redraw)
 	end)
 end
 
+local UpdateClearButton -- below, with the own filters
+
 local function ApplyBuyFilter()
 	local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
 	if not browseFrame then
@@ -802,6 +805,36 @@ local function EnsureProvider(browseFrame)
 	local itemList = browseFrame and browseFrame.ItemList
 	if ViewActive() and itemList and itemList.getNumEntries ~= ownCount then
 		ApplyBuyFilter()
+	end
+end
+
+-- Own switches in Blizzard's filter menu: its clear button (the X) clears them too, and shows while one is on.
+local OWN_FILTERS = { "vendorBuyFilter", "hideVendorItems", "scoreSort", "scoreValueSort" }
+
+function Auction.OwnFiltersOn()
+	for _, key in ipairs(OWN_FILTERS) do
+		if Auction.db[key] then
+			return true
+		end
+	end
+	return false
+end
+
+function Auction.ClearOwnFilters()
+	if not Auction.OwnFiltersOn() then
+		return
+	end
+	for _, key in ipairs(OWN_FILTERS) do
+		Auction.db[key] = false
+	end
+	ApplyBuyFilter()
+end
+
+function UpdateClearButton()
+	local bar = AuctionHouseFrame and AuctionHouseFrame.SearchBar
+	local button = bar and bar.FilterButton and bar.FilterButton.ClearFiltersButton
+	if button and Auction.OwnFiltersOn() then
+		button:Show()
 	end
 end
 
@@ -1308,6 +1341,10 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
+	self.db.scoreOnlyBetter = nil -- merged into "Upgrades" and "Value", which always show only better items
+	if self.db.scoreSort and self.db.scoreValueSort then
+		self.db.scoreSort = false -- before they excluded each other, "Value" was a sub-option of the rating sort
+	end
 	self:ApplyDuration()
 	-- Auction prices are noted on every look (also with the tooltip line switched off: they are there when it is on).
 	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", OnBrowseResults)
@@ -1329,10 +1366,6 @@ function Auction:OnLogin()
 				L.AUCTION_VENDOR_BUY_FILTER_DESC)
 			if ns.ItemLinkRating then
 				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_SORT, "Auction", "scoreSort", L.AUCTION_SCORE_SORT_DESC)
-			end
-			if ns.ItemLinkRating then
-				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_ONLY_BETTER, "Auction", "scoreOnlyBetter",
-					L.AUCTION_SCORE_ONLY_BETTER_DESC)
 				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_VALUE_SORT, "Auction", "scoreValueSort",
 					L.AUCTION_SCORE_VALUE_SORT_DESC)
 			end
@@ -1367,6 +1400,16 @@ function Auction:OnLogin()
 		if AuctionHouseFrame then
 			HookBrowsePrices(AuctionHouseFrame.BrowseResultsFrame)
 			HookBuyFilter()
+			local bar = AuctionHouseFrame.SearchBar
+			if bar and bar.FilterButton and bar.FilterButton.Reset then
+				hooksecurefunc(bar.FilterButton, "Reset", ns.Measured("Auction: clear filters", Auction.ClearOwnFilters))
+			end
+			if bar and bar.UpdateClearFiltersButton then
+				hooksecurefunc(bar, "UpdateClearFiltersButton", UpdateClearButton)
+			end
+			if bar and bar.HookScript then
+				bar:HookScript("OnShow", UpdateClearButton)
+			end
 			HookSellFrames()
 			hooksecurefunc(AuctionHouseFrame, "OnShow", ApplyStartTab)
 		end
@@ -1374,13 +1417,20 @@ function Auction:OnLogin()
 end
 
 function Auction:OnOptionChanged(key)
+	-- "Upgrades" and "Value" exclude each other
+	if key == "scoreSort" and self.db.scoreSort then
+		self.db.scoreValueSort = false
+	elseif key == "scoreValueSort" and self.db.scoreValueSort then
+		self.db.scoreSort = false
+	end
 	if key == "duration24" then
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
-		or key == "hideVendorItems" or key == "scoreOnlyBetter" or key == "scoreValueSort" then
+		or key == "hideVendorItems" or key == "scoreValueSort" then
 		ApplyBuyFilter()
+		UpdateClearButton()
 	elseif key == "vendorQuickBuy" then
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
 		if browseFrame and browseFrame.ItemList and browseFrame.ItemList.RefreshScrollFrame then
@@ -1400,10 +1450,8 @@ Auction.options = {
 	{ key = "vendorQuickBuyQty", type = "slider", name = L.AUCTION_QUICK_BUY_QTY, desc = L.AUCTION_QUICK_BUY_QTY_DESC, parent = "vendorQuickBuy",
 		min = 1, max = 200, step = 1 },
 	{ key = "scoreSort", type = "toggle", name = L.AUCTION_SCORE_SORT, desc = L.AUCTION_SCORE_SORT_DESC, new = true },
-	{ key = "scoreOnlyBetter", type = "toggle", name = L.AUCTION_SCORE_ONLY_BETTER, desc = L.AUCTION_SCORE_ONLY_BETTER_DESC,
-		parent = "scoreSort", new = true },
 	{ key = "scoreValueSort", type = "toggle", name = L.AUCTION_SCORE_VALUE_SORT, desc = L.AUCTION_SCORE_VALUE_SORT_DESC,
-		parent = "scoreSort", new = true },
+		new = true },
 	{ key = "hideVendorItems", type = "toggle", name = L.AUCTION_HIDE_VENDOR_ITEMS, desc = L.AUCTION_HIDE_VENDOR_ITEMS_DESC, new = true },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },

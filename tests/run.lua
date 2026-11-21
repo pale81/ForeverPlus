@@ -7574,14 +7574,13 @@ end)()
 			SetDataProvider = function(_, started, entry, count, hasFull) provider = { entry = entry, count = count } end,
 			RefreshScrollFrame = function() end } }
 	AuctionHouseFrame = { BrowseResultsFrame = frame }
-	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreOnlyBetter = false, true, false
+	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreValueSort = false, true, false
 	F.Apply()
 	local r = frame.browseResults
-	assert(provider.count() == 7, "all rows stay in the list")
 	local order = {}
-	for i = 1, 7 do order[i] = provider.entry(i).itemKey.itemID end
-	assert(table.concat(order, ",") == "1,6,2,3,5,4,7",
-		"wearable upgrades by gain, then later ones, then other gear, then no comparison, loading last: " .. table.concat(order, ","))
+	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
+	assert(table.concat(order, ",") == "1,6,2",
+		"only upgrades, wearable ones by gain, then later ones; worse, no comparison and loading left out: " .. table.concat(order, ","))
 	assert(A.GainText(5) == "+5.0" and select(2, A.GainText(5)) == true, "a gain shows green with its sign")
 	local worse, better = A.GainText(-2)
 	assert(worse == "-2.0" and better == false and A.GainText(nil) == nil, "a loss shows grey, no rating no label")
@@ -7614,41 +7613,64 @@ end)()
 	F.ItemCell(cell(r[2], 100), r[2].itemKey)
 	assert(made == nil, "no label without a comparison")
 	ns.ItemLinkUpgradeState = savedUpgrade
-	-- the rating of a loading item arrives: the row moves to its place on the batched refresh
-	ratings[7] = { 8, "ok" }
-	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
-	while #refreshes > 0 do table.remove(refreshes, 1)() end
-	assert(provider.entry(1) == r[7] and provider.entry(2) == r[3], "a late rating lands at its place")
-	-- only upgrades: worse gear, rows without comparison and loading rows are left out; pages load by themselves
-	ratings[7] = nil
+	-- a short list asks for the next page by itself
 	local full, more = false, 0
 	C_AuctionHouse.HasFullBrowseResults = function() return full end
 	C_AuctionHouse.RequestMoreBrowseResults = function() more = more + 1 end
-	A.db.scoreOnlyBetter = true
 	F.Apply()
-	order = {}
-	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
-	assert(table.concat(order, ",") == "1,6,2", "only better items, wearable ones first: " .. table.concat(order, ","))
+	provider.count()
 	assert(more == 1, "a short list asks for the next page by itself")
 	assert(A.FilterStatusText(2, 0, false, true) == ns.L.AUCTION_FILTER_STATUS_OTHER:format(2, 20, 10), "status line without profit wording")
 	ratings[7] = { 8, "ok" }
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
 	while #refreshes > 0 do table.remove(refreshes, 1)() end
-	assert(provider.count() == 4 and provider.entry(1) == r[7], "a late upgrade joins the list")
+	assert(provider.count() == 4 and provider.entry(1) == r[7] and provider.entry(2) == r[3], "a late upgrade joins at its place")
 	-- value: gain per gold of the cheapest offer, within the groups (5 for 4 g, 3 for 1 g, 8 for 2 g, later 9 for 1 c)
 	ratings[1], ratings[6], ratings[7], ratings[2] = { 5, "ok" }, { 3, "ok" }, { 8, "ok" }, { 9, "level" }
 	r[3].minPrice, r[6].minPrice, r[7].minPrice, r[5].minPrice = 40000, 10000, 20000, 1
+	A.ClearOwnFilters()
 	A.db.scoreValueSort = true
-	F.Apply()
+	A:OnOptionChanged("scoreValueSort")
+	assert(not A.db.scoreSort, "value and upgrades exclude each other")
 	order = {}
 	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
 	assert(table.concat(order, ",") == "7,6,1,2", "most gain per gold first, later upgrades after: " .. table.concat(order, ","))
+	A.db.scoreSort = true
+	A:OnOptionChanged("scoreSort")
+	assert(not A.db.scoreValueSort, "upgrades switch value off")
+	A.db.scoreSort, A.db.scoreValueSort = false, true
 	assert(A.GainText(3, 12) == "+3.0 · 12/g" and A.GainText(3, 0.5) == "+3.0 · 0.5/g", "gain and rating per gold in the row")
 	A.db.scoreValueSort = false
 	assert(A.GainText(3, 12) == "+3.0", "without the value sort only the gain")
-	ratings[7] = nil
-	A.db.scoreSort = false
-	F.Apply()
+	-- the order holds when rows arrive in pages and their item data later, in both modes (seen wrong in game)
+	local gains = { 6.1, 4.5, 9.5, 5.6, 5.1, 0.4, 12.0, 7.3 }
+	local costs = { 549, 600, 1200, 900, 899, 50, 75000, 2000 }
+	for _, value in ipairs({ false, true }) do
+		A.db.scoreSort, A.db.scoreValueSort = not value, value
+		ratings = {}
+		frame.browseResults = {}
+		F.Apply()
+		for id = 11, 14 do frame.browseResults[#frame.browseResults + 1] = { itemKey = { itemID = id }, minPrice = costs[id - 10] * 100, totalQuantity = 1 } end
+		ratings[12], ratings[13] = { gains[2], "ok" }, { gains[3], "ok" }
+		provider.count()
+		for id = 15, 18 do frame.browseResults[#frame.browseResults + 1] = { itemKey = { itemID = id }, minPrice = costs[id - 10] * 100, totalQuantity = 1 } end
+		provider.count()
+		for id = 11, 18 do
+			ratings[id] = { gains[id - 10], "ok" }
+			F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", id)
+			while #refreshes > 0 do table.remove(refreshes, 1)() end
+		end
+		local last
+		for i = 1, provider.count() do
+			local key = provider.entry(i).itemKey.itemID - 10
+			local measure = value and gains[key] / costs[key] or gains[key]
+			assert(not last or measure <= last, (value and "value" or "upgrades") .. ": row " .. i .. " out of order")
+			last = measure
+		end
+		assert(provider.count() == 8, "all upgrades shown")
+	end
+	ratings = {}
+	A.ClearOwnFilters()
 	ns.ItemLinkRating, C_AuctionHouse, C_Timer.After = savedRating, savedAPI, savedAfter
 	C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID = savedCached, savedRequest
 	print("auction rating sort OK")
@@ -7680,11 +7702,12 @@ end)()
 			SetDataProvider = function(_, _, entry, count) provider = { entry = entry, count = count } end,
 			RefreshScrollFrame = function() redraws = redraws + 1 end } }
 	AuctionHouseFrame = { BrowseResultsFrame = frame }
-	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreOnlyBetter, A.db.hideVendorItems = false, true, false, false
+	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreValueSort, A.db.hideVendorItems = false, true, false, false
 	F.Apply()
 	provider.count()
 	while #queue > 0 do Tick() end
-	assert(provider.count() == 10 and #F.State.loading == 10, "all rows judged, all waiting for item data")
+	-- "Upgrades" shows only rated upgrades: rows still waiting for item data are not shown yet
+	assert(provider.count() == 0 and #F.State.loading == 10, "all rows judged, all waiting for item data")
 	for i = 1, 10 do ratings[i] = { i, "ok" } end
 	redraws = 0
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 1)
@@ -7736,6 +7759,18 @@ end)()
 	frame.ItemList.getNumEntries = own.count
 	F.Ensure(frame)
 	assert(provider == nil, "a view in place is left alone")
+	-- Blizzard's clear button (the X) shows while an own filter is on and clears the own filters too
+	local shown = false
+	AuctionHouseFrame.SearchBar = { FilterButton = { ClearFiltersButton = { Show = function() shown = true end } } }
+	A:OnOptionChanged("hideVendorItems")
+	assert(shown and A.OwnFiltersOn(), "the X shows for an own filter")
+	A.db.scoreSort = true
+	A.ClearOwnFilters()
+	assert(not A.OwnFiltersOn() and not A.db.hideVendorItems and not A.db.scoreSort, "the X clears the own filters")
+	shown = false
+	A:OnOptionChanged("hideVendorItems")
+	assert(not shown, "no own filter, the X is Blizzard's alone")
+	AuctionHouseFrame.SearchBar = nil
 	A.db.hideVendorItems = false
 	F.Apply()
 	C_AuctionHouse, A.cdb = savedAPI, savedCdb

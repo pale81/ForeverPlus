@@ -281,14 +281,15 @@ local filter = {
 	verdict = {},      -- [row index] = true/false once judged
 	judged = 0,        -- rows of the source judged so far (rows waiting for item data included)
 	list = {},         -- profitable rows in the order of Blizzard's list
-	rebuild = false,   -- the list must be rebuilt from the verdicts (a late verdict landed inside)
+	late = {},         -- rows shown after a late verdict (item data arrived), placed on the next refresh
 	waiting = {},      -- [item ID] = row indexes waiting for the merchant price
 	requests = 0,      -- pages requested by itself for this search
 	requestedAt = -1,  -- row count at the last request
 	requestTime = 0,
 	capped = false,    -- no further pages are requested by itself
 	keys = {},         -- [row] = { rank, value, index }: place of a shown row in the view
-	unrated = false,   -- a shown row waits for item data to be rated
+	loading = {},      -- rows that passed but wait for item data to be rated
+	rerate = false,    -- item data arrived: the loading rows are rated again on the next refresh
 }
 local originalProvider
 local ownCount -- the view's count function while it is in place
@@ -432,7 +433,9 @@ local function Judge(rowData, index)
 	end
 	local key = Auction.SortKey(rowData, index)
 	filter.keys[rowData] = key
-	filter.unrated = filter.unrated or key[1] == RANK_LOADING
+	if key[1] == RANK_LOADING then
+		filter.loading[#filter.loading + 1] = rowData
+	end
 	return true
 end
 
@@ -445,23 +448,69 @@ local function Visible(rowData)
 	return key ~= nil and key[1] <= RANK_LATER
 end
 
--- Adds a shown row at its place in the sorted view.
-local function Insert(list, rowData)
-	local low, high = 1, #list + 1
-	while low < high do
-		local mid = floor((low + high) / 2)
-		if Before(rowData, list[mid]) then
-			high = mid
-		else
-			low = mid + 1
+-- The sorted view with the changed rows (new, or with a new key) at their place: the others keep their order, so
+-- only the changed rows are sorted and then merged in (a full sort of a long list costs several milliseconds).
+local function Place(list, changed)
+	local moved, add = {}, {}
+	for _, rowData in ipairs(changed) do
+		if not moved[rowData] then
+			moved[rowData] = true
+			if Visible(rowData) then
+				add[#add + 1] = rowData
+			end
 		end
 	end
-	tinsert(list, low, rowData)
+	table.sort(add, Before)
+	local out, a = {}, 1
+	for _, rowData in ipairs(list) do
+		if not moved[rowData] then
+			while add[a] and Before(add[a], rowData) do
+				out[#out + 1] = add[a]
+				a = a + 1
+			end
+			out[#out + 1] = rowData
+		end
+	end
+	for k = a, #add do
+		out[#out + 1] = add[k]
+	end
+	return out
+end
+
+-- Rates the loading rows again, as many as the slice allows; the rated ones go to `changed`.
+-- Returns true while rows are left for the next slice.
+local function Rerate(changed)
+	local loading, still = filter.loading, {}
+	local deadline = debugprofilestop() + FILTER_BUDGET
+	local n, i = #loading, 1
+	while i <= n do
+		local rowData = loading[i]
+		i = i + 1
+		local key = Auction.SortKey(rowData, filter.keys[rowData][3])
+		if key[1] == RANK_LOADING then
+			still[#still + 1] = rowData
+		else
+			filter.keys[rowData] = key
+			changed[#changed + 1] = rowData
+		end
+		if debugprofilestop() >= deadline then
+			break
+		end
+	end
+	local rest = {}
+	for k = i, n do
+		rest[#rest + 1] = loading[k]
+	end
+	for _, rowData in ipairs(still) do
+		rest[#rest + 1] = rowData
+	end
+	filter.loading = rest
+	return i <= n
 end
 
 local function ResetFilter()
 	filter.source, filter.verdict, filter.judged, filter.list = nil, {}, 0, {}
-	filter.rebuild, filter.waiting, filter.keys, filter.unrated = false, {}, {}, false
+	filter.waiting, filter.keys, filter.late, filter.loading, filter.rerate = {}, {}, {}, {}, false
 	filter.scanPending = false
 	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
 	filter.searchId, filter.timerStarted = (filter.searchId or 0) + 1, false
@@ -482,13 +531,14 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 			ResetFilter()
 		else
 			filter.verdict, filter.waiting, filter.list, filter.judged = {}, {}, {}, 0
-			filter.rebuild, filter.scanPending, filter.keys, filter.unrated = false, false, {}, false
+			filter.scanPending, filter.keys, filter.late, filter.loading, filter.rerate = false, {}, {}, {}, false
 		end
 		filter.source = rows
 	end
 	if not filter.scanPending and filter.judged < #rows then
 		local last = min(#rows, filter.judged + FILTER_BATCH)
 		local deadline = debugprofilestop() + FILTER_BUDGET
+		local fresh = {}
 		for i = filter.judged + 1, last do
 			local verdict, itemID = Judge(rows[i], i)
 			if verdict == nil then
@@ -500,8 +550,8 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 				waiting[#waiting + 1] = i
 			else
 				filter.verdict[i] = verdict
-				if verdict and not filter.rebuild and Visible(rows[i]) then
-					Insert(filter.list, rows[i])
+				if verdict then
+					fresh[#fresh + 1] = rows[i]
 				end
 			end
 			if debugprofilestop() >= deadline then
@@ -510,30 +560,24 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 			end
 		end
 		filter.judged = last
-	end
-	if filter.rebuild then
-		if applyLateVerdicts then
-			local list = {}
-			local rerate = filter.unrated
-			filter.unrated = false
-			for i = 1, filter.judged do
-				if filter.verdict[i] then
-					local key = filter.keys[rows[i]]
-					if rerate and key[1] == RANK_LOADING then
-						key = Auction.SortKey(rows[i], i)
-						filter.keys[rows[i]] = key
-						filter.unrated = filter.unrated or key[1] == RANK_LOADING
-					end
-					if Visible(rows[i]) then
-						list[#list + 1] = rows[i]
-					end
-				end
-			end
-			table.sort(list, Before)
-			filter.list, filter.rebuild = list, false
-		else
-			QueueRefresh(0.25)
+		if #fresh > 0 then
+			filter.list = Place(filter.list, fresh)
 		end
+	end
+	if applyLateVerdicts then
+		local changed = filter.late
+		filter.late = {}
+		if filter.rerate then
+			filter.rerate = Rerate(changed)
+		end
+		if #changed > 0 then
+			filter.list = Place(filter.list, changed)
+		end
+		if filter.rerate then
+			QueueRefresh(0)
+		end
+	elseif #filter.late > 0 or filter.rerate then
+		QueueRefresh(0.25)
 	end
 	if filter.judged < #rows and not filter.scanPending then
 		filter.scanPending = true
@@ -545,19 +589,22 @@ end
 local function OnItemInfo(_, _, itemID)
 	local waiting = filter.waiting[itemID]
 	local rows = filter.source
-	if not rows or not (waiting or filter.unrated) then
+	if not rows or not (waiting or #filter.loading > 0) then
 		return
 	end
 	filter.waiting[itemID] = nil
-	-- an unrated row may wait for this item or for a worn one: the rebuild rates them again
-	local changed = filter.unrated
+	-- a loading row may wait for this item or for a worn one: the refresh rates them all again
+	local changed = #filter.loading > 0
+	filter.rerate = filter.rerate or changed
 	for _, i in ipairs(waiting or {}) do
 		local verdict = rows[i] and Judge(rows[i], i) or false
 		filter.verdict[i] = verdict
-		changed = changed or verdict
+		if verdict then
+			filter.late[#filter.late + 1] = rows[i]
+			changed = true
+		end
 	end
 	if changed then
-		filter.rebuild = true
 		QueueRefresh(0.25)
 	end
 end
@@ -681,36 +728,50 @@ function PageFilterStep(browseFrame)
 	C_AuctionHouse.RequestMoreBrowseResults()
 end
 
-local refreshQueued, refreshNeeded = false, false
+local refreshQueued, redrawOwed = false, false
 
--- Continue the scan independently of Blizzard's redraw. A slice with no new
--- hits can keep paging without rebuilding the scroll box.
+-- If Blizzard has already scheduled a refresh, let it pick up the new view.
+local Redraw = ns.Measured("Auction: list redraw", function(itemList)
+	if itemList and itemList.RefreshScrollFrame and not itemList.scrollFrameDirty then
+		itemList:RefreshScrollFrame()
+	end
+end)
+
+-- Continue the scan independently of Blizzard's redraw. A slice that changed the view redraws Blizzard's list on
+-- the next frame, not in the same one (both together cost over 5 ms); a slice with no new hits keeps paging
+-- without a redraw.
 function QueueRefresh(delay, redraw)
-	refreshNeeded = refreshNeeded or redraw
+	redrawOwed = redrawOwed or redraw or false
 	if refreshQueued then
 		return
 	end
 	refreshQueued = true
 	ns.After("Auction: QueueRefresh (timer)", delay, function()
 		refreshQueued = false
-		local needsRedraw = refreshNeeded
-		refreshNeeded = false
-		filter.scanPending = false
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
-		if not (ViewActive() and browseFrame) then
+		if not (ViewActive() and browseFrame and browseFrame:IsShown()) then
+			redrawOwed, filter.scanPending = false, false
+			if ViewActive() and browseFrame then
+				UpdateFilterStatus(browseFrame)
+			end
 			return
 		end
-		if not browseFrame:IsShown() then
-			UpdateFilterStatus(browseFrame)
+		if redrawOwed then
+			redrawOwed = false
+			Redraw(browseFrame.ItemList)
+			PageFilter(browseFrame)
+			if filter.scanPending or filter.rerate or #filter.late > 0 then
+				QueueRefresh(0)
+			end
 			return
 		end
-		local list, count = filter.list, #filter.list
+		filter.scanPending = false
+		local list = filter.list
 		SyncFilter(browseFrame, true)
-		local itemList = browseFrame.ItemList
-		-- If Blizzard has already scheduled a refresh, let it pick up the new view.
-		if itemList and itemList.RefreshScrollFrame and not itemList.scrollFrameDirty
-			and (needsRedraw or list ~= filter.list or count ~= #filter.list) then
-			itemList:RefreshScrollFrame()
+		if list ~= filter.list then
+			redrawOwed = true
+			QueueRefresh(0)
+			return
 		end
 		PageFilter(browseFrame)
 	end)

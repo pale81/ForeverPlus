@@ -7653,6 +7653,57 @@ end)()
 	C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID = savedCached, savedRequest
 	print("auction rating sort OK")
 end)()
+-- Auction house: the work of a refresh is spread over frames
+;(function()
+	local A = ns:GetModule("Auction")
+	local F = A.Filter
+	local savedRating, savedAPI, savedAfter, savedClock = ns.ItemLinkRating, C_AuctionHouse, C_Timer.After, debugprofilestop
+	local savedCached = C_Item.IsItemDataCachedByID
+	local queue, clock, ratings, redraws = {}, 0, {}, 0
+	C_Timer.After = function(_, fn) queue[#queue + 1] = fn end
+	local function Tick() table.remove(queue, 1)() end
+	debugprofilestop = function() return clock end
+	-- every rating costs 0.3 ms of the 0.5 ms slice
+	ns.ItemLinkRating = function(link)
+		clock = clock + 0.3
+		local r = ratings[tonumber(link:match("item:(%d+)"))]
+		if not r then return nil end
+		return r[1], r[2]
+	end
+	C_AuctionHouse = { HasFullBrowseResults = function() return true end, RequestMoreBrowseResults = function() end,
+		GetItemKeySampleLink = function(key) return "|Hitem:" .. key.itemID .. "|h" end }
+	C_Item.IsItemDataCachedByID = function() return true end
+	local rows, provider = {}, nil
+	for i = 1, 10 do rows[i] = { itemKey = { itemID = i }, minPrice = 10, totalQuantity = 1 } end
+	local frame = { browseResults = rows, IsShown = function() return true end,
+		ItemList = { getNumEntries = function() return 0 end, searchStartedFunc = function() return true end,
+			SetDataProvider = function(_, _, entry, count) provider = { entry = entry, count = count } end,
+			RefreshScrollFrame = function() redraws = redraws + 1 end } }
+	AuctionHouseFrame = { BrowseResultsFrame = frame }
+	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreOnlyBetter, A.db.hideVendorItems = false, true, false, false
+	F.Apply()
+	provider.count()
+	while #queue > 0 do Tick() end
+	assert(provider.count() == 10 and #F.State.loading == 10, "all rows judged, all waiting for item data")
+	for i = 1, 10 do ratings[i] = { i, "ok" } end
+	redraws = 0
+	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 1)
+	Tick()
+	assert(#F.State.loading == 8, "rating again stops at the slice budget: " .. #F.State.loading)
+	assert(redraws == 0, "the slice that changed the view does not redraw in the same frame")
+	Tick()
+	assert(redraws == 1, "Blizzard's list is redrawn on the next frame")
+	while #queue > 0 do Tick() end
+	local order = {}
+	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
+	assert(#F.State.loading == 0 and table.concat(order, ",") == "10,9,8,7,6,5,4,3,2,1",
+		"all rated in later slices and at their place: " .. table.concat(order, ","))
+	A.db.scoreSort = false
+	F.Apply()
+	ns.ItemLinkRating, C_AuctionHouse, C_Timer.After, debugprofilestop = savedRating, savedAPI, savedAfter, savedClock
+	C_Item.IsItemDataCachedByID = savedCached
+	print("auction refresh slices OK")
+end)()
 -- Auction house: merchant goods hidden from the buy list
 ;(function()
 	local A = ns:GetModule("Auction")

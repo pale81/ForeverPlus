@@ -21,6 +21,7 @@ local Dialog = ns:NewModule("Dialog", {
 		trainer = true,        -- the trainer's list in the bubble too
 		merchant = false,      -- the merchant's wares as a list in the bubble (test)
 		merchantHide = false,  -- hide wares that cannot be used or are known already
+		merchantGroups = true, -- long merchant lists grouped by equipment slot or item class
 		hidePlate = true,      -- the plate of the NPC is hidden while the bubble covers it
 		onScreen = true,       -- a big bubble slides down or aside so that it stays on the screen
 		fallback = true,       -- keep the bubble available when the NPC has no nameplate
@@ -35,6 +36,7 @@ local WIDTH = 300
 local PORTRAIT_SIZE, PORTRAIT_RIM, PORTRAIT_GAP = 64, 3, 8 -- picture, bronze ring around it, room below it
 local INSET = 16 -- the border art of the bubble lies this far around the content
 local ROW_GAP, BLOCK_GAP = 3, 8
+local NUM_WIDTH = 18 -- the column of the key numbers in front of the merchant's wares
 local ITEM_SIZE = 34
 
 local PALETTES = {
@@ -136,13 +138,45 @@ function Dialog.ScrollContent(delta, to)
 		return
 	end
 	local range = math.max(0, (scroll.full or 0) - (scroll.visible or 0))
-	local offset = to or ns.Number(scroll:GetVerticalScroll(), 0) - (delta or 0) * 28
+	-- A list in columns (merchant) moves by whole rows and always stops on a row.
+	local step = scroll.step
+	local offset = to or ns.Number(scroll:GetVerticalScroll(), 0) - (delta or 0) * (step or 28)
+	if step then
+		offset = math.floor(offset / step + 0.5) * step
+	end
 	offset = math.max(0, math.min(range, offset))
 	scroll:SetVerticalScroll(offset)
 	if current and SCROLL_KINDS[current.view.kind] then
 		current.scrollOffset = offset
 	end
-	scroll.More:SetShown(offset < range - 1)
+	-- The list shows a thin bar at its right edge instead of the arrow (the arrow covered the last price).
+	scroll.More:SetShown(not step and offset < range - 1)
+	scroll.Track:SetShown(step and range > 0 or false)
+	scroll.Thumb:SetShown(step and range > 0 or false)
+	if step and range > 0 then
+		local top, height = Dialog.ScrollThumb(offset, scroll.full, scroll.visible)
+		scroll.Track:SetHeight(scroll.visible)
+		scroll.Thumb:SetHeight(height)
+		scroll.Thumb:SetPoint("TOP", scroll.Track, "TOP", 0, -top)
+	end
+end
+
+-- A list in columns (merchant): the visible part shows whole rows only (step: height of a row and its gap).
+function Dialog.ListVisible(full, step)
+	if full <= CONTENT_MAX then
+		return math.ceil(full)
+	end
+	return math.max(1, math.floor((CONTENT_MAX + ROW_GAP) / step)) * step - ROW_GAP
+end
+
+-- The thin bar beside a scrolled list: where its thumb starts below the top and how tall it is.
+function Dialog.ScrollThumb(offset, full, visible)
+	local range = full - visible
+	if range <= 0 then
+		return 0, visible
+	end
+	local height = math.max(8, visible * visible / full)
+	return (visible - height) * math.max(0, math.min(1, offset / range)), height
 end
 
 -- Where a scrolled list stands: where it was, moved just enough to show the row lit with the keys (top, height).
@@ -578,6 +612,18 @@ local function CreateBubble()
 	frame.Scroll.More:SetSize(16, 16)
 	frame.Scroll.More:SetPoint("BOTTOMRIGHT", frame.Scroll, "BOTTOMRIGHT", 0, 0)
 	frame.Scroll.More:SetAlpha(0.8)
+	-- Merchant list: a thin bar in the margin right of the list (track and thumb), shown only while it scrolls.
+	frame.Scroll.Track = frame:CreateTexture(nil, "ARTWORK")
+	frame.Scroll.Track:SetWidth(3)
+	frame.Scroll.Track:SetPoint("TOPLEFT", frame.Scroll, "TOPRIGHT", 6, 0)
+	frame.Scroll.Track:SetColorTexture(1, 1, 1, 0.08)
+	frame.Scroll.Track:Hide()
+	frame.Scroll.Thumb = frame:CreateTexture(nil, "OVERLAY")
+	frame.Scroll.Thumb:SetWidth(3)
+	frame.Scroll.Thumb:SetColorTexture(1, 0.82, 0, 0.6)
+	frame.Scroll.Thumb:SetPoint("TOP", frame.Scroll.Track, "TOP")
+	frame.Scroll.Thumb:Hide()
+	frame.Scroll.step = false -- row step of a list in columns; false for text that scrolls freely
 	-- Merchant list: a small grey book icon of the game (round, like the buttons at the minimap) at the lower right
 	-- corner, mirror image of the x at the top right (same size, same distance); a small red x over it while
 	-- unusable and known wares are hidden.
@@ -680,23 +726,6 @@ local function CreateBubble()
 		end
 		tooltip:AddLine(GetMoneyString(cost, true), 1, 1, 1)
 	end)
-	-- Merchant list: what the mouse does, as small symbols at the top right (where the x used to be): left button
-	-- plus (more), right button minus (fewer), Shift + left button several wares; the words are in the tooltip.
-	frame.Help = CreateFrame("Frame", nil, frame)
-	frame.Help:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 1)
-	frame.Help:SetHeight(14)
-	frame.Help:EnableMouse(true)
-	frame.Help.Text = frame.Help:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	frame.Help.Text:SetPoint("RIGHT")
-	frame.Help.Text:SetJustifyH("RIGHT")
-	frame.Help:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-		GameTooltip_SetTitle(GameTooltip, L.DIALOG_MERCHANT_HELP_TITLE)
-		GameTooltip_AddNormalLine(GameTooltip, L.DIALOG_MERCHANT_HELP)
-		GameTooltip:Show()
-	end)
-	frame.Help:SetScript("OnLeave", GameTooltip_Hide)
-	frame.Help:Hide()
 	frame.rowActions = {} -- the options of the step on show, in the order of their numbers
 	frame.numberIndex = {} -- number shown in front of a row -> its place in rowActions
 	frame.maxRowNumber = 0
@@ -773,9 +802,29 @@ local function CreateRowGlow(row)
 	return row.Glow
 end
 
+-- A row of the merchant list in columns: the key number in front, the price at the right, a tick on the icon, a warm
+-- background for the row lit with the keys. Made only for rows that are drawn in columns.
+local function CreateColumns(row)
+	row.Num = row:CreateFontString(nil, "OVERLAY")
+	row.Num:SetJustifyH("RIGHT")
+	row.Num:SetTextColor(0.6, 0.6, 0.6)
+	row.Price = row:CreateFontString(nil, "OVERLAY")
+	row.Price:SetJustifyH("RIGHT")
+	row.Price:SetWordWrap(false)
+	row.Check = row:CreateTexture(nil, "OVERLAY", nil, 2)
+	row.Check:SetAtlas("common-icon-checkmark")
+	row.Check:SetSize(12, 12)
+	row.Check:SetPoint("BOTTOMRIGHT", row.Icon, "BOTTOMRIGHT", 4, -3)
+	row.Selected = row:CreateTexture(nil, "BACKGROUND", nil, -3)
+	row.Selected:SetPoint("TOPLEFT", -4, 2)
+	row.Selected:SetPoint("BOTTOMRIGHT", 4, -2)
+	row.Selected:SetColorTexture(1, 0.82, 0.3, 0.14)
+	return row.Price
+end
+
 local function CreateRow(frame)
 	local row = CreateFrame("Button", nil, frame)
-	row.Qty, row.Glow = false, false
+	row.Qty, row.Glow, row.Price = false, false, false
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
 	row.Icon:SetSize(16, 16)
 	row.Icon:SetPoint("TOPLEFT", 0, -1)
@@ -817,7 +866,8 @@ local function CreateRow(frame)
 		end
 	end)
 	row:SetScript("OnEnter", function(button)
-		button.Highlight:Show()
+		-- A group heading of the merchant list is no ware: no light under the mouse.
+		button.Highlight:SetShown(not button.header)
 		if button.tooltip then
 			GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 			button.tooltip(GameTooltip)
@@ -1021,14 +1071,15 @@ local function RenderView(view)
 	wipe(frame.rowActions)
 	wipe(frame.numberIndex)
 	frame.maxRowNumber = 0
-	local function AddText(text, color, font)
+	local function AddText(text, color, font, width, justify)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
 		fs:SetParent(host)
 		fs:SetFontObject(font or textFont)
 		fs:ClearAllPoints()
 		fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-		fs:SetWidth(WIDTH)
+		fs:SetWidth(width or WIDTH)
+		fs:SetJustifyH(justify or "LEFT")
 		fs:SetTextColor(unpack(color))
 		fs:SetText(text)
 		fs:SetAlpha(1)
@@ -1045,6 +1096,115 @@ local function RenderView(view)
 			StartReveal(view, fs, text, top)
 		end
 	end
+	-- Always set the font itself: a font object set again would not undo an earlier size.
+	local function SetRowFont(fs, scale)
+		if fontFile and fontSize then
+			fs:SetFont(fontFile, fontSize * scale, fontFlags or "")
+		else
+			fs:SetFontObject(textFont)
+		end
+	end
+	-- The merchant's wares in columns: key number | icon | name on one line (cut with "...") | price at the right.
+	-- The row lit with the keys gets a warm background instead of a larger font, so every row keeps its height and
+	-- nothing wraps. Group headings take a row of the same height. Returns the step from row to row.
+	local function AddColumnRows(rows)
+		local first = used.row
+		local priceWidth, lineHeight, reserve, arrowSlot = 0, 16, 0, false
+		for i, info in ipairs(rows) do
+			local row = Pooled(frame, "row", first + i, CreateRow)
+			local price = row.Price or CreateColumns(row)
+			SetRowFont(price, 1)
+			price:SetText(info.price or "")
+			priceWidth = math.max(priceWidth, math.ceil(ns.Number(price:GetStringWidth(), 0)))
+			SetRowFont(row.Text, info.header and 0.85 or 1)
+			row.Text:SetWordWrap(false)
+			row.Text:SetText(info.header or info.text or "")
+			lineHeight = math.max(lineHeight, math.ceil(ns.Number(row.Text:GetStringHeight(), 0)),
+				math.ceil(ns.Number(price:GetStringHeight(), 0)))
+			reserve = math.max(reserve, info.reserve or 0)
+			arrowSlot = arrowSlot or info.arrowSlot or false
+		end
+		local nameLeft = NUM_WIDTH + 4 + 16 + 4 + (arrowSlot and 15 or 0)
+		for i, info in ipairs(rows) do
+			used.row = first + i
+			local row = Pooled(frame, "row", used.row, CreateRow)
+			row:SetParent(host)
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
+			row:SetWidth(WIDTH)
+			row:SetHeight(lineHeight)
+			row.ButtonBack:Hide()
+			row.header = info.header ~= nil
+			row.link = info.link
+			row.onQuantity = info.onQuantity
+			row.Icon:ClearAllPoints()
+			row.Icon:SetPoint("LEFT", row, "LEFT", NUM_WIDTH + 4, 0)
+			row.Icon:SetShown(info.icon ~= nil)
+			if info.icon then
+				row.Icon:SetTexture(info.icon)
+			end
+			row.Arrow:ClearAllPoints()
+			row.Arrow:SetPoint("LEFT", row.Icon, "RIGHT", 3, 0)
+			row.Arrow:SetShown(info.upgrade and true or false)
+			row.Arrow:SetDesaturated(info.upgrade == "later")
+			row.Check:SetShown(info.picked and true or false)
+			row.Picked:SetShown(info.picked and true or false)
+			local number, emphasised = nil, false
+			if info.action then
+				frame.rowActions[#frame.rowActions + 1] = info.action
+				-- The number of a row is its place in the whole list (a scrolled list goes on counting).
+				number = info.number or #frame.rowActions
+				frame.numberIndex[number] = #frame.rowActions
+				frame.maxRowNumber = math.max(frame.maxRowNumber, number)
+				emphasised = #frame.rowActions == frame.selectedRow
+			end
+			row.number = info.action and #frame.rowActions or nil
+			row.Selected:SetShown(emphasised)
+			SetRowFont(row.Num, 0.85)
+			row.Num:ClearAllPoints()
+			row.Num:SetPoint("LEFT", row, "LEFT", 0, 0)
+			row.Num:SetWidth(NUM_WIDTH)
+			row.Num:SetText(number and tostring(number) or "")
+			row.Num:SetShown(number ~= nil)
+			row.Text:ClearAllPoints()
+			if info.header then
+				row.Text:SetPoint("LEFT", row, "LEFT", NUM_WIDTH + 4, 0)
+				row.Text:SetWidth(WIDTH - NUM_WIDTH - 4)
+				row.Text:SetTextColor(unpack(palette.name))
+				row.Price:Hide()
+			else
+				row.Text:SetPoint("LEFT", row, "LEFT", nameLeft, 0)
+				row.Text:SetWidth(math.max(20, WIDTH - nameLeft - priceWidth - 8 - reserve))
+				row.Text:SetTextColor(unpack(emphasised and { 1, 0.97, 0.78 } or (info.dim and palette.dim or palette.row)))
+				row.Price:ClearAllPoints()
+				row.Price:SetPoint("RIGHT", row, "RIGHT", -reserve, 0)
+				row.Price:SetWidth(priceWidth + 2)
+				row.Price:SetTextColor(unpack(info.dim and palette.dim or palette.text))
+				row.Price:Show()
+			end
+			if info.counter ~= nil then
+				local quantity = row.Qty or CreateQuantity(row)
+				quantity:Show()
+				if info.counter and not quantity:HasFocus() then
+					quantity:SetText(tostring(info.counter))
+				end
+			elseif row.Qty then
+				row.Qty:Hide()
+			end
+			if row.Glow then
+				for _, glow in ipairs(row.Glow) do
+					glow:Hide()
+				end
+			end
+			if emphasised then
+				selectedTop, selectedHeight = y, lineHeight
+			end
+			row.action, row.tooltip = info.action, info.tooltip
+			row:Show()
+			y = y + lineHeight + ROW_GAP
+		end
+		return lineHeight + ROW_GAP
+	end
 
 	if screen then
 		FinishReveal()
@@ -1058,7 +1218,7 @@ local function RenderView(view)
 		elseif block.text and block.speech and not screen then
 			AddSpeech(block.text, palette.text)
 		elseif block.text and not screen then
-			AddText(block.text, block.dim and palette.dim or palette.text)
+			AddText(block.text, block.dim and palette.dim or palette.text, block.small and "GameFontHighlightSmall" or nil)
 		elseif block.rows then
 			-- A long list (merchant) scrolls on its own, the text above and the money below stay.
 			local listTop = y
@@ -1066,13 +1226,27 @@ local function RenderView(view)
 				listScroll = true
 				host, y = frame.Content, 0
 			end
-			for _, info in ipairs(block.rows) do
+			local step = block.columns and AddColumnRows(block.rows) or nil
+			for _, info in ipairs(step and {} or block.rows) do
 				used.row = used.row + 1
 				local row = Pooled(frame, "row", used.row, CreateRow)
 				row:SetParent(host)
 				row:ClearAllPoints()
 				row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
 				row:SetWidth(WIDTH)
+				-- A row drawn in columns before (merchant) is a plain row again.
+				row.header = nil
+				row.Text:SetWordWrap(true)
+				if row.Price then
+					row.Num:Hide()
+					row.Price:Hide()
+					row.Check:Hide()
+					row.Selected:Hide()
+				end
+				row.Icon:ClearAllPoints()
+				row.Icon:SetPoint("TOPLEFT", 0, -1)
+				row.Arrow:ClearAllPoints()
+				row.Arrow:SetPoint("TOPLEFT", 21, -2)
 				row.ButtonBack:SetShown(screen and info.action ~= nil)
 				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
 				row.Arrow:SetShown(info.upgrade and true or false)
@@ -1147,12 +1321,12 @@ local function RenderView(view)
 			end
 			if host == frame.Content and not scrolling then
 				local full = math.max(y - ROW_GAP, 1)
-				local visible = Dialog.ContentHeight(full)
+				local visible = step and Dialog.ListVisible(full, step) or Dialog.ContentHeight(full)
 				frame.Content:SetHeight(full)
 				frame.Scroll:ClearAllPoints()
 				frame.Scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -listTop)
 				frame.Scroll:SetSize(WIDTH, visible)
-				frame.Scroll.full, frame.Scroll.visible = full, visible
+				frame.Scroll.full, frame.Scroll.visible, frame.Scroll.step = full, visible, step or false
 				host, y = frame, listTop + visible + ROW_GAP
 			end
 			y = y + BLOCK_GAP - ROW_GAP
@@ -1219,7 +1393,19 @@ local function RenderView(view)
 			end
 			y = y + BLOCK_GAP - 6
 		elseif block.money then
-			AddText(block.money, palette.text)
+			-- The merchant's money line: the player's money at the right edge, under the prices; the basket at the left.
+			if block.right then
+				local top = y
+				local right = AddText(block.right, palette.text, nil, nil, "RIGHT")
+				local bottom = y
+				y = top
+				if block.money ~= "" then
+					AddText(block.money, palette.text, nil, WIDTH - math.ceil(ns.Number(right:GetStringWidth(), 0)) - 10)
+				end
+				y = math.max(y, bottom)
+			else
+				AddText(block.money, palette.text)
+			end
 		end
 	end
 	RefreshSubtitle(view, screen and PlayingClip(_G.Spoken))
@@ -1233,6 +1419,11 @@ local function RenderView(view)
 	end
 	-- The text above the buttons: as tall as it is, up to CONTENT_MAX, the rest scrolls.
 	frame.Scroll:SetShown(scrolling or listScroll)
+	if not listScroll then
+		frame.Scroll.step = false
+		frame.Scroll.Track:Hide()
+		frame.Scroll.Thumb:Hide()
+	end
 	if listScroll then
 		-- A list drawn again (a click, new stock) stays where it was scrolled; the row lit with the keys is shown.
 		local offset = Dialog.ListOffset(view.scrollReset and 0 or ns.Number(frame.Scroll:GetVerticalScroll(), 0),
@@ -1268,17 +1459,6 @@ local function RenderView(view)
 	end
 	-- Abandon the quest of this step (progress): a small cross at the top right, two clicks.
 	frame.Filter:SetShown(view.filter and true or false)
-	local helpOn = view.kind == "MERCHANT_SHOW" and view.filter and true or false
-	frame.Help:SetShown(helpOn)
-	if helpOn then
-		-- Two clear symbols: the mouse buttons of the game's tutorials; without them the letters L and R.
-		local function Mouse(atlas, letter)
-			return C_Texture.GetAtlasInfo(atlas) and ("|A:%s:15:15|a"):format(atlas) or letter
-		end
-		local left, right = Mouse("NPE_LeftClick", "L"), Mouse("NPE_RightClick", "R")
-		frame.Help.Text:SetText(("%s +   %s -   Shift + %s ++"):format(left, right, left))
-		frame.Help:SetWidth(frame.Help.Text:GetStringWidth() + 2)
-	end
 	Dialog.UpdateTools(view)
 	Dialog.UpdateFilter()
 	frame.Abandon:SetShown(view.abandonQuestID ~= nil)
@@ -1300,6 +1480,16 @@ local function RenderView(view)
 			end
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
+			-- The main button of the merchant ("Buy") stands out with a thin golden rim while it can be used.
+			if info.emphasis and not button.Main then
+				button.Main = button:CreateTexture(nil, "BACKGROUND", nil, -1)
+				button.Main:SetPoint("TOPLEFT", -2, 2)
+				button.Main:SetPoint("BOTTOMRIGHT", 2, -2)
+				button.Main:SetColorTexture(1, 0.82, 0, 0.35)
+			end
+			if button.Main then
+				button.Main:SetShown(info.emphasis and info.enabled ~= false or false)
+			end
 			button.action = info.action
 			button.tooltip = info.tooltip
 			button:Show()
@@ -2444,8 +2634,22 @@ local function WareName(info, link)
 	return text
 end
 
-local function MerchantRowText(info, index)
-	local parts = { WareName(info, GetMerchantItemLink and GetMerchantItemLink(index)) }
+-- The price of a ware in money: red when the player's money does not reach it.
+function Dialog.PriceText(price, money)
+	if (price or 0) <= 0 then
+		return nil
+	end
+	local text = GetMoneyString(price, true)
+	return price <= money and text or ("|cffff4040%s|r"):format(text)
+end
+
+-- A ware as two columns: the name (with pack size and what is left) and the price.
+local function MerchantRowText(info, index, money)
+	local name = WareName(info, GetMerchantItemLink and GetMerchantItemLink(index))
+	if (info.numAvailable or -1) >= 0 then
+		name = ("%s |cff9a9a9a(%s)|r"):format(name, L.DIALOG_MERCHANT_LEFT:format(info.numAvailable))
+	end
+	local coins = Dialog.PriceText(info.price, money)
 	if info.hasExtendedCost then
 		-- Special price (honor, currencies, items): the icons and amounts of the game's own cost list.
 		local costs = {}
@@ -2455,18 +2659,62 @@ local function MerchantRowText(info, index)
 				costs[#costs + 1] = ("%d |T%s:14:14|t"):format(value, tostring(texture))
 			end
 		end
-		if (info.price or 0) > 0 then
-			costs[#costs + 1] = GetMoneyString(info.price, true)
-		end
-		parts[#parts + 1] = #costs > 0 and table.concat(costs, " ") or L.DIALOG_MERCHANT_SPECIAL
-	elseif (info.price or 0) > 0 then
-		parts[#parts + 1] = GetMoneyString(info.price, true)
+		costs[#costs + 1] = coins
+		return name, #costs > 0 and table.concat(costs, " ") or L.DIALOG_MERCHANT_SPECIAL
 	end
-	if (info.numAvailable or -1) >= 0 then
-		parts[#parts + 1] = L.DIALOG_MERCHANT_LEFT:format(info.numAvailable)
-	end
-	return table.concat(parts, "   ")
+	return name, coins or ""
 end
+
+-- The wares in groups: each group under its heading ({ header = text }), the groups in the order the merchant first
+-- lists them, the merchant's order kept inside a group. A single group stays without heading.
+-- groupOf(entry) -> key, heading.
+function Dialog.GroupWares(entries, groupOf)
+	local order, members, headings = {}, {}, {}
+	for _, entry in ipairs(entries) do
+		local key, heading = groupOf(entry)
+		if not members[key] then
+			members[key] = {}
+			order[#order + 1] = key
+			headings[key] = heading
+		end
+		local list = members[key]
+		list[#list + 1] = entry
+	end
+	if #order < 2 then
+		return entries
+	end
+	local grouped = {}
+	for _, key in ipairs(order) do
+		grouped[#grouped + 1] = { header = headings[key] }
+		for _, entry in ipairs(members[key]) do
+			grouped[#grouped + 1] = entry
+		end
+	end
+	return grouped
+end
+
+-- The group of a ware: the equipment slot (robe counts as chest), else the item class, else "other".
+local SLOT_ALIAS = { INVTYPE_ROBE = "INVTYPE_CHEST", INVTYPE_RANGEDRIGHT = "INVTYPE_RANGED" }
+local function WareGroup(entry)
+	local link = GetMerchantItemLink and GetMerchantItemLink(entry.index)
+	if link then
+		local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(link)
+		if type(equipLoc) == "string" and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
+			equipLoc = SLOT_ALIAS[equipLoc] or equipLoc
+			local slot = _G[equipLoc]
+			if type(slot) == "string" and slot ~= "" then
+				return equipLoc, slot
+			end
+		end
+		local class = classID and C_Item.GetItemClassInfo and C_Item.GetItemClassInfo(classID)
+		if type(class) == "string" and class ~= "" then
+			return "class" .. classID, class
+		end
+	end
+	return "other", L.DIALOG_MERCHANT_OTHER
+end
+-- From this many wares on (more than fit in the bubble at once) the list is grouped.
+local GROUP_FROM = 9
 
 -- What the merchant says: a random saying per visit, shown on the page of the wares or before it.
 local function PickSaying()
@@ -2563,89 +2811,108 @@ function Dialog.MerchantView()
 	local rows = {}
 	-- All rows leave room for the arrow when the option for upgrade arrows is on (so the texts stay aligned).
 	local arrowSlot = not buyback and ns.IsRewardUpgrade ~= nil and ns:GetModule("Items").db.rewardUpgrade
-	for position = 1, total do
-		local entry = entries[position]
-		local index, info = entry.index, entry.info
-		local isPicked = merchantPicked[index] and true or false
-		local limit = (info.numAvailable or -1) >= 0 and info.numAvailable or 999
-		rows[#rows + 1] = {
-			text = (buyback and (WareName(info) .. "   " .. GetMoneyString(info.price or 0, true)) or MerchantRowText(info, index)),
-			icon = info.texture,
-			number = position,
-			arrowSlot = arrowSlot,
-			upgrade = not buyback and info.isUsable ~= false and ns.IsRewardUpgrade
-				and ns.IsRewardUpgrade(GetMerchantItemLink(index), RefreshMerchant) or false,
-			dim = info.isPurchasable == false,
-			picked = isPicked, -- in the basket: a tick, a green tint, a glitter frame and the quantity field
-			counter = isPicked and not buyback and QuantityOf(index) or nil,
-			reserve = isPicked and not buyback and 48 or nil,
-			-- A click chooses this ware alone; on a chosen ware left clicks count up, right clicks down (the last
-			-- one takes it out). Shift + click adds a ware to the choice or takes it out (several wares at once).
-			action = function(mouseButton)
-				if IsShiftKeyDown() then
-					if isPicked then
-						merchantPicked[index], merchantQty[index] = nil, nil
+	-- While something is in the basket every row leaves room for the quantity field: the prices stay in one column.
+	local reserve = #picks > 0 and not buyback and 48 or nil
+	local shown = entries
+	if not buyback and Dialog.db.merchantGroups and total >= GROUP_FROM then
+		shown = Dialog.GroupWares(entries, WareGroup)
+	end
+	local wareNumber = 0
+	for _, entry in ipairs(shown) do
+		if entry.header then
+			rows[#rows + 1] = { header = entry.header }
+		else
+			wareNumber = wareNumber + 1
+			local index, info = entry.index, entry.info
+			local isPicked = merchantPicked[index] and true or false
+			local limit = (info.numAvailable or -1) >= 0 and info.numAvailable or 999
+			local name, price
+			if buyback then
+				name, price = WareName(info), Dialog.PriceText(info.price, money) or ""
+			else
+				name, price = MerchantRowText(info, index, money)
+			end
+			rows[#rows + 1] = {
+				text = name,
+				price = price,
+				icon = info.texture,
+				number = wareNumber,
+				arrowSlot = arrowSlot,
+				upgrade = not buyback and info.isUsable ~= false and ns.IsRewardUpgrade
+					and ns.IsRewardUpgrade(GetMerchantItemLink(index), RefreshMerchant) or false,
+				dim = info.isPurchasable == false,
+				picked = isPicked, -- in the basket: a tick on the icon, a green tint and the quantity field
+				counter = isPicked and not buyback and QuantityOf(index) or nil,
+				reserve = reserve,
+				-- A click chooses this ware alone; on a chosen ware left clicks count up, right clicks down (the last
+				-- one takes it out). Shift + click adds a ware to the choice or takes it out (several wares at once).
+				action = function(mouseButton)
+					if IsShiftKeyDown() then
+						if isPicked then
+							merchantPicked[index], merchantQty[index] = nil, nil
+						else
+							merchantPicked[index], merchantQty[index] = Mark(index), 1
+						end
+					elseif isPicked and not buyback then
+						local quantity = QuantityOf(index) + (mouseButton == "RightButton" and -1 or 1)
+						if quantity < 1 then
+							merchantPicked[index], merchantQty[index] = nil, nil
+						else
+							merchantQty[index] = math.min(quantity, limit)
+						end
+					elseif isPicked then
+						merchantPicked[index] = nil
 					else
+						wipe(merchantPicked)
+						wipe(merchantQty)
 						merchantPicked[index], merchantQty[index] = Mark(index), 1
 					end
-				elseif isPicked and not buyback then
-					local quantity = QuantityOf(index) + (mouseButton == "RightButton" and -1 or 1)
-					if quantity < 1 then
+					RefreshMerchant()
+				end,
+				onQuantity = isPicked and not buyback and function(number)
+					if number < 1 then
 						merchantPicked[index], merchantQty[index] = nil, nil
 					else
-						merchantQty[index] = math.min(quantity, limit)
+						merchantQty[index] = math.min(math.floor(number), limit)
 					end
-				elseif isPicked then
-					merchantPicked[index] = nil
-				else
-					wipe(merchantPicked)
-					wipe(merchantQty)
-					merchantPicked[index], merchantQty[index] = Mark(index), 1
-				end
-				RefreshMerchant()
-			end,
-			onQuantity = isPicked and not buyback and function(number)
-				if number < 1 then
-					merchantPicked[index], merchantQty[index] = nil, nil
-				else
-					merchantQty[index] = math.min(math.floor(number), limit)
-				end
-				RefreshMerchant()
-			end or nil,
-			tooltip = function(tooltip)
-				if buyback then
-					if tooltip.SetBuybackItem then
-						tooltip:SetBuybackItem(index)
-					end
-				elseif tooltip.SetMerchantItem then
-					tooltip:SetMerchantItem(index)
-					-- The game's hint ("Shift-click to buy another quantity") does not fit here: what a click does now.
-					local hint = isPicked and L.DIALOG_CLICK_PICKED or L.DIALOG_CLICK_FREE
-					local stackHint = _G.ITEM_VENDOR_STACK_BUY
-					for line = 1, tooltip:NumLines() do
-						local left = _G[tooltip:GetName() .. "TextLeft" .. line]
-						local text = left and left:GetText()
-						if type(text) == "string" and not ns.Secret(text)
-							and ((stackHint and text == stackHint) or text:lower():find("umschalt", 1, true) or text:lower():find("shift", 1, true)) then
-							left:SetText(hint)
+					RefreshMerchant()
+				end or nil,
+				tooltip = function(tooltip)
+					if buyback then
+						if tooltip.SetBuybackItem then
+							tooltip:SetBuybackItem(index)
 						end
+					elseif tooltip.SetMerchantItem then
+						tooltip:SetMerchantItem(index)
+						-- The game's hint ("Shift-click to buy another quantity") does not fit here: what a click does now.
+						local hint = isPicked and L.DIALOG_CLICK_PICKED or L.DIALOG_CLICK_FREE
+						local stackHint = _G.ITEM_VENDOR_STACK_BUY
+						for line = 1, tooltip:NumLines() do
+							local left = _G[tooltip:GetName() .. "TextLeft" .. line]
+							local text = left and left:GetText()
+							if type(text) == "string" and not ns.Secret(text)
+								and ((stackHint and text == stackHint) or text:lower():find("umschalt", 1, true) or text:lower():find("shift", 1, true)) then
+								left:SetText(hint)
+							end
+						end
+						tooltip:Show()
 					end
-					tooltip:Show()
-				end
-			end,
-		}
+				end,
+			}
+		end
 	end
 	local blocks = {}
 	if merchantSaying and not buyback then
 		blocks[#blocks + 1] = { text = merchantSaying, dim = true }
 	end
 	if #rows > 0 then
-		blocks[#blocks + 1] = { rows = rows, scroll = true }
+		blocks[#blocks + 1] = { rows = rows, scroll = true, columns = true }
 	else
 		-- All wares hidden by the book at the lower right: said so (the list looked empty, as if nothing was sold).
 		blocks[#blocks + 1] = { text = hidden > 0 and L.DIALOG_MERCHANT_HIDDEN:format(hidden) or L.DIALOG_MERCHANT_NONE, dim = true }
 	end
 	local moneyText = L.DIALOG_MONEY:format(GetMoneyString(money, true))
+	local basketText = ""
 	if #picks > 0 then
 		local pieces = 0
 		for _, index in ipairs(picks) do
@@ -2658,13 +2925,18 @@ function Dialog.MerchantView()
 		if cost > 0 or #prices == 0 then
 			prices[#prices + 1] = GetMoneyString(cost, true)
 		end
-		moneyText = moneyText .. "   " .. L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, table.concat(prices, " "))
+		basketText = L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, table.concat(prices, " "))
 	end
-	blocks[#blocks + 1] = { money = moneyText }
+	-- The player's money at the right edge under the prices, the basket at the left.
+	blocks[#blocks + 1] = { money = basketText, right = moneyText }
+	-- What the mouse does, as one small line below (before: symbols at the top right that were hard to read).
+	if not buyback and #rows > 0 then
+		blocks[#blocks + 1] = { text = L.DIALOG_MERCHANT_KEYS, dim = true, small = true }
+	end
 	local canBuy = #picks > 0 and payable and cost <= money
 	local available = {} -- the symbols beside the book: repair, sell, restock
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, enabled = canBuy, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, emphasis = true, enabled = canBuy, action = function()
 			if buyback then
 				-- Buy-back numbers shift with every purchase: from the back to the front.
 				for position = #picks, 1, -1 do
@@ -3017,5 +3289,6 @@ Dialog.options = {
 	{ key = "fallback", type = "toggle", name = L.DIALOG_FALLBACK, desc = L.DIALOG_FALLBACK_DESC, parent = "enabled" },
 	{ key = "merchant", type = "toggle", name = L.DIALOG_MERCHANT, desc = L.DIALOG_MERCHANT_DESC, parent = "enabled", new = true },
 	{ key = "merchantHide", type = "toggle", name = L.DIALOG_MERCHANT_HIDE, desc = L.DIALOG_MERCHANT_HIDE_DESC, parent = "merchant", new = true },
+	{ key = "merchantGroups", type = "toggle", name = L.DIALOG_MERCHANT_GROUPS, desc = L.DIALOG_MERCHANT_GROUPS_DESC, parent = "merchant", new = true },
 	{ key = "trainer", type = "toggle", name = L.DIALOG_TRAINER, desc = L.DIALOG_TRAINER_DESC, parent = "enabled", new = true },
 }

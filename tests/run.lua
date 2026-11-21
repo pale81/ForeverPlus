@@ -4406,6 +4406,73 @@ end)()
 	print("settings pages OK")
 end)()
 ;(function()
+	-- Merchant list in columns: whole rows only, a thin bar for the position, groups for long lists.
+	local dialog = ns:GetModule("Dialog")
+	assert(dialog.ListVisible(100, 19) == 100, "a short list shows whole")
+	assert(dialog.ListVisible(40 * 19 - 3, 19) == 8 * 19 - 3, "a long list shows only whole rows (8 of 19 points in 150)")
+	local top, height = dialog.ScrollThumb(0, 400, 100)
+	assert(top == 0 and height == 25, "thumb at the top, as tall as the visible share")
+	top = dialog.ScrollThumb(300, 400, 100)
+	assert(top == 75, "thumb at the bottom at the end of the list")
+	assert(dialog.ScrollThumb(0, 50, 100) == 0, "nothing to scroll")
+	local grouped = dialog.GroupWares({ { k = "a" }, { k = "b" }, { k = "a" } }, function(e) return e.k, "H" .. e.k end)
+	assert(#grouped == 5 and grouped[1].header == "Ha" and grouped[3].k == "a" and grouped[4].header == "Hb",
+		"groups in the order first met, merchant's order kept inside")
+	local single = { { k = "a" }, { k = "a" } }
+	assert(dialog.GroupWares(single, function(e) return e.k, "H" end) == single, "one group: no heading")
+	local saved = { GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair,
+		GetNumBuybackItems, ns.MerchantTools, C_Item.GetItemInfoInstant, rawget(_G, "INVTYPE_CHEST"), rawget(_G, "INVTYPE_HAND"),
+		dialog.db.merchantGroups, ns.IsRewardUpgrade }
+	ns.MerchantTools, ns.IsRewardUpgrade = nil, nil
+	GetMerchantNumItems = function() return 10 end
+	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Ware" .. i, texture = 1, price = 10, stackCount = 1, numAvailable = -1, isPurchasable = true, isUsable = true } end }
+	GetMerchantItemLink = function(i) return "item:" .. i end
+	C_Item.GetItemInfoInstant = function(link)
+		local i = tonumber(link:match("%d+"))
+		return i, nil, nil, i % 2 == 0 and "INVTYPE_HAND" or "INVTYPE_ROBE", nil, 4
+	end
+	INVTYPE_CHEST, INVTYPE_HAND = "Brust", "Hände"
+	GetMoney = function() return 1000 end
+	GetMoneyString = function(copper) return tostring(copper) .. "c" end
+	CanMerchantRepair = function() return false end
+	GetNumBuybackItems = function() return 0 end
+	dialog.db.merchantGroups = true
+	local function Rows()
+		for _, block in ipairs(dialog.MerchantView().blocks) do if block.rows then return block.rows end end
+	end
+	local rows = Rows()
+	assert(#rows == 12 and rows[1].header == "Brust" and rows[7].header == "Hände", "robe counts as chest, two headings")
+	assert(rows[2].number == 1 and rows[2].text:find("Ware1", 1, true) and rows[8].number == 6 and rows[8].text:find("Ware2", 1, true),
+		"key numbers follow the wares as shown, headings have none")
+	assert(rows[1].action == nil and rows[1].number == nil, "a heading is no ware")
+	dialog.db.merchantGroups = false
+	rows = Rows()
+	assert(#rows == 10 and not rows[1].header, "option off: no groups")
+	dialog.db.merchantGroups = true
+	GetMerchantNumItems = function() return 8 end
+	rows = Rows()
+	assert(#rows == 8 and not rows[1].header, "a short list stays without groups")
+	-- Drawn: no error, the chosen row has the warm background and keeps the size of the others.
+	GetMerchantNumItems = function() return 10 end
+	local wasOn, wasMerchant = dialog.db.enabled, dialog.db.merchant
+	dialog.db.enabled, dialog.db.merchant, dialog.reported = true, true, nil
+	dialog:OnConversation("MERCHANT_SHOW")
+	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
+	for line = math.max(1, #ns.db.bubbleTrace - 15), #ns.db.bubbleTrace do
+		assert(not ns.db.bubbleTrace[line]:find("Fehler beim Zeichnen"), ns.db.bubbleTrace[line])
+	end
+	local bubble = uv(dialog.Rerender, "bubble")
+	local drawn = bubble.pools.row
+	assert(drawn[2].Selected:IsShown() and not drawn[3].Selected:IsShown() and not drawn[1].Selected:IsShown(),
+		"the first ware is lit, not the heading")
+	assert(drawn[2]:GetHeight() == drawn[3]:GetHeight() and drawn[1]:GetHeight() == drawn[2]:GetHeight(), "all rows one height")
+	assert(drawn[2].Num:IsShown() and drawn[2].Price:IsShown() and not drawn[1].Num:IsShown() and not drawn[1].Price:IsShown(),
+		"wares show number and price, the heading neither")
+	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair, GetNumBuybackItems,
+		ns.MerchantTools, C_Item.GetItemInfoInstant, INVTYPE_CHEST, INVTYPE_HAND, dialog.db.merchantGroups, ns.IsRewardUpgrade = unpack(saved, 1, 13)
+	print("merchant columns OK")
+end)()
+;(function()
 	-- Switching the thin line on grey items with the combined bag never opened: size without buttons.
 	local saved = ContainerFrameCombinedBags
 	local function Empty(_, index) index = index + 1 if index <= 2 then return index, nil end end
@@ -4430,7 +4497,16 @@ end)()
 	local view = dialog.MerchantView()
 	local rows
 	for _, block in ipairs(view.blocks) do if block.rows then rows = block.rows end end
-	assert(rows and #rows == 2 and rows[1].text:find("100c") and rows[2].text:find("200c"), "two wares with prices")
+	-- Name and price in columns of their own; a price above the player's money is red.
+	assert(rows and #rows == 2 and rows[1].text:find("Ware1", 1, true) and not rows[1].text:find("100c", 1, true)
+		and rows[1].price == "100c" and rows[2].price == "|cffff4040200c|r", "two wares, prices in their own column")
+	local listBlock
+	for _, block in ipairs(view.blocks) do if block.rows then listBlock = block end end
+	assert(listBlock.columns, "the merchant list is drawn in columns")
+	local money, keys = view.blocks[#view.blocks - 1], view.blocks[#view.blocks]
+	assert(money.money == "" and money.right == ns.L.DIALOG_MONEY:format("150c"), "money at the right, no basket at the left")
+	assert(keys.text == ns.L.DIALOG_MERCHANT_KEYS and keys.small, "what the mouse does in one small line below")
+	assert(view.buttons[2].emphasis, "Buy is the main button")
 	assert(view.buttons[2].enabled == false, "nothing selected: no purchase")
 	-- The whole list is drawn and scrolls in the bubble (no pages of 14): every ware, the list marked to scroll.
 	local many = GetMerchantNumItems
@@ -4738,6 +4814,7 @@ end)()
 		for _, block in ipairs(view.blocks) do
 			rows = block.rows or rows
 			texts[#texts + 1] = block.text or block.money
+			texts[#texts + 1] = block.right
 		end
 		return rows, table.concat(texts, "\n"), view
 	end
@@ -4755,6 +4832,10 @@ end)()
 	local view
 	rows, text, view = Blocks()
 	assert(rows[1].reserve == 48, "room for the quantity field of a ware in the basket")
+	picked[2], qty[2] = nil, nil
+	rows = Blocks()
+	assert(rows[2].reserve == 48, "every row leaves the room while the basket has wares: prices stay in one column")
+	picked[2], qty[2] = true, 1
 	assert(text:find("20 |TTicket:14:14|t 30c", 1, true), "special prices summed (2 x 5 + 1 x 10) and the money: " .. text)
 	assert(view.buttons[2].enabled == true, "payable")
 	GetMoney = function() return 20 end

@@ -1,8 +1,8 @@
 -- Auction house: warns when an auction price per unit is not above the
 -- merchant's price, filters the buy list for offers below the merchant's
 -- price and sets start tab and duration. Reads Blizzard's data and adds own
--- regions; only the filter swaps the buy list's data provider, and only while
--- it is switched on.
+-- regions; only the filter and the sorting swap the buy list's data provider,
+-- and only while they are switched on.
 local _, ns = ...
 local L = ns.L
 
@@ -16,6 +16,8 @@ local Auction = ns:NewModule("Auction", {
 		vendorMinMargin = 10,
 		vendorQuickBuy = false,
 		vendorQuickBuyQty = 1,
+		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
+		scoreSort = false, -- the buy list by the rating of the items against what is worn
 		duration24 = true,
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
@@ -234,6 +236,8 @@ local filter = {
 	requestedAt = -1,  -- row count at the last request
 	requestTime = 0,
 	capped = false,    -- no further pages are requested by itself
+	keys = {},         -- [row] = { rank, value, index }: place of a shown row in the view
+	unrated = false,   -- a shown row waits for item data to be rated
 }
 local originalProvider
 
@@ -263,9 +267,84 @@ local function Profitable(rowData)
 	return vendor > price and price <= vendor * (1 - margin)
 end
 
+-- The view is Blizzard's list filtered for profit and/or sorted by rating.
+local function ViewActive()
+	return Auction.db.vendorBuyFilter or (Auction.db.scoreSort and ns.ItemLinkRating ~= nil)
+end
+
+-- Ranks by rating: better and wearable now, better once the level is reached, other equipment, nothing to compare,
+-- rating not known yet (item data loading).
+local RANK_UPGRADE, RANK_LATER, RANK_WORSE, RANK_NONE, RANK_LOADING = 1, 2, 3, 4, 5
+
+-- Place of a shown row: rank first (lower first), then value (higher first), then Blizzard's order.
+function Auction.SortKey(rowData, index)
+	if Auction.db.scoreSort and ns.ItemLinkRating then
+		local itemID = ItemIDOf(rowData)
+		local link = Auction.RowLink(rowData, rowData.itemKey)
+		if not link and itemID and C_Item.IsItemDataCachedByID(itemID) then
+			link = select(2, C_Item.GetItemInfo(itemID))
+		end
+		local gain, block = ns.ItemLinkRating(link)
+		if gain == nil or (not link and itemID and not C_Item.IsItemDataCachedByID(itemID)) then
+			VendorPrice(itemID) -- asks for the item data once
+			return { RANK_LOADING, 0, index }
+		elseif not gain then
+			return { RANK_NONE, 0, index }
+		elseif block == "ok" then
+			return { RANK_UPGRADE, gain, index }
+		elseif block == "level" then
+			return { RANK_LATER, gain, index }
+		elseif block then
+			return { RANK_NONE, 0, index } -- better, but never wearable (class, profession)
+		end
+		return { RANK_WORSE, gain, index }
+	elseif Auction.db.vendorBuyFilter and Auction.db.vendorProfitSort then
+		return { 0, (KnownVendorPrice(ItemIDOf(rowData)) or 0) - rowData.minPrice, index }
+	end
+	return { 0, 0, index }
+end
+
+local function Before(a, b)
+	local ka, kb = filter.keys[a], filter.keys[b]
+	if ka[1] ~= kb[1] then
+		return ka[1] < kb[1]
+	elseif ka[2] ~= kb[2] then
+		return ka[2] > kb[2]
+	end
+	return ka[3] < kb[3]
+end
+
+-- Whether the view shows a row (nil while its merchant price is not known, with the item ID); notes its place.
+local function Judge(rowData, index)
+	if Auction.db.vendorBuyFilter then
+		local verdict, itemID = Profitable(rowData)
+		if not verdict then
+			return verdict, itemID
+		end
+	end
+	local key = Auction.SortKey(rowData, index)
+	filter.keys[rowData] = key
+	filter.unrated = filter.unrated or key[1] == RANK_LOADING
+	return true
+end
+
+-- Adds a shown row at its place in the sorted view.
+local function Insert(list, rowData)
+	local low, high = 1, #list + 1
+	while low < high do
+		local mid = floor((low + high) / 2)
+		if Before(rowData, list[mid]) then
+			high = mid
+		else
+			low = mid + 1
+		end
+	end
+	tinsert(list, low, rowData)
+end
+
 local function ResetFilter()
 	filter.source, filter.verdict, filter.judged, filter.list = nil, {}, 0, {}
-	filter.rebuild, filter.waiting = false, {}
+	filter.rebuild, filter.waiting, filter.keys, filter.unrated = false, {}, {}, false
 	filter.scanPending = false
 	filter.requests, filter.requestedAt, filter.capped = 0, -1, false
 	filter.searchId, filter.timerStarted = (filter.searchId or 0) + 1, false
@@ -286,7 +365,7 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 			ResetFilter()
 		else
 			filter.verdict, filter.waiting, filter.list, filter.judged = {}, {}, {}, 0
-			filter.rebuild, filter.scanPending = false, false
+			filter.rebuild, filter.scanPending, filter.keys, filter.unrated = false, false, {}, false
 		end
 		filter.source = rows
 	end
@@ -294,7 +373,7 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 		local last = min(#rows, filter.judged + FILTER_BATCH)
 		local deadline = debugprofilestop() + FILTER_BUDGET
 		for i = filter.judged + 1, last do
-			local verdict, itemID = Profitable(rows[i])
+			local verdict, itemID = Judge(rows[i], i)
 			if verdict == nil then
 				local waiting = filter.waiting[itemID]
 				if not waiting then
@@ -305,7 +384,7 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 			else
 				filter.verdict[i] = verdict
 				if verdict and not filter.rebuild then
-					filter.list[#filter.list + 1] = rows[i]
+					Insert(filter.list, rows[i])
 				end
 			end
 			if debugprofilestop() >= deadline then
@@ -318,11 +397,20 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 	if filter.rebuild then
 		if applyLateVerdicts then
 			local list = {}
+			local rerate = filter.unrated
+			filter.unrated = false
 			for i = 1, filter.judged do
 				if filter.verdict[i] then
+					local key = filter.keys[rows[i]]
+					if rerate and key[1] == RANK_LOADING then
+						key = Auction.SortKey(rows[i], i)
+						filter.keys[rows[i]] = key
+						filter.unrated = filter.unrated or key[1] == RANK_LOADING
+					end
 					list[#list + 1] = rows[i]
 				end
 			end
+			table.sort(list, Before)
 			filter.list, filter.rebuild = list, false
 		else
 			QueueRefresh(0.25)
@@ -338,13 +426,14 @@ end
 local function OnItemInfo(_, _, itemID)
 	local waiting = filter.waiting[itemID]
 	local rows = filter.source
-	if not waiting or not rows then
+	if not rows or not (waiting or filter.unrated) then
 		return
 	end
 	filter.waiting[itemID] = nil
-	local changed = false
-	for _, i in ipairs(waiting) do
-		local verdict = rows[i] and Profitable(rows[i]) or false
+	-- an unrated row may wait for this item or for a worn one: the rebuild rates them again
+	local changed = filter.unrated
+	for _, i in ipairs(waiting or {}) do
+		local verdict = rows[i] and Judge(rows[i], i) or false
 		filter.verdict[i] = verdict
 		changed = changed or verdict
 	end
@@ -486,7 +575,7 @@ function QueueRefresh(delay, redraw)
 		refreshNeeded = false
 		filter.scanPending = false
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
-		if not (Auction.db.vendorBuyFilter and browseFrame) then
+		if not (ViewActive() and browseFrame) then
 			return
 		end
 		if not browseFrame:IsShown() then
@@ -510,7 +599,7 @@ local function ApplyBuyFilter()
 	if not browseFrame then
 		return
 	end
-	local on = Auction.db.vendorBuyFilter
+	local on = ViewActive()
 	ResetFilter()
 	SetFilterProvider(browseFrame, on)
 	Auction:ToggleEvent("GET_ITEM_INFO_RECEIVED", on, OnItemInfo)
@@ -545,13 +634,13 @@ local function HookBuyFilter()
 	for _, name in ipairs({ "SendBrowseQuery", "SearchForFavorites" }) do
 		if C_AuctionHouse[name] then
 			hooksecurefunc(C_AuctionHouse, name, function()
-				if Auction.db.vendorBuyFilter then
+				if ViewActive() then
 					ResetFilter()
 				end
 			end)
 		end
 	end
-	if Auction.db.vendorBuyFilter then
+	if ViewActive() then
 		ApplyBuyFilter()
 	end
 end
@@ -1044,6 +1133,9 @@ function Auction:OnLogin()
 			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_VENDOR_BUY_FILTER_MENU:format(Auction.db.vendorMinMargin or 0),
 				"Auction", "vendorBuyFilter",
 				L.AUCTION_VENDOR_BUY_FILTER_DESC)
+			if ns.ItemLinkRating then
+				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_SORT, "Auction", "scoreSort", L.AUCTION_SCORE_SORT_DESC)
+			end
 		end)
 	end
 	ns.OnAddOnLoaded("Blizzard_AuctionHouseUI", function()
@@ -1084,7 +1176,7 @@ function Auction:OnOptionChanged(key)
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
-	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" then
+	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort" then
 		ApplyBuyFilter()
 	elseif key == "vendorQuickBuy" then
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
@@ -1100,9 +1192,11 @@ Auction.options = {
 	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
 	{ key = "vendorMinMargin", type = "slider", name = L.AUCTION_VENDOR_MIN_MARGIN, desc = L.AUCTION_VENDOR_MIN_MARGIN_DESC, parent = "vendorBuyFilter",
 		min = 0, max = 90, step = 1, format = function(v) return ("%d%%"):format(v) end },
+	{ key = "vendorProfitSort", type = "toggle", name = L.AUCTION_PROFIT_SORT, desc = L.AUCTION_PROFIT_SORT_DESC, parent = "vendorBuyFilter", new = true },
 	{ key = "vendorQuickBuy", type = "toggle", name = L.AUCTION_QUICK_BUY_OPTION, desc = L.AUCTION_QUICK_BUY_DESC, parent = "vendorBuyFilter", new = true },
 	{ key = "vendorQuickBuyQty", type = "slider", name = L.AUCTION_QUICK_BUY_QTY, desc = L.AUCTION_QUICK_BUY_QTY_DESC, parent = "vendorQuickBuy",
 		min = 1, max = 200, step = 1 },
+	{ key = "scoreSort", type = "toggle", name = L.AUCTION_SCORE_SORT, desc = L.AUCTION_SCORE_SORT_DESC, new = true },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },
 	{ key = "startTab", type = "dropdown", name = L.AUCTION_START_TAB, desc = L.AUCTION_START_TAB_DESC, new = true, values = {

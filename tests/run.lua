@@ -1976,6 +1976,15 @@ end)()
 	assert(ns.CompareWinner(cloak, { cloak }) == nil, "equal items: no arrow")
 	itemsMod.db.upgradeArrow = false
 	assert(ns.CompareWinner(cloak, { defender }) == nil, "option off: no arrow")
+	-- the rating for sorted lists: gain over the worn item, independent of the arrow option
+	equipped = defender
+	clear()
+	local gain, block = ns.ItemLinkRating(cloak)
+	assert(gain > 0.01 and block == "ok", "the better cloak gains and can be worn")
+	equipped = cloak
+	clear()
+	gain, block = ns.ItemLinkRating(defender)
+	assert(gain < 0 and block == nil, "the worse cloak loses, no tooltip read")
 	itemsMod.db.upgradeArrow = true
 
 	clear()
@@ -7472,7 +7481,14 @@ end)()
 	assert(provider.count() == 4, "late verdicts wait for the batched refresh")
 	FlushRefreshes()
 	assert(provider.count() == 6, "both rows of the item judged")
-	assert(provider.entry(4) == frame.browseResults[5] and provider.entry(5) == frame.browseResults[6] and provider.entry(6) == frame.browseResults[7], "late rows land in order")
+	local r = frame.browseResults
+	assert(provider.entry(1) == r[4] and provider.entry(2) == r[7] and provider.entry(3) == r[1] and provider.entry(4) == r[3]
+		and provider.entry(5) == r[5] and provider.entry(6) == r[6], "highest merchant profit first, late rows at their place")
+	A.db.vendorProfitSort = false
+	F.Apply()
+	assert(provider.count() == 6 and provider.entry(1) == r[1] and provider.entry(2) == r[3] and provider.entry(3) == r[4]
+		and provider.entry(6) == r[7], "without the profit sort Blizzard's order stays")
+	A.db.vendorProfitSort = true
 	-- many rows are judged in portions
 	local big = {}
 	for i = 1, 400 do big[i] = row(9001, i == 400 and 10 or 500) end
@@ -7529,6 +7545,53 @@ end)()
 	assert(restored and restored[3] and restored[3]() == 0, "original provider restored")
 	A.db.vendorBuyFilter = false
 	print("auction filter OK")
+end)()
+-- Auction house: buy list sorted by item rating
+;(function()
+	local A = ns:GetModule("Auction")
+	local F = A.Filter
+	local savedRating, savedAPI, savedAfter = ns.ItemLinkRating, C_AuctionHouse, C_Timer.After
+	local savedCached, savedRequest = C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID
+	local refreshes = {}
+	C_Timer.After = function(_, fn) refreshes[#refreshes + 1] = fn end
+	-- item ID -> gain, block; nil = still loading
+	local ratings = { [1] = { 5, "ok" }, [2] = { 9, "level" }, [3] = { -2 }, [4] = { 12, "no" }, [6] = { 3, "ok" } }
+	ns.ItemLinkRating = function(link)
+		local id = link and tonumber(link:match("item:(%d+)"))
+		if id == 5 then return false end
+		local r = ratings[id]
+		if not r then return nil end
+		return r[1], r[2]
+	end
+	C_AuctionHouse = { HasFullBrowseResults = function() return true end, RequestMoreBrowseResults = function() end,
+		GetItemKeySampleLink = function(key) return "|Hitem:" .. key.itemID .. "|h" end }
+	C_Item.IsItemDataCachedByID = function() return true end
+	C_Item.RequestLoadItemDataByID = function() end
+	local function row(id) return { itemKey = { itemID = id }, minPrice = 10, totalQuantity = 1 } end
+	local provider
+	local frame = { browseResults = { row(3), row(5), row(1), row(4), row(2), row(6), row(7) }, IsShown = function() return true end,
+		ItemList = { getNumEntries = function() return 0 end, searchStartedFunc = function() return true end,
+			SetDataProvider = function(_, started, entry, count, hasFull) provider = { entry = entry, count = count } end,
+			RefreshScrollFrame = function() end } }
+	AuctionHouseFrame = { BrowseResultsFrame = frame }
+	A.db.vendorBuyFilter, A.db.scoreSort = false, true
+	F.Apply()
+	local r = frame.browseResults
+	assert(provider.count() == 7, "all rows stay in the list")
+	local order = {}
+	for i = 1, 7 do order[i] = provider.entry(i).itemKey.itemID end
+	assert(table.concat(order, ",") == "1,6,2,3,5,4,7",
+		"wearable upgrades by gain, then later ones, then other gear, then no comparison, loading last: " .. table.concat(order, ","))
+	-- the rating of a loading item arrives: the row moves to its place on the batched refresh
+	ratings[7] = { 8, "ok" }
+	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
+	while #refreshes > 0 do table.remove(refreshes, 1)() end
+	assert(provider.entry(1) == r[7] and provider.entry(2) == r[3], "a late rating lands at its place")
+	A.db.scoreSort = false
+	F.Apply()
+	ns.ItemLinkRating, C_AuctionHouse, C_Timer.After = savedRating, savedAPI, savedAfter
+	C_Item.IsItemDataCachedByID, C_Item.RequestLoadItemDataByID = savedCached, savedRequest
+	print("auction rating sort OK")
 end)()
 -- Auction house: quick buy plan
 ;(function()

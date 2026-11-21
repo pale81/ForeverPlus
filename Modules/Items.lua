@@ -764,6 +764,25 @@ end
 ns.ItemLinkUpgradeState = LinkUpgradeState
 ns.RecipeUpgradeState = LinkUpgradeState
 
+-- For lists sorted by rating (auction house): the weighted value an item adds over the weakest worn item it would
+-- replace (negative if worse) and, for a gain, whether it can be worn ("ok", "level", "no"). False for items that are
+-- never compared (no equipment, another armor type), nil while data loads. Independent of the arrow option.
+function ns.ItemLinkRating(link)
+	if not Items.db or type(link) ~= "string" or ns.Secret(link) or not C_Item.IsEquippableItem(link) then
+		return false
+	end
+	local score, equippedScore = CompareScores(link)
+	if not score then
+		return score
+	end
+	local gain = score - equippedScore
+	if gain <= 0.01 then
+		return gain
+	end
+	local data = C_TooltipInfo.GetHyperlink(link)
+	return gain, Items.UseBlock(data and data.lines, LevelPattern())
+end
+
 -- Comparison tooltips: the hovered item (a link) against the worn items shown beside it (`worn`, links).
 -- Returns "hovered" and its upgrade state (true or "later"), or "worn" and the position of the best worn
 -- item in `worn`; nil if neither is clearly better or the data is missing. Same rule as the bag arrows.

@@ -823,7 +823,8 @@ end
 
 local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	local _, treeName = GetWeights()
-	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
+	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, ("%+.1f"):format(score - equippedScore),
+		treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
 	if humanoidScore then
 		tooltip:AddLine(L.ITEMS_SCORE_HUMANOID_LINE:format(humanoidScore, equippedHumanoidScore), 0.5, 0.7, 1)
 	end

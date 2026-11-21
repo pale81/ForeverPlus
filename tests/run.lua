@@ -7582,6 +7582,38 @@ end)()
 	for i = 1, 7 do order[i] = provider.entry(i).itemKey.itemID end
 	assert(table.concat(order, ",") == "1,6,2,3,5,4,7",
 		"wearable upgrades by gain, then later ones, then other gear, then no comparison, loading last: " .. table.concat(order, ","))
+	assert(A.GainText(5) == "+5.0" and select(2, A.GainText(5)) == true, "a gain shows green with its sign")
+	local worse, better = A.GainText(-2)
+	assert(worse == "-2.0" and better == false and A.GainText(nil) == nil, "a loss shows grey, no rating no label")
+	-- the label in the name cell: shown for rated rows while there is room, never over the name
+	local function fakeText(width)
+		local fs = { text = "", shown = false, w = width }
+		function fs:SetText(t) self.text = t end
+		function fs:GetStringWidth() return self.w or #self.text * 6 end
+		function fs:SetShown(v) self.shown = v end
+		function fs:Hide() self.shown = false end
+		function fs:SetPoint() end
+		function fs:SetTextColor() end
+		return fs
+	end
+	local made
+	local function cell(rowData, nameWidth)
+		return { rowData = rowData, Icon = { IsShown = function() return true end, GetWidth = function() return 14 end },
+			Text = fakeText(nameWidth), GetWidth = function() return 200 end,
+			CreateFontString = function() made = fakeText() return made end }
+	end
+	local savedUpgrade = ns.ItemLinkUpgradeState
+	ns.ItemLinkUpgradeState = function() return false end
+	local c = cell(r[3], 100)
+	F.ItemCell(c, r[3].itemKey)
+	assert(made and made.text == "+5.0" and made.shown, "the gain of a rated row is shown")
+	made = nil
+	F.ItemCell(cell(r[3], 170), r[3].itemKey)
+	assert(made and not made.shown, "a long name keeps its room")
+	made = nil
+	F.ItemCell(cell(r[2], 100), r[2].itemKey)
+	assert(made == nil, "no label without a comparison")
+	ns.ItemLinkUpgradeState = savedUpgrade
 	-- the rating of a loading item arrives: the row moves to its place on the batched refresh
 	ratings[7] = { 8, "ok" }
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)

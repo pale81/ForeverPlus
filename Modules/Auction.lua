@@ -153,6 +153,40 @@ end
 
 -- The upgrade arrow of bags and loot on the icon of an item in the browse list (grey if only the level is missing).
 local itemArrows = setmetatable({}, { __mode = "k" })
+-- With the list sorted by rating: the gain over what is worn at the right end of the name cell.
+local gainLabels = setmetatable({}, { __mode = "k" })
+local RowGain -- below, with the sorted view
+
+-- The label text and whether it is a gain; nil for no rated equipment.
+function Auction.GainText(gain)
+	if type(gain) ~= "number" then
+		return nil
+	end
+	return ("%+.1f"):format(gain), gain > 0.01
+end
+
+local function UpdateGainLabel(cell)
+	local text, better = Auction.GainText(not cell.Prefix and Auction.db.scoreSort and RowGain(cell.rowData) or nil)
+	local label = gainLabels[cell]
+	if not label and text then
+		label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		label:SetPoint("RIGHT", cell, "RIGHT", -4, 0)
+		gainLabels[cell] = label
+	end
+	if not label then
+		return
+	end
+	label:SetText(text or "")
+	if better then
+		label:SetTextColor(GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+	else
+		label:SetTextColor(GRAY_FONT_COLOR.r, GRAY_FONT_COLOR.g, GRAY_FONT_COLOR.b)
+	end
+	-- a name that runs into the label wins: no number over its letters
+	local room = cell:GetWidth() - (cell.Icon and cell.Icon:GetWidth() or 0) - 12
+	local nameWidth = cell.Text and cell.Text:GetStringWidth() or 0
+	label:SetShown(text ~= nil and nameWidth + label:GetStringWidth() <= room)
+end
 
 local function OnItemCell(cell, itemKey)
 	local state = false
@@ -173,11 +207,15 @@ local function OnItemCell(cell, itemKey)
 		arrow:SetDesaturated(state == "later")
 		arrow:SetShown(state and true or false)
 	end
+	UpdateGainLabel(cell)
 end
 
 local function OnItemCellCleared(cell)
 	if itemArrows[cell] then
 		itemArrows[cell]:Hide()
+	end
+	if gainLabels[cell] then
+		gainLabels[cell]:Hide()
 	end
 end
 
@@ -319,6 +357,14 @@ function Auction.SortKey(rowData, index)
 		return { 0, (KnownVendorPrice(ItemIDOf(rowData)) or 0) - rowData.minPrice, index }
 	end
 	return { 0, 0, index }
+end
+
+-- The gain of a rated row of the sorted view; nil for rows without a comparison or not rated yet.
+function RowGain(rowData)
+	local key = rowData and filter.keys[rowData]
+	if key and (key[1] == RANK_UPGRADE or key[1] == RANK_LATER or key[1] == RANK_WORSE) then
+		return key[2]
+	end
 end
 
 local function Before(a, b)
@@ -634,7 +680,7 @@ local function ApplyBuyFilter()
 end
 
 Auction.Filter = { Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter,
-	Apply = ApplyBuyFilter, ItemInfo = OnItemInfo, State = filter }
+	Apply = ApplyBuyFilter, ItemInfo = OnItemInfo, State = filter, ItemCell = OnItemCell }
 
 local function HookBuyFilter()
 	local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame

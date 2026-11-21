@@ -4506,7 +4506,6 @@ end)()
 	local money, keys = view.blocks[#view.blocks - 1], view.blocks[#view.blocks]
 	assert(money.money == "" and money.right == ns.L.DIALOG_MONEY:format("150c"), "money at the right, no basket at the left")
 	assert(keys.text == ns.L.DIALOG_MERCHANT_KEYS and keys.small, "what the mouse does in one small line below")
-	assert(view.buttons[2].emphasis, "Buy is the main button")
 	assert(view.buttons[2].enabled == false, "nothing selected: no purchase")
 	-- The whole list is drawn and scrolls in the bubble (no pages of 14): every ware, the list marked to scroll.
 	local many = GetMerchantNumItems

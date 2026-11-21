@@ -620,7 +620,7 @@ local function CreateBubble()
 	frame.Scroll.Track:Hide()
 	frame.Scroll.Thumb = frame:CreateTexture(nil, "OVERLAY")
 	frame.Scroll.Thumb:SetWidth(3)
-	frame.Scroll.Thumb:SetColorTexture(1, 0.82, 0, 0.6)
+	frame.Scroll.Thumb:SetColorTexture(1, 1, 1, 0.3)
 	frame.Scroll.Thumb:SetPoint("TOP", frame.Scroll.Track, "TOP")
 	frame.Scroll.Thumb:Hide()
 	frame.Scroll.step = false -- row step of a list in columns; false for text that scrolls freely
@@ -803,7 +803,7 @@ local function CreateRowGlow(row)
 end
 
 -- A row of the merchant list in columns: the key number in front, the price at the right, a tick on the icon, a warm
--- background for the row lit with the keys. Made only for rows that are drawn in columns.
+-- light for the row lit with the keys. Made only for rows that are drawn in columns.
 local function CreateColumns(row)
 	row.Num = row:CreateFontString(nil, "OVERLAY")
 	row.Num:SetJustifyH("RIGHT")
@@ -815,10 +815,14 @@ local function CreateColumns(row)
 	row.Check:SetAtlas("common-icon-checkmark")
 	row.Check:SetSize(12, 12)
 	row.Check:SetPoint("BOTTOMRIGHT", row.Icon, "BOTTOMRIGHT", 4, -3)
-	row.Selected = row:CreateTexture(nil, "BACKGROUND", nil, -3)
+	-- The game's own soft light of list rows (quest log, friends list), added on top: fades out at the ends, and over
+	-- the green of the basket it brightens instead of muddying.
+	row.Selected = row:CreateTexture(nil, "BORDER")
 	row.Selected:SetPoint("TOPLEFT", -4, 2)
 	row.Selected:SetPoint("BOTTOMRIGHT", 4, -2)
-	row.Selected:SetColorTexture(1, 0.82, 0.3, 0.14)
+	row.Selected:SetTexture([[Interface\QuestFrame\UI-QuestTitleHighlight]])
+	row.Selected:SetBlendMode("ADD")
+	row.Selected:SetVertexColor(1, 0.85, 0.5, 0.7)
 	return row.Price
 end
 
@@ -1105,7 +1109,7 @@ local function RenderView(view)
 		end
 	end
 	-- The merchant's wares in columns: key number | icon | name on one line (cut with "...") | price at the right.
-	-- The row lit with the keys gets a warm background instead of a larger font, so every row keeps its height and
+	-- The row lit with the keys gets a soft light instead of a larger font, so every row keeps its height and
 	-- nothing wraps. Group headings take a row of the same height. Returns the step from row to row.
 	local function AddColumnRows(rows)
 		local first = used.row
@@ -1480,16 +1484,6 @@ local function RenderView(view)
 			end
 			button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -y)
 			button:SetEnabled(info.enabled ~= false)
-			-- The main button of the merchant ("Buy") stands out with a thin golden rim while it can be used.
-			if info.emphasis and not button.Main then
-				button.Main = button:CreateTexture(nil, "BACKGROUND", nil, -1)
-				button.Main:SetPoint("TOPLEFT", -2, 2)
-				button.Main:SetPoint("BOTTOMRIGHT", 2, -2)
-				button.Main:SetColorTexture(1, 0.82, 0, 0.35)
-			end
-			if button.Main then
-				button.Main:SetShown(info.emphasis and info.enabled ~= false or false)
-			end
 			button.action = info.action
 			button.tooltip = info.tooltip
 			button:Show()
@@ -2936,7 +2930,7 @@ function Dialog.MerchantView()
 	local canBuy = #picks > 0 and payable and cost <= money
 	local available = {} -- the symbols beside the book: repair, sell, restock
 	local buttons = {
-		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, emphasis = true, enabled = canBuy, action = function()
+		{ text = buyback and L.DIALOG_BUYBACK_DO or L.DIALOG_BUY, primary = true, spends = true, enabled = canBuy, action = function()
 			if buyback then
 				-- Buy-back numbers shift with every purchase: from the back to the front.
 				for position = #picks, 1, -1 do

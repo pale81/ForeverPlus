@@ -18,6 +18,7 @@ local Auction = ns:NewModule("Auction", {
 		vendorQuickBuyQty = 1,
 		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
 		scoreSort = false, -- the buy list by the rating of the items against what is worn
+		scoreOnlyBetter = true, -- with the rating sort: only items better than what is worn
 		hideVendorItems = false, -- the buy list without goods a merchant sells freely for gold
 		duration24 = true,
 		startTab = "buy",
@@ -199,8 +200,9 @@ local function OnItemCell(cell, itemKey)
 	if not arrow and state then
 		arrow = cell:CreateTexture(nil, "OVERLAY", nil, 7)
 		arrow:SetAtlas("bags-greenarrow")
-		arrow:SetSize(12, 12)
-		arrow:SetPoint("RIGHT", cell.Icon, "LEFT", -1, 0)
+		-- on the icon: left of it lies outside the cell, where the list clips it
+		arrow:SetSize(10, 10)
+		arrow:SetPoint("TOPRIGHT", cell.Icon, "TOPRIGHT", 3, 3)
 		itemArrows[cell] = arrow
 	end
 	if arrow then
@@ -311,6 +313,15 @@ local function ViewActive()
 	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or (Auction.db.scoreSort and ns.ItemLinkRating ~= nil)
 end
 
+local function OnlyBetter()
+	return Auction.db.scoreSort and Auction.db.scoreOnlyBetter and ns.ItemLinkRating ~= nil
+end
+
+-- The view leaves rows out: it pages by itself, since Blizzard asks for more only near the end of its own list.
+local function Hiding()
+	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or OnlyBetter()
+end
+
 -- Goods a merchant sells for gold in unlimited stock: the bundled list and what this character saw at merchants.
 local merchantGoods
 
@@ -394,6 +405,15 @@ local function Judge(rowData, index)
 	return true
 end
 
+-- A row that passed the filters, if only better items are wanted: rated better than what is worn.
+local function Visible(rowData)
+	if not OnlyBetter() then
+		return true
+	end
+	local key = filter.keys[rowData]
+	return key ~= nil and key[1] <= RANK_LATER
+end
+
 -- Adds a shown row at its place in the sorted view.
 local function Insert(list, rowData)
 	local low, high = 1, #list + 1
@@ -449,7 +469,7 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 				waiting[#waiting + 1] = i
 			else
 				filter.verdict[i] = verdict
-				if verdict and not filter.rebuild then
+				if verdict and not filter.rebuild and Visible(rows[i]) then
 					Insert(filter.list, rows[i])
 				end
 			end
@@ -473,7 +493,9 @@ local function SyncFilter(browseFrame, applyLateVerdicts)
 						filter.keys[rows[i]] = key
 						filter.unrated = filter.unrated or key[1] == RANK_LOADING
 					end
-					list[#list + 1] = rows[i]
+					if Visible(rows[i]) then
+						list[#list + 1] = rows[i]
+					end
 				end
 			end
 			table.sort(list, Before)
@@ -541,13 +563,14 @@ end
 
 -- The line under the turning symbol while the filter has no hit yet: how far the search is, so a long search does
 -- not look stuck; after it ended without hits, how much was searched.
-function Auction.FilterStatusText(pages, hits, done)
+function Auction.FilterStatusText(pages, hits, done, other)
 	if hits > 0 then
 		return nil
 	elseif done then
-		return L.AUCTION_FILTER_STATUS_DONE:format(pages)
+		return (other and L.AUCTION_FILTER_STATUS_OTHER_DONE or L.AUCTION_FILTER_STATUS_DONE):format(pages)
 	end
-	return L.AUCTION_FILTER_STATUS:format(pages, FILTER_AUTO_PAGES, FILTER_AUTO_SECONDS)
+	return (other and L.AUCTION_FILTER_STATUS_OTHER or L.AUCTION_FILTER_STATUS):format(pages, FILTER_AUTO_PAGES,
+		FILTER_AUTO_SECONDS)
 end
 
 local function UpdateFilterStatus(browseFrame)
@@ -556,8 +579,8 @@ local function UpdateFilterStatus(browseFrame)
 		return
 	end
 	local status = itemList.fpFilterStatus
-	local text = Auction.db.vendorBuyFilter and Auction.FilterStatusText(filter.requests + 1, #filter.list,
-		filter.capped or C_AuctionHouse.HasFullBrowseResults()) or nil
+	local text = Hiding() and Auction.FilterStatusText(filter.requests + 1, #filter.list,
+		filter.capped or C_AuctionHouse.HasFullBrowseResults(), not Auction.db.vendorBuyFilter) or nil
 	if itemList.fpFilterStatusText == text then
 		return
 	end
@@ -581,7 +604,7 @@ local function PageFilter(browseFrame)
 end
 
 function PageFilterStep(browseFrame)
-	if not Auction.db.vendorBuyFilter or not browseFrame:IsShown() or C_AuctionHouse.HasFullBrowseResults() then
+	if not Hiding() or not browseFrame:IsShown() or C_AuctionHouse.HasFullBrowseResults() then
 		return
 	end
 	SyncFilter(browseFrame)
@@ -601,7 +624,7 @@ function PageFilterStep(browseFrame)
 			filter.timerStarted = true
 			local searchId = filter.searchId
 			ns.After("Auction: PageFilter (timer)", FILTER_AUTO_SECONDS, function()
-				if searchId == filter.searchId and not filter.capped and Auction.db.vendorBuyFilter then
+				if searchId == filter.searchId and not filter.capped and Hiding() then
 					filter.capped = true
 					QueueRefresh(0, #filter.list == 0)
 				end
@@ -1202,6 +1225,10 @@ function Auction:OnLogin()
 			if ns.ItemLinkRating then
 				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_SORT, "Auction", "scoreSort", L.AUCTION_SCORE_SORT_DESC)
 			end
+			if ns.ItemLinkRating then
+				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_ONLY_BETTER, "Auction", "scoreOnlyBetter",
+					L.AUCTION_SCORE_ONLY_BETTER_DESC)
+			end
 			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_HIDE_VENDOR_ITEMS, "Auction", "hideVendorItems",
 				L.AUCTION_HIDE_VENDOR_ITEMS_DESC)
 		end)
@@ -1245,7 +1272,7 @@ function Auction:OnOptionChanged(key)
 	elseif key == "startTab" then
 		ApplyStartTab()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
-		or key == "hideVendorItems" then
+		or key == "hideVendorItems" or key == "scoreOnlyBetter" then
 		ApplyBuyFilter()
 	elseif key == "vendorQuickBuy" then
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
@@ -1266,6 +1293,8 @@ Auction.options = {
 	{ key = "vendorQuickBuyQty", type = "slider", name = L.AUCTION_QUICK_BUY_QTY, desc = L.AUCTION_QUICK_BUY_QTY_DESC, parent = "vendorQuickBuy",
 		min = 1, max = 200, step = 1 },
 	{ key = "scoreSort", type = "toggle", name = L.AUCTION_SCORE_SORT, desc = L.AUCTION_SCORE_SORT_DESC, new = true },
+	{ key = "scoreOnlyBetter", type = "toggle", name = L.AUCTION_SCORE_ONLY_BETTER, desc = L.AUCTION_SCORE_ONLY_BETTER_DESC,
+		parent = "scoreSort", new = true },
 	{ key = "hideVendorItems", type = "toggle", name = L.AUCTION_HIDE_VENDOR_ITEMS, desc = L.AUCTION_HIDE_VENDOR_ITEMS_DESC, new = true },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },
 	{ key = "duration24", type = "toggle", name = L.AUCTION_DURATION_24, desc = L.AUCTION_DURATION_24_DESC },

@@ -7574,7 +7574,7 @@ end)()
 			SetDataProvider = function(_, started, entry, count, hasFull) provider = { entry = entry, count = count } end,
 			RefreshScrollFrame = function() end } }
 	AuctionHouseFrame = { BrowseResultsFrame = frame }
-	A.db.vendorBuyFilter, A.db.scoreSort = false, true
+	A.db.vendorBuyFilter, A.db.scoreSort, A.db.scoreOnlyBetter = false, true, false
 	F.Apply()
 	local r = frame.browseResults
 	assert(provider.count() == 7, "all rows stay in the list")
@@ -7619,6 +7619,23 @@ end)()
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
 	while #refreshes > 0 do table.remove(refreshes, 1)() end
 	assert(provider.entry(1) == r[7] and provider.entry(2) == r[3], "a late rating lands at its place")
+	-- only upgrades: worse gear, rows without comparison and loading rows are left out; pages load by themselves
+	ratings[7] = nil
+	local full, more = false, 0
+	C_AuctionHouse.HasFullBrowseResults = function() return full end
+	C_AuctionHouse.RequestMoreBrowseResults = function() more = more + 1 end
+	A.db.scoreOnlyBetter = true
+	F.Apply()
+	order = {}
+	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
+	assert(table.concat(order, ",") == "1,6,2", "only better items, wearable ones first: " .. table.concat(order, ","))
+	assert(more == 1, "a short list asks for the next page by itself")
+	assert(A.FilterStatusText(2, 0, false, true) == ns.L.AUCTION_FILTER_STATUS_OTHER:format(2, 20, 10), "status line without profit wording")
+	ratings[7] = { 8, "ok" }
+	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
+	while #refreshes > 0 do table.remove(refreshes, 1)() end
+	assert(provider.count() == 4 and provider.entry(1) == r[7], "a late upgrade joins the list")
+	ratings[7] = nil
 	A.db.scoreSort = false
 	F.Apply()
 	ns.ItemLinkRating, C_AuctionHouse, C_Timer.After = savedRating, savedAPI, savedAfter

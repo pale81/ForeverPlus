@@ -2919,7 +2919,7 @@ function Dialog.MerchantView()
 		if cost > 0 or #prices == 0 then
 			prices[#prices + 1] = GetMoneyString(cost, true)
 		end
-		basketText = L.DIALOG_MERCHANT_CHOSEN:format(#picks, pieces, table.concat(prices, " "))
+		basketText = L.DIALOG_MERCHANT_CHOSEN:format(pieces, table.concat(prices, " "))
 	end
 	-- The player's money at the right edge under the prices, the basket at the left.
 	blocks[#blocks + 1] = { money = basketText, right = moneyText }

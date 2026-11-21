@@ -6,7 +6,6 @@ local SoloParty = ns:NewModule("SoloParty", {
 	title = L.SOLO_PARTY_TITLE,
 	order = 5.37,
 	defaults = { enabled = false, sounds = true, effects = true, criticals = true, bloody = false },
-	charDefaults = { criticalRecord = 0 },
 })
 
 local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
@@ -292,18 +291,14 @@ local function CreateCard()
 	end
 	local label = art:CreateFontString(nil, "OVERLAY")
 	local value = art:CreateFontString(nil, "OVERLAY")
-	local detail = art:CreateFontString(nil, "OVERLAY")
 	label:SetShadowOffset(1, -1)
 	label:SetShadowColor(0.05, 0.03, 0.02, 0.85)
 	value:SetShadowOffset(2, -2)
-	detail:SetShadowOffset(1, -1)
-	detail:SetShadowColor(0.05, 0.03, 0.02, 0.90)
-	detail:SetTextColor(1, 0.89, 0.65)
 	return { anchor = anchor, art = art, burst = burst, aura = aura, particles = particles,
-		label = label, value = value, detail = detail }
+		label = label, value = value }
 end
 
-local function ShowBurst(kind, label, value, themeName, detail, bloodyPreview)
+local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	if not root then
 		root = CreateFrame("Frame", nil, UIParent)
 		root:SetAllPoints()
@@ -325,28 +320,19 @@ local function ShowBurst(kind, label, value, themeName, detail, bloodyPreview)
 	SetCardFont(card.value, size)
 	card.label:SetText(label)
 	card.value:SetText(value)
-	card.detail:SetShown(detail ~= nil)
-	if detail then
-		SetCardFont(card.detail, 17)
-		card.detail:SetText(detail)
-	end
 	card.label:SetTextColor(0.94, 0.87, 0.72)
 	card.value:SetTextColor(unpack(theme.text))
 	card.value:SetShadowColor(0.05, 0.03, 0.02, 0.90)
-	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * (detail and 0.72 or 0.43))
-	card.value:SetPoint("CENTER", card.art, "CENTER", 0, detail and 0 or -size * 0.24)
-	card.detail:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.72)
+	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * 0.43)
+	card.value:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.24)
 	if card.bloody then
 		card.burst:SetVertexColor(1, 1, 1)
 	else
 		card.burst:SetVertexColor(unpack(theme.paper))
 	end
-	-- Keep the critical card wide enough for the damage and its percentage line.
+	-- Critical damage is secret. Its text and text width must stay out of layout calculations.
 	local textWidth = kind == "crit" and 220 or math.max(card.label:GetStringWidth(), card.value:GetStringWidth())
 	local width, height = math.max(225, textWidth * 1.50 + 30), 55 + size * 1.45
-	if detail then
-		height = 70 + size * 1.75
-	end
 	card.width, card.height = width, height
 	card.art:SetSize(width, height)
 	SetEffects(card, SoloParty.db.effects and theme or nil)
@@ -446,8 +432,8 @@ function SoloParty:UNIT_COMBAT(_, unit, event, flagText, amount)
 		or unit ~= "target" or event ~= "WOUND" or flagText ~= "CRITICAL" then
 		return
 	end
-	amount = ns.Number(amount)
-	if not amount or amount <= 0 then
+	-- The client always hands out critical damage as a protected value: it can be shown, never compared.
+	if type(amount) ~= "number" or (not ns.Secret(amount) and amount <= 0) then
 		return
 	end
 	local hostile = UnitCanAttack("player", "target")
@@ -455,14 +441,9 @@ function SoloParty:UNIT_COMBAT(_, unit, event, flagText, amount)
 		or not ns:GetModule("CombatText").TargetInvolved() then
 		return
 	end
-	local previous = ns.Number(self.cdb.criticalRecord, 0)
-	if amount <= previous then
-		return
-	end
-	self.cdb.criticalRecord = amount
-	if previous > 0 then
-		local gain = (amount / previous - 1) * 100
-		ShowBurst("crit", L.SOLO_PARTY_CRIT, ("%d"):format(amount), nil, L.SOLO_PARTY_CRIT_GAIN:format(gain))
+	local ok, text = pcall(string.format, "%d", amount)
+	if ok then
+		ShowBurst("crit", L.SOLO_PARTY_CRIT, text)
 	end
 end
 
@@ -536,7 +517,7 @@ local PREVIEW_STEPS = {
 	function() ShowMoney("loot", 12500) end,
 	function() ShowMoney("spent", 3500) end,
 	function() ShowBurst("xp", L.SOLO_PARTY_XP, L.SOLO_PARTY_XP_VALUE:format(450)) end,
-	function() ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234", nil, L.SOLO_PARTY_CRIT_GAIN:format(25)) end,
+	function() ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234") end,
 }
 
 local function Preview()
@@ -557,7 +538,7 @@ local function PreviewBloody()
 		previewTimer:Cancel()
 		previewTimer = nil
 	end
-	ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234", nil, L.SOLO_PARTY_CRIT_GAIN:format(25), true)
+	ShowBurst("crit", L.SOLO_PARTY_CRIT, "1234", nil, true)
 end
 
 SoloParty.options = {

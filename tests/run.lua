@@ -5146,9 +5146,6 @@ end)()
 	local money, timers, printed, visuals, positions = 1000, {}, {}, {}, {}
 	local frames, played, effects = {}, {}, {}
 	local bloodTextures, bloodLayer = {}, nil
-	local details = {}
-	local savedRecord = solo.cdb.criticalRecord
-	solo.cdb.criticalRecord = 0
 	local fontSettings = ns:GetModule("Fonts").db
 	local savedFace = fontSettings.face
 	fontSettings.face = "Fonts\\FRIZQT__.TTF"
@@ -5227,24 +5224,18 @@ end)()
 			mask.SetTexture = function(self, path) self.path = path end
 			return mask
 		end
-		local fontCount = 0
 		frame.CreateFontString = function()
-			fontCount = fontCount + 1
-			local detail = fontCount == 3
 			local region = NewFrame("FontString")
 			region.SetText = function(self, value)
 				self.secretText = issecretvalue(value)
-				local output = detail and details or printed
-				output[#output + 1] = value
+				printed[#printed + 1] = value
 			end
 			region.GetStringWidth = function(self)
 				assert(not self.secretText, "protected damage text must not be measured for layout")
 				return 80
 			end
 			region.SetFont = function(_, font, size, flags)
-				if not detail then
-					visuals[#visuals + 1] = { font, size, flags }
-				end
+				visuals[#visuals + 1] = { font, size, flags }
 				return true
 			end
 			return region
@@ -5359,8 +5350,6 @@ end)()
 	timers[#timers].fn()
 	assert(#printed == 20 and #played == 10 and printed[19] == ns.L.SOLO_PARTY_CRIT and printed[20] == "1234"
 		and #impactFiles == 1, "preview ends with a critical hit and a weapon impact sound")
-	assert(details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(25) and solo.cdb.criticalRecord == 0,
-		"preview includes the percentage without setting a record")
 	assert(not solo.db.enabled and money == 11, "preview leaves the mode and wallet alone")
 
 	SetEnabled(true)
@@ -5445,29 +5434,23 @@ end)()
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
 	selfTarget, threat = false, nil
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1234)
-	assert(#printed == shown and #played == sounds, "only readable critical damage on an involved hostile target qualifies")
+	assert(#printed == shown and #played == sounds, "only critical damage on an involved hostile target qualifies")
 	threat = 1
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1000)
-	assert(solo.cdb.criticalRecord == 1000 and #printed == shown and #played == sounds, "the first critical silently sets the baseline")
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1000)
+	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1000"
+		and #played == sounds + 1 and impacts[played[#played]], "every critical gets its card and weapon impact sound")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 999)
-	assert(#printed == shown and #played == sounds and solo.cdb.criticalRecord == 1000, "equal and smaller criticals remain silent")
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 1250)
-	assert(printed[shown + 1] == ns.L.SOLO_PARTY_CRIT and printed[shown + 2] == "1250"
-		and #played == sounds + 1 and impacts[played[#played]], "a new record gets its card and weapon impact sound")
-	assert(solo.cdb.criticalRecord == 1250 and details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(25),
-		"1250 is 25 percent harder than the previous record of 1000")
+	assert(printed[shown + 4] == "999" and #played == sounds + 2, "smaller criticals are shown too")
 	assert(Effect(#frames, "star4"), "critical damage has sparks")
 	solo.db.criticals = false
 	solo:OnOptionChanged("criticals")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2000)
-	assert(#printed == shown + 2 and solo.cdb.criticalRecord == 1250, "critical-hit option unregisters the listener")
+	assert(#printed == shown + 4, "critical-hit option unregisters the listener")
 	solo.db.criticals = true
 	solo:OnOptionChanged("criticals")
 	threat, aimed = nil, true
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500)
-	assert(printed[shown + 4] == "2500" and details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(100),
-		"the next record compares with the highest amount saved so far")
+	assert(printed[shown + 6] == "2500", "a target aiming at the player counts as involvement")
 	for i = 1, 4 do
 		Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2500 + i * 100)
 	end
@@ -5480,28 +5463,19 @@ end)()
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3000)
-	assert(#impactFiles == 7 and printed[#printed] == "3000" and solo.cdb.criticalRecord == 3000,
-		"muting suppresses the impact while still updating the record")
+	assert(#impactFiles == 8 and printed[#printed] == "3000", "muting suppresses the impact while still showing the card")
 	secretCrit = true
 	solo.db.sounds = true
-	local recordLines = #printed
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4000)
-	assert(#printed == recordLines and #impactFiles == 7 and solo.cdb.criticalRecord == 3000,
-		"protected amounts do not claim an unverifiable record")
+	assert(printed[#printed] == "4000" and #impactFiles == 9,
+		"protected damage, as the client always sends it, is shown without being compared or measured")
 	secretCrit = false
 	selfTarget = "protected"
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3500)
-	assert(#impactFiles == 8 and solo.cdb.criticalRecord == 3500, "restricted identity comparisons do not suppress readable records")
-	solo:OnLogin()
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3400)
-	assert(#impactFiles == 8 and solo.cdb.criticalRecord == 3500, "login preserves the character's saved record")
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3600)
-	assert(details[#details] == ns.L.SOLO_PARTY_CRIT_GAIN:format(100 / 35), "the percentage uses the persistent record")
+	assert(#impactFiles == 10, "restricted identity comparisons do not suppress criticals")
 	assert(not solo.db.bloody and not bloodLayer, "Bloody defaults to off")
 	solo.db.bloody = true
 	solo:OnOptionChanged("bloody")
-	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3500)
-	assert(not bloodLayer and solo.cdb.criticalRecord == 3600, "Bloody follows the critical-record threshold")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4000)
 	assert(frames[#frames]:find("SoloPartyBloody", 1, true) and #bloodTextures == 8 and bloodLayer:IsShown(),
 		"Bloody swaps the critical card and scatters eight splashes")
@@ -5513,11 +5487,11 @@ end)()
 	layer:GetScript("OnUpdate")(layer, 0.3)
 	assert(bloodTextures[1]:GetAlpha() > 0 and bloodTextures[8]:GetAlpha() > 0, "blood splashes become visible")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4100)
-	assert(#bloodTextures == 8, "consecutive bloody records reuse the eight textures")
+	assert(#bloodTextures == 8, "consecutive bloody criticals reuse the eight textures")
 	for i, texture in ipairs(bloodTextures) do
 		local previous = previousSplashes[i]
 		assert(texture.x ~= previous[1] and (texture.u ~= previous[2] or texture.v ~= previous[3]),
-			"each consecutive bloody record changes the splash motif and position")
+			"each consecutive bloody critical changes the splash motif and position")
 	end
 	layer:GetScript("OnUpdate")(layer, 2.1)
 	assert(not bloodLayer:IsShown() and not layer:IsShown(), "blood splashes and the overlay expire together")
@@ -5541,20 +5515,19 @@ end)()
 	end
 	assert(bloodyPreview and bloodyPreview ~= preview, "Bloody has its own test button alongside the unchanged general preview")
 	shown, sounds = #printed, #played
-	local record, timerCount = solo.cdb.criticalRecord, #timers
+	local timerCount = #timers
 	bloodyPreview()
 	assert(#printed == shown + 2 and printed[#printed - 1] == ns.L.SOLO_PARTY_CRIT and printed[#printed] == "1234"
 		and #played == sounds + 1 and frames[#frames]:find("SoloPartyBloody", 1, true) and bloodLayer:IsShown(),
 		"the Bloody test immediately shows only its critical card, splashes and impact sound")
-	assert(not solo.db.enabled and not solo.db.bloody and solo.cdb.criticalRecord == record and #timers == timerCount,
-		"the Bloody test changes no settings or saved record and schedules no preview sequence")
+	assert(not solo.db.enabled and not solo.db.bloody and #timers == timerCount,
+		"the Bloody test changes no settings and schedules no preview sequence")
 	preview()
 	local pendingPreview = timers[#timers]
 	bloodyPreview()
 	assert(pendingPreview.cancelled and #timers == timerCount + 1,
 		"testing Bloody stops a pending general preview instead of mixing later preview steps into the test")
 	SetEnabled(false)
-	solo.cdb.criticalRecord = savedRecord
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile = unpack(saved, 1, 9)

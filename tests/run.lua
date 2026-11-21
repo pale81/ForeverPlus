@@ -7651,6 +7651,7 @@ end)()
 	A.cdb = { vendorBuyPrices = { [424242] = 5 } }
 	assert(A.IsMerchantGood(159) and A.IsMerchantGood(424242) and not A.IsMerchantGood(424243) and not A.IsMerchantGood(nil),
 		"bundled list and own merchant visits")
+	assert(A.IsMerchantGood(728) and A.IsMerchantGood(2697), "recipes of the recipe vendors (Westfall Stew, Goretusk Liver Pie)")
 	local function row(id) return { itemKey = { itemID = id }, minPrice = 10, totalQuantity = 1 } end
 	local provider
 	local frame = { browseResults = { row(424243), row(159), row(424242), row(424244) }, IsShown = function() return true end,

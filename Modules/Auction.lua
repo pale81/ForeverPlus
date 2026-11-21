@@ -322,7 +322,8 @@ local function Hiding()
 	return Auction.db.vendorBuyFilter or Auction.db.hideVendorItems or OnlyBetter()
 end
 
--- Goods a merchant sells for gold in unlimited stock: the bundled list and what this character saw at merchants.
+-- Goods a merchant sells for gold: the bundled list, the recipes of the recipe vendors (Data/Radar.lua) and what this
+-- character saw at merchants.
 local merchantGoods
 
 function Auction.IsMerchantGood(itemID)
@@ -333,6 +334,11 @@ function Auction.IsMerchantGood(itemID)
 		merchantGoods = {}
 		for _, id in ipairs(ns.VendorItemsEG or {}) do
 			merchantGoods[id] = true
+		end
+		for _, vendor in pairs(ns.RadarData and ns.RadarData.vendors or {}) do
+			for _, id in ipairs(type(vendor[5]) == "table" and vendor[5] or {}) do
+				merchantGoods[id] = true
+			end
 		end
 	end
 	return merchantGoods[itemID] or (Auction.cdb and Auction.cdb.vendorBuyPrices[itemID] ~= nil) or false

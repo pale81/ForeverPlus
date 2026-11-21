@@ -19,7 +19,7 @@ local Auction = ns:NewModule("Auction", {
 		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
 		scoreSort = false, -- the buy list by the rating of the items against what is worn
 		scoreOnlyBetter = true, -- with the rating sort: only items better than what is worn
-		scoreValueSort = false, -- with the rating sort: the most rating per gold first
+		scoreValueSort = false, -- with the rating sort: the most gain per gold first
 		hideVendorItems = false, -- the buy list without goods a merchant sells freely for gold
 		duration24 = true,
 		startTab = "buy",
@@ -159,7 +159,7 @@ local itemArrows = setmetatable({}, { __mode = "k" })
 local gainLabels = setmetatable({}, { __mode = "k" })
 local RowGain -- below, with the sorted view
 
--- The label text (with the rating per gold when that sorts) and whether it is a gain; nil for no rated equipment.
+-- The label text (with the gain per gold when that sorts) and whether it is a gain; nil for no rated equipment.
 function Auction.GainText(gain, perGold)
 	if type(gain) ~= "number" then
 		return nil
@@ -291,6 +291,7 @@ local filter = {
 	unrated = false,   -- a shown row waits for item data to be rated
 }
 local originalProvider
+local ownCount -- the view's count function while it is in place
 
 -- The merchant price; 0 for an item that is loaded but has none, nil until its data is there.
 local function KnownVendorPrice(itemID)
@@ -358,13 +359,13 @@ end
 -- rating not known yet (item data loading).
 local RANK_UPGRADE, RANK_LATER, RANK_WORSE, RANK_NONE, RANK_LOADING = 1, 2, 3, 4, 5
 
--- Key of a rated row: by gain, or with the value sort by the item's rating per gold of the cheapest offer.
--- Also keeps gain and rating per gold for the label.
-local function RatedKey(rank, gain, score, rowData, index)
+-- Key of a rated row: by gain, or with the value sort by gain per gold of the cheapest offer.
+-- Also keeps gain and gain per gold for the label.
+local function RatedKey(rank, gain, rowData, index)
 	local perGold
 	local price = rowData.minPrice
-	if type(score) == "number" and type(price) == "number" and price > 0 then
-		perGold = score / (price / 10000)
+	if type(price) == "number" and price > 0 then
+		perGold = gain / (price / 10000)
 	end
 	if Auction.db.scoreValueSort then
 		return { rank, perGold or 0, index, gain, perGold }
@@ -380,27 +381,27 @@ function Auction.SortKey(rowData, index)
 		if not link and itemID and C_Item.IsItemDataCachedByID(itemID) then
 			link = select(2, C_Item.GetItemInfo(itemID))
 		end
-		local gain, block, score = ns.ItemLinkRating(link)
+		local gain, block = ns.ItemLinkRating(link)
 		if gain == nil or (not link and itemID and not C_Item.IsItemDataCachedByID(itemID)) then
 			VendorPrice(itemID) -- asks for the item data once
 			return { RANK_LOADING, 0, index }
 		elseif not gain then
 			return { RANK_NONE, 0, index }
 		elseif block == "ok" then
-			return RatedKey(RANK_UPGRADE, gain, score, rowData, index)
+			return RatedKey(RANK_UPGRADE, gain, rowData, index)
 		elseif block == "level" then
-			return RatedKey(RANK_LATER, gain, score, rowData, index)
+			return RatedKey(RANK_LATER, gain, rowData, index)
 		elseif block then
 			return { RANK_NONE, 0, index } -- better, but never wearable (class, profession)
 		end
-		return RatedKey(RANK_WORSE, gain, score, rowData, index)
+		return RatedKey(RANK_WORSE, gain, rowData, index)
 	elseif Auction.db.vendorBuyFilter and Auction.db.vendorProfitSort then
 		return { 0, (KnownVendorPrice(ItemIDOf(rowData)) or 0) - rowData.minPrice, index }
 	end
 	return { 0, 0, index }
 end
 
--- Gain and rating per gold of a rated row of the sorted view; nil for rows without a comparison or not rated yet.
+-- Gain and gain per gold of a rated row of the sorted view; nil for rows without a comparison or not rated yet.
 function RowGain(rowData)
 	local key = rowData and filter.keys[rowData]
 	if key and (key[1] == RANK_UPGRADE or key[1] == RANK_LATER or key[1] == RANK_WORSE) then
@@ -574,19 +575,21 @@ local function SetFilterProvider(browseFrame, on)
 				itemList.searchStartedFunc, itemList.getEntry, itemList.getNumEntries, itemList.hasFullResultsFunc,
 			}
 		end
+		ownCount = function()
+			MeasuredSync(browseFrame)
+			return #filter.list
+		end
 		itemList:SetDataProvider(originalProvider[1],
 			function(index)
 				return filter.list[index]
 			end,
-			function()
-				MeasuredSync(browseFrame)
-				return #filter.list
-			end,
+			ownCount,
 			-- with no profitable row yet the list shows "searching" until the search is complete or given up
 			function()
 				return filter.capped or C_AuctionHouse.HasFullBrowseResults()
 			end)
 	elseif originalProvider then
+		ownCount = nil
 		itemList:SetDataProvider(unpack(originalProvider, 1, 4))
 	end
 end
@@ -732,7 +735,16 @@ local function ApplyBuyFilter()
 	end
 end
 
-Auction.Filter = { Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter,
+-- A view that is switched on but not in place (seen in game: the first search after opening showed Blizzard's own
+-- list until a filter was switched again; the cause is not known) is put back.
+local function EnsureProvider(browseFrame)
+	local itemList = browseFrame and browseFrame.ItemList
+	if ViewActive() and itemList and itemList.getNumEntries ~= ownCount then
+		ApplyBuyFilter()
+	end
+end
+
+Auction.Filter = { Ensure = EnsureProvider, Profitable = Profitable, Sync = SyncFilter, Provider = SetFilterProvider, Page = PageFilter,
 	Apply = ApplyBuyFilter, ItemInfo = OnItemInfo, State = filter, ItemCell = OnItemCell }
 
 local function HookBuyFilter()
@@ -742,6 +754,7 @@ local function HookBuyFilter()
 	end
 	-- Instance hooks: the frame was built from the mixins before this ran.
 	hooksecurefunc(browseFrame, "UpdateBrowseResults", ns.Measured("Auction: filter paging", function(frame)
+		EnsureProvider(frame)
 		PageFilter(frame)
 	end))
 	if browseFrame.ItemList and browseFrame.ItemList.CallRefreshCallback then
@@ -755,6 +768,7 @@ local function HookBuyFilter()
 			hooksecurefunc(C_AuctionHouse, name, function()
 				if ViewActive() then
 					ResetFilter()
+					EnsureProvider(browseFrame)
 				end
 			end)
 		end

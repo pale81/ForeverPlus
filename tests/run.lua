@@ -1979,8 +1979,8 @@ end)()
 	-- the rating for sorted lists: gain over the worn item, independent of the arrow option
 	equipped = defender
 	clear()
-	local gain, block, own = ns.ItemLinkRating(cloak)
-	assert(gain > 0.01 and block == "ok" and own > gain, "the better cloak gains, can be worn and has its own rating")
+	local gain, block = ns.ItemLinkRating(cloak)
+	assert(gain > 0.01 and block == "ok", "the better cloak gains and can be worn")
 	equipped = cloak
 	clear()
 	gain, block = ns.ItemLinkRating(defender)
@@ -7561,7 +7561,7 @@ end)()
 		if id == 5 then return false end
 		local r = ratings[id]
 		if not r then return nil end
-		return r[1], r[2], r[3]
+		return r[1], r[2]
 	end
 	C_AuctionHouse = { HasFullBrowseResults = function() return true end, RequestMoreBrowseResults = function() end,
 		GetItemKeySampleLink = function(key) return "|Hitem:" .. key.itemID .. "|h" end }
@@ -7635,14 +7635,14 @@ end)()
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
 	while #refreshes > 0 do table.remove(refreshes, 1)() end
 	assert(provider.count() == 4 and provider.entry(1) == r[7], "a late upgrade joins the list")
-	-- value: the item's rating per gold of the cheapest offer, within the groups
-	ratings[1], ratings[6], ratings[7], ratings[2] = { 5, "ok", 20 }, { 3, "ok", 12 }, { 8, "ok", 30 }, { 9, "level", 40 }
-	r[3].minPrice, r[6].minPrice, r[7].minPrice, r[5].minPrice = 40000, 10000, 300000, 100
+	-- value: gain per gold of the cheapest offer, within the groups (5 for 4 g, 3 for 1 g, 8 for 2 g, later 9 for 1 c)
+	ratings[1], ratings[6], ratings[7], ratings[2] = { 5, "ok" }, { 3, "ok" }, { 8, "ok" }, { 9, "level" }
+	r[3].minPrice, r[6].minPrice, r[7].minPrice, r[5].minPrice = 40000, 10000, 20000, 1
 	A.db.scoreValueSort = true
 	F.Apply()
 	order = {}
 	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
-	assert(table.concat(order, ",") == "6,1,7,2", "most rating per gold first, later upgrades after: " .. table.concat(order, ","))
+	assert(table.concat(order, ",") == "7,6,1,2", "most gain per gold first, later upgrades after: " .. table.concat(order, ","))
 	assert(A.GainText(3, 12) == "+3.0 · 12/g" and A.GainText(3, 0.5) == "+3.0 · 0.5/g", "gain and rating per gold in the row")
 	A.db.scoreValueSort = false
 	assert(A.GainText(3, 12) == "+3.0", "without the value sort only the gain")
@@ -7674,6 +7674,17 @@ end)()
 	F.Apply()
 	local r = frame.browseResults
 	assert(provider.count() == 2 and provider.entry(1) == r[1] and provider.entry(2) == r[4], "merchant goods left out, order kept")
+	-- the first search after opening showed Blizzard's own list: a view that is on but not in place is put back
+	local blizzardCount = function() return #frame.browseResults end
+	frame.ItemList.getNumEntries = blizzardCount
+	provider = nil
+	F.Ensure(frame)
+	assert(provider and provider.count() == 2, "the filtered view is put back in place")
+	local own = provider
+	provider = nil
+	frame.ItemList.getNumEntries = own.count
+	F.Ensure(frame)
+	assert(provider == nil, "a view in place is left alone")
 	A.db.hideVendorItems = false
 	F.Apply()
 	C_AuctionHouse, A.cdb = savedAPI, savedCdb

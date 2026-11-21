@@ -1700,7 +1700,7 @@ L.RP_SEND_FAILED = "The request could not be sent right now. Try again in a mome
 
 L.CAMERA_TITLE = "Cinematic camera"
 L.CAMERA_ENABLE = "Cinematic camera"
-L.CAMERA_ENABLE_DESC = "A close, calm over-the-shoulder camera. Every situation gets its own setting (distance, shoulder view, tilt), and the camera glides slowly from one to the next. When several situations apply, the one higher in the list wins. Uses the game's action camera: switching it on shows Blizzard's notice about experimental settings and turns off the accessibility setting that keeps the character centered. Switching it off puts every changed setting and your own camera distance back."
+L.CAMERA_ENABLE_DESC = "A close, calm over-the-shoulder camera. Every situation gets its own setting (distance, shoulder view, tilt), and the camera glides slowly from one to the next. When several situations apply, the one higher in the list wins. Uses the game's action camera: switching it on shows Blizzard's notice about experimental settings and turns off the accessibility setting that keeps the character centered. If you zoom yourself, your distance stays until the next situation. Switching it off puts every changed setting and your own camera distance back."
 L.CAMERA_TAXI = "Flight path"
 L.CAMERA_TAXI_DESC = "A little further away, so the landscape can be seen."
 L.CAMERA_TALK = "Talking to an NPC"

@@ -43,13 +43,20 @@ local CONTROL = {
 }
 local DURATION = 2.5
 local BACK_DURATION = 3 -- back to the player's own camera: slower
-local ZOOM_SPEED = "cameraZoomSpeed"
+local HOLD = 0.6 -- a situation must hold this long before the camera follows (doorways, short flickers)
+local MAX_ZOOM_PER_FACTOR = 15 -- the game's farthest distance is this times cameraDistanceMaxZoomFactor
+-- An older version lowered the zoom speed for a while; a reload in that moment left it slow.
+local OLD_ZOOM_SPEED = "cameraZoomSpeed"
 
 local running, ticker, current
 local zoomBefore -- the player's own distance before the first situation that zooms
-local blend -- { from = { shoulder, pad }, to = { shoulder, pad }, start, duration }
+-- Where the game's camera is headed. GetCameraZoom gives the distance on the way there, so it is only read
+-- when the camera rests; the module's and the player's zoom steps are added up here instead.
+local zoomTarget
+local ownZoom = false -- the module zooms right now (the zoom hooks ignore it)
+local blend -- { from = { shoulder, pad, zoom }, to = { shoulder, pad, zoom }, start, duration }
 local blender
-local zoomTimer -- puts the zoom speed back once a slow zoom is done
+local hold = {} -- the situation waiting to be followed and since when
 
 ---------------------------------------------------------------------------
 -- Pure logic
@@ -72,6 +79,19 @@ end
 
 function Camera.Blend(from, to, t)
 	return from + (to - from) * Camera.Ease(t)
+end
+
+-- True once the same situation (nil: none) has been picked for HOLD seconds.
+function Camera.Settled(waiting, situation, now)
+	if not waiting.seen or waiting.situation ~= situation then
+		waiting.seen, waiting.situation, waiting.since = true, situation, now
+	end
+	return now - waiting.since >= HOLD
+end
+
+-- The zoom target after a step, kept within the distances the game allows.
+function Camera.StepZoom(target, delta, maxZoom)
+	return math.max(0, math.min(maxZoom, target + delta))
 end
 
 ---------------------------------------------------------------------------
@@ -115,30 +135,38 @@ local function Zoom()
 	return ns.Number(GetCameraZoom and GetCameraZoom(), nil)
 end
 
-local function NormalZoomSpeed()
-	if zoomTimer then
-		zoomTimer:Cancel()
-		zoomTimer = nil
-		Set(ZOOM_SPEED, Original(ZOOM_SPEED))
-	end
+local function MaxZoom()
+	return MAX_ZOOM_PER_FACTOR * (tonumber(GetCVar("cameraDistanceMaxZoomFactor")) or 1)
 end
 
--- Zooms to a distance; with a duration the game's zoom speed is lowered so the move takes that long.
-local function ZoomTo(distance, duration)
-	NormalZoomSpeed()
-	local now = Zoom()
-	if not now or not distance then
+-- Moves the zoom target to a distance in one step (the game glides there at its own zoom speed).
+local function ZoomTo(distance)
+	if not zoomTarget or not distance then
 		return
 	end
-	local delta = distance - now
-	if duration and math.abs(delta) > 0.1 then
-		Set(ZOOM_SPEED, math.max(1, math.min(50, math.abs(delta) / duration)))
-		zoomTimer = ns.NewTimer("Camera: zoom speed", duration, NormalZoomSpeed)
+	distance = Camera.StepZoom(distance, 0, MaxZoom())
+	local delta = distance - zoomTarget
+	if delta == 0 then
+		return
 	end
-	if delta > 0.1 then
+	ownZoom = true
+	if delta > 0 then
 		CameraZoomOut(delta)
-	elseif delta < -0.1 then
+	else
 		CameraZoomIn(-delta)
+	end
+	ownZoom = false
+	zoomTarget = distance
+end
+
+-- The player zooms (mouse wheel, keys): the target moves along, and a running zoom blend stops.
+local function OnPlayerZoom(delta)
+	if not running or ownZoom or not zoomTarget then
+		return
+	end
+	zoomTarget = Camera.StepZoom(zoomTarget, delta, MaxZoom())
+	if blend then
+		blend.to[3] = nil
 	end
 end
 
@@ -150,16 +178,19 @@ local function BlendStep()
 	local t = (GetTime() - blend.start) / blend.duration
 	Set(SHOULDER, Camera.Blend(blend.from[1], blend.to[1], t))
 	Set(PAD, Camera.Blend(blend.from[2], blend.to[2], t))
+	if blend.from[3] and blend.to[3] then
+		ZoomTo(Camera.Blend(blend.from[3], blend.to[3], t))
+	end
 	if t >= 1 then
 		blend = nil
 		ns.SetUpdate(blender, "Camera: blend", nil)
 	end
 end
 
-local function BlendTo(shoulder, pad, duration)
+local function BlendTo(shoulder, pad, zoom, duration)
 	blend = {
-		from = { Number(SHOULDER, 0), Number(PAD, 0) },
-		to = { shoulder, pad },
+		from = { Number(SHOULDER, 0), Number(PAD, 0), zoomTarget },
+		to = { shoulder, pad, zoom },
 		start = GetTime(),
 		duration = duration,
 	}
@@ -175,14 +206,12 @@ function Camera.Apply(situation)
 	end
 	current = situation
 	if situation then
-		zoomBefore = zoomBefore or Zoom()
-		ZoomTo(situation.zoom, DURATION)
-		BlendTo(situation.shoulder, situation.pad, DURATION)
+		zoomBefore = zoomBefore or zoomTarget
+		BlendTo(situation.shoulder, situation.pad, situation.zoom, DURATION)
 		Set(INTERACT, situation.interact and "1" or "0")
 	else
-		ZoomTo(zoomBefore, BACK_DURATION)
+		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, zoomBefore, BACK_DURATION)
 		zoomBefore = nil
-		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, BACK_DURATION)
 		Set(INTERACT, Original(INTERACT) or "0")
 	end
 end
@@ -207,8 +236,14 @@ function Camera.State()
 end
 
 function Camera.Update()
-	if running then
-		Camera.Apply(Camera.Pick(Camera.State(), Camera.db))
+	if not running then
+		return
+	end
+	local situation = Camera.Pick(Camera.State(), Camera.db)
+	-- Always asked, so a short flicker back to the current situation starts the wait anew.
+	local settled = Camera.Settled(hold, situation, GetTime())
+	if situation ~= current and settled then
+		Camera.Apply(situation)
 	end
 end
 
@@ -227,6 +262,15 @@ function Camera.Start()
 		return
 	end
 	running = true
+	local stale = Camera.db.saved[OLD_ZOOM_SPEED]
+	if stale then
+		if stale.original ~= nil and GetCVar(OLD_ZOOM_SPEED) == stale.applied then
+			SetCVar(OLD_ZOOM_SPEED, stale.original)
+		end
+		Camera.db.saved[OLD_ZOOM_SPEED] = nil
+	end
+	zoomTarget = Zoom()
+	hold = {}
 	for _, control in ipairs(CONTROL) do
 		Set(control[1], control[2])
 	end
@@ -250,7 +294,7 @@ function Camera.Stop()
 		Camera:UnregisterEvent(event)
 	end
 	ZoomTo(zoomBefore)
-	zoomBefore, current, blend = nil, nil, nil
+	zoomBefore, zoomTarget, current, blend = nil, nil, nil, nil
 	if blender then
 		ns.SetUpdate(blender, "Camera: blend", nil)
 	end
@@ -258,6 +302,12 @@ function Camera.Stop()
 end
 
 function Camera:OnLogin()
+	hooksecurefunc("CameraZoomIn", ns.Measured("Camera: zoom in", function(amount)
+		OnPlayerZoom(-(tonumber(amount) or 1))
+	end))
+	hooksecurefunc("CameraZoomOut", ns.Measured("Camera: zoom out", function(amount)
+		OnPlayerZoom(tonumber(amount) or 1)
+	end))
 	if self.db.enabled then
 		Camera.Start()
 	elseif next(self.db.saved) then

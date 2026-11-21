@@ -1732,7 +1732,7 @@ L.RP_SEND_FAILED = "Die Abfrage konnte gerade nicht gesendet werden. Versuche es
 
 L.CAMERA_TITLE = "Filmische Kamera"
 L.CAMERA_ENABLE = "Filmische Kamera"
-L.CAMERA_ENABLE_DESC = "Eine nahe, ruhige Kamera über der Schulter. Jede Situation bekommt eine eigene Einstellung (Abstand, Schulterblick, Neigung), die Kamera gleitet langsam von einer zur nächsten. Gelten mehrere Situationen, gewinnt die obere in der Liste. Nutzt die Action-Kamera des Spiels: Beim Einschalten erscheint Blizzards Hinweis zu experimentellen Einstellungen, und die Barrierefreiheits-Einstellung, die den Charakter in der Bildmitte hält, wird ausgeschaltet. Beim Ausschalten kommen alle geänderten Einstellungen und der eigene Kameraabstand zurück."
+L.CAMERA_ENABLE_DESC = "Eine nahe, ruhige Kamera über der Schulter. Jede Situation bekommt eine eigene Einstellung (Abstand, Schulterblick, Neigung), die Kamera gleitet langsam von einer zur nächsten. Gelten mehrere Situationen, gewinnt die obere in der Liste. Nutzt die Action-Kamera des Spiels: Beim Einschalten erscheint Blizzards Hinweis zu experimentellen Einstellungen, und die Barrierefreiheits-Einstellung, die den Charakter in der Bildmitte hält, wird ausgeschaltet. Zoomst du selbst, bleibt dein Abstand bis zur nächsten Situation. Beim Ausschalten kommen alle geänderten Einstellungen und der eigene Kameraabstand zurück."
 L.CAMERA_TAXI = "Flugroute"
 L.CAMERA_TAXI_DESC = "Etwas weiter weg, damit die Landschaft zu sehen ist."
 L.CAMERA_TALK = "Gespräch mit NPC"

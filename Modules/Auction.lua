@@ -19,6 +19,7 @@ local Auction = ns:NewModule("Auction", {
 		vendorProfitSort = true, -- profitable offers with the highest merchant profit first
 		scoreSort = false, -- the buy list by the rating of the items against what is worn
 		scoreOnlyBetter = true, -- with the rating sort: only items better than what is worn
+		scoreValueSort = false, -- with the rating sort: the most rating per gold first
 		hideVendorItems = false, -- the buy list without goods a merchant sells freely for gold
 		duration24 = true,
 		startTab = "buy",
@@ -158,16 +159,25 @@ local itemArrows = setmetatable({}, { __mode = "k" })
 local gainLabels = setmetatable({}, { __mode = "k" })
 local RowGain -- below, with the sorted view
 
--- The label text and whether it is a gain; nil for no rated equipment.
-function Auction.GainText(gain)
+-- The label text (with the rating per gold when that sorts) and whether it is a gain; nil for no rated equipment.
+function Auction.GainText(gain, perGold)
 	if type(gain) ~= "number" then
 		return nil
 	end
-	return ("%+.1f"):format(gain), gain > 0.01
+	local text = ("%+.1f"):format(gain)
+	if perGold and Auction.db.scoreValueSort then
+		local digits = perGold >= 10 and "%.0f" or perGold >= 0.1 and "%.1f" or "%.2f"
+		text = text .. " · " .. L.AUCTION_PER_GOLD:format(digits:format(perGold))
+	end
+	return text, gain > 0.01
 end
 
 local function UpdateGainLabel(cell)
-	local text, better = Auction.GainText(not cell.Prefix and Auction.db.scoreSort and RowGain(cell.rowData) or nil)
+	local gain, perGold
+	if not cell.Prefix and Auction.db.scoreSort then
+		gain, perGold = RowGain(cell.rowData)
+	end
+	local text, better = Auction.GainText(gain, perGold)
 	local label = gainLabels[cell]
 	if not label and text then
 		label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -348,6 +358,20 @@ end
 -- rating not known yet (item data loading).
 local RANK_UPGRADE, RANK_LATER, RANK_WORSE, RANK_NONE, RANK_LOADING = 1, 2, 3, 4, 5
 
+-- Key of a rated row: by gain, or with the value sort by the item's rating per gold of the cheapest offer.
+-- Also keeps gain and rating per gold for the label.
+local function RatedKey(rank, gain, score, rowData, index)
+	local perGold
+	local price = rowData.minPrice
+	if type(score) == "number" and type(price) == "number" and price > 0 then
+		perGold = score / (price / 10000)
+	end
+	if Auction.db.scoreValueSort then
+		return { rank, perGold or 0, index, gain, perGold }
+	end
+	return { rank, gain, index, gain, perGold }
+end
+
 -- Place of a shown row: rank first (lower first), then value (higher first), then Blizzard's order.
 function Auction.SortKey(rowData, index)
 	if Auction.db.scoreSort and ns.ItemLinkRating then
@@ -356,31 +380,31 @@ function Auction.SortKey(rowData, index)
 		if not link and itemID and C_Item.IsItemDataCachedByID(itemID) then
 			link = select(2, C_Item.GetItemInfo(itemID))
 		end
-		local gain, block = ns.ItemLinkRating(link)
+		local gain, block, score = ns.ItemLinkRating(link)
 		if gain == nil or (not link and itemID and not C_Item.IsItemDataCachedByID(itemID)) then
 			VendorPrice(itemID) -- asks for the item data once
 			return { RANK_LOADING, 0, index }
 		elseif not gain then
 			return { RANK_NONE, 0, index }
 		elseif block == "ok" then
-			return { RANK_UPGRADE, gain, index }
+			return RatedKey(RANK_UPGRADE, gain, score, rowData, index)
 		elseif block == "level" then
-			return { RANK_LATER, gain, index }
+			return RatedKey(RANK_LATER, gain, score, rowData, index)
 		elseif block then
 			return { RANK_NONE, 0, index } -- better, but never wearable (class, profession)
 		end
-		return { RANK_WORSE, gain, index }
+		return RatedKey(RANK_WORSE, gain, score, rowData, index)
 	elseif Auction.db.vendorBuyFilter and Auction.db.vendorProfitSort then
 		return { 0, (KnownVendorPrice(ItemIDOf(rowData)) or 0) - rowData.minPrice, index }
 	end
 	return { 0, 0, index }
 end
 
--- The gain of a rated row of the sorted view; nil for rows without a comparison or not rated yet.
+-- Gain and rating per gold of a rated row of the sorted view; nil for rows without a comparison or not rated yet.
 function RowGain(rowData)
 	local key = rowData and filter.keys[rowData]
 	if key and (key[1] == RANK_UPGRADE or key[1] == RANK_LATER or key[1] == RANK_WORSE) then
-		return key[2]
+		return key[4], key[5]
 	end
 end
 
@@ -1234,6 +1258,8 @@ function Auction:OnLogin()
 			if ns.ItemLinkRating then
 				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_ONLY_BETTER, "Auction", "scoreOnlyBetter",
 					L.AUCTION_SCORE_ONLY_BETTER_DESC)
+				ns.CreateOptionCheckbox(rootDescription, L.AUCTION_SCORE_VALUE_SORT, "Auction", "scoreValueSort",
+					L.AUCTION_SCORE_VALUE_SORT_DESC)
 			end
 			ns.CreateOptionCheckbox(rootDescription, L.AUCTION_HIDE_VENDOR_ITEMS, "Auction", "hideVendorItems",
 				L.AUCTION_HIDE_VENDOR_ITEMS_DESC)
@@ -1278,7 +1304,7 @@ function Auction:OnOptionChanged(key)
 	elseif key == "startTab" then
 		ApplyStartTab()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
-		or key == "hideVendorItems" or key == "scoreOnlyBetter" then
+		or key == "hideVendorItems" or key == "scoreOnlyBetter" or key == "scoreValueSort" then
 		ApplyBuyFilter()
 	elseif key == "vendorQuickBuy" then
 		local browseFrame = AuctionHouseFrame and AuctionHouseFrame.BrowseResultsFrame
@@ -1300,6 +1326,8 @@ Auction.options = {
 		min = 1, max = 200, step = 1 },
 	{ key = "scoreSort", type = "toggle", name = L.AUCTION_SCORE_SORT, desc = L.AUCTION_SCORE_SORT_DESC, new = true },
 	{ key = "scoreOnlyBetter", type = "toggle", name = L.AUCTION_SCORE_ONLY_BETTER, desc = L.AUCTION_SCORE_ONLY_BETTER_DESC,
+		parent = "scoreSort", new = true },
+	{ key = "scoreValueSort", type = "toggle", name = L.AUCTION_SCORE_VALUE_SORT, desc = L.AUCTION_SCORE_VALUE_SORT_DESC,
 		parent = "scoreSort", new = true },
 	{ key = "hideVendorItems", type = "toggle", name = L.AUCTION_HIDE_VENDOR_ITEMS, desc = L.AUCTION_HIDE_VENDOR_ITEMS_DESC, new = true },
 	{ key = "craftPrices", type = "toggle", name = L.AUCTION_CRAFT_PRICES, desc = L.AUCTION_CRAFT_PRICES_DESC, new = true },

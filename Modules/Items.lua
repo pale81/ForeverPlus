@@ -765,8 +765,9 @@ ns.ItemLinkUpgradeState = LinkUpgradeState
 ns.RecipeUpgradeState = LinkUpgradeState
 
 -- For lists sorted by rating (auction house): the weighted value an item adds over the weakest worn item it would
--- replace (negative if worse) and, for a gain, whether it can be worn ("ok", "level", "no"). False for items that are
--- never compared (no equipment, another armor type), nil while data loads. Independent of the arrow option.
+-- replace (negative if worse), for a gain whether it can be worn ("ok", "level", "no"), and the item's own weighted
+-- value. False for items that are never compared (no equipment, another armor type), nil while data loads.
+-- Independent of the arrow option.
 function ns.ItemLinkRating(link)
 	if not Items.db or type(link) ~= "string" or ns.Secret(link) or not C_Item.IsEquippableItem(link) then
 		return false
@@ -777,10 +778,10 @@ function ns.ItemLinkRating(link)
 	end
 	local gain = score - equippedScore
 	if gain <= 0.01 then
-		return gain
+		return gain, nil, score
 	end
 	local data = C_TooltipInfo.GetHyperlink(link)
-	return gain, Items.UseBlock(data and data.lines, LevelPattern())
+	return gain, Items.UseBlock(data and data.lines, LevelPattern()), score
 end
 
 -- Comparison tooltips: the hovered item (a link) against the worn items shown beside it (`worn`, links).

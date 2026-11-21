@@ -1979,8 +1979,8 @@ end)()
 	-- the rating for sorted lists: gain over the worn item, independent of the arrow option
 	equipped = defender
 	clear()
-	local gain, block = ns.ItemLinkRating(cloak)
-	assert(gain > 0.01 and block == "ok", "the better cloak gains and can be worn")
+	local gain, block, own = ns.ItemLinkRating(cloak)
+	assert(gain > 0.01 and block == "ok" and own > gain, "the better cloak gains, can be worn and has its own rating")
 	equipped = cloak
 	clear()
 	gain, block = ns.ItemLinkRating(defender)
@@ -7561,7 +7561,7 @@ end)()
 		if id == 5 then return false end
 		local r = ratings[id]
 		if not r then return nil end
-		return r[1], r[2]
+		return r[1], r[2], r[3]
 	end
 	C_AuctionHouse = { HasFullBrowseResults = function() return true end, RequestMoreBrowseResults = function() end,
 		GetItemKeySampleLink = function(key) return "|Hitem:" .. key.itemID .. "|h" end }
@@ -7635,6 +7635,17 @@ end)()
 	F.ItemInfo(A, "GET_ITEM_INFO_RECEIVED", 7)
 	while #refreshes > 0 do table.remove(refreshes, 1)() end
 	assert(provider.count() == 4 and provider.entry(1) == r[7], "a late upgrade joins the list")
+	-- value: the item's rating per gold of the cheapest offer, within the groups
+	ratings[1], ratings[6], ratings[7], ratings[2] = { 5, "ok", 20 }, { 3, "ok", 12 }, { 8, "ok", 30 }, { 9, "level", 40 }
+	r[3].minPrice, r[6].minPrice, r[7].minPrice, r[5].minPrice = 40000, 10000, 300000, 100
+	A.db.scoreValueSort = true
+	F.Apply()
+	order = {}
+	for i = 1, provider.count() do order[i] = provider.entry(i).itemKey.itemID end
+	assert(table.concat(order, ",") == "6,1,7,2", "most rating per gold first, later upgrades after: " .. table.concat(order, ","))
+	assert(A.GainText(3, 12) == "+3.0 · 12/g" and A.GainText(3, 0.5) == "+3.0 · 0.5/g", "gain and rating per gold in the row")
+	A.db.scoreValueSort = false
+	assert(A.GainText(3, 12) == "+3.0", "without the value sort only the gain")
 	ratings[7] = nil
 	A.db.scoreSort = false
 	F.Apply()

@@ -1,6 +1,7 @@
--- Cinematic camera: every situation (flight path, conversation, combat, mounted, indoors, resting) gets its own
--- camera setting, and the camera blends smoothly between them. Uses the game's action camera (test_camera*), which
--- only works with "keep character centered" off; every changed setting is put back when the option is turned off.
+-- Cinematic camera: the camera stays over the shoulder at the player's own distance and changes only in a few
+-- situations (conversation, indoors, flight path, teleport), blending smoothly. Uses the game's action camera
+-- (test_camera*), which only works with "keep character centered" off; every changed setting is put back when the
+-- option is turned off.
 local _, ns = ...
 local L = ns.L
 
@@ -10,69 +11,78 @@ local Camera = ns:NewModule("Camera", {
 	defaults = {
 		enabled = false,
 		taxi = true,
+		teleport = true,
 		talk = true,
 		combat = true,
 		mounted = true,
 		indoors = true,
 		resting = true,
-		close = true,
+		close = false,
+		move = false,
+		-- style (no default, so older saved settings are recognised): 2 since the camera keeps the own distance
 		saved = {}, -- cvar -> { original =, applied = } while the module controls it
 	},
 })
 
--- Highest priority first. zoom: distance in yards; shoulder: sideways offset; pad: how far the dynamic pitch
--- tilts the view; move: closer standing still, further while moving; enemy: turns softly towards the enemy.
--- A close, calm over-the-shoulder camera: the situations differ only a little from each other.
+-- Highest priority first. zoom: distance in yards (nil: the player's own distance); shoulder: sideways offset;
+-- pad: how far the dynamic pitch tilts the view; move: closer standing still, further while moving (option);
+-- rotate: degrees per second around the character; always: no option, applies when nothing else does.
 local SITUATIONS = {
-	{ key = "taxi", zoom = 9, shoulder = 0.6, pad = 0.35 },
-	{ key = "talk", zoom = 3.5, shoulder = 1.1, pad = 0.3, interact = true },
-	{ key = "combat", zoom = 5.5, shoulder = 0.9, pad = 0.35, move = true, enemy = true },
-	{ key = "mounted", zoom = 7, shoulder = 0.7, pad = 0.35, move = true },
-	{ key = "indoors", zoom = 3.5, shoulder = 0.9, pad = 0.3, move = true },
-	{ key = "resting", zoom = 4, shoulder = 1, pad = 0.3, move = true },
-	{ key = "close", zoom = 4.5, shoulder = 1, pad = 0.3, move = true }, -- always: no situation, still close
+	{ key = "taxi", zoom = 12, shoulder = 0, pad = 0.35 },
+	{ key = "teleport", shoulder = 0, pad = 0.3, rotate = 45 },
+	{ key = "talk", zoom = 7, shoulder = 1.6, pad = 0.3 },
+	{ key = "combat", shoulder = 0.6, pad = 0.35 },
+	{ key = "mounted", shoulder = 0.4, pad = 0.35 },
+	{ key = "indoors", zoom = 5.5, shoulder = 1, pad = 0.3, move = true },
+	{ key = "resting", shoulder = 1, pad = 0.3 },
+	{ key = "close", zoom = 5, shoulder = 1, pad = 0.3, move = true },
+	{ key = "outdoors", shoulder = 1, pad = 0.3, always = true },
 }
 Camera.SITUATIONS = SITUATIONS
 
+-- Hearthstone, Astral Recall and the mage teleports: the camera circles the character while they are cast.
+local TELEPORTS = { [8690] = true, [556] = true, [3561] = true, [3562] = true, [3563] = true, [3565] = true,
+	[3566] = true, [3567] = true }
+
 local SHOULDER, PAD = "test_cameraOverShoulder", "test_cameraDynamicPitchBaseFovPad"
-local INTERACT, ENEMY = "test_cameraTargetFocusInteractEnable", "test_cameraTargetFocusEnemyEnable"
 -- Set once while the module runs: without them the action camera does nothing.
 local CONTROL = {
 	{ "CameraKeepCharacterCentered", "0" },
 	{ "CameraReduceUnexpectedMovement", "0" },
 	{ "test_cameraDynamicPitch", "1" },
-	-- Turning towards the enemy (combat only): weak, so the camera follows softly instead of jumping.
-	{ "test_cameraTargetFocusEnemyStrengthYaw", "0.2" },
-	{ "test_cameraTargetFocusEnemyStrengthPitch", "0.15" },
 }
+local MANAGED = { [SHOULDER] = true, [PAD] = true }
+for _, control in ipairs(CONTROL) do
+	MANAGED[control[1]] = true
+end
 local DURATION = 2.5
-local BACK_DURATION = 3 -- back to the player's own camera: slower
+local BACK_DURATION = 3 -- back to the player's own distance: slower
 local MOVE_DURATION = 1.8 -- only the movement changed: the distance glides alone
 local STILL_IN, MOVE_OUT = -0.6, 0.9 -- distance standing still and while moving, against the situation's
 local HOLD = 0.6 -- a situation must hold this long before the camera follows (doorways, short flickers)
 local MAX_ZOOM_PER_FACTOR = 15 -- the game's farthest distance is this times cameraDistanceMaxZoomFactor
--- An older version lowered the zoom speed for a while; a reload in that moment left it slow.
-local OLD_ZOOM_SPEED = "cameraZoomSpeed"
+local DEFAULT_YAW_SPEED = 180
 
 local running, ticker, current
 local currentMoving = false
 local playerZoom = 0 -- the player's own zoom steps since the situation began
 local zoomBefore -- the player's own distance before the first situation that zooms
 -- Where the game's camera is headed. GetCameraZoom gives the distance on the way there, so it is only read
--- when the camera rests; the module's and the player's zoom steps are added up here instead.
+-- when the module starts; the module's and the player's zoom steps are added up here instead.
 local zoomTarget
 local ownZoom = false -- the module zooms right now (the zoom hooks ignore it)
+local rotating = false
 local blend -- { from = { shoulder, pad, zoom }, to = { shoulder, pad, zoom }, start, duration }
 local blender
-local hold = {} -- the situation waiting to be followed and since when
+local hold = {} -- the shot waiting to be followed and since when
 
 ---------------------------------------------------------------------------
 -- Pure logic
 ---------------------------------------------------------------------------
--- The situation with the highest priority that is switched on and active, or nil (the player's own camera).
+-- The situation with the highest priority that is switched on and active, or nil.
 function Camera.Pick(state, db)
 	for _, situation in ipairs(SITUATIONS) do
-		if db[situation.key] and state[situation.key] then
+		if situation.always or (db[situation.key] and state[situation.key]) then
 			return situation
 		end
 	end
@@ -89,20 +99,26 @@ function Camera.Blend(from, to, t)
 	return from + (to - from) * Camera.Ease(t)
 end
 
--- The distance of a situation: a little closer standing still, a little further while moving.
-function Camera.ZoomFor(situation, moving)
-	if not situation.move then
+-- Whether moving changes the distance in this situation.
+local function Moves(situation, moveOn)
+	return moveOn and situation.move and situation.zoom and true or false
+end
+
+-- The distance of a situation (nil: the player's own); with the option a little closer standing still and a
+-- little further while moving.
+function Camera.ZoomFor(situation, moving, moveOn)
+	if not Moves(situation, moveOn) then
 		return situation.zoom
 	end
 	return situation.zoom + (moving and MOVE_OUT or STILL_IN)
 end
 
 -- What the camera shows: the situation, and whether moving matters in it.
-function Camera.ShotKey(situation, moving)
+function Camera.ShotKey(situation, moving, moveOn)
 	if not situation then
 		return ""
 	end
-	return situation.key .. ((situation.move and moving) and ":moving" or "")
+	return situation.key .. ((Moves(situation, moveOn) and moving) and ":moving" or "")
 end
 
 -- True once the same shot (see ShotKey) has been picked for HOLD seconds.
@@ -116,6 +132,10 @@ end
 -- The zoom target after a step, kept within the distances the game allows.
 function Camera.StepZoom(target, delta, maxZoom)
 	return math.max(0, math.min(maxZoom, target + delta))
+end
+
+function Camera.IsTeleport(spellID)
+	return spellID ~= nil and TELEPORTS[spellID] == true
 end
 
 ---------------------------------------------------------------------------
@@ -142,14 +162,29 @@ local function Original(cvar)
 	return GetCVar(cvar)
 end
 
+local function PutBack(cvar, state)
+	if state.original ~= nil and GetCVar(cvar) == state.applied then
+		SetCVar(cvar, state.original)
+	end
+end
+
 -- Puts every changed setting back, unless the player changed it in the meantime.
 function Camera.Restore()
 	for cvar, state in pairs(Camera.db.saved) do
-		if state.original ~= nil and GetCVar(cvar) == state.applied then
-			SetCVar(cvar, state.original)
-		end
+		PutBack(cvar, state)
 	end
 	Camera.db.saved = {}
+end
+
+-- Settings older versions changed and this one no longer does (zoom speed, turning towards targets).
+local function RestoreUnmanaged()
+	local saved = Camera.db.saved
+	for cvar, state in pairs(saved) do
+		if not MANAGED[cvar] then
+			PutBack(cvar, state)
+			saved[cvar] = nil
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -195,6 +230,18 @@ local function OnPlayerZoom(delta)
 	end
 end
 
+local function Rotate(degrees)
+	if rotating then
+		MoveViewLeftStop()
+		rotating = false
+	end
+	if degrees then
+		local yawSpeed = tonumber(GetCVar("cameraYawMoveSpeed")) or DEFAULT_YAW_SPEED
+		MoveViewLeftStart(degrees / (yawSpeed > 0 and yawSpeed or DEFAULT_YAW_SPEED))
+		rotating = true
+	end
+end
+
 local function Number(cvar, fallback)
 	return tonumber(GetCVar(cvar)) or fallback
 end
@@ -227,27 +274,34 @@ end
 -- Moves the camera to a situation (nil: back to the player's own camera).
 function Camera.Apply(situation, moving)
 	moving = moving and true or false
+	local moveOn = Camera.db.move
 	if situation == current then
-		if not situation or not situation.move or moving == currentMoving then
+		if not situation or not Moves(situation, moveOn) or moving == currentMoving then
 			return
 		end
 		-- Only the movement changed: the distance glides, the player's own zoom steps stay.
 		currentMoving = moving
-		BlendTo(situation.shoulder, situation.pad, Camera.ZoomFor(situation, moving) + playerZoom, MOVE_DURATION)
+		BlendTo(situation.shoulder, situation.pad, Camera.ZoomFor(situation, moving, moveOn) + playerZoom,
+			MOVE_DURATION)
 		return
 	end
 	current, currentMoving, playerZoom = situation, moving, 0
-	if situation then
-		zoomBefore = zoomBefore or zoomTarget
-		BlendTo(situation.shoulder, situation.pad, Camera.ZoomFor(situation, moving), DURATION)
-		Set(INTERACT, situation.interact and "1" or "0")
-		Set(ENEMY, situation.enemy and "1" or "0")
-	else
+	if not situation then
 		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, zoomBefore, BACK_DURATION)
 		zoomBefore = nil
-		Set(INTERACT, Original(INTERACT) or "0")
-		Set(ENEMY, Original(ENEMY) or "0")
+		Rotate(nil)
+		return
 	end
+	local zoom = Camera.ZoomFor(situation, moving, moveOn)
+	local duration = DURATION
+	if zoom then
+		zoomBefore = zoomBefore or zoomTarget
+	elseif zoomBefore then
+		-- A situation at the player's own distance: back there, slowly.
+		zoom, zoomBefore, duration = zoomBefore, nil, BACK_DURATION
+	end
+	BlendTo(situation.shoulder, situation.pad, zoom, duration)
+	Rotate(situation.rotate)
 end
 
 ---------------------------------------------------------------------------
@@ -257,9 +311,15 @@ local function Flag(value)
 	return not ns.Secret(value) and value and true or false
 end
 
+local function CastingTeleport()
+	local spellID = select(9, UnitCastingInfo("player"))
+	return Camera.IsTeleport(ns.Number(spellID, nil))
+end
+
 function Camera.State()
 	return {
 		taxi = Flag(UnitOnTaxi("player")),
+		teleport = CastingTeleport(),
 		talk = Flag(UnitExists("npc")),
 		combat = Flag(InCombatLockdown()),
 		mounted = Flag(IsMounted()),
@@ -277,17 +337,23 @@ function Camera.Update()
 	local state = Camera.State()
 	local situation = Camera.Pick(state, Camera.db)
 	-- Always asked, so a short flicker back to the current shot starts the wait anew.
-	if Camera.Settled(hold, Camera.ShotKey(situation, state.moving), GetTime()) then
+	if Camera.Settled(hold, Camera.ShotKey(situation, state.moving, Camera.db.move), GetTime()) then
 		Camera.Apply(situation, state.moving)
 	end
 end
 
--- Conversations open and close between two checks: these events check at once.
+-- Conversations and casts start and end between two checks: these events check at once.
 local FAST_EVENTS = {
 	"GOSSIP_SHOW", "GOSSIP_CLOSED", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
-	"QUEST_FINISHED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_MOUNT_DISPLAY_CHANGED",
-	"PLAYER_UPDATE_RESTING", "ZONE_CHANGED_INDOORS",
+	"QUEST_FINISHED", "MERCHANT_SHOW", "MERCHANT_CLOSED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
+	"PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_UPDATE_RESTING", "ZONE_CHANGED_INDOORS", "UNIT_SPELLCAST_START",
+	"UNIT_SPELLCAST_STOP",
 }
+
+-- A loading screen (after a teleport) must not leave the camera turning.
+local function OnLeavingWorld()
+	Rotate(nil)
+end
 
 ---------------------------------------------------------------------------
 -- Lifecycle
@@ -297,13 +363,7 @@ function Camera.Start()
 		return
 	end
 	running = true
-	local stale = Camera.db.saved[OLD_ZOOM_SPEED]
-	if stale then
-		if stale.original ~= nil and GetCVar(OLD_ZOOM_SPEED) == stale.applied then
-			SetCVar(OLD_ZOOM_SPEED, stale.original)
-		end
-		Camera.db.saved[OLD_ZOOM_SPEED] = nil
-	end
+	RestoreUnmanaged()
 	zoomTarget = Zoom()
 	hold = {}
 	for _, control in ipairs(CONTROL) do
@@ -312,6 +372,7 @@ function Camera.Start()
 	for _, event in ipairs(FAST_EVENTS) do
 		Camera:RegisterEvent(event, Camera.Update)
 	end
+	Camera:RegisterEvent("PLAYER_LEAVING_WORLD", OnLeavingWorld)
 	ticker = ns.NewTicker("Camera: situation", 0.25, Camera.Update)
 	Camera.Update()
 end
@@ -328,6 +389,8 @@ function Camera.Stop()
 	for _, event in ipairs(FAST_EVENTS) do
 		Camera:UnregisterEvent(event)
 	end
+	Camera:UnregisterEvent("PLAYER_LEAVING_WORLD")
+	Rotate(nil)
 	ZoomTo(zoomBefore)
 	zoomBefore, zoomTarget, current, blend = nil, nil, nil, nil
 	currentMoving, playerZoom = false, 0
@@ -338,6 +401,10 @@ function Camera.Stop()
 end
 
 function Camera:OnLogin()
+	if (self.db.style or 1) < 2 then
+		-- The first versions kept the camera close everywhere; now it keeps the player's own distance.
+		self.db.close, self.db.style = false, 2
+	end
 	hooksecurefunc("CameraZoomIn", ns.Measured("Camera: zoom in", function(amount)
 		OnPlayerZoom(-(tonumber(amount) or 1))
 	end))
@@ -364,10 +431,12 @@ end
 Camera.options = {
 	{ key = "enabled", type = "toggle", name = L.CAMERA_ENABLE, desc = L.CAMERA_ENABLE_DESC },
 	{ key = "taxi", type = "toggle", name = L.CAMERA_TAXI, desc = L.CAMERA_TAXI_DESC, parent = "enabled" },
+	{ key = "teleport", type = "toggle", name = L.CAMERA_TELEPORT, desc = L.CAMERA_TELEPORT_DESC, parent = "enabled" },
 	{ key = "talk", type = "toggle", name = L.CAMERA_TALK, desc = L.CAMERA_TALK_DESC, parent = "enabled" },
 	{ key = "combat", type = "toggle", name = L.CAMERA_COMBAT, desc = L.CAMERA_COMBAT_DESC, parent = "enabled" },
 	{ key = "mounted", type = "toggle", name = L.CAMERA_MOUNTED, desc = L.CAMERA_MOUNTED_DESC, parent = "enabled" },
 	{ key = "indoors", type = "toggle", name = L.CAMERA_INDOORS, desc = L.CAMERA_INDOORS_DESC, parent = "enabled" },
 	{ key = "resting", type = "toggle", name = L.CAMERA_RESTING, desc = L.CAMERA_RESTING_DESC, parent = "enabled" },
 	{ key = "close", type = "toggle", name = L.CAMERA_CLOSE, desc = L.CAMERA_CLOSE_DESC, parent = "enabled" },
+	{ key = "move", type = "toggle", name = L.CAMERA_MOVE, desc = L.CAMERA_MOVE_DESC, parent = "enabled" },
 }

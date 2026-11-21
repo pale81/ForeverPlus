@@ -21,34 +21,42 @@ local Camera = ns:NewModule("Camera", {
 })
 
 -- Highest priority first. zoom: distance in yards; shoulder: sideways offset; pad: how far the dynamic pitch
--- tilts the view. A close, calm over-the-shoulder camera: the situations differ only a little from each other.
+-- tilts the view; move: closer standing still, further while moving; enemy: turns softly towards the enemy.
+-- A close, calm over-the-shoulder camera: the situations differ only a little from each other.
 local SITUATIONS = {
 	{ key = "taxi", zoom = 9, shoulder = 0.6, pad = 0.35 },
 	{ key = "talk", zoom = 3.5, shoulder = 1.1, pad = 0.3, interact = true },
-	{ key = "combat", zoom = 5.5, shoulder = 0.9, pad = 0.35 },
-	{ key = "mounted", zoom = 7, shoulder = 0.7, pad = 0.35 },
-	{ key = "indoors", zoom = 3.5, shoulder = 0.9, pad = 0.3 },
-	{ key = "resting", zoom = 4, shoulder = 1, pad = 0.3 },
-	{ key = "close", zoom = 4.5, shoulder = 1, pad = 0.3 }, -- always: no situation, still close
+	{ key = "combat", zoom = 5.5, shoulder = 0.9, pad = 0.35, move = true, enemy = true },
+	{ key = "mounted", zoom = 7, shoulder = 0.7, pad = 0.35, move = true },
+	{ key = "indoors", zoom = 3.5, shoulder = 0.9, pad = 0.3, move = true },
+	{ key = "resting", zoom = 4, shoulder = 1, pad = 0.3, move = true },
+	{ key = "close", zoom = 4.5, shoulder = 1, pad = 0.3, move = true }, -- always: no situation, still close
 }
 Camera.SITUATIONS = SITUATIONS
 
 local SHOULDER, PAD = "test_cameraOverShoulder", "test_cameraDynamicPitchBaseFovPad"
-local INTERACT = "test_cameraTargetFocusInteractEnable"
+local INTERACT, ENEMY = "test_cameraTargetFocusInteractEnable", "test_cameraTargetFocusEnemyEnable"
 -- Set once while the module runs: without them the action camera does nothing.
 local CONTROL = {
 	{ "CameraKeepCharacterCentered", "0" },
 	{ "CameraReduceUnexpectedMovement", "0" },
 	{ "test_cameraDynamicPitch", "1" },
+	-- Turning towards the enemy (combat only): weak, so the camera follows softly instead of jumping.
+	{ "test_cameraTargetFocusEnemyStrengthYaw", "0.2" },
+	{ "test_cameraTargetFocusEnemyStrengthPitch", "0.15" },
 }
 local DURATION = 2.5
 local BACK_DURATION = 3 -- back to the player's own camera: slower
+local MOVE_DURATION = 1.8 -- only the movement changed: the distance glides alone
+local STILL_IN, MOVE_OUT = -0.6, 0.9 -- distance standing still and while moving, against the situation's
 local HOLD = 0.6 -- a situation must hold this long before the camera follows (doorways, short flickers)
 local MAX_ZOOM_PER_FACTOR = 15 -- the game's farthest distance is this times cameraDistanceMaxZoomFactor
 -- An older version lowered the zoom speed for a while; a reload in that moment left it slow.
 local OLD_ZOOM_SPEED = "cameraZoomSpeed"
 
 local running, ticker, current
+local currentMoving = false
+local playerZoom = 0 -- the player's own zoom steps since the situation began
 local zoomBefore -- the player's own distance before the first situation that zooms
 -- Where the game's camera is headed. GetCameraZoom gives the distance on the way there, so it is only read
 -- when the camera rests; the module's and the player's zoom steps are added up here instead.
@@ -81,10 +89,26 @@ function Camera.Blend(from, to, t)
 	return from + (to - from) * Camera.Ease(t)
 end
 
--- True once the same situation (nil: none) has been picked for HOLD seconds.
-function Camera.Settled(waiting, situation, now)
-	if not waiting.seen or waiting.situation ~= situation then
-		waiting.seen, waiting.situation, waiting.since = true, situation, now
+-- The distance of a situation: a little closer standing still, a little further while moving.
+function Camera.ZoomFor(situation, moving)
+	if not situation.move then
+		return situation.zoom
+	end
+	return situation.zoom + (moving and MOVE_OUT or STILL_IN)
+end
+
+-- What the camera shows: the situation, and whether moving matters in it.
+function Camera.ShotKey(situation, moving)
+	if not situation then
+		return ""
+	end
+	return situation.key .. ((situation.move and moving) and ":moving" or "")
+end
+
+-- True once the same shot (see ShotKey) has been picked for HOLD seconds.
+function Camera.Settled(waiting, shot, now)
+	if not waiting.seen or waiting.shot ~= shot then
+		waiting.seen, waiting.shot, waiting.since = true, shot, now
 	end
 	return now - waiting.since >= HOLD
 end
@@ -165,6 +189,7 @@ local function OnPlayerZoom(delta)
 		return
 	end
 	zoomTarget = Camera.StepZoom(zoomTarget, delta, MaxZoom())
+	playerZoom = playerZoom + delta
 	if blend then
 		blend.to[3] = nil
 	end
@@ -200,19 +225,28 @@ local function BlendTo(shoulder, pad, zoom, duration)
 end
 
 -- Moves the camera to a situation (nil: back to the player's own camera).
-function Camera.Apply(situation)
+function Camera.Apply(situation, moving)
+	moving = moving and true or false
 	if situation == current then
+		if not situation or not situation.move or moving == currentMoving then
+			return
+		end
+		-- Only the movement changed: the distance glides, the player's own zoom steps stay.
+		currentMoving = moving
+		BlendTo(situation.shoulder, situation.pad, Camera.ZoomFor(situation, moving) + playerZoom, MOVE_DURATION)
 		return
 	end
-	current = situation
+	current, currentMoving, playerZoom = situation, moving, 0
 	if situation then
 		zoomBefore = zoomBefore or zoomTarget
-		BlendTo(situation.shoulder, situation.pad, situation.zoom, DURATION)
+		BlendTo(situation.shoulder, situation.pad, Camera.ZoomFor(situation, moving), DURATION)
 		Set(INTERACT, situation.interact and "1" or "0")
+		Set(ENEMY, situation.enemy and "1" or "0")
 	else
 		BlendTo(tonumber(Original(SHOULDER)) or 0, tonumber(Original(PAD)) or 0, zoomBefore, BACK_DURATION)
 		zoomBefore = nil
 		Set(INTERACT, Original(INTERACT) or "0")
+		Set(ENEMY, Original(ENEMY) or "0")
 	end
 end
 
@@ -232,6 +266,7 @@ function Camera.State()
 		indoors = Flag(IsIndoors()),
 		resting = Flag(IsResting()),
 		close = true,
+		moving = ns.Number((GetUnitSpeed("player")), 0) > 0,
 	}
 end
 
@@ -239,11 +274,11 @@ function Camera.Update()
 	if not running then
 		return
 	end
-	local situation = Camera.Pick(Camera.State(), Camera.db)
-	-- Always asked, so a short flicker back to the current situation starts the wait anew.
-	local settled = Camera.Settled(hold, situation, GetTime())
-	if situation ~= current and settled then
-		Camera.Apply(situation)
+	local state = Camera.State()
+	local situation = Camera.Pick(state, Camera.db)
+	-- Always asked, so a short flicker back to the current shot starts the wait anew.
+	if Camera.Settled(hold, Camera.ShotKey(situation, state.moving), GetTime()) then
+		Camera.Apply(situation, state.moving)
 	end
 end
 
@@ -295,6 +330,7 @@ function Camera.Stop()
 	end
 	ZoomTo(zoomBefore)
 	zoomBefore, zoomTarget, current, blend = nil, nil, nil, nil
+	currentMoving, playerZoom = false, 0
 	if blender then
 		ns.SetUpdate(blender, "Camera: blend", nil)
 	end

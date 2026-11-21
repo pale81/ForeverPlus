@@ -9776,8 +9776,8 @@ end)()
 	print("quest starter open button and book OK")
 end)()
 ;(function()
-	-- Cinematic camera: the situation with the highest priority wins after it has held a moment, every move glides;
-	-- the zoom never drifts when situations change mid-move; switched off, every setting comes back.
+	-- Cinematic camera: the situation with the highest priority wins after it has held a moment, every move glides,
+	-- standing still is closer than moving; the zoom never drifts; switched off, every setting comes back.
 	local camera = ns:GetModule("Camera")
 	local db = { taxi = true, talk = true, combat = true, mounted = true, indoors = true, resting = true, close = true }
 	assert(camera.Pick({}, db) == nil, "nothing at all: own camera")
@@ -9792,16 +9792,26 @@ end)()
 	local waiting = {}
 	assert(not camera.Settled(waiting, "a", 0) and camera.Settled(waiting, "a", 0.6), "settled after holding")
 	assert(not camera.Settled(waiting, "b", 1) and not camera.Settled(waiting, "a", 1.2), "a change starts anew")
-	assert(camera.Settled(waiting, "a", 1.8) and camera.Settled({ seen = true, since = 0 }, nil, 1), "none settles too")
+	assert(camera.Settled(waiting, "a", 1.8) and camera.Settled({ seen = true, shot = "", since = 0 }, "", 1), "none settles too")
 	assert(camera.StepZoom(4, 3, 30) == 7 and camera.StepZoom(29, 5, 30) == 30 and camera.StepZoom(1, -5, 30) == 0,
 		"zoom target stays within the game's distances")
+	local situations = {}
+	for _, situation in ipairs(camera.SITUATIONS) do situations[situation.key] = situation end
+	local close, talk = situations.close, situations.talk
+	assert(math.abs(camera.ZoomFor(close, false) - 3.9) < 1e-9 and camera.ZoomFor(close, true) == 5.4,
+		"closer standing still, further while moving")
+	assert(camera.ZoomFor(talk, true) == 3.5 and camera.ZoomFor(situations.taxi, true) == 9, "talk and flight: fixed")
+	assert(camera.ShotKey(nil, true) == "" and camera.ShotKey(talk, true) == "talk", "moving only where it counts")
+	assert(camera.ShotKey(close, true) == "close:moving" and camera.ShotKey(close, false) == "close", "shot keys")
 
 	local saved = { GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut,
 		GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled }
 	local cvars = {
 		CameraKeepCharacterCentered = "1", CameraReduceUnexpectedMovement = "0", test_cameraDynamicPitch = "0",
 		test_cameraOverShoulder = "0", test_cameraDynamicPitchBaseFovPad = "0.4",
-		test_cameraTargetFocusInteractEnable = "0", cameraZoomSpeed = "1", cameraDistanceMaxZoomFactor = "2",
+		test_cameraTargetFocusInteractEnable = "0", test_cameraTargetFocusEnemyEnable = "0",
+		test_cameraTargetFocusEnemyStrengthYaw = "0.5", test_cameraTargetFocusEnemyStrengthPitch = "0.4",
+		cameraZoomSpeed = "1", cameraDistanceMaxZoomFactor = "2",
 	}
 	local zoom, now, state = 10, 0, {}
 	GetCVar = function(key) return cvars[key] end
@@ -9817,6 +9827,7 @@ end)()
 	camera.db.saved, camera.db.enabled = { cameraZoomSpeed = { original = "20", applied = "1" } }, true
 	camera:OnOptionChanged("enabled", true)
 	assert(cvars.CameraKeepCharacterCentered == "0" and cvars.test_cameraDynamicPitch == "1", "action camera on")
+	assert(cvars.test_cameraTargetFocusEnemyStrengthYaw == "0.2", "turning towards enemies: soft")
 	assert(cvars.cameraZoomSpeed == "20" and camera.db.saved.cameraZoomSpeed == nil, "slow zoom speed repaired")
 	local PlayerZoom = uv(camera.OnLogin, "OnPlayerZoom")
 	local function Near(a, b) return math.abs(a - b) < 1e-9 end
@@ -9834,9 +9845,9 @@ end)()
 
 	Go({ close = true })
 	Step(1.25)
-	assert(Near(zoom, 7.25), "zoom glides: halfway after half the time")
+	assert(Near(zoom, 6.95), "zoom glides: halfway after half the time")
 	Step(5)
-	assert(zoom == 4.5 and cvars.test_cameraOverShoulder == "1", "close over the shoulder")
+	assert(Near(zoom, 3.9) and cvars.test_cameraOverShoulder == "1", "close over the shoulder, standing still")
 
 	state = { mounted = true, close = true }
 	camera.Update()
@@ -9846,24 +9857,41 @@ end)()
 	now = now + 0.5
 	state = { mounted = true, close = true }
 	camera.Update()
-	assert(zoom == 4.5 and uv(camera.Apply, "current").key == "close", "a short flicker does not move the camera")
+	assert(Near(zoom, 3.9) and uv(camera.Apply, "current").key == "close", "a short flicker does not move the camera")
 	now = now + 0.7
 	camera.Update()
 	Step(5)
-	assert(zoom == 7, "mounted once it has held")
+	assert(Near(zoom, 6.4), "mounted once it has held")
 
 	Go({ talk = true, close = true })
 	Step(1.25)
-	assert(Near(zoom, 5.25), "on the way to the conversation")
+	assert(Near(zoom, 4.95), "on the way to the conversation")
 	Go({ close = true })
 	Step(5)
-	assert(zoom == 4.5 and cvars.test_cameraTargetFocusInteractEnable == "0", "changed mid-move: no drift")
+	assert(Near(zoom, 3.9) and cvars.test_cameraTargetFocusInteractEnable == "0", "changed mid-move: no drift")
+
+	Go({ close = true, moving = true })
+	Step(0.9)
+	assert(Near(zoom, 4.65), "starting to move: the camera pulls back slowly")
+	Step(5)
+	assert(Near(zoom, 5.4), "moving: a little further")
+	state = { close = true }
+	camera.Update()
+	now = now + 0.3
+	Go({ close = true, moving = true })
+	assert(uv(uv(camera.Apply, "BlendTo"), "blend") == nil and Near(zoom, 5.4), "a short stop does not move the camera")
+	Go({ close = true })
+	Step(5)
+	assert(Near(zoom, 3.9), "standing still again: closer")
 
 	zoom = zoom + 3
 	PlayerZoom(3)
+	Go({ close = true, moving = true })
+	Step(5)
+	assert(Near(zoom, 8.4), "the player's own zoom stays when only the movement changes")
 	Go({ mounted = true, close = true })
 	Step(5)
-	assert(zoom == 7, "the player's own zoom counts, the next situation lands exactly")
+	assert(Near(zoom, 6.4), "a new situation lands exactly")
 	Go({ talk = true, close = true })
 	Step(1)
 	zoom = zoom - 1
@@ -9874,21 +9902,24 @@ end)()
 
 	Go({})
 	Step(5)
-	assert(zoom == 10, "own distance from before the first situation")
+	assert(Near(zoom, 10), "own distance from before the first situation")
 	assert(cvars.test_cameraOverShoulder == "0" and cvars.test_cameraDynamicPitchBaseFovPad == "0.4", "own camera back")
 
 	camera.db.combat = true
 	Go({ combat = true })
+	assert(cvars.test_cameraTargetFocusEnemyEnable == "1", "combat: turns softly towards the enemy")
 	Step(1)
 	cvars.test_cameraTargetFocusInteractEnable = "2" -- the player changes it meanwhile
 	camera.db.enabled = false
 	camera:OnOptionChanged("enabled", false)
-	assert(zoom == 10 and next(camera.db.saved) == nil, "switched off: distance back, nothing kept")
+	assert(Near(zoom, 10) and next(camera.db.saved) == nil, "switched off: distance back, nothing kept")
 	assert(cvars.CameraKeepCharacterCentered == "1" and cvars.test_cameraDynamicPitch == "0", "settings back")
+	assert(cvars.test_cameraTargetFocusEnemyEnable == "0" and cvars.test_cameraTargetFocusEnemyStrengthYaw == "0.5",
+		"enemy focus back")
 	assert(cvars.test_cameraOverShoulder == "0", "back in the middle of a move")
 	assert(cvars.test_cameraTargetFocusInteractEnable == "2", "the player's own change stays")
 	PlayerZoom(5)
-	assert(zoom == 10, "switched off: the player's zoom is not followed")
+	assert(Near(zoom, 10), "switched off: the player's zoom is not followed")
 
 	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut = unpack(saved, 1, 5)
 	GetTime, ns.NewTicker, camera.State, camera.db.saved, camera.db.enabled = unpack(saved, 6, 10)

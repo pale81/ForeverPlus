@@ -19,8 +19,12 @@ local Camera = ns:NewModule("Camera", {
 		resting = true,
 		close = false,
 		move = false,
+		warnOnce = true,
 		-- style (no default, so older saved settings are recognised): 2 since the camera keeps the own distance
 		saved = {}, -- cvar -> { original =, applied = } while the module controls it
+	},
+	charDefaults = {
+		warningSeen = false, -- Blizzard's warning about experimental camera settings was shown to this character
 	},
 })
 
@@ -356,6 +360,38 @@ local function OnLeavingWorld()
 end
 
 ---------------------------------------------------------------------------
+-- Blizzard's warning about experimental camera settings: once per character
+---------------------------------------------------------------------------
+local WARNING, WARNING_EVENT = "EXPERIMENTAL_CVAR_WARNING", "EXPERIMENTAL_CVAR_CONFIRMATION_NEEDED"
+local silenced = {} -- frames of the game that no longer hear the event
+
+-- "Accept" changes nothing in the game, so not showing the warning again is the same as accepting it. The game's
+-- frame stops hearing the event instead of the popup being hidden: hiding it from addon code would taint it.
+function Camera.SilenceWarning(silence)
+	if silence then
+		if next(silenced) or not GetFramesRegisteredForEvent then
+			return
+		end
+		for _, frame in ipairs({ GetFramesRegisteredForEvent(WARNING_EVENT) }) do
+			frame:UnregisterEvent(WARNING_EVENT)
+			silenced[#silenced + 1] = frame
+		end
+	else
+		for _, frame in ipairs(silenced) do
+			frame:RegisterEvent(WARNING_EVENT)
+		end
+		wipe(silenced)
+	end
+end
+
+function Camera.OnPopupShown(which)
+	if which == WARNING then
+		Camera.cdb.warningSeen = true
+		Camera.SilenceWarning(Camera.db.warnOnce)
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Camera.Start()
@@ -400,6 +436,12 @@ function Camera.Stop()
 	Camera.Restore()
 end
 
+function Camera:OnInitialize()
+	-- Before the camera settings are set at login, which is what brings the warning.
+	Camera.SilenceWarning(self.db.warnOnce and self.cdb.warningSeen)
+	hooksecurefunc("StaticPopup_Show", ns.Measured("Camera: popup", Camera.OnPopupShown))
+end
+
 function Camera:OnLogin()
 	if (self.db.style or 1) < 2 then
 		-- The first versions kept the camera close everywhere; now it keeps the player's own distance.
@@ -420,6 +462,7 @@ function Camera:OnLogin()
 end
 
 function Camera:OnOptionChanged()
+	Camera.SilenceWarning(self.db.warnOnce and self.cdb.warningSeen)
 	if self.db.enabled then
 		Camera.Start()
 		Camera.Update()
@@ -439,4 +482,5 @@ Camera.options = {
 	{ key = "resting", type = "toggle", name = L.CAMERA_RESTING, desc = L.CAMERA_RESTING_DESC, parent = "enabled" },
 	{ key = "close", type = "toggle", name = L.CAMERA_CLOSE, desc = L.CAMERA_CLOSE_DESC, parent = "enabled" },
 	{ key = "move", type = "toggle", name = L.CAMERA_MOVE, desc = L.CAMERA_MOVE_DESC, parent = "enabled" },
+	{ key = "warnOnce", type = "toggle", name = L.CAMERA_WARN_ONCE, desc = L.CAMERA_WARN_ONCE_DESC },
 }

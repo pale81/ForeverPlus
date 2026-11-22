@@ -1778,6 +1778,8 @@ L.CAMERA_TELEPORT = "Teleporting"
 L.CAMERA_TELEPORT_DESC = "The camera circles you while you cast your hearthstone, Astral Recall or a mage teleport."
 L.CAMERA_MOVE = "Distance follows movement"
 L.CAMERA_MOVE_DESC = "Indoors and with \"Close the rest of the time\" a little closer standing still, a little further while moving."
+L.CAMERA_WARN_ONCE = "Camera feature notice only once"
+L.CAMERA_WARN_ONCE_DESC = "Blizzard's notice about experimental camera features appears only the first time on each character. After that it stays away, which is the same as accepting it."
 
 L.MACROICONS_TITLE = "Macro icons"
 L.MACROICONS_ENABLE = "Search macro icons"

@@ -151,6 +151,7 @@ read_globals = {
 	"RequestTimePlayed",
 	"GetNetStats",
 	"GetFramerate",
+	"GetFramesRegisteredForEvent",
 	"SecondsToTime",
 	"TimeManagerClockButton",
 	"TimeManagerClockButton_UpdateTooltip",

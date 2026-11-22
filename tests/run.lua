@@ -10747,6 +10747,46 @@ end)()
 	print("cinematic camera OK")
 end)()
 ;(function()
+	-- Blizzard's warning about experimental camera settings: shown once per character, then the game's frame no
+	-- longer hears its event (the popup itself is never touched).
+	local camera = ns:GetModule("Camera")
+	local saved = { GetFramesRegisteredForEvent, camera.db.warnOnce, camera.db.enabled, camera.cdb.warningSeen }
+	local EVENT = "EXPERIMENTAL_CVAR_CONFIRMATION_NEEDED"
+	local listening = {}
+	local frame = {
+		RegisterEvent = function(_, event) listening[event] = true end,
+		UnregisterEvent = function(_, event) listening[event] = nil end,
+	}
+	frame:RegisterEvent(EVENT)
+	GetFramesRegisteredForEvent = function(event)
+		if listening[event] then
+			return frame
+		end
+	end
+	camera.db.warnOnce, camera.db.enabled, camera.cdb.warningSeen = true, false, false
+	camera.OnPopupShown("TRADE")
+	assert(listening[EVENT] and not camera.cdb.warningSeen, "other popups change nothing")
+	camera.OnPopupShown("EXPERIMENTAL_CVAR_WARNING")
+	assert(camera.cdb.warningSeen and not listening[EVENT], "shown once: the game no longer hears the event")
+	camera.SilenceWarning(true)
+	assert(not listening[EVENT], "silenced twice: still silent")
+	camera.db.warnOnce = false
+	camera:OnOptionChanged("warnOnce", false)
+	assert(listening[EVENT], "option off: the warning comes again")
+	camera.db.warnOnce = true
+	camera:OnOptionChanged("warnOnce", true)
+	assert(not listening[EVENT], "option on again: silent, the character has seen it")
+	camera.cdb.warningSeen = false
+	camera:OnOptionChanged("warnOnce", true)
+	assert(listening[EVENT], "a character that has not seen it gets the warning")
+	camera.db.warnOnce = false
+	camera.OnPopupShown("EXPERIMENTAL_CVAR_WARNING")
+	assert(camera.cdb.warningSeen and listening[EVENT], "option off: seen is noted, the warning stays")
+
+	GetFramesRegisteredForEvent, camera.db.warnOnce, camera.db.enabled, camera.cdb.warningSeen = unpack(saved, 1, 4)
+	print("camera warning once per character OK")
+end)()
+;(function()
 	-- Landing: a sound when IsFalling turns false, a step after a jump, a thud after a fall, silence when blocked or off
 	local landing = ns:GetModule("Landing")
 	local Step = landing.Step

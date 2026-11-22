@@ -1810,6 +1810,8 @@ L.CAMERA_TELEPORT = "Teleportieren"
 L.CAMERA_TELEPORT_DESC = "Die Kamera kreist um dich, während du den Ruhestein, Astralen Rückruf oder einen Magier-Teleport wirkst."
 L.CAMERA_MOVE = "Abstand mit der Bewegung"
 L.CAMERA_MOVE_DESC = "In Innenräumen und bei „Auch sonst nah“ im Stehen etwas näher, beim Laufen etwas weiter weg."
+L.CAMERA_WARN_ONCE = "Hinweis zu Kamerafeatures nur einmal"
+L.CAMERA_WARN_ONCE_DESC = "Blizzards Hinweis zu experimentellen Kamerafeatures erscheint pro Charakter nur beim ersten Mal. Danach bleibt er aus, was dem Annehmen entspricht."
 
 L.MACROICONS_TITLE = "Makrosymbole"
 L.MACROICONS_ENABLE = "Makrosymbole durchsuchen"

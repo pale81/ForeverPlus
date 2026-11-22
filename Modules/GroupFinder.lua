@@ -398,6 +398,23 @@ function GroupFinder.MatchActivities(names, activities, kind)
 	return {}
 end
 
+-- MatchActivities, remembered for one activity list: the tracker asks for every group quest on each of its updates,
+-- and one match goes through all activities with string work. The lists returned are shared: read them only.
+local matchCache, matchList = {}, nil
+
+function GroupFinder.CachedMatch(names, activities, kind)
+	if matchList ~= activities then
+		matchCache, matchList = {}, activities
+	end
+	local key = kind .. "\1" .. tostring(names[1]) .. "\1" .. tostring(names[2])
+	local ids = matchCache[key]
+	if not ids then
+		ids = GroupFinder.MatchActivities(names, activities, kind)
+		matchCache[key] = ids
+	end
+	return ids
+end
+
 -- A listing that runs already keeps its activities; the new ones are added.
 function GroupFinder.MergeActivities(old, new)
 	local merged = {}
@@ -462,7 +479,7 @@ local function QuestActivities(questID, facts)
 	if type(area) == "number" and area > 0 and C_Map.GetAreaInfo then
 		names[#names + 1] = C_Map.GetAreaInfo(area)
 	end
-	local ids = GroupFinder.MatchActivities(names, Activities(), kind)
+	local ids = GroupFinder.CachedMatch(names, Activities(), kind)
 	return #ids > 0 and ids or nil, kind
 end
 

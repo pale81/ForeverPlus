@@ -9460,6 +9460,23 @@ end)()
 	assert(#G.MatchActivities({ "Westfal" }, activities, "elite") == 0, "no half names")
 	assert(#G.MatchActivities({ "Rotkammgebirge" }, activities, "elite") == 0, "nothing fits: no button")
 	assert(ids(G.MergeActivities({ 854, 799 }, { 799, 805 })) == "854,799,805", "listing keeps its activities")
+	-- The tracker asks on every update: one match per place and kind, again for a new activity list.
+	local match, calls = G.MatchActivities, 0
+	G.MatchActivities = function(...)
+		calls = calls + 1
+		return match(...)
+	end
+	local first = G.CachedMatch({ "Scharlachrotes Kloster", "Tirisfal" }, activities, "dungeon")
+	assert(ids(first) == "805,829" and calls == 1, "cached match: first look")
+	assert(G.CachedMatch({ "Scharlachrotes Kloster", "Tirisfal" }, activities, "dungeon") == first and calls == 1,
+		"cached match: same place again, no new match")
+	assert(ids(G.CachedMatch({ "Scharlachrotes Kloster", "Tirisfal" }, activities, "elite")) == "805,829" and calls == 2,
+		"cached match: another kind")
+	assert(ids(G.CachedMatch({ "Die Todesminen" }, activities, "dungeon")) == "799" and calls == 3, "cached match: other place")
+	local fewer = { activities[1] }
+	assert(#G.CachedMatch({ "Scharlachrotes Kloster", "Tirisfal" }, fewer, "dungeon") == 0 and calls == 4,
+		"cached match: new activity list")
+	G.MatchActivities = match
 	print("group quests OK")
 end)()
 ;(function()

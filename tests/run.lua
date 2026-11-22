@@ -1197,6 +1197,77 @@ end)()
 	ns.db.profiles = oldStore
 	print("profile text OK")
 end)()
+-- Player notes: keys, menu, tooltip, warnings about marked enemies
+;(function()
+	local notes = ns:GetModule("PlayerNotes")
+	assert(notes.Key("Thrall", "", "Die Aldor") == "thrall-diealdor" and notes.Key("Thrall-DieAldor") == "thrall-diealdor"
+		and notes.Key("Jaina", "Kult der Verdammten", "X") == "jaina-kultderverdammten" and notes.Key("") == nil, "player keys")
+	local last = {}
+	assert(not notes.ShouldWarn({ tag = "friend" }, "a", 10, last), "friends give no warning")
+	assert(notes.ShouldWarn({ tag = "enemy" }, "a", 10, last) and not notes.ShouldWarn({ tag = "enemy" }, "a", 200, last)
+		and notes.ShouldWarn({ tag = "enemy" }, "a", 311, last), "enemy warnings pause for five minutes")
+	local oldStore = ns.db.playerNotes
+	ns.db.playerNotes = {}
+	local saved = {}
+	for _, key in ipairs({ "UnitIsPlayer", "UnitIsUnit", "UnitFullName", "GetRealmName", "PlaySound", "GameTooltip", "time" }) do
+		saved[key] = rawget(_G, key)
+	end
+	UnitIsPlayer = function(unit) return unit ~= "npc" end
+	UnitIsUnit = function() return false end
+	UnitFullName = function(unit) if unit == "target" then return "Gank", "Andere Welt" end return "Bob", nil end
+	GetRealmName = function() return "Heim" end
+	local sounds, now = 0, 1000
+	PlaySound = function() sounds = sounds + 1 end
+	time = function() return now end
+	-- menu: note window and marks
+	local entries, root = {}, {}
+	function root:CreateDivider() end
+	function root:CreateTitle() end
+	function root:CreateButton(text, fn) entries[#entries + 1] = { text = text, fn = fn } end
+	function root:CreateCheckbox(text, isSet, toggle) entries[#entries + 1] = { text = text, isSet = isSet, toggle = toggle } end
+	local add = uv(notes.OnLogin, "AddMenuEntries")
+	add(nil, root, { unit = "target" })
+	assert(#entries == 3 and entries[2].text == ns.L.NOTES_ENEMY and not entries[2].isSet(), "menu offers a note and two marks")
+	entries[2].toggle()
+	local key = notes.Key("Gank", "Andere Welt")
+	assert(notes.Get(key).tag == "enemy" and entries[2].isSet() and not entries[3].isSet(), "enemy mark set from the menu")
+	entries[3].toggle()
+	assert(notes.Get(key).tag == "friend", "marks replace each other")
+	entries[3].toggle()
+	assert(notes.Get(key) == nil, "unmarked player without note is removed")
+	local oldEdit = ns.ShowEditWindow
+	ns.ShowEditWindow = function(_, _, _, _, accept) accept("Camps the flight master") end
+	entries[1].fn()
+	ns.ShowEditWindow = oldEdit
+	assert(notes.Get(key).note == "Camps the flight master", "note saved from the window")
+	wipe(entries)
+	add(nil, root, { name = "Ally-Heim" })
+	assert(#entries == 3, "chat names get the menu too")
+	-- tooltip
+	local lines = {}
+	GameTooltip = { IsForbidden = function() return false end, GetUnit = function() return "Gank", "target" end,
+		AddLine = function(_, text) lines[#lines + 1] = text end }
+	notes.Set(key, "Gank", nil, "enemy")
+	uv(notes.OnLogin, "OnUnitTooltip")(GameTooltip)
+	assert(lines[1] == ns.L.NOTES_ENEMY .. ": Camps the flight master" and notes.Get(key).seen == now, "note in the tooltip")
+	-- warning when a marked enemy shows up
+	local printed = {}
+	local oldPrint = ns.PrintAlways
+	ns.PrintAlways = function(fmt, ...) printed[#printed + 1] = fmt:format(...) end
+	notes:Apply()
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	eventFrame:GetScript("OnEvent")(eventFrame, "PLAYER_TARGET_CHANGED")
+	eventFrame:GetScript("OnEvent")(eventFrame, "PLAYER_TARGET_CHANGED")
+	assert(#printed == 1 and printed[1]:find("Gank", 1, true) and sounds == 1, "one warning with sound")
+	notes.db.enabled = false
+	notes:Apply()
+	notes.db.enabled = true
+	notes:Apply()
+	ns.PrintAlways = oldPrint
+	for k, v in pairs(saved) do _G[k] = v end
+	ns.db.playerNotes = oldStore
+	print("player notes OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

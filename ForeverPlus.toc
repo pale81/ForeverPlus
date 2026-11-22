@@ -79,6 +79,7 @@ Modules\GroupFinder.lua
 Modules\Roleplay.xml
 Modules\RoleplayMSP.lua
 Modules\Roleplay.lua
+Modules\PlayerNotes.lua
 Modules\Flight.lua
 Modules\Waypoint.lua
 Modules\Moments.lua

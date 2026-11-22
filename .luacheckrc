@@ -380,4 +380,6 @@ read_globals = {
 	"GetInboxInvoiceInfo",
 	"ERR_AUCTION_SOLD_S",
 	"AUCTION_SOLD_MAIL_SUBJECT",
+	"GENERAL_CHAT_DOCK", "FCFDock_GetSelectedWindow", "EmoteList", "TextEmoteSpeechList", "MAXEMOTEINDEX",
+	"EMOTE454_TOKEN", "EMOTE455_TOKEN", "DEFAULT_TAB_SELECTED_COLOR_TABLE",
 }

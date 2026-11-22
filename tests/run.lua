@@ -10760,5 +10760,28 @@ end)()
 	A.ResetSaleMailState()
 	print("auction sale sound OK")
 end)()
+;(function()
+	-- Emote tab: sections like the chat menu, then every emote sorted by command.
+	local emotes = ns:GetModule("ChatEmotes")
+	assert(emotes and emotes.BuildSections, "chat emotes module")
+	local strings = {
+		EMOTE1_TOKEN = "WAVE", EMOTE1_CMD1 = "/wave",
+		EMOTE2_TOKEN = "BOW", EMOTE2_CMD1 = "/Bow",
+		EMOTE4_TOKEN = "CHEER", EMOTE4_CMD1 = "/cheer",
+		EMOTE5_TOKEN = "WAVE", EMOTE5_CMD1 = "/wave2",
+		EMOTE6_TOKEN = "NOCMD",
+	}
+	local sections = emotes.BuildSections(function(name) return strings[name] end, { "WAVE", "UNKNOWN" }, { "CHEER" }, 6)
+	assert(#sections == 3, "three sections")
+	assert(sections[1].title == ns.L.CHATEMOTES_ANIMATED and sections[3].title == ns.L.CHATEMOTES_ALL, "section titles")
+	assert(sections[1].entries[1].token == "WAVE" and sections[1].entries[1].command == "/wave", "animated: command of the first index")
+	assert(sections[1].entries[2].command == "UNKNOWN", "token without command keeps the token as label")
+	assert(#sections[2].entries == 1 and sections[2].entries[1].command == "/cheer", "voice emotes")
+	local all = sections[3].entries
+	assert(#all == 3, "all: one entry per token, tokens without command left out: " .. #all)
+	assert(all[1].command == "/Bow" and all[2].command == "/cheer" and all[3].command == "/wave", "all: sorted by command, case ignored")
+	assert(#emotes.BuildSections(function() end, nil, nil, nil)[3].entries == 0, "missing game lists give empty sections")
+	print("chat emotes OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

@@ -3,6 +3,20 @@
 AddOn für **World of Warcraft: Forever** (Client 1.60.x, TOC-Interface `16001`, Mainline-API 12.x mit „Secret Values“).
 Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und bleibt optisch beim Original.
 
+## Kurzüberblick
+
+Jeder Punkt ist einzeln abschaltbar; die vollständige Liste mit allen Optionen steht unter „Funktionen“.
+
+- **Chat:** schlanke Reiter und Eingabe, Verlauf mit Pfeiltasten, Kopieren, kurze Kanalnamen, Zusammenfassen von Beute, Ruf und Fertigkeiten, Schlagwort-Alarm.
+- **Tooltip:** Herkunft von Gegenständen und Beutechancen, Stückpreis, Auktionspreis mit Alter, Anzahl bei allen Charakteren, Spielernotizen.
+- **Gegenstände:** Schrott verkaufen und reparieren, Upgrade-Pfeile nach Klasse und Talentbaum, „Verbesserungen je Platz“ (`/fp besser`), Bank unterwegs, Aufstockliste.
+- **Quests:** Tracker-Sortierung und -Filter, Questsymbole an Plaketten, Gesprächsblase statt Questfenster, Glitzern an Questgegenständen.
+- **Karten:** Questgeber, Instanzeingänge, Flugmeister, Rezepthändler, gesammelte Kräuter und Erze auf der Weltkarte; Wegpunkte mit `/way`.
+- **Dungeon-Journal** (`/fp dungeon`): Karten mit Bossen, Fähigkeiten, Quests und Beute samt Upgrade-Filter.
+- **Kampf und Gruppe:** Gruppensuche mit Rollen, Buff-Erinnerung, eigener Kampftext, Meldung seltener Gegner, Warnung vor markierten Feinden.
+- **Talente und Berufe:** Talentplaner mit Reihenfolge, Lehrerzauber im Zauberbuch, künftige Rezepte, sparsames Skillen.
+- **Komfort:** Erfahrung pro Stunde, Mouseover-Leisten, Fenster verschieben, Profile (auch als Text zum Mitnehmen), Bildschirmfotos besonderer Momente.
+
 Lokal entwickeln (macOS): `sh tools/setup-local.sh` richtet Lua 5.1 (aus dem Quelltext nach `~/ForeverPlus-dev/lua51` gebaut, Homebrew hat es nicht mehr), luacheck, QuestieDB und Blizzards Interface-Quelltext ein (`--data` zusätzlich die Quellen der Datengeneratoren) und legt die Arbeitsregeln als lokale `CLAUDE.md` an (nicht im Projekt; eine vorhandene bleibt unverändert); `sh tools/check.sh` führt Tests und luacheck aus (auf dem Mac geprüft).
 
 Aktualisieren aus dem Projekt (macOS, Git-Clone im AddOns-Ordner): `sh tools/autopull.sh install` richtet einmalig einen Hintergrundauftrag ein, der alle 30 Sekunden `git pull --ff-only` ausführt; danach genügt `/rl` im Spiel (`status` und `uninstall` gehören dazu; ungeprüft).

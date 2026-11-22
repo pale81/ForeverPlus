@@ -11072,8 +11072,11 @@ end)()
 	local sliced = M.StartFind(bundled, "fire bolt")
 	local steps = 0
 	while not M.StepFind(sliced, clock + 0.5) do steps = steps + 1 end
+	local miss = M.StartFind(bundled, "zzzznotaniconzzzz")
+	local missSteps = 0
+	while not M.StepFind(miss, clock + 0.5) do missSteps = missSteps + 1 end
 	debugprofilestop = savedClock
-	assert(steps >= 1, "sliced find yields across frames when deadline expires")
+	assert(steps >= 1 and missSteps >= 1 and not next(miss.found), "chunked find yields on both hits and zero-match scans")
 	local refCount, slicedCount = 0, 0
 	for id in pairs(ref) do
 		refCount = refCount + 1

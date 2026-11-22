@@ -41,6 +41,7 @@ local borders = setmetatable({}, { __mode = "k" })
 -- Grey and white items in the bags and on the character: no frame is laid over the game's own slot art, only a
 -- thin, translucent line a little inside the picture (option); from green upwards the crisp quality frame.
 local soft = setmetatable({}, { __mode = "k" })
+local glowState = setmetatable({}, { __mode = "k" })
 local NEUTRAL = { [0] = { 0.6, 0.6, 0.6, 0.3 }, [1] = { 1, 1, 1, 0.3 } } -- poor, common
 
 local function SoftBorder(button)
@@ -61,33 +62,50 @@ local function UpdateGlow(button, quality, forced)
 	if not button or (button.IsForbidden and button:IsForbidden()) then
 		return
 	end
+	local state = 0
+	if quality and not button.CircleMask then
+		if quality <= Enum.ItemQuality.Common then
+			if (forced or button.GetBagID) and Visuals.db.bagActionFrame then
+				state = quality == 0 and -1 or -2
+			end
+		elseif quality >= Enum.ItemQuality.Uncommon then
+			state = quality
+		end
+	end
+	local prev = glowState[button] or 0
+	if prev == state then
+		return
+	end
+	glowState[button] = state
 	local border = borders[button]
-	local low = quality and quality <= Enum.ItemQuality.Common and (forced or button.GetBagID) and Visuals.db.bagActionFrame
-	if low and not button.CircleMask then
+	if state < 0 then
 		local color = NEUTRAL[quality] or NEUTRAL[1]
 		SoftBorder(button):ShowColor(color[1], color[2], color[3], color[4])
-		if border then
+		if prev > 0 and border then
 			border:Hide()
 		end
 		return
-	elseif soft[button] then
+	end
+	if prev < 0 and soft[button] then
 		soft[button]:Hide()
 	end
 	-- Round buttons (profession output) already get Blizzard's round quality ring.
-	if quality and quality >= Enum.ItemQuality.Uncommon and not button.CircleMask then
-		-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
-		local icon = button.Icon or button.icon
-		local anchor = button
-		local iconWidth = icon and icon.GetWidth and ns.Number(icon:GetWidth(), 0) or 0
-		if iconWidth > 0 and ns.Number(button:GetWidth(), 0) > iconWidth * 1.5 then
-			anchor = icon
+	if state > 0 then
+		if not border then
+			-- Wide buttons (quest rewards: icon plus name) get the frame on the icon only.
+			local icon = button.Icon or button.icon
+			local anchor = button
+			local iconWidth = icon and icon.GetWidth and ns.Number(icon:GetWidth(), 0) or 0
+			if iconWidth > 0 and ns.Number(button:GetWidth(), 0) > iconWidth * 1.5 then
+				anchor = icon
+			end
+			border = ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
+			borders[button] = border
 		end
-		border = border or ns.CreatePixelBorder(button, anchor, 2, "OVERLAY", 7)
-		borders[button] = border
 		-- GetItemQualityColor also returns the colour as text: only the three numbers go on.
 		local r, g, b = C_Item.GetItemQualityColor(quality)
 		border:ShowColor(r, g, b)
-	elseif border then
+	elseif prev > 0 and border then
 		border:Hide()
 	end
 end

@@ -544,12 +544,21 @@ local function EndFishingPresentation()
 	SetFishingPresentation(false)
 end
 
+local poleItems = {}
+local cachedPole -- nil = dirty, false = none in bags, { itemID, bag, slot } = cached usable pole
+
 local function IsFishingPole(itemID)
 	if not itemID then
 		return false
 	end
+	local cached = poleItems[itemID]
+	if cached ~= nil then
+		return cached
+	end
 	local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
-	return classID == Enum.ItemClass.Weapon and subClassID == (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Fishingpole or 20)
+	local result = classID == Enum.ItemClass.Weapon and subClassID == (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Fishingpole or 20)
+	poleItems[itemID] = result
+	return result
 end
 
 local function HasFishingPole()
@@ -575,6 +584,7 @@ function Helpers:PLAYER_EQUIPMENT_CHANGED(_, slot)
 	if slot ~= MAIN_HAND and slot ~= OFF_HAND then
 		return
 	end
+	cachedPole = nil
 	-- Equipping a two-handed pole can update the two slots separately.
 	if weaponsTimer then
 		weaponsTimer:Cancel()
@@ -603,22 +613,41 @@ local function RestoreWeaponsMacro()
 end
 
 local function FindFishingPole()
+	if cachedPole == false then
+		return nil
+	end
+	if cachedPole then
+		local info = C_Container.GetContainerItemInfo(cachedPole.bag, cachedPole.slot)
+		if info and info.itemID == cachedPole.itemID and not info.isLocked then
+			return cachedPole.itemID
+		end
+		cachedPole = nil
+	end
+	local sawLocked = false
 	for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and not info.isLocked and IsFishingPole(info.itemID) then
-				local usable = true
-				for _, line in ipairs(TooltipLines(bag, slot)) do
-					if IsRed(line.leftColor) then
-						usable = false
-						break
+			if info and IsFishingPole(info.itemID) then
+				if info.isLocked then
+					sawLocked = true
+				else
+					local usable = true
+					for _, line in ipairs(TooltipLines(bag, slot)) do
+						if IsRed(line.leftColor) then
+							usable = false
+							break
+						end
 					end
-				end
-				if usable then
-					return info.itemID
+					if usable then
+						cachedPole = { itemID = info.itemID, bag = bag, slot = slot }
+						return info.itemID
+					end
 				end
 			end
 		end
+	end
+	if not sawLocked then
+		cachedPole = false
 	end
 end
 
@@ -693,6 +722,12 @@ function Helpers:GLOBAL_MOUSE_DOWN(_, mouseButton)
 	end
 end
 
+local function SetFishAttribute(key, value)
+	if not fishButton.GetAttribute or fishButton:GetAttribute(key) ~= value then
+		fishButton:SetAttribute(key, value)
+	end
+end
+
 function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 	if mouseButton ~= "RightButton" or not pressTime or bindingTimer then
 		return
@@ -718,8 +753,8 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 			if not spellID or IsFishingChannel() then
 				return
 			end
-			fishButton:SetAttribute("type", "spell")
-			fishButton:SetAttribute("spell", spellID)
+			SetFishAttribute("type", "spell")
+			SetFishAttribute("spell", spellID)
 		else
 			if GetCursorInfo() then
 				return
@@ -739,10 +774,10 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 			if not macro then
 				return
 			end
-			fishButton:SetAttribute("type", "macro")
-			fishButton:SetAttribute("macrotext", macro)
+			SetFishAttribute("type", "macro")
+			SetFishAttribute("macrotext", macro)
 		end
-		fishButton:SetAttribute("useOnKeyDown", false)
+		SetFishAttribute("useOnKeyDown", false)
 		SetOverrideBindingClick(fishButton, true, shift and "SHIFT-BUTTON2" or "BUTTON2", "ForeverPlusFishButton", "LeftButton")
 		bindingTimer = ns.NewTimer("Helpers: ClearFishBinding", DOUBLE_CLICK, ClearFishBinding)
 		mouseMovement = 0
@@ -857,9 +892,13 @@ function Helpers:OnLogin()
 	CreateFishButton()
 	CreateFishingMenu()
 	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
+		cachedPole = nil
 		if self.db.openButton then
 			UpdateOpenButton()
 		end
+	end)
+	self:RegisterEvent("PLAYER_LEVEL_UP", function()
+		cachedPole = nil
 	end)
 	for _, event in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "QUEST_LOG_UPDATE" }) do
 		self:RegisterEvent(event, function()
@@ -869,7 +908,10 @@ function Helpers:OnLogin()
 		end)
 	end
 	for _, event in ipairs({ "NEW_RECIPE_LEARNED", "LEARNED_SPELL_IN_SKILL_LINE", "SKILL_LINES_CHANGED" }) do
-		self:RegisterEvent(event, self.ClearKnownCache)
+		self:RegisterEvent(event, function()
+			cachedPole = nil
+			self:ClearKnownCache()
+		end)
 	end
 	local frames = { ContainerFrameCombinedBags }
 	for _, frame in ipairs(ContainerFrameContainer and ContainerFrameContainer.ContainerFrames or {}) do

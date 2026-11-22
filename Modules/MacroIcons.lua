@@ -13,11 +13,14 @@ local MacroIcons = ns:NewModule("MacroIcons", {
 })
 
 local UMLAUTS = { ["\195\132"] = "\195\164", ["\195\150"] = "\195\182", ["\195\156"] = "\195\188" }
-local SEARCH_BUDGET = 0.8 -- ms per frame slice
-local FIND_CHECK_STEP = 32
-local INDEX_CHECK_STEP = 64
-local COLLECT_CHECK_STEP = 256
+local SEARCH_BUDGET = 0.5 -- ms per frame slice
+local CHUNK_BYTES = 200000 -- keeps every C string.find call under ~0.15 ms
+local FIND_CHECK_STEP = 16
+local INDEX_CHECK_STEP = 32
+local COLLECT_CHECK_STEP = 128
 local DIRECT_COLLECT_LIMIT = 400 -- below this, hash lookup + sort beats scanning every picker icon
+local GRID_POOL_STEP = 24
+local GRID_POOL_TARGET = 96
 
 -- Lower case as in the data: ASCII, the German capital umlauts, and "_" as a space.
 local function Normalize(text)
@@ -72,13 +75,45 @@ local function LineStart(data, floor, hit)
 	end
 end
 
+local chunkCacheData, chunkCacheList
+
+-- Splits large data strings once along line boundaries so a zero-hit C string.find never scans
+-- the whole 1.5 MB buffer in one frame.
+local function ChunksOf(data)
+	if #data <= CHUNK_BYTES then
+		return { data }
+	end
+	if chunkCacheData == data then
+		return chunkCacheList
+	end
+	local chunks = {}
+	local len, pos = #data, 1
+	while pos <= len do
+		local cut = pos + CHUNK_BYTES - 1
+		if cut >= len then
+			chunks[#chunks + 1] = data:sub(pos, len)
+			break
+		end
+		local nl = data:find("\n", cut, true)
+		if not nl or nl >= len then
+			chunks[#chunks + 1] = data:sub(pos, len)
+			break
+		end
+		chunks[#chunks + 1] = data:sub(pos, nl)
+		pos = nl + 1
+	end
+	chunkCacheData, chunkCacheList = data, chunks
+	return chunks
+end
+
 -- Incremental scan over Data/MacroIcons.lua using C plain-string search for the longest word.
 function MacroIcons.StartFind(data, query)
 	local words = type(query) == "table" and query or Words(query)
 	if #words == 0 then return nil, words end
 	local anchor, anchorIndex = PickAnchor(words)
 	return {
-		data = data,
+		chunks = ChunksOf(data),
+		chunkIndex = 1,
 		words = words,
 		anchor = anchor,
 		anchorIndex = anchorIndex,
@@ -91,45 +126,56 @@ end
 
 function MacroIcons.StepFind(state, deadline)
 	if state.done then return true end
-	local data, words = state.data, state.words
+	local chunks, words = state.chunks, state.words
 	local anchor, anchorIndex = state.anchor, state.anchorIndex
 	local found, count = state.found, state.count
-	local pos, multi = state.pos, #words > 1
-	local len, checks = #data, 0
-	while true do
-		local hit = data:find(anchor, pos, true)
-		if not hit then
-			state.pos, state.count, state.done = len + 1, count, true
-			return true
-		end
-		local lineEnd = data:find("\n", hit, true) or (len + 1)
-		local tab = data:find("\t", hit, true)
-		if tab and tab < lineEnd then
-			local ok = true
-			if multi then
-				local text = data:sub(LineStart(data, pos, hit), tab - 1)
-				ok = HasAll(text, words, anchorIndex)
+	local chunkIndex, pos, multi = state.chunkIndex, state.pos, #words > 1
+	local chunkCount, checks = #chunks, 0
+	while chunkIndex <= chunkCount do
+		local chunk = chunks[chunkIndex]
+		local len = #chunk
+		while true do
+			local hit = chunk:find(anchor, pos, true)
+			if not hit then
+				break
 			end
-			if ok then
-				local id = tonumber(data:sub(tab + 1, lineEnd - 1))
-				if id and not found[id] then
-					found[id] = true
-					count = count + 1
+			local lineEnd = chunk:find("\n", hit, true) or (len + 1)
+			local tab = chunk:find("\t", hit, true)
+			if tab and tab < lineEnd then
+				local ok = true
+				if multi then
+					local text = chunk:sub(LineStart(chunk, pos, hit), tab - 1)
+					ok = HasAll(text, words, anchorIndex)
+				end
+				if ok then
+					local id = tonumber(chunk:sub(tab + 1, lineEnd - 1))
+					if id and not found[id] then
+						found[id] = true
+						count = count + 1
+					end
+				end
+			end
+			pos = lineEnd + 1
+			if deadline then
+				checks = checks + 1
+				if checks >= FIND_CHECK_STEP then
+					checks = 0
+					if debugprofilestop() >= deadline then
+						state.chunkIndex, state.pos, state.count = chunkIndex, pos, count
+						return false
+					end
 				end
 			end
 		end
-		pos = lineEnd + 1
-		if deadline then
-			checks = checks + 1
-			if checks >= FIND_CHECK_STEP then
-				checks = 0
-				if debugprofilestop() >= deadline then
-					state.pos, state.count = pos, count
-					return false
-				end
-			end
+		chunkIndex = chunkIndex + 1
+		pos = 1
+		if deadline and chunkIndex <= chunkCount and debugprofilestop() >= deadline then
+			state.chunkIndex, state.pos, state.count = chunkIndex, pos, count
+			return false
 		end
 	end
+	state.chunkIndex, state.pos, state.count, state.done = chunkIndex, 1, count, true
+	return true
 end
 
 -- File IDs whose search text contains every word of the query; nil for an empty query.
@@ -280,6 +326,8 @@ local results = {}
 local debounceTimer, scanTicker
 local pickerCache, searchState
 local searchToken = 0
+local gridPoolCount = 0
+local visibleLimit
 
 local function Popup()
 	return MacroPopupFrame
@@ -290,7 +338,7 @@ local function ResultIcon(index)
 end
 
 local function ResultCount()
-	return #results
+	return visibleLimit and math.min(#results, visibleLimit) or #results
 end
 
 local function ShowResults(shown)
@@ -305,6 +353,7 @@ local function CancelScan()
 		scanTicker = nil
 	end
 	searchState = nil
+	visibleLimit = nil
 end
 
 local function CancelDebounce()
@@ -322,28 +371,52 @@ local function StepSearch(ticker, token)
 		return
 	end
 	local deadline = debugprofilestop() + SEARCH_BUDGET
+	local didWork = false
 	if not pickerCache.ready then
+		didWork = true
 		if not MacroIcons.StepIndex(pickerCache, deadline) or debugprofilestop() >= deadline then
 			return
 		end
 	end
 	if not searchState.find.done then
+		didWork = true
 		if not MacroIcons.StepFind(searchState.find, deadline) or debugprofilestop() >= deadline then
 			return
 		end
 	end
 	if not searchState.collected then
+		didWork = true
 		if not MacroIcons.StepCollect(pickerCache, searchState, deadline) or debugprofilestop() >= deadline then
 			return
 		end
 	end
-	results = searchState.results
+	-- Keep the ScrollBox refresh on its own clean frame after scanning work.
+	if didWork then
+		return
+	end
+	if not searchState.applied then
+		results = searchState.results
+		searchState.applied = true
+		grid:SetSelectedIndex(nil)
+	end
+	-- Warm up Blizzard's ScrollBox button pool in small batches the first time results are shown.
+	local total = #results
+	if total > gridPoolCount and gridPoolCount < GRID_POOL_TARGET then
+		gridPoolCount = math.min(total, GRID_POOL_TARGET, gridPoolCount + GRID_POOL_STEP)
+		visibleLimit = gridPoolCount < total and gridPoolCount or nil
+		grid:SetSelectionsDataProvider(ResultIcon, ResultCount)
+		ShowResults(true)
+		if visibleLimit then
+			return
+		end
+	else
+		visibleLimit = nil
+		grid:SetSelectionsDataProvider(ResultIcon, ResultCount)
+		ShowResults(true)
+	end
 	ticker:Cancel()
 	if scanTicker == ticker then scanTicker = nil end
 	searchState = nil
-	grid:SetSelectedIndex(nil)
-	grid:SetSelectionsDataProvider(ResultIcon, ResultCount)
-	ShowResults(true)
 end
 
 local function StartSearch()

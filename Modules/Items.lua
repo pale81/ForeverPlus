@@ -693,7 +693,7 @@ end
 -- An upgrade is the best armor type for the class, usable, and has a higher
 -- weighted value (stats of the current talent tree) than the weakest
 -- equipped item it could replace. Unknown data never shows an arrow.
-local WEIGH_BUDGET = 2 -- ms per bag update: the rest of the new items is weighed a moment later
+local WEIGH_BUDGET = 0.6 -- ms per bag update: the rest of the new items is weighed a moment later
 local weighStart, weighDone, weighDeferred, weighActive = 0, 0, false, false
 
 local function IsUpgrade(bag, slot, link)
@@ -1349,12 +1349,23 @@ end
 -- Bag and loot button decoration
 ---------------------------------------------------------------------------
 local function SetUpgradeArrow(arrow, state)
-	arrow:SetDesaturated(state == "later")
-	arrow:SetAlpha(state == "later" and 0.75 or 1)
-	arrow:SetShown(state and true or false)
+	if not state then
+		if not arrow.IsShown or arrow:IsShown() then
+			arrow:SetShown(false)
+		end
+		return
+	end
+	if arrow.fpState ~= state then
+		arrow.fpState = state
+		arrow:SetDesaturated(state == "later")
+		arrow:SetAlpha(state == "later" and 0.75 or 1)
+	end
+	if not arrow.IsShown or not arrow:IsShown() then
+		arrow:SetShown(true)
+	end
 end
 
-local function UpdateButton(button)
+local function UpdateButton(button, excludedBags)
 	local bag, slot = button:GetBagID(), button:GetID()
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 
@@ -1366,8 +1377,20 @@ local function UpdateButton(button)
 
 	if button.JunkIcon then
 		-- Coin on everything that will be sold: grey items (unless kept) and marked items.
-		local show = info and not info.hasNoValue and IsJunkItem(info) and not BagExcludesJunk(bag)
-		button.JunkIcon:SetShown(show and true or false)
+		local show = false
+		if info and not info.hasNoValue and IsJunkItem(info) then
+			local excluded = excludedBags and excludedBags[bag]
+			if excluded == nil then
+				excluded = BagExcludesJunk(bag) and true or false
+				if excludedBags then
+					excludedBags[bag] = excluded
+				end
+			end
+			show = not excluded
+		end
+		if not button.JunkIcon.IsShown or button.JunkIcon:IsShown() ~= show then
+			button.JunkIcon:SetShown(show)
+		end
 	end
 
 	if button.UpgradeIcon then
@@ -1389,9 +1412,10 @@ local function UpdateContainerFrame(frame)
 	if not frame:IsShown() then
 		return
 	end
+	local excludedBags = {}
 	weighStart, weighDone, weighActive = debugprofilestop(), 0, true
 	for _, button in frame:EnumerateValidItems() do
-		UpdateButton(button)
+		UpdateButton(button, excludedBags)
 	end
 	weighActive = false
 	if weighDeferred then
@@ -1746,13 +1770,14 @@ local function HookBagFrameMenu(frame)
 end
 
 local function PostUpdateItems(frame)
+	local excludedBags = {}
 	weighStart, weighDone, weighActive = debugprofilestop(), 0, true
 	for _, button in frame:EnumerateValidItems() do
 		if not hookedButtons[button] then
 			hookedButtons[button] = true
 			button:HookScript("OnMouseUp", OnItemMouseUp)
 		end
-		UpdateButton(button)
+		UpdateButton(button, excludedBags)
 	end
 	weighActive = false
 	if weighDeferred then

@@ -11336,5 +11336,216 @@ end)()
 	assert(elapsed < 0.05, "search over all icons takes " .. elapsed .. " s")
 	print(("macro icon search OK (%.1f ms)"):format(elapsed * 1000))
 end)()
+
+;(function()
+	local visuals = ns:GetModule("Visuals")
+	assert(visuals.defaults.totemTimers == true, "totem timers default on")
+	local foundOption
+	for _, opt in ipairs(visuals.options) do
+		if opt.key == "totemTimers" then
+			foundOption = opt
+			break
+		end
+	end
+	assert(foundOption and foundOption.new == true, "totem timers option carries the NEW mark")
+
+	local saved = {
+		UnitClass = UnitClass,
+		CreateFrame = CreateFrame,
+		hooksecurefunc = hooksecurefunc,
+		GetTotemInfo = GetTotemInfo,
+		GetTotemDuration = GetTotemDuration,
+		GetTime = GetTime,
+		issecretvalue = issecretvalue,
+		NUM_MULTI_CAST_BUTTONS_PER_PAGE = NUM_MULTI_CAST_BUTTONS_PER_PAGE,
+		MultiCastActionBarFrame_Update = MultiCastActionBarFrame_Update,
+		ChangeMultiCastActionPage = ChangeMultiCastActionPage,
+		Enum = Enum,
+		option = visuals.db.totemTimers,
+	}
+	local savedSlots = {}
+	for i = 1, 4 do
+		savedSlots[i] = rawget(_G, "MultiCastSlotButton" .. i)
+	end
+
+	local currentClass = "SHAMAN"
+	UnitClass = function() return "Shaman", currentClass end
+	NUM_MULTI_CAST_BUTTONS_PER_PAGE = 4
+	GetTime = function() return 1000 end
+	Enum = setmetatable({
+		StatusBarInterpolation = { Immediate = 0 },
+		StatusBarTimerDirection = { RemainingTime = 1 },
+	}, { __index = saved.Enum })
+	hooksecurefunc = function(a, b, c)
+		saved.hooksecurefunc(a, b, c)
+		if type(a) == "string" and type(_G[a]) == "function" then
+			local orig = _G[a]
+			_G[a] = function(...)
+				local r = orig(...)
+				b(...)
+				return r
+			end
+		end
+	end
+
+	local created = {}
+	CreateFrame = function(kind, name, parent, template)
+		local f = saved.CreateFrame(kind, name, parent, template)
+		f.kind = kind
+		f.parent = parent
+		f.level = 1
+		f.GetParent = function(self) return rawget(self, "parent") end
+		f.SetFrameLevel = function(self, lvl) self.level = lvl end
+		f.GetFrameLevel = function(self) return self.level end
+		if kind == "StatusBar" then
+			f.SetStatusBarTexture = function(self, tex) self.texture = tex end
+			f.SetStatusBarColor = function(self, r, g, b) self.color = { r, g, b } end
+			f.SetTimerDuration = function(self, dur, interp, dir) self.timerDur, self.timerInterp, self.timerDir = dur, interp, dir end
+			f.SetMinMaxValues = function(self, lo, hi) self.minVal, self.maxVal = lo, hi end
+			f.SetValue = function(self, v) self.val = v end
+		elseif kind == "Cooldown" then
+			local fs = NewFrame("FontString")
+			fs.SetPoint = function(self, ...) self.anchor = { ... } end
+			fs.SetTextColor = function(self, r, g, b) self.color = { r, g, b } end
+			f.countdownFS = fs
+			f.GetCountdownFontString = function(self) return self.countdownFS end
+			f.SetDrawSwipe = function(self, v) self.drawSwipe = v end
+			f.SetDrawEdge = function(self, v) self.drawEdge = v end
+			f.SetDrawBling = function(self, v) self.drawBling = v end
+			f.SetHideCountdownNumbers = function(self, v) self.hideNumbers = v end
+			f.SetMinimumCountdownDuration = function(self, v) self.minDuration = v end
+			f.SetCountdownAbbrevThreshold = function(self, v) self.abbrevThreshold = v end
+			f.SetCountdownFont = function(self, v) self.countdownFont = v end
+			f.SetCooldownFromDurationObject = function(self, dur, clearIfZero)
+				self.durObj, self.clearIfZero, self.cleared = dur, clearIfZero, false
+			end
+			f.SetCooldown = function(self, s, d, m)
+				self.start, self.duration, self.modRate, self.cleared = s, d, m, false
+			end
+			f.Clear = function(self)
+				self.durObj, self.start, self.duration, self.cleared = nil, nil, nil, true
+			end
+		end
+		created[#created + 1] = f
+		return f
+	end
+
+	local slots = {}
+	local slotIDs = { 1, 2, 3, 0 }
+	for i = 1, 4 do
+		local btn = NewFrame("CheckButton")
+		btn.slotID = slotIDs[i]
+		btn.GetID = function(self) return self.slotID end
+		btn.GetFrameLevel = function() return 10 end
+		btn.actionButton = { GetFrameLevel = function() return 14 end }
+		btn.SetFrameLevel = function(self, lvl) self.level = lvl end
+		_G["MultiCastSlotButton" .. i] = btn
+		slots[i] = btn
+	end
+	local origOverlayFrameLevel
+	local function FindOverlay(slotButton)
+		for _, f in ipairs(created) do
+			if f.kind == "Frame" and f:GetParent() == slotButton and f.cooldown and f.bar then
+				return f
+			end
+		end
+	end
+
+	local totemInfo = {
+		[1] = { true, "Searing Totem", 980, 60, 123, 1 },
+		[2] = { false, "", 0, 0, 0, 1 },
+		[3] = { true, "Healing Stream Totem", 990, 120, 456, 1 },
+	}
+	local durObjs = {
+		[1] = { id = "fire-dur" },
+		[2] = { id = "earth-zero" },
+		[3] = { id = "water-dur" },
+	}
+	GetTotemInfo = function(slot)
+		local info = totemInfo[slot]
+		if info then return unpack(info, 1, 6) end
+		return false, "", 0, 0, 0, 1
+	end
+	GetTotemDuration = function(slot) return durObjs[slot] end
+	MultiCastActionBarFrame_Update = function() end
+	ChangeMultiCastActionPage = function() end
+
+	visuals.db.totemTimers = true
+	visuals:OnOptionChanged("totemTimers")
+
+	local fireOv = assert(FindOverlay(slots[1]), "fire totem overlay created")
+	local waterOv = assert(FindOverlay(slots[3]), "water totem overlay created")
+	assert(fireOv:IsShown() and waterOv:IsShown(), "active totem slots show overlays")
+	assert(not FindOverlay(slots[2]) and not FindOverlay(slots[4]), "inactive or hidden slots stay empty")
+	assert(fireOv.cooldown.durObj == durObjs[1] and fireOv.cooldown.clearIfZero == true, "duration object passed to cooldown")
+	assert(fireOv.cooldown.drawSwipe == false and fireOv.cooldown.hideNumbers == false, "countdown shown without swipe")
+	assert(fireOv.cooldown.abbrevThreshold == 600 and fireOv.cooldown.minDuration == 0, "mm:ss threshold and 0s min configured")
+	assert(fireOv.cooldown.countdownFS.anchor and fireOv.cooldown.countdownFS.anchor[1] == "BOTTOM", "countdown anchored at bottom")
+	assert(fireOv.bar:IsShown() and fireOv.bar.timerDur == durObjs[1] and fireOv.bar.timerDir == 1, "progress bar driven by duration object")
+	assert(fireOv.bar.color[1] > 0.9 and waterOv.bar.color[3] > 0.9, "element colours distinguish fire and water")
+	origOverlayFrameLevel = fireOv:GetFrameLevel()
+	assert(origOverlayFrameLevel == 18, "overlay sits above the action button and its spell cooldown")
+
+	-- Secret values in combat: GetTotemInfo returns secret booleans/numbers; GetTotemDuration drives the widgets safely.
+	local secretVal = {}
+	issecretvalue = function(v) return v == secretVal end
+	totemInfo[2] = { secretVal, secretVal, secretVal, secretVal, secretVal, 1 }
+	MultiCastActionBarFrame_Update()
+	local earthOv = assert(FindOverlay(slots[2]), "secret totem slot still updates via duration object")
+	assert(earthOv:IsShown() and earthOv.cooldown.durObj == durObjs[2] and earthOv.bar.timerDur == durObjs[2],
+		"secret totem uses SetCooldownFromDurationObject and SetTimerDuration without Lua comparison")
+
+	-- Expiring / recalling a totem hides and clears the overlay on PLAYER_TOTEM_UPDATE.
+	issecretvalue = saved.issecretvalue
+	totemInfo[1] = { false, "", 0, 0, 0, 1 }
+	totemInfo[2] = { false, "", 0, 0, 0, 1 }
+	ChangeMultiCastActionPage(2)
+	assert(not fireOv:IsShown() and fireOv.cooldown.cleared and not fireOv.bar:IsShown(), "expired fire totem cleared")
+	assert(not earthOv:IsShown() and earthOv.cooldown.cleared, "cleared earth totem hidden")
+
+	-- Fallback path when GetTotemDuration is absent, triggered via PLAYER_TOTEM_UPDATE event.
+	local watchFrame
+	for _, f in ipairs(created) do
+		if f.kind == "Frame" and rawget(f, "parent") == nil and f:GetScript("OnEvent") then
+			watchFrame = f
+			break
+		end
+	end
+	assert(watchFrame, "totem watcher frame created")
+	GetTotemDuration = nil
+	totemInfo[1] = { true, "Searing Totem", 980, 60, 123, 1 }
+	watchFrame:GetScript("OnEvent")(watchFrame, "PLAYER_TOTEM_UPDATE", 1)
+	assert(fireOv:IsShown() and fireOv.cooldown.start == 980 and fireOv.cooldown.duration == 60, "fallback uses SetCooldown")
+	assert(fireOv.bar:IsShown() and fireOv.bar.maxVal == 60 and fireOv.bar.val == 40, "fallback sets status bar remaining time")
+
+	-- Disabling the option clears all overlays.
+	visuals.db.totemTimers = false
+	visuals:OnOptionChanged("totemTimers")
+	assert(not fireOv:IsShown() and fireOv.cooldown.cleared and not waterOv:IsShown(), "turning option off hides all totem overlays")
+
+	-- Non-shaman class stays inactive even when option is enabled.
+	currentClass = "WARRIOR"
+	visuals.db.totemTimers = true
+	visuals:OnOptionChanged("totemTimers")
+	assert(not fireOv:IsShown() and not waterOv:IsShown(), "non-shaman does not show totem overlays")
+
+	-- Restore globals and option state.
+	for i = 1, 4 do
+		_G["MultiCastSlotButton" .. i] = savedSlots[i]
+	end
+	UnitClass = saved.UnitClass
+	CreateFrame = saved.CreateFrame
+	hooksecurefunc = saved.hooksecurefunc
+	GetTotemInfo = saved.GetTotemInfo
+	GetTotemDuration = saved.GetTotemDuration
+	GetTime = saved.GetTime
+	issecretvalue = saved.issecretvalue
+	NUM_MULTI_CAST_BUTTONS_PER_PAGE = saved.NUM_MULTI_CAST_BUTTONS_PER_PAGE
+	MultiCastActionBarFrame_Update = saved.MultiCastActionBarFrame_Update
+	ChangeMultiCastActionPage = saved.ChangeMultiCastActionPage
+	Enum = saved.Enum
+	visuals.db.totemTimers = saved.option
+	visuals:OnOptionChanged("totemTimers")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

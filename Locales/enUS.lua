@@ -153,6 +153,8 @@ L.VISUALS_PALADIN_SEAL_RECOMMENDATION = "Suggest a paladin seal in combat"
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC = "When you lack a seal in combat, highlights the recommended seal for your active talent tree on your action bars."
 L.VISUALS_COMBAT_BUFF_RECOMMENDATION = "Highlight missing combat buffs"
 L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Highlights Shaman shields, Slice and Dice, or Battle Shout on your action bars in combat when the buff is missing and the action is usable."
+L.VISUALS_TOTEM_TIMERS = "Totem timers on the totem bar"
+L.VISUALS_TOTEM_TIMERS_DESC = "Shows the remaining duration of active totems with a countdown and slim bar directly on the slots of the Shaman totem bar."
 
 L.RADAR_TITLE = "Recipe radar"
 L.RADAR_ENABLE = "Show recipe vendors"

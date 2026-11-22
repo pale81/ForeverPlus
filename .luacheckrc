@@ -385,4 +385,6 @@ read_globals = {
 	"GENERAL_CHAT_DOCK", "FCFDock_GetSelectedWindow", "EmoteList", "TextEmoteSpeechList", "MAXEMOTEINDEX",
 	"EMOTE454_TOKEN", "EMOTE455_TOKEN",
 	"CHAT_FRAME_TAB_NORMAL_MOUSEOVER_ALPHA", "CHAT_FRAME_TAB_NORMAL_NOMOUSE_ALPHA",
+	"NUM_MULTI_CAST_BUTTONS_PER_PAGE", "FIRE_TOTEM_SLOT", "EARTH_TOTEM_SLOT", "WATER_TOTEM_SLOT", "AIR_TOTEM_SLOT",
+	"GetTotemInfo", "GetTotemDuration", "MultiCastActionBarFrame_Update", "ChangeMultiCastActionPage",
 }

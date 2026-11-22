@@ -21,6 +21,7 @@ local Visuals = ns:NewModule("Visuals", {
 		paladinSealRecommendation = true,
 		combatBuffRecommendation = false,
 		castsLeft = false,
+		totemTimers = true,
 		auraActionFrame = true,
 		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
 		bagFrameOff = false,
@@ -1197,6 +1198,182 @@ local function UpdateCombatBuffWatch()
 	UpdateCombatBuffHighlights()
 end
 
+---------------------------------------------------------------------------
+-- Active totem timers on the Shaman totem bar (MultiCastActionBarFrame).
+-- Uses GetTotemDuration and native Cooldown/StatusBar timers so the display
+-- keeps working in combat even when totem values are secret.
+---------------------------------------------------------------------------
+local UpdateTotemWatch
+do
+	local TOTEM_EVENTS = { "PLAYER_TOTEM_UPDATE", "UPDATE_MULTI_CAST_ACTIONBAR", "PLAYER_ENTERING_WORLD" }
+	local SLOT_COLORS = {
+		[ns.Number(FIRE_TOTEM_SLOT, 1)] = { 1.0, 0.38, 0.16 },
+		[ns.Number(EARTH_TOTEM_SLOT, 2)] = { 0.72, 0.56, 0.25 },
+		[ns.Number(WATER_TOTEM_SLOT, 3)] = { 0.25, 0.68, 1.0 },
+		[ns.Number(AIR_TOTEM_SLOT, 4)] = { 0.76, 0.90, 1.0 },
+	}
+	local DEFAULT_COLOR = { 1.0, 0.85, 0.2 }
+	local COUNTDOWN_COLOR = { 1.0, 0.85, 0.2 }
+	local BAR_TEXTURE = [[Interface\Buttons\WHITE8X8]]
+
+	local overlays = setmetatable({}, { __mode = "k" })
+	local watch, barUpdateHooked, pageChangeHooked
+
+	local function SlotOverlay(slotButton)
+		local overlay = overlays[slotButton]
+		if overlay then
+			return overlay
+		end
+		overlay = CreateFrame("Frame", nil, slotButton)
+		overlay:EnableMouse(false)
+		overlay:SetAllPoints(slotButton)
+
+		local bar = CreateFrame("StatusBar", nil, overlay)
+		bar:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", 1, 1)
+		bar:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", -1, 1)
+		bar:SetHeight(2)
+		bar:SetStatusBarTexture(BAR_TEXTURE)
+		bar:Hide()
+		overlay.bar = bar
+
+		local cooldown = CreateFrame("Cooldown", nil, overlay, "CooldownFrameTemplate")
+		cooldown:SetAllPoints(overlay)
+		cooldown:SetDrawSwipe(false)
+		cooldown:SetDrawEdge(false)
+		cooldown:SetDrawBling(false)
+		cooldown:SetHideCountdownNumbers(false)
+		if cooldown.SetMinimumCountdownDuration then
+			cooldown:SetMinimumCountdownDuration(0)
+		end
+		if cooldown.SetCountdownAbbrevThreshold then
+			cooldown:SetCountdownAbbrevThreshold(600)
+		end
+		if cooldown.SetCountdownFont then
+			cooldown:SetCountdownFont("GameFontHighlightSmallOutline")
+		end
+		local text = cooldown.GetCountdownFontString and cooldown:GetCountdownFontString()
+		if text then
+			text:ClearAllPoints()
+			text:SetPoint("BOTTOM", overlay, "BOTTOM", 0, 4)
+			text:SetTextColor(COUNTDOWN_COLOR[1], COUNTDOWN_COLOR[2], COUNTDOWN_COLOR[3])
+		end
+		overlay.cooldown = cooldown
+
+		overlay:Hide()
+		overlays[slotButton] = overlay
+		return overlay
+	end
+
+	local function HideOverlay(overlay)
+		if not overlay then
+			return
+		end
+		overlay.cooldown:Clear()
+		overlay.bar:Hide()
+		overlay:Hide()
+	end
+
+	local function SyncFrameLevel(overlay, slotButton)
+		local actionButton = slotButton.actionButton
+		local base = ns.Number(actionButton and actionButton.GetFrameLevel and actionButton:GetFrameLevel())
+		if not base then
+			local slotLevel = ns.Number(slotButton.GetFrameLevel and slotButton:GetFrameLevel())
+			base = slotLevel and (slotLevel + 2) or nil
+		end
+		if base and overlay.SetFrameLevel then
+			overlay:SetFrameLevel(base + 4)
+		end
+	end
+
+	local function UpdateSlot(slotButton, enabled)
+		if not slotButton then
+			return
+		end
+		local slot = enabled and slotButton.GetID and ns.Number(slotButton:GetID(), 0) or 0
+		if slot <= 0 then
+			HideOverlay(overlays[slotButton])
+			return
+		end
+		local haveTotem, startTime, duration, modRate
+		if type(GetTotemInfo) == "function" then
+			local _
+			haveTotem, _, startTime, duration, _, modRate = GetTotemInfo(slot)
+		end
+		local secret = ns.Secret(haveTotem) or ns.Secret(startTime) or ns.Secret(duration)
+		if not secret and (not haveTotem or ns.Number(duration, 0) <= 0) then
+			HideOverlay(overlays[slotButton])
+			return
+		end
+
+		local overlay = SlotOverlay(slotButton)
+		SyncFrameLevel(overlay, slotButton)
+		local color = SLOT_COLORS[slot] or DEFAULT_COLOR
+		overlay.bar:SetStatusBarColor(color[1], color[2], color[3])
+
+		local durObj = type(GetTotemDuration) == "function" and GetTotemDuration(slot) or nil
+		if durObj and overlay.cooldown.SetCooldownFromDurationObject then
+			overlay.cooldown:SetCooldownFromDurationObject(durObj, true)
+			if overlay.bar.SetTimerDuration then
+				local interp = ns.Number(Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate, 0)
+				local dir = ns.Number(Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.RemainingTime, 1)
+				overlay.bar:SetTimerDuration(durObj, interp, dir)
+				overlay.bar:Show()
+			else
+				overlay.bar:Hide()
+			end
+			overlay:Show()
+		elseif not secret then
+			local start = ns.Number(startTime, 0)
+			local total = ns.Number(duration, 0)
+			if total > 0 then
+				overlay.cooldown:SetCooldown(start, total, ns.Number(modRate, 1))
+				overlay.bar:SetMinMaxValues(0, total)
+				overlay.bar:SetValue(math.max(0, start + total - GetTime()))
+				overlay.bar:Show()
+				overlay:Show()
+			else
+				HideOverlay(overlay)
+			end
+		else
+			HideOverlay(overlay)
+		end
+	end
+
+	local function UpdateAllTotems()
+		local enabled = Visuals.db.totemTimers and select(2, UnitClass("player")) == "SHAMAN"
+		local count = ns.Number(NUM_MULTI_CAST_BUTTONS_PER_PAGE, 4)
+		for index = 1, count do
+			UpdateSlot(rawget(_G, "MultiCastSlotButton" .. index), enabled)
+		end
+	end
+
+	UpdateTotemWatch = function()
+		local enabled = Visuals.db.totemTimers and select(2, UnitClass("player")) == "SHAMAN"
+		if enabled then
+			if not watch then
+				watch = CreateFrame("Frame")
+				watch:SetScript("OnEvent", ns.Measured("Visuals: totem timer event", UpdateAllTotems))
+			end
+			for _, event in ipairs(TOTEM_EVENTS) do
+				if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then
+					watch:RegisterEvent(event)
+				end
+			end
+			if not barUpdateHooked and type(MultiCastActionBarFrame_Update) == "function" then
+				barUpdateHooked = true
+				hooksecurefunc("MultiCastActionBarFrame_Update", ns.Measured("Visuals: totem bar update", UpdateAllTotems))
+			end
+			if not pageChangeHooked and type(ChangeMultiCastActionPage) == "function" then
+				pageChangeHooked = true
+				hooksecurefunc("ChangeMultiCastActionPage", ns.Measured("Visuals: totem page update", UpdateAllTotems))
+			end
+		elseif watch then
+			watch:UnregisterAllEvents()
+		end
+		UpdateAllTotems()
+	end
+end
+
 -- In combat the auras are secret and the last set was kept: a seal used up by a judgement or run out stayed greyed
 -- until the fight ended. A removed aura ends its greying; when the removal cannot be read, all greying ends
 -- (a usable spell shown grey is worse than an active one shown normal).
@@ -1994,6 +2171,7 @@ function Visuals:OnLogin()
 	UpdateAuraWatch()
 	RecolorAll()
 	UpdateCastWatch()
+	UpdateTotemWatch()
 	RefreshUnitBars()
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookTrackingBars)
 	SetupPlayerPortrait()
@@ -2033,6 +2211,8 @@ function Visuals:OnOptionChanged(key)
 		Visuals.ApplyPlayerDragon()
 	elseif key == "castsLeft" then
 		UpdateCastWatch()
+	elseif key == "totemTimers" then
+		UpdateTotemWatch()
 	elseif key == "paladinRecommendations" or key == "paladinSealRecommendation" then
 		UpdatePaladinWatch()
 		UpdateAuraWatch()
@@ -2078,6 +2258,7 @@ Visuals.options = {
 	{ key = "colorUnusable", type = "toggle", name = L.VISUALS_COLOR_UNUSABLE, parent = "actionColors" },
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
 	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
+	{ key = "totemTimers", type = "toggle", name = L.VISUALS_TOTEM_TIMERS, desc = L.VISUALS_TOTEM_TIMERS_DESC, new = true },
 	{ key = "paladinRecommendations", type = "toggle", name = L.VISUALS_PALADIN_RECOMMENDATIONS,
 		desc = L.VISUALS_PALADIN_RECOMMENDATIONS_DESC, new = true },
 	{ key = "paladinSealRecommendation", type = "toggle", name = L.VISUALS_PALADIN_SEAL_RECOMMENDATION,

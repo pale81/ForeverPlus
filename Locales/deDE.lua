@@ -152,6 +152,8 @@ L.VISUALS_PALADIN_SEAL_RECOMMENDATION = "Paladin-Siegel im Kampf empfehlen"
 L.VISUALS_PALADIN_SEAL_RECOMMENDATION_DESC = "Fehlt dir im Kampf ein Siegel, leuchtet das empfohlene Siegel für deinen aktiven Talentbaum blau auf den Aktionsleisten."
 L.VISUALS_COMBAT_BUFF_RECOMMENDATION = "Fehlende Kampfbuffs hervorheben"
 L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Markiert im Kampf den Schamanenschild, Zerhäckseln oder Schlachtruf blau auf den Aktionsleisten, wenn der Buff fehlt und die Aktion einsetzbar ist."
+L.VISUALS_TOTEM_TIMERS = "Totem-Laufzeit auf der Totemleiste"
+L.VISUALS_TOTEM_TIMERS_DESC = "Zeigt die Restlaufzeit aktiver Totems mit Zeitanzeige und schmaler Leiste direkt auf den Feldern der Schamanen-Totemleiste."
 
 L.RADAR_TITLE = "Rezeptradar"
 L.RADAR_ENABLE = "Rezepthändler anzeigen"

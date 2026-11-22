@@ -848,6 +848,24 @@ local function CreateText(frame)
 	return text
 end
 
+local function CreateBasketOverflow(frame)
+	local hover = CreateFrame("Frame", nil, frame)
+	hover:SetMouseMotionEnabled(true)
+	hover:SetScript("OnEnter", ns.Measured("Dialog: basket tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(self.total, 1, 1, 1, true)
+		GameTooltip:Show()
+	end))
+	local hideTooltip = ns.Measured("Dialog: basket tooltip hide", function(self)
+		if GameTooltip:IsOwned(self) then
+			GameTooltip:Hide()
+		end
+	end)
+	hover:SetScript("OnLeave", hideTooltip)
+	hover:SetScript("OnHide", hideTooltip)
+	return hover
+end
+
 -- Only rows with wares in the basket need the game's quantity field.
 local function CreateQuantity(row)
 	row.Qty = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
@@ -1156,6 +1174,9 @@ local function RenderView(view)
 			object:SetAlpha(1) -- a step that waited for the next one had its content hidden (Dialog.Pending)
 		end
 	end
+	if frame.BasketOverflow then
+		frame.BasketOverflow:Hide()
+	end
 	local y = 0
 	local listScroll, selectedTop, selectedHeight = false, nil, nil
 	local rewardTop
@@ -1168,21 +1189,23 @@ local function RenderView(view)
 	wipe(frame.rowActions)
 	wipe(frame.numberIndex)
 	frame.maxRowNumber = 0
-	local function AddText(text, color, font, width, justify)
+	local function AddText(text, color, font, justify, lineHeight)
 		used.text = used.text + 1
 		local fs = Pooled(frame, "text", used.text, CreateText)
 		fs:SetParent(host)
 		fs:SetFontObject(font or textFont)
 		fs:ClearAllPoints()
 		fs:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -y)
-		fs:SetWidth(width or WIDTH)
+		fs:SetWidth(WIDTH)
+		fs:SetHeight(lineHeight or 0)
+		fs:SetWordWrap(not lineHeight)
 		fs:SetJustifyH(justify or "LEFT")
 		fs:SetTextColor(unpack(color))
 		fs:SetText(text)
 		fs:SetAlpha(1)
 		fs:SetAlphaGradient(100000, 1)
 		fs:Show()
-		y = y + fs:GetStringHeight() + BLOCK_GAP
+		y = y + (lineHeight or fs:GetStringHeight()) + BLOCK_GAP
 		return fs
 	end
 	-- The NPC's words: laid out whole (the height counts), then emptied for the slow text in the same picture.
@@ -1490,16 +1513,19 @@ local function RenderView(view)
 			end
 			y = y + BLOCK_GAP - 6
 		elseif block.money then
-			-- The merchant's money line: the player's money at the right edge, under the prices; the basket at the left.
 			if block.right then
-				local top = y
-				local right = AddText(block.right, palette.text, nil, nil, "RIGHT")
-				local bottom = y
-				y = top
-				if block.money ~= "" then
-					AddText(block.money, palette.text, nil, WIDTH - math.ceil(ns.Number(right:GetStringWidth(), 0)) - 10)
+				-- Keep the basket's full-width line even when empty so the buttons stay put as prices change.
+				local lineHeight = math.max(16, math.ceil((fontSize or 12) * 1.2))
+				local basket = AddText(block.money, palette.text, nil, "LEFT", lineHeight)
+				y = y - BLOCK_GAP + ROW_GAP
+				AddText(block.right, palette.text, nil, "RIGHT", lineHeight)
+				if block.money ~= "" and basket:IsTruncated() then
+					local hover = frame.BasketOverflow or CreateBasketOverflow(frame)
+					frame.BasketOverflow = hover
+					hover:SetAllPoints(basket)
+					hover.total = block.money
+					hover:Show()
 				end
-				y = math.max(y, bottom)
 			else
 				AddText(block.money, palette.text)
 			end
@@ -3019,7 +3045,7 @@ function Dialog.MerchantView()
 		end
 		basketText = L.DIALOG_MERCHANT_CHOSEN:format(pieces, table.concat(prices, " "))
 	end
-	-- The player's money at the right edge under the prices, the basket at the left.
+	-- The basket and the player's money each get their own line.
 	blocks[#blocks + 1] = { money = basketText, right = moneyText }
 	-- What the mouse does, as one small line below (before: symbols at the top right that were hard to read).
 	if not buyback and #rows > 0 then

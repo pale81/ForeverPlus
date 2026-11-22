@@ -4689,7 +4689,6 @@ end)()
 	local wasOn, wasMerchant = dialog.db.enabled, dialog.db.merchant
 	dialog.db.enabled, dialog.db.merchant, dialog.reported = true, true, nil
 	dialog:OnConversation("MERCHANT_SHOW")
-	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
 	for line = math.max(1, #ns.db.bubbleTrace - 15), #ns.db.bubbleTrace do
 		assert(not ns.db.bubbleTrace[line]:find("Fehler beim Zeichnen"), ns.db.bubbleTrace[line])
 	end
@@ -4700,6 +4699,45 @@ end)()
 	assert(drawn[2]:GetHeight() == drawn[3]:GetHeight() and drawn[1]:GetHeight() == drawn[2]:GetHeight(), "all rows one height")
 	assert(drawn[2].Num:IsShown() and drawn[2].Price:IsShown() and not drawn[1].Num:IsShown() and not drawn[1].Price:IsShown(),
 		"wares show number and price, the heading neither")
+	-- The basket gets a fixed line even when empty. Model wrapping when the price outgrows its line.
+	local basket = bubble.pools.text[bubble.lastUsed.text - 2]
+	local buy = bubble.pools.button[2]
+	local setHeight, setPoint = rawget(bubble, "SetHeight"), rawget(buy, "SetPoint")
+	bubble.SetHeight = function(self, height) self.testHeight = height end
+	buy.SetPoint = function(self, _, _, _, _, y) self.testY = y end
+	local priceWidth, basketText, basketWidth, wraps, lineHeight = 0
+	basket.SetWidth = function(_, width) basketWidth = width end
+	basket.SetText = function(_, text) basketText = text end
+	basket.SetHeight = function(_, height) lineHeight = height end
+	basket.SetWordWrap = function(_, value) wraps = value end
+	basket.GetStringHeight = function() return wraps and priceWidth > basketWidth and 24 or 12 end
+	basket.IsTruncated = function() return priceWidth > basketWidth end
+	local coinPrice = "2 |TSilver:14:14|t 25 |TCopper:14:14|t"
+	GetMoneyString = function(copper) return copper == 50 and coinPrice or tostring(copper) .. "c" end
+	dialog:OnConversation("MERCHANT_UPDATE")
+	local height, buttonY = bubble.testHeight, buy.testY
+	assert(basketText == "" and height and buttonY, "the empty basket has its own line above the buttons")
+	priceWidth = 100
+	drawn[2].action("LeftButton")
+	assert(basketText == ns.L.DIALOG_MERCHANT_CHOSEN:format(1, "10c"), "the selected ware appears in the basket")
+	assert(bubble.testHeight == height and buy.testY == buttonY, "selecting a ware keeps the layout")
+	priceWidth = 180
+	drawn[2].onQuantity(5)
+	assert(basketText == ns.L.DIALOG_MERCHANT_CHOSEN:format(5, coinPrice) and priceWidth <= basketWidth and not wraps
+		and lineHeight >= 14, "the total and both coin icons fit on their own line")
+	assert(bubble.testHeight == height and buy.testY == buttonY, "adding a denomination keeps the layout")
+	priceWidth = 500
+	drawn[2].onQuantity(99)
+	assert(bubble.testHeight == height and buy.testY == buttonY, "an overflowing total keeps the layout")
+	assert(bubble.BasketOverflow:IsShown() and bubble.BasketOverflow.total == basketText, "the tooltip has the full total")
+	priceWidth = 0
+	drawn[2].onQuantity(0)
+	assert(basketText == "" and bubble.testHeight == height and buy.testY == buttonY and not bubble.BasketOverflow:IsShown(),
+		"emptying the basket keeps the layout and removes the tooltip")
+	basket.SetWidth, basket.SetText, basket.SetHeight, basket.SetWordWrap, basket.GetStringHeight, basket.IsTruncated =
+		nil, nil, nil, nil, nil, nil
+	bubble.SetHeight, buy.SetPoint = setHeight, setPoint
+	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
 	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair, GetNumBuybackItems,
 		ns.MerchantTools, C_Item.GetItemInfoInstant, INVTYPE_CHEST, INVTYPE_HAND, dialog.db.merchantGroups, ns.IsRewardUpgrade = unpack(saved, 1, 13)
 	print("merchant columns OK")

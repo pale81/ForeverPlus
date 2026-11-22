@@ -1643,7 +1643,7 @@ do
 	objectCall(GameTooltip)
 	do
 		-- An opened text keeps its grey name over the cursor, also without the read status option.
-		local readable, hoverName = ns:GetModule("Readable"), uv(objectCall, "GetHover")().Name
+		local readable, hoverName = ns:GetModule("Readable"), uv(show, "GetHover")().Name
 		local oldTitles, oldStatus, oldGray, oldColor = readable.cdb.openedTitles, readable.db.readStatus, GRAY_FONT_COLOR,
 			hoverName.SetTextColor
 		local red
@@ -1660,7 +1660,7 @@ do
 	end
 
 	-- A readable name can still have secret font measurements after hovering a unit.
-	local frame = uv(objectCall, "GetHover")()
+	local frame = uv(show, "GetHover")()
 	local savedSecret, savedSetSize = issecretvalue, frame.SetSize
 	local savedWidth, savedHeight, savedLevelWidth = frame.Name.GetStringWidth, frame.Name.GetStringHeight, frame.Level.GetStringWidth
 	local savedGreyWidth, savedGreyHeight = frame.Grey.GetStringWidth, frame.Grey.GetStringHeight
@@ -1711,6 +1711,55 @@ do
 	assert(stays and peak == 1, "comes back up: stays")
 end
 print("hover OK")
+;(function()
+	local tooltip = ns:GetModule("Tooltip")
+	local frame = uv(show, "GetHover")()
+	local savedUnit, savedWorld, savedFoci, savedCursor = UnitExists, WorldFrame, GetMouseFoci, C_TooltipInfo.GetWorldCursor
+	local savedParent, savedScale = frame.SetParent, frame.SetScale
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local unit, data, parent, scale = true
+	WorldFrame = { GetEffectiveScale = function() return 0.5 end }
+	GetMouseFoci = function() return { WorldFrame } end
+	UnitExists = function(token) return token == "mouseover" and unit end
+	C_TooltipInfo.GetWorldCursor = function() return data end
+	frame.SetParent = function(_, value) parent = value end
+	frame.SetScale = function(_, value) scale = value end
+
+	tooltip.SetWanderlustHover(true)
+	assert(frame:IsShown() and not frame.object and parent == WorldFrame and scale == 2,
+		"Wanderlust moves the existing unit label outside the hidden interface and preserves its scale")
+	unit = false
+	data = { type = Enum.TooltipDataType.Object, lines = { { leftText = "Copper Vein" } } }
+	local function CursorChanged() eventFrame.scripts.OnEvent(eventFrame, "WORLD_CURSOR_TOOLTIP_UPDATE") end
+	CursorChanged()
+	assert(frame:IsShown() and frame.object, "Wanderlust shows the object from world cursor data")
+	GameTooltip.scripts.OnTooltipCleared(GameTooltip)
+	frame.scripts.OnUpdate(frame, 0.1)
+	assert(frame:IsShown(), "GameTooltip clearing and fading do not hide the independent object label")
+	tooltip.db.hoverObjects = false
+	tooltip:OnOptionChanged("hoverObjects")
+	assert(not frame:IsShown(), "the normal object option is respected during Wanderlust")
+	tooltip.db.hoverObjects = true
+	tooltip:OnOptionChanged("hoverObjects")
+	assert(frame:IsShown(), "reenabling object text refreshes the current cursor")
+	data = nil
+	CursorChanged()
+	assert(not frame:IsShown(), "leaving the object hides the label")
+
+	unit = true
+	tooltip.db.hoverName = false
+	tooltip:OnOptionChanged("hoverName")
+	show()
+	assert(not frame:IsShown(), "the normal mouseover option also controls the Wanderlust unit label")
+	tooltip.db.hoverName = true
+	tooltip:OnOptionChanged("hoverName")
+	tooltip.SetWanderlustHover(false)
+	assert(frame:IsShown() and parent == UIParent and scale == 1, "restoring the interface returns the unit label to its normal parent")
+	assert(not uv(ns.RegisterEvent, "listeners").WORLD_CURSOR_TOOLTIP_UPDATE,
+		"restoring the interface stops reading world cursor data for Wanderlust")
+	UnitExists, WorldFrame, GetMouseFoci, C_TooltipInfo.GetWorldCursor = savedUnit, savedWorld, savedFoci, savedCursor
+	frame.SetParent, frame.SetScale = savedParent, savedScale
+end)()
 -- Rank up: rank 2 replaced by rank 3, rank 1 kept
 local qolMod = ns:GetModule("QoL")
 local rankUp = uv(qolMod.UpdateRankUp, "RankUp")

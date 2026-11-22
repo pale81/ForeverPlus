@@ -260,9 +260,14 @@ end
 -- Name and level of the unit under the mouse, centred above the cursor
 ---------------------------------------------------------------------------
 local hover
+local wanderlustHover = false
 
 local function Secret(value)
 	return ns.Secret(value)
+end
+
+local function IsSecretData(value)
+	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
 end
 
 -- The same open objectives and icon as the nameplates, independent of their visibility option.
@@ -409,8 +414,15 @@ local function Layout(frame, data)
 	UpdateHealthMask(frame)
 end
 
+local function SetHoverParent(frame)
+	-- Keep the cursor text visible when UIParent is hidden or transparent during the minimap preview.
+	frame:SetParent(wanderlustHover and WorldFrame or UIParent)
+	frame:SetScale(wanderlustHover and UIParent:GetEffectiveScale() / WorldFrame:GetEffectiveScale() or 1)
+end
+
 local function CreateHover()
 	local frame = CreateFrame("Frame", nil, UIParent)
+	if wanderlustHover then SetHoverParent(frame) end
 	frame:SetFrameStrata("TOOLTIP")
 	frame.Box = CreateFrame("Frame", nil, frame)
 	frame.Box:SetPoint("BOTTOMLEFT")
@@ -451,8 +463,8 @@ local function UpdateHover(frame, elapsed)
 	if frame.object and UnitExists("mouseover") then
 		frame.object = false
 	end
-	local objectStays = false
-	if frame.object then
+	local objectStays = frame.object and wanderlustHover
+	if frame.object and not wanderlustHover then
 		objectStays, frame.objectAlpha = Tooltip.ObjectNameStays(GameTooltip:IsShown(), ns.Number(GameTooltip:GetAlpha(), 1),
 			frame.objectAlpha, GetTime() - (frame.objectSince or 0))
 	end
@@ -469,7 +481,7 @@ local function UpdateHover(frame, elapsed)
 	local x, y = GetCursorPosition()
 	local scale = frame:GetEffectiveScale()
 	frame:ClearAllPoints()
-	frame:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", x / scale, y / scale + 18)
+	frame:SetPoint("BOTTOM", wanderlustHover and WorldFrame or UIParent, "BOTTOMLEFT", x / scale, y / scale + 18)
 end
 
 local function GetHover()
@@ -493,6 +505,7 @@ local function ShowHoverName()
 	Layout(frame)
 	frame:Show()
 	UpdateHover(frame, 0)
+	return true
 end
 
 -- The tooltip of an object hangs at the cursor, where the name is: it goes
@@ -515,9 +528,27 @@ local function MoveToCorner(tooltip)
 	end
 end
 
+local function ShowObjectHover(name, r, g, b, tooltip)
+	-- Opened texts are grey; the reading module colours the tooltip line only after this call.
+	if ns:GetModule("Readable").WasOpened(name) then
+		r, g, b = GRAY_FONT_COLOR:GetRGB()
+	end
+	local frame = GetHover()
+	frame.object = true
+	if tooltip then
+		frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)
+		frame.objectSince = GetTime()
+		MoveToCorner(tooltip)
+	end
+	LayoutHoverText(frame, name, nil, false)
+	frame.Name:SetTextColor(r or 1, g or 1, b or 1)
+	frame:Show()
+	UpdateHover(frame, 0)
+end
+
 local function OnObjectTooltip(tooltip)
-	if not Tooltip.db.hoverName or not Tooltip.db.hoverObjects or tooltip ~= GameTooltip or tooltip:IsForbidden()
-		or UnitExists("mouseover") or not OverWorld() then
+	if wanderlustHover or not Tooltip.db.hoverName or not Tooltip.db.hoverObjects or tooltip ~= GameTooltip
+		or tooltip:IsForbidden() or UnitExists("mouseover") or not OverWorld() then
 		return
 	end
 	local first = GameTooltipTextLeft1
@@ -526,19 +557,45 @@ local function OnObjectTooltip(tooltip)
 		return
 	end
 	local r, g, b = first:GetTextColor()
-	-- Opened texts are grey; the reading module colours the tooltip line only after this call.
-	if ns:GetModule("Readable").WasOpened(name) then
-		r, g, b = GRAY_FONT_COLOR:GetRGB()
+	ShowObjectHover(name, r, g, b, tooltip)
+end
+
+local function OnWanderlustWorldCursor()
+	local unit = UnitExists("mouseover")
+	if Secret(unit) or unit then return end
+	-- Read the cursor directly while the normal tooltip is hidden.
+	if Tooltip.db.hoverName and Tooltip.db.hoverObjects and OverWorld() then
+		local data = C_TooltipInfo.GetWorldCursor()
+		if not IsSecretData(data) and data and not Secret(data.type) and data.type == Enum.TooltipDataType.Object then
+			local lines = data.lines
+			local line = not IsSecretData(lines) and lines and lines[1]
+			local name = not IsSecretData(line) and line and line.leftText
+			if type(name) == "string" and not Secret(name) and name ~= "" then
+				local color = line.leftColor
+				if IsSecretData(color) or not color then color = NORMAL_FONT_COLOR end
+				ShowObjectHover(name, ns.Number(color.r, 1), ns.Number(color.g, 1), ns.Number(color.b, 1))
+				return
+			end
+		end
 	end
-	local frame = GetHover()
-	frame.object = true
-	frame.objectAlpha = ns.Number(tooltip:GetAlpha(), 1)
-	frame.objectSince = GetTime()
-	MoveToCorner(tooltip)
-	LayoutHoverText(frame, name, nil, false)
-	frame.Name:SetTextColor(r or 1, g or 1, b or 1)
-	frame:Show()
-	UpdateHover(frame, 0)
+	if hover then hover:Hide() end
+end
+
+local function RefreshWanderlustHover()
+	if hover then hover:Hide() end
+	if not ShowHoverName() then OnWanderlustWorldCursor() end
+end
+
+function Tooltip.SetWanderlustHover(active)
+	if active == wanderlustHover then return end
+	wanderlustHover = active
+	Tooltip:ToggleEvent("WORLD_CURSOR_TOOLTIP_UPDATE", active, OnWanderlustWorldCursor)
+	if hover then SetHoverParent(hover) end
+	if active then
+		RefreshWanderlustHover()
+	elseif hover and hover.object then
+		hover:Hide()
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -784,10 +841,6 @@ end
 -- preview plus the quest level.
 ---------------------------------------------------------------------------
 local chatItemOwner, chatItemLink, chatItemArrow, chatQuestLevelShown
-
-local function IsSecretData(value)
-	return Secret(value) or (type(value) == "table" and issecrettable and issecrettable(value))
-end
 
 local function IsChatItemTooltip(tooltip)
 	if tooltip ~= GameTooltip or not chatItemOwner or tooltip:GetOwner() ~= chatItemOwner then
@@ -1261,6 +1314,9 @@ function Tooltip:OnLogin()
 end
 
 function Tooltip:OnOptionChanged(key)
+	if wanderlustHover and (key == "hoverName" or key == "hoverObjects") then
+		RefreshWanderlustHover()
+	end
 	if key == "questIcon" then
 		if hover and hover:IsShown() and not hover.object then
 			Layout(hover)
@@ -1283,7 +1339,7 @@ function Tooltip:OnInitialize()
 	hooksecurefunc(GameTooltip, "Show", ReserveHealthBarSpace)
 	GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
 		ClearSpacer(tooltip)
-		if hover and hover.object then
+		if hover and hover.object and not wanderlustHover then
 			hover:Hide()
 		end
 		tooltip.fpUnitSuffix, chatQuestLevelShown = nil, false

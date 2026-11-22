@@ -4,13 +4,13 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showProfessions = false, minimapMouseover = true },
+	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true },
 })
 
 local QUIET_SECONDS = 60
 local timer, activityTicker, hidUI, hooked, restoring, blocked
 local PEEK_INTERVAL = 0.1
-local peek, peekArea, peekDriver, UpdatePeek
+local peek, peekArea, peekDriver, UpdateHiddenUI
 
 -- Minimap on mouseover while Wanderlust hides the interface. SetUIVisibility(false) stops drawing the map itself and
 -- the game's blips ignore alpha, so a detached or faded minimap cannot work. Instead the interface comes back
@@ -105,7 +105,7 @@ local function RestoreUI()
 	EndPeek(false)
 	if hidUI then
 		hidUI = nil
-		UpdatePeek()
+		UpdateHiddenUI()
 		if not UIParent:IsShown() then
 			-- Use the same native API as the game's Toggle UI binding, including in combat.
 			restoring = true
@@ -136,7 +136,7 @@ local function StartTimer()
 			hidUI = true
 			SavePeekArea()
 			SetUIVisibility(false)
-			UpdatePeek()
+			UpdateHiddenUI()
 		end
 	end)
 	timer = pending
@@ -147,7 +147,7 @@ local function OnUIShown()
 	-- Escape, Toggle UI and other features give the player another full minute.
 	-- A later manual hide now belongs to the player, not to Wanderlust.
 	hidUI = nil
-	UpdatePeek()
+	UpdateHiddenUI()
 	if not restoring then
 		StartTimer()
 	end
@@ -178,7 +178,7 @@ local function CheckPeek()
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
 			EndPeek(false)
 			hidUI = nil
-			UpdatePeek()
+			UpdateHiddenUI()
 		elseif not CursorOverMinimap() then
 			EndPeek(true)
 		end
@@ -187,8 +187,10 @@ local function CheckPeek()
 	end
 end
 
-UpdatePeek = function()
-	local active = hidUI and Wanderlust.db.enabled and Wanderlust.db.minimapMouseover
+UpdateHiddenUI = function()
+	local hidden = hidUI and Wanderlust.db.enabled
+	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
+	local active = hidden and Wanderlust.db.minimapMouseover
 		and MinimapCluster and not MinimapCluster:IsForbidden() or false
 	if not active then EndPeek(true) end
 	if active and not peekDriver then
@@ -336,19 +338,24 @@ function Wanderlust:Apply()
 		blocked = nil
 		Stop()
 	end
-	UpdatePeek()
+	UpdateHiddenUI()
 end
 
 function Wanderlust:OnLogin()
 	self:Apply()
 end
 
-function Wanderlust:OnOptionChanged()
-	self:Apply()
+function Wanderlust:OnOptionChanged(key)
+	if key == "hoverText" then
+		UpdateHiddenUI()
+	else
+		self:Apply()
+	end
 end
 
 Wanderlust.options = {
 	{ key = "enabled", type = "toggle", name = L.WANDERLUST_TITLE, desc = L.WANDERLUST_DESC },
 	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
+	{ key = "hoverText", type = "toggle", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC, parent = "enabled" },
 	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

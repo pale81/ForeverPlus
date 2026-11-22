@@ -59,12 +59,19 @@ end
 
 local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
+	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
+local hoverDetached = false
+local tooltip = { SetWanderlustHover = function(active) hoverDetached = active end }
+function ns:GetModule(name)
+	assert(name == "Tooltip")
+	return tooltip
+end
 function ns:NewModule(name, spec)
 	assert(name == "Wanderlust")
 	self.module = spec
 	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions,
-		minimapMouseover = spec.defaults.minimapMouseover }
+		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText }
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
 end
@@ -200,12 +207,14 @@ assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 
 	"disabled by default, with no timer, hook or events")
 assert(module.db.showProfessions == false, "profession abilities are excluded by default")
 assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
+assert(module.db.hoverText == true and not hoverDetached, "the default keeps mouseover text only during an automatic hide")
 Enable(true)
 assert(hooks == 1 and Pending() == 1, "enabling starts a single timer")
 Advance(59)
 assert(ui.shown and visibilityCalls == 0, "the interface stays visible for the first 59 seconds")
 Advance(1)
 assert(not ui.shown and visibilityCalls == 1 and Pending() == 0, "one full quiet minute hides the interface once")
+assert(hoverDetached, "an automatic hide keeps mouseover text available by default")
 assert(peekDriver and peekDriver.shown and not Peeking(), "a hidden interface watches the minimap area without showing anything")
 Over(false)
 assert(not ui.shown and visibilityCalls == 1, "the cursor away from the minimap leaves the interface hidden")
@@ -569,12 +578,20 @@ module.db.minimapMouseover = true
 module:OnOptionChanged("minimapMouseover", true)
 Over(true)
 assert(Peeking(), "the minimap option can be enabled while Wanderlust is already hidden")
+assert(hoverDetached, "mouse text remains available during the minimap preview")
+module.db.hoverText = false
+module:OnOptionChanged("hoverText", false)
+assert(Peeking() and not hoverDetached, "disabling mouseover text while hidden leaves the minimap preview in place")
+module.db.hoverText = true
+module:OnOptionChanged("hoverText", true)
+assert(Peeking() and hoverDetached, "reenabling mouseover text works while the interface is already hidden")
 module.db.minimapMouseover = false
 module:OnOptionChanged("minimapMouseover", false)
 assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"turning off minimap mouseover hides the see-through interface again and restores everything")
 Enable(false)
 assert(ui.shown and ui.alpha == 0.9, "disabling restores the interface")
+assert(not hoverDetached, "disabling Wanderlust restores normal mouseover text")
 
 module.db.minimapMouseover = true
 Enable(true)
@@ -595,6 +612,7 @@ SetVisibility(false) -- the player's own Toggle UI over the minimap
 Over(true)
 assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"a manual hide during the minimap view stays hidden and is no longer Wanderlust's")
+assert(not hoverDetached, "manual hiding during the minimap preview hides the mouseover text too")
 Over(true)
 assert(not ui.shown, "the minimap no longer reveals an interface the player hid")
 SetVisibility(true)

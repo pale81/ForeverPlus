@@ -3844,6 +3844,33 @@ end)()
 	wm.db.revealTint = false
 	wm:OnOptionChanged("revealTint", false)
 	assert(#shown() == 2 and shown()[1].r == 1 and #made == 2, "untinted, textures reused")
+	-- a colour of one's own from Blizzard's colour picker, on the map at once; Cancel restores
+	local info
+	local picked = { r = 1, g = 0.5, b = 0, a = 0.8 }
+	ColorPickerFrame = { SetupColorPickerAndShow = function(_, i) info = i end,
+		GetColorRGB = function() return picked.r, picked.g, picked.b end, GetColorAlpha = function() return picked.a end }
+	wm.ChooseTint()
+	assert(info.r == 0.75 and info.g == 1 and info.b == 0.75 and info.opacity == 0.6 and info.hasOpacity, "starts at the current colour and opacity")
+	info.swatchFunc()
+	local t = shown()[1]
+	assert(wm.db.revealTint and wm.db.revealAlpha == 80 and t.r == 1 and t.g == 0.5 and t.b == 0 and t.alpha == 0.8 and #made == 2,
+		"the chosen colour turns the tint on and shows without drawing again")
+	info.cancelFunc()
+	t = shown()[1]
+	assert(not wm.db.revealTint and wm.db.revealAlpha == 60 and t.r == 1 and t.g == 1 and t.alpha == 0.6, "cancel restores")
+	wm.ChooseTint()
+	info.swatchFunc()
+	wm:Apply()
+	assert(shown()[1].g == 0.5 and wm.db.revealColor.r == 1, "kept and used when drawn again")
+	picked.a = 0.02
+	info.opacityFunc()
+	assert(wm.db.revealAlpha == 10, "opacity at least 10 %")
+	wm.db.revealColor = { r = "x", g = 2 }
+	local r, g, b = wm.TintColor(wm.db)
+	assert(r == 0.75 and g == 1 and b == 0.75, "damaged colour: defaults, values clamped")
+	wm.db.revealColor = nil
+	assert(select(3, wm.TintColor(wm.db)) == 0.75 and wm.TintColor({ revealTint = false }) == 1, "missing colour: green; tint off: white")
+	wm.db.revealColor, wm.db.revealAlpha, wm.db.revealTint = { r = 0.75, g = 1, b = 0.75 }, 60, false
 	explored = { { fileDataIDs = { 2001 } }, { fileDataIDs = { 9999 } } }
 	wm:Apply()
 	assert(#shown() == 0, "unknown explored part: map left alone")
@@ -8481,6 +8508,10 @@ end)()
 	local function node(depth)
 		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
 			CreateRadio = function(_, name, isOn, set) setters[name .. depth] = { isOn = isOn, set = set } end,
+			CreateColorSwatch = function(_, name, onClick, color)
+				setters[name] = { set = onClick, color = color }
+				return { SetTooltip = function() end }
+			end,
 			CreateButton = function(_, name) texts[#texts + 1] = (depth > 0 and "  " or "") .. name nested = nested + 1 return node(depth + 1) end,
 			CreateCheckbox = function(_, name, isOn, set)
 				texts[#texts + 1] = (depth > 0 and "  " or "") .. name
@@ -8504,6 +8535,8 @@ end)()
 	discoveries.set()
 	assert(values.ForeverPlus_WorldMap_discoveries == true, "the map filter enables discoveries")
 	assert(nested >= 3, "recipe radar options as a submenu")
+	local swatch = setters[ns.L.WORLDMAP_REVEAL_COLOR]
+	assert(swatch and swatch.set == WM.ChooseTint and swatch.color.g == 1 and swatch.color.r == 0.75, "colour entry with the current tint")
 	WM.db.flightPoints = true
 	assert(setters[ns.L.WORLDMAP_FLIGHTS].isOn() == true, "state read from the option")
 	setters[ns.L.WORLDMAP_FLIGHTS].set()

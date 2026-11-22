@@ -177,6 +177,7 @@ read_globals = {
 	"UnitStat",
 	"GetCombatRatingBonusForCombatRatingValue",
 	"CreateColor",
+	"ColorPickerFrame",
 	"GameTooltip_AddInstructionLine",
 	"LibStub",
 	"MenuResponse",

@@ -1,4 +1,4 @@
--- World map: unexplored areas drawn faded (optionally tinted green) instead
+-- World map: unexplored areas drawn faded (optionally tinted, green by default) instead
 -- of staying blank. The client only hands out explored map parts; the full
 -- list comes from the game data in Data/MapOverlays.lua
 -- (tools/mapoverlays.py). Blizzard's exploration pin stays untouched apart
@@ -14,6 +14,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		reveal = true,
 		revealAlpha = 60,
 		revealTint = true,
+		revealColor = { r = 0.75, g = 1, b = 0.75 }, -- the tint, chosen in the map's filter menu
 		entrances = true,
 		flightPoints = true,
 		inns = true,
@@ -37,7 +38,6 @@ local WorldMap = ns:NewModule("WorldMap", {
 })
 
 local PIN_TEMPLATE = "MapExplorationPinTemplate"
-local TINT_R, TINT_G, TINT_B = 0.75, 1, 0.75
 local DRAW_LAYER, SUB_LEVEL = "ARTWORK", -1 -- Blizzard draws explored parts at sub level 0
 
 local pin
@@ -142,6 +142,31 @@ local function DrawOverlay(acquire, overlay, tileWidth, tileHeight, alpha, r, g,
 	end
 end
 
+-- The tint of unexplored parts: white (none) or the chosen colour; values that are not
+-- colours (damaged saved data) count as the green of the defaults.
+function WorldMap.TintColor(db)
+	if not db.revealTint then
+		return 1, 1, 1
+	end
+	local color, default = db.revealColor, WorldMap.defaults.revealColor
+	local function Channel(key)
+		local value = type(color) == "table" and tonumber(color[key])
+		return value and math.min(1, math.max(0, value)) or default[key]
+	end
+	return Channel("r"), Channel("g"), Channel("b")
+end
+
+-- Colour and opacity of the unexplored parts on the map, without drawing them again
+-- (the colour picker calls this while the colour is being chosen).
+local function Paint()
+	local db = WorldMap.db
+	local r, g, b = WorldMap.TintColor(db)
+	for i = 1, used do
+		textures[i]:SetVertexColor(r, g, b)
+		textures[i]:SetAlpha(db.revealAlpha / 100)
+	end
+end
+
 -- Unexplored parts of the map as the options ask for them.
 local function DrawUnexplored(mapID, layer, acquire)
 	local overlays, explored, unknown = Analyse(mapID)
@@ -150,10 +175,7 @@ local function DrawUnexplored(mapID, layer, acquire)
 	end
 	local db = WorldMap.db
 	local alpha = db.revealAlpha / 100
-	local r, g, b = 1, 1, 1
-	if db.revealTint then
-		r, g, b = TINT_R, TINT_G, TINT_B
-	end
+	local r, g, b = WorldMap.TintColor(db)
 	for _, overlay in ipairs(overlays) do
 		if not explored[overlay[5]] then
 			DrawOverlay(acquire, overlay, layer.tileWidth, layer.tileHeight, alpha, r, g, b)
@@ -252,6 +274,29 @@ function WorldMap:Apply()
 	ns.MapSymbols.Refresh()
 end
 
+-- Blizzard's colour picker for the tint, with the opacity as its alpha slider (as for the chat
+-- background). Changes show on the open map at once; Cancel puts the old values back.
+function WorldMap.ChooseTint()
+	local db = WorldMap.db
+	local r, g, b = WorldMap.TintColor({ revealTint = true, revealColor = db.revealColor })
+	local before = { color = { r = r, g = g, b = b }, alpha = db.revealAlpha, tint = db.revealTint }
+	local function Changed()
+		local newR, newG, newB = ColorPickerFrame:GetColorRGB()
+		db.revealColor = { r = newR, g = newG, b = newB }
+		db.revealAlpha = math.min(100, math.max(10, math.floor(ColorPickerFrame:GetColorAlpha() * 100 + 0.5)))
+		db.revealTint = true
+		Paint()
+	end
+	ColorPickerFrame:SetupColorPickerAndShow({
+		r = r, g = g, b = b, opacity = db.revealAlpha / 100, hasOpacity = true,
+		swatchFunc = Changed, opacityFunc = Changed,
+		cancelFunc = function()
+			db.revealColor, db.revealAlpha, db.revealTint = before.color, before.alpha, before.tint
+			Paint()
+		end,
+	})
+end
+
 -- Our own entries in the filter menu of the map: the symbols and names.
 ns.AddMapFilterEntry(function(root)
 	if ns.MapOverlays then
@@ -267,6 +312,15 @@ ns.AddMapFilterEntry(function(root)
 			end)
 		end
 		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_TINT, "WorldMap", "revealTint", L.WORLDMAP_REVEAL_TINT_DESC)
+		-- Blizzard's own colour entry: the name and a swatch of the current colour on the right.
+		local r, g, b = WorldMap.TintColor({ revealTint = true, revealColor = WorldMap.db.revealColor })
+		local swatch = reveal:CreateColorSwatch(L.WORLDMAP_REVEAL_COLOR, WorldMap.ChooseTint, { r = r, g = g, b = b })
+		if swatch and swatch.SetTooltip then
+			swatch:SetTooltip(function(tip)
+				GameTooltip_SetTitle(tip, L.WORLDMAP_REVEAL_COLOR)
+				GameTooltip_AddNormalLine(tip, L.WORLDMAP_REVEAL_COLOR_DESC)
+			end)
+		end
 	end
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_ENTRANCES, "WorldMap", "entrances", L.WORLDMAP_ENTRANCES_DESC)
 	ns.CreateOptionCheckbox(root, L.WORLDMAP_FLIGHTS, "WorldMap", "flightPoints", L.WORLDMAP_FLIGHTS_DESC)

@@ -5591,22 +5591,35 @@ end)()
 	local layer
 	GetMoney = function() return money end
 	GetMoneyString = function(amount) return amount .. "c" end
-	local secretCrit = false
+	local secretCrit, secretMetrics = false, false
 	issecretvalue = function(value)
 		return value == "protected" or (secretCrit and (value == 4000 or value == "4000"))
+			or (secretMetrics and value == 9999)
 	end
 	ns.NewTimer = function(_, _, fn)
 		local timer = { fn = fn, Cancel = function(self) self.cancelled = true end }
 		timers[#timers + 1] = timer
 		return timer
 	end
+	local lastArtWidth
 	CreateFrame = function(kind, name, parent)
 		local frame = NewFrame(kind, name)
 		if parent == UIParent then
 			frame.w, frame.h = 1400, 800
+			frame.GetSize = function(self)
+				if secretMetrics then
+					return 9999, 9999
+				end
+				return self.w, self.h
+			end
 			layer = frame
 		elseif layer and parent == layer then
 			frame.SetPoint = function(_, _, _, _, x, y) positions[#positions + 1] = { x, y } end
+		else
+			frame.SetSize = function(self, w, h)
+				self.w, self.h = w, h
+				lastArtWidth = w
+			end
 		end
 		frame.CreateTexture = function(_, _, drawLayer)
 			local texture = NewFrame("Texture")
@@ -5636,13 +5649,14 @@ end)()
 		end
 		frame.CreateFontString = function()
 			local region = NewFrame("FontString")
+			region.secretText = false
 			region.SetText = function(self, value)
-				self.secretText = issecretvalue(value)
+				self.secretText = self.secretText or issecretvalue(value)
 				printed[#printed + 1] = value
 			end
 			region.GetStringWidth = function(self)
 				assert(not self.secretText, "protected damage text must not be measured for layout")
-				return 80
+				return secretMetrics and 9999 or 80
 			end
 			region.SetFont = function(_, font, size, flags)
 				visuals[#visuals + 1] = { font, size, flags }
@@ -5908,6 +5922,20 @@ end)()
 	Fire("CHAT_MSG_SKILL", skill)
 	assert(not frames[#frames]:find("SoloPartyBloody", 1, true) and not bloodLayer:IsShown(),
 		"ordinary events keep their existing cards")
+	secretCrit = true
+	for _ = 1, 6 do
+		Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4000)
+	end
+	secretCrit = false
+	for _ = 1, 6 do
+		Fire("CHAT_MSG_SKILL", skill)
+		assert(lastArtWidth == 225, "reused slots measure clean skill text on the uncontaminated FontString")
+	end
+	secretMetrics = true
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(lastArtWidth == 360, "secret text widths fall back to 220 instead of entering layout math")
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4150)
+	secretMetrics = false
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 4200)
 	solo.db.bloody = false
 	solo:OnOptionChanged("bloody")

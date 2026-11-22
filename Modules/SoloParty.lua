@@ -184,6 +184,11 @@ local function HideBlood()
 	end
 end
 
+local function RootSize()
+	local w, h = root:GetSize()
+	return ns.Number(w, 1200), ns.Number(h, 800)
+end
+
 local function SplashBlood()
 	if not bloodFrame then
 		bloodFrame = CreateFrame("Frame", nil, root)
@@ -197,7 +202,7 @@ local function SplashBlood()
 			bloodSplats[i] = { texture = texture, variant = (firstVariant + i - 1) % 4 }
 		end
 	end
-	local w, h = root:GetSize()
+	local w, h = RootSize()
 	local scale = math.min(w / 1200, h / 800)
 	for i, splat in ipairs(bloodSplats) do
 		splat.variant = NextVariant(splat.variant, 4)
@@ -291,11 +296,14 @@ local function CreateCard()
 	end
 	local label = art:CreateFontString(nil, "OVERLAY")
 	local value = art:CreateFontString(nil, "OVERLAY")
+	-- Secret values (critical damage) taint a FontString's width queries persistently; keep them off card.value.
+	local secretValue = art:CreateFontString(nil, "OVERLAY")
 	label:SetShadowOffset(1, -1)
 	label:SetShadowColor(0.05, 0.03, 0.02, 0.85)
 	value:SetShadowOffset(2, -2)
+	secretValue:SetShadowOffset(2, -2)
 	return { anchor = anchor, art = art, burst = burst, aura = aura, particles = particles,
-		label = label, value = value }
+		label = label, value = value, secretValue = secretValue }
 end
 
 local function ShowBurst(kind, label, value, themeName, bloodyPreview)
@@ -316,27 +324,32 @@ local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	card.normalBurst = BURSTS[lastBurst]
 	card.bloody = kind == "crit" and (bloodyPreview or SoloParty.db.bloody)
 	card.burst:SetTexture(card.bloody and BLOODY_BURST or card.normalBurst)
+	local secret = kind == "crit" or ns.Secret(value)
+	local valueText = secret and card.secretValue or card.value
+	card.value:SetShown(not secret)
+	card.secretValue:SetShown(secret)
 	SetCardFont(card.label, 18)
-	SetCardFont(card.value, size)
+	SetCardFont(valueText, size)
 	card.label:SetText(label)
-	card.value:SetText(value)
+	valueText:SetText(value)
 	card.label:SetTextColor(0.94, 0.87, 0.72)
-	card.value:SetTextColor(unpack(theme.text))
-	card.value:SetShadowColor(0.05, 0.03, 0.02, 0.90)
+	valueText:SetTextColor(unpack(theme.text))
+	valueText:SetShadowColor(0.05, 0.03, 0.02, 0.90)
 	card.label:SetPoint("CENTER", card.art, "CENTER", 0, size * 0.43)
-	card.value:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.24)
+	valueText:SetPoint("CENTER", card.art, "CENTER", 0, -size * 0.24)
 	if card.bloody then
 		card.burst:SetVertexColor(1, 1, 1)
 	else
 		card.burst:SetVertexColor(unpack(theme.paper))
 	end
 	-- Critical damage is secret. Its text and text width must stay out of layout calculations.
-	local textWidth = kind == "crit" and 220 or math.max(card.label:GetStringWidth(), card.value:GetStringWidth())
+	local textWidth = secret and 220
+		or math.max(ns.Number(card.label:GetStringWidth(), 220), ns.Number(card.value:GetStringWidth(), 220))
 	local width, height = math.max(225, textWidth * 1.50 + 30), 55 + size * 1.45
 	card.width, card.height = width, height
 	card.art:SetSize(width, height)
 	SetEffects(card, SoloParty.db.effects and theme or nil)
-	local w, h = root:GetSize()
+	local w, h = RootSize()
 	card.fit = math.min(1, w * 0.24 / width, h * 0.21 / height)
 	local point = POSITIONS[nextSlot]
 	local x, y = point[1] + math.random(-15, 15) / 1000, point[2] + math.random(-25, 25) / 1000

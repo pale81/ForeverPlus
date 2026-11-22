@@ -8620,24 +8620,29 @@ end)()
 -- World map filter menu
 ;(function()
 	local WM = ns:GetModule("WorldMap")
+	local library = ns:GetModule("Library")
 	local texts, setters, nested = {}, {}, 0
 	local values = {}
 	Settings.SetValue = function(var, value) values[var] = value end
 	local setOption = ns.SetOption
 	ns.SetOption = function(moduleName, key, value) values["ForeverPlus_" .. moduleName .. "_" .. key] = value end
-	local function node(depth)
+	local function node(depth, parent)
 		return { CreateDivider = function() end, CreateTitle = function(_, t) texts[#texts + 1] = "# " .. t end,
 			CreateRadio = function(_, name, isOn, set) setters[name .. depth] = { isOn = isOn, set = set } end,
 			CreateColorSwatch = function(_, name, onClick, color)
 				setters[name] = { set = onClick, color = color }
 				return { SetTooltip = function() end }
 			end,
-			CreateButton = function(_, name) texts[#texts + 1] = (depth > 0 and "  " or "") .. name nested = nested + 1 return node(depth + 1) end,
+			CreateButton = function(_, name)
+				texts[#texts + 1] = (depth > 0 and "  " or "") .. name
+				nested = nested + 1
+				return node(depth + 1, name)
+			end,
 			CreateCheckbox = function(_, name, isOn, set)
 				texts[#texts + 1] = (depth > 0 and "  " or "") .. name
-				setters[name] = { isOn = isOn, set = set }
+				setters[name] = { isOn = isOn, set = set, parent = parent }
 				if depth > 0 then nested = nested + 1 end
-				local box = node(depth + 1)
+				local box = node(depth + 1, name)
 				box.SetTooltip = function() end
 				return box
 			end }
@@ -8650,8 +8655,17 @@ end)()
 	assert(texts[1] == "# ForeverPlus", "own section under the addon name")
 	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
 		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
-	local discoveries = setters[ns.L.WORLDMAP_DISCOVERIES]
-	assert(discoveries and not discoveries.isOn(), "discoveries filter starts off")
+	local discoveries, books = setters[ns.L.WORLDMAP_DISCOVERIES], setters[ns.L.LIBRARY_SYMBOLS]
+	assert(discoveries and books and discoveries.parent == ns.L.WORLDMAP_DISCOVERIES_MENU and books.parent == ns.L.WORLDMAP_DISCOVERIES_MENU,
+		"discoveries and books are in the Secrets submenu")
+	assert(not discoveries.isOn(), "discoveries filter starts off")
+	local savedBooks = library.db.symbols
+	library.db.symbols = true
+	assert(books.isOn(), "books keep their independent setting while discoveries are off")
+	books.set()
+	assert(values.ForeverPlus_Library_symbols == false and values.ForeverPlus_WorldMap_discoveries == nil,
+		"the book filter only changes book markers")
+	library.db.symbols = savedBooks
 	discoveries.set()
 	assert(values.ForeverPlus_WorldMap_discoveries == true, "the map filter enables discoveries")
 	assert(nested >= 3, "recipe radar options as a submenu")

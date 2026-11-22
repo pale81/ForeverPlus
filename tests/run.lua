@@ -10938,6 +10938,20 @@ end)()
 	assert(emotes.ResolveToken("FORTHEALLIANCE", "Horde") == "FORTHEHORDE", "resolve switches battle cry to Horde")
 	assert(emotes.ResolveToken("WAVE", "Horde") == "WAVE", "resolve leaves normal emotes untouched")
 	assert(#emotes.BuildSections(function() end, nil, nil, nil)[3].entries == 0, "missing game lists give empty sections")
+	-- Virtualized layout: rows and visible viewport window.
+	local rows, totalHeight, totalEntries = emotes.BuildRows(sections, 2)
+	-- 3 sections: (2 -> 1 row), (2 -> 1 row), (4 -> 2 rows) = 3 headers + 4 entry rows = 7 rows.
+	assert(#rows == 7 and totalEntries == 8 and totalHeight == 3 * (20 + 6) + 4 * 18, "virtual row layout math")
+	assert(rows[1].header == ns.L.CHATEMOTES_ANIMATED and rows[2].first == 1 and rows[2].last == 2, "first section rows")
+	assert(rows[6].first == 1 and rows[6].last == 2 and rows[7].first == 3 and rows[7].last == 4, "all section split into two rows")
+	local first, last = emotes.VisibleRange(rows, 0, 40)
+	assert(first == 1 and last >= 2 and last < #rows, "top viewport renders only visible prefix")
+	local fMid, lMid = emotes.VisibleRange(rows, totalHeight - 36, 36)
+	assert(fMid > 1 and lMid == #rows, "bottom viewport renders tail rows")
+	local fEmpty, lEmpty = emotes.VisibleRange(rows, totalHeight + 200, 36)
+	assert(fEmpty > lEmpty, "scroll past end renders nothing")
+	local fZero, lZero = emotes.VisibleRange({}, 0, 100)
+	assert(fZero > lZero, "empty rows render nothing")
 	print("chat emotes OK")
 end)()
 ;(function()
@@ -10956,6 +10970,10 @@ end)()
 	found = M.Find(data, "135")
 	assert(not next(found), "file IDs are not searched")
 	assert(M.Find(data, "   ") == nil, "empty query searches nothing")
+	-- Long line (> 256 bytes) and no trailing newline.
+	local longData = "alpha|" .. string.rep("x", 320) .. "|omega\t999001"
+	local longFound = M.Find(longData, "alpha omega")
+	assert(longFound[999001], "multi-word match across >256-byte line without trailing newline")
 	local icons = { "INTERFACE\\ICONS\\INV_MISC_QUESTIONMARK", 132337, 135812, 135274, 132337, "INTERFACE\\ICONS\\Spell_Fire_Fireball" }
 	local f2, words = M.Find(data, "fire")
 	local results = M.Collect(function(i) return icons[i] end, #icons, f2, words)
@@ -10966,7 +10984,23 @@ end)()
 	results = M.Collect(function(i) return icons[i] end, #icons, f2, words)
 	assert(#results == 1 and results[1].index == 2, "repeated icon listed once at its first place")
 
-	-- Bundled data: real names in both languages, fast enough per keystroke.
+	-- Indexed & time-sliced search matches Collect and yields cleanly under a tight deadline.
+	local idx = M.NewIndex(function(i) return icons[i] end, #icons)
+	assert(M.StepIndex(idx) == true and idx.ready, "index builds completely")
+	local findState, fWords = M.StartFind(data, "fire")
+	assert(M.StepFind(findState) == true and findState.done, "step find completes")
+	local st = { find = findState, words = fWords, collectPos = 1, collected = false }
+	assert(M.StepCollect(idx, st) == true and st.collected, "direct indexed collect completes")
+	assert(#st.results == 2 and st.results[1].icon == 135812 and st.results[1].index == 3
+		and st.results[2].icon == "INTERFACE\\ICONS\\Spell_Fire_Fireball" and st.results[2].index == 6,
+		"indexed direct collect matches Collect order")
+	-- Force the large-match sliced path (count > 400) and verify identical picker order.
+	local bigSt = { find = { found = findState.found, count = 500 }, words = fWords, collectPos = 1, collected = false }
+	assert(M.StepCollect(idx, bigSt) == true and bigSt.collected, "sliced indexed collect completes")
+	assert(#bigSt.results == 2 and bigSt.results[1].index == 3 and bigSt.results[2].index == 6,
+		"sliced indexed collect matches Collect order")
+
+	-- Bundled data: real names in both languages, fast enough per keystroke, exact match vs full scan.
 	local bundled = ns.MacroIconNames
 	assert(type(bundled) == "string" and #bundled > 500000, "bundled icon names loaded")
 	local start = os.clock()
@@ -10976,8 +11010,30 @@ end)()
 	assert(de[135812] and en[135812], "Fireball icon by German and English name")
 	assert(M.Find(bundled, "sword")[135274], "file name search")
 	assert(M.Find(bundled, "heiltrank")[134831], "German item name")
-	assert(elapsed < 0.25, "search over all icons takes " .. elapsed .. " s")
-	print(("macro icon search OK (%.0f ms)"):format(elapsed * 1000))
+	-- Cross-check sliced Find against a reference gmatch scan on a multi-word query.
+	local ref = {}
+	for text, id in bundled:gmatch("([^\t\n]+)\t(%d+)") do
+		if text:find("fire", 1, true) and text:find("bolt", 1, true) then ref[tonumber(id)] = true end
+	end
+	local savedClock, clock = debugprofilestop, 0
+	debugprofilestop = function() clock = clock + 1 return clock end
+	local sliced = M.StartFind(bundled, "fire bolt")
+	local steps = 0
+	while not M.StepFind(sliced, clock + 0.5) do steps = steps + 1 end
+	debugprofilestop = savedClock
+	assert(steps >= 1, "sliced find yields across frames when deadline expires")
+	local refCount, slicedCount = 0, 0
+	for id in pairs(ref) do
+		refCount = refCount + 1
+		assert(sliced.found[id], "sliced find includes " .. id)
+	end
+	for id in pairs(sliced.found) do
+		slicedCount = slicedCount + 1
+		assert(ref[id], "sliced find has no extra id " .. id)
+	end
+	assert(refCount == slicedCount and refCount > 0, "sliced find matches reference scan exactly")
+	assert(elapsed < 0.05, "search over all icons takes " .. elapsed .. " s")
+	print(("macro icon search OK (%.1f ms)"):format(elapsed * 1000))
 end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

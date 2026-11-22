@@ -21,15 +21,26 @@ local SECTION_GAP = 6
 local INSET = 5
 local SEARCH_HEIGHT = 20
 local MAX_CMD_ALIAS = 6
+local OPEN_BUDGET = 1.2   -- ms for first tab click (panel setup + initial visible rows)
+local RENDER_BUDGET = 0.8 -- ms per frame slice while creating or updating visible rows
 
 local tab, panel, searchBox, clearButton, scroll, content, emptyText
 local allSections, visibleSections
 local buttons, headers = {}, {}
+local layoutRows, layoutSections = {}, nil
+local layoutWidth, layoutHeight, layoutTotalHeight = nil, nil, 0
+local layoutCell, layoutVersion = CELL_WIDTH, 0
+local renderedVersion, renderedFirst, renderedLast = -1, 1, 0
+local activeHeaders, activeButtons = 0, 0
+local pendingRender, renderTicker
+local renderToken = 0
+local suppressSizeLayout, suppressScroll = false, false
 local placedOn -- the tab or overflow button the emote tab is anchored to
 local hovered = false
 
 local function CompareCommands(left, right)
-	local a, b = left.command:lower(), right.command:lower()
+	local a = left.lower or left.command:lower()
+	local b = right.lower or right.command:lower()
 	local order = type(strcmputf8i) == "function" and strcmputf8i(a, b)
 	if type(order) == "number" then
 		if order ~= 0 then
@@ -67,19 +78,28 @@ function Emotes.BuildSections(lookup, animated, voiced, maxIndex, faction)
 		local command = lookup("EMOTE" .. index .. "_CMD1")
 		if type(token) == "string" and token ~= "" and token ~= "UNUSED" and token ~= skipToken
 			and type(command) == "string" and command ~= "" and not byToken[token] then
-			local aliases, seen = {}, { [command:lower()] = true }
+			local lower = command:lower()
+			local searchParts = { lower, token:lower() }
+			local aliases, seen = {}, { [lower] = true }
 			for aliasIndex = 2, MAX_CMD_ALIAS do
 				local alias = lookup("EMOTE" .. index .. "_CMD" .. aliasIndex)
 				if type(alias) ~= "string" or alias == "" then
 					break
 				end
-				local lower = alias:lower()
-				if not seen[lower] then
-					seen[lower] = true
+				local aliasLower = alias:lower()
+				if not seen[aliasLower] then
+					seen[aliasLower] = true
 					aliases[#aliases + 1] = alias
+					searchParts[#searchParts + 1] = aliasLower
 				end
 			end
-			local entry = { token = token, command = command, aliases = aliases }
+			local entry = {
+				token = token,
+				command = command,
+				lower = lower,
+				aliases = aliases,
+				search = table.concat(searchParts, "\0"),
+			}
 			byToken[token] = entry
 			all[#all + 1] = entry
 		end
@@ -89,7 +109,12 @@ function Emotes.BuildSections(lookup, animated, voiced, maxIndex, faction)
 		local out = {}
 		for _, token in ipairs(type(list) == "table" and list or {}) do
 			if type(token) == "string" and token ~= "" and token ~= "UNUSED" and token ~= skipToken then
-				out[#out + 1] = byToken[token] or { token = token, command = token, aliases = {} }
+				local fallback = byToken[token]
+				if not fallback then
+					local lower = token:lower()
+					fallback = { token = token, command = token, lower = lower, aliases = {}, search = lower }
+				end
+				out[#out + 1] = fallback
 			end
 		end
 		return out
@@ -102,6 +127,9 @@ function Emotes.BuildSections(lookup, animated, voiced, maxIndex, faction)
 end
 
 local function MatchesQuery(entry, needle)
+	if entry.search then
+		return entry.search:find(needle, 1, true) ~= nil
+	end
 	if entry.command:lower():find(needle, 1, true) or entry.token:lower():find(needle, 1, true) then
 		return true
 	end
@@ -236,6 +264,71 @@ local function OnEmoteLeave()
 	GameTooltip_Hide()
 end
 
+local measuredEmoteClick = ns.Measured("ChatEmotes: emote", OnEmoteClick)
+
+-- Builds the flat row list (headers + grid rows) for the visible sections and column count.
+function Emotes.BuildRows(sections, columns)
+	columns = math.max(1, columns or 1)
+	local rows = {}
+	local y, totalEntries = 0, 0
+	for _, section in ipairs(sections or {}) do
+		local entries = section.entries
+		local count = entries and #entries or 0
+		if count > 0 then
+			totalEntries = totalEntries + count
+			rows[#rows + 1] = {
+				header = section.title,
+				y = y,
+				height = HEADER_HEIGHT,
+			}
+			y = y + HEADER_HEIGHT
+			local rowCount = math.ceil(count / columns)
+			for row = 0, rowCount - 1 do
+				local first = row * columns + 1
+				local last = math.min(count, first + columns - 1)
+				rows[#rows + 1] = {
+					entries = entries,
+					first = first,
+					last = last,
+					y = y,
+					height = ROW_HEIGHT,
+				}
+				y = y + ROW_HEIGHT
+			end
+			y = y + SECTION_GAP
+		end
+	end
+	return rows, y, totalEntries
+end
+
+-- First and last row indices intersecting the scroll viewport (plus one buffer row on each side).
+function Emotes.VisibleRange(rows, offset, viewHeight)
+	local count = #rows
+	if count == 0 or viewHeight <= 0 then
+		return 1, 0
+	end
+	local top = math.max(0, offset - ROW_HEIGHT)
+	local bottom = offset + viewHeight + ROW_HEIGHT
+	local lo, hi = 1, count
+	while lo < hi do
+		local mid = math.floor((lo + hi) / 2)
+		if rows[mid].y + rows[mid].height <= top then
+			lo = mid + 1
+		else
+			hi = mid
+		end
+	end
+	if rows[lo].y + rows[lo].height <= top or rows[lo].y >= bottom then
+		return 1, 0
+	end
+	local first = lo
+	local last = first
+	while last < count and rows[last + 1].y < bottom do
+		last = last + 1
+	end
+	return first, last
+end
+
 local function AcquireHeader(index)
 	local header = headers[index]
 	if not header then
@@ -258,7 +351,7 @@ local function AcquireButton(index)
 		text:SetJustifyH("LEFT")
 		text:SetWordWrap(false)
 		button.Text = text
-		button:SetScript("OnClick", ns.Measured("ChatEmotes: emote", OnEmoteClick))
+		button:SetScript("OnClick", measuredEmoteClick)
 		button:SetScript("OnEnter", OnEmoteEnter)
 		button:SetScript("OnLeave", OnEmoteLeave)
 		buttons[index] = button
@@ -266,55 +359,214 @@ local function AcquireButton(index)
 	return button
 end
 
-local function Layout()
-	if not panel or not visibleSections then
+local function HideUnused(usedHeaders, usedButtons)
+	for index = usedHeaders + 1, activeHeaders do
+		local header = headers[index]
+		header:Hide()
+		header.shown = false
+	end
+	activeHeaders = usedHeaders
+	for index = usedButtons + 1, activeButtons do
+		local button = buttons[index]
+		button:Hide()
+		button.shown = false
+	end
+	activeButtons = usedButtons
+end
+
+local function PlaceHeader(index, title, y, width)
+	local header = AcquireHeader(index)
+	if header.title ~= title then
+		header:SetText(title)
+		header.title = title
+	end
+	if header.y ~= y then
+		header:ClearAllPoints()
+		header:SetPoint("TOPLEFT", content, "TOPLEFT", INSET, -y - 3)
+		header.y = y
+	end
+	local headerWidth = math.max(1, width - INSET * 2)
+	if header.width ~= headerWidth then
+		header:SetWidth(headerWidth)
+		header.width = headerWidth
+	end
+	if not header.shown then
+		header:Show()
+		header.shown = true
+	end
+end
+
+local function PlaceButton(index, entry, x, y, cell)
+	local button = AcquireButton(index)
+	button.entry = entry
+	button.token = entry.token
+	if button.command ~= entry.command then
+		button.Text:SetText(entry.command)
+		button.command = entry.command
+	end
+	if button.x ~= x or button.y ~= y then
+		button:ClearAllPoints()
+		button:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+		button.x, button.y = x, y
+	end
+	if button.width ~= cell then
+		button:SetWidth(cell)
+		button.width = cell
+	end
+	if not button.shown then
+		button:Show()
+		button.shown = true
+	end
+end
+
+local function CancelRender()
+	renderToken = renderToken + 1
+	if renderTicker then
+		renderTicker:Cancel()
+		renderTicker = nil
+	end
+	pendingRender = nil
+end
+
+local function ScrollViewHeight()
+	local height = ns.Number(scroll and scroll:GetHeight(), 0)
+	if height <= 0 and panel then
+		height = math.max(0, ns.Number(panel:GetHeight(), 0) - (SEARCH_HEIGHT + INSET + 6))
+	end
+	return height
+end
+
+local RenderVisible
+
+local function ScheduleRender()
+	if renderTicker then
+		return
+	end
+	renderToken = renderToken + 1
+	local token = renderToken
+	renderTicker = ns.NewTicker("ChatEmotes: render", 0, function(ticker)
+		if token ~= renderToken or not IsOpen() or not pendingRender then
+			ticker:Cancel()
+			if renderTicker == ticker then
+				renderTicker = nil
+			end
+			return
+		end
+		RenderVisible(false, debugprofilestop() + RENDER_BUDGET)
+		if not pendingRender then
+			ticker:Cancel()
+			if renderTicker == ticker then
+				renderTicker = nil
+			end
+		end
+	end)
+	if not pendingRender then
+		renderTicker = nil
+	end
+end
+
+-- Renders only the rows currently visible in the scroll viewport, yielding across frames when
+-- creating new pooled buttons would exceed the frame budget.
+RenderVisible = function(force, deadline)
+	if not (panel and scroll and visibleSections) then
+		return
+	end
+	local viewHeight = ScrollViewHeight()
+	local offset = ns.Number(scroll:GetVerticalScroll(), 0)
+	local first, last = Emotes.VisibleRange(layoutRows, offset, viewHeight)
+
+	if not force and not pendingRender
+		and renderedVersion == layoutVersion and renderedFirst == first and renderedLast == last then
+		return
+	end
+
+	local rowIndex, usedHeaders, usedButtons
+	if pendingRender and not force
+		and pendingRender.version == layoutVersion and pendingRender.first == first and pendingRender.last == last then
+		rowIndex = pendingRender.row
+		usedHeaders = pendingRender.usedHeaders
+		usedButtons = pendingRender.usedButtons
+	else
+		CancelRender()
+		rowIndex, usedHeaders, usedButtons = first, 0, 0
+	end
+
+	local width, cell = layoutWidth or 0, layoutCell
+	for r = rowIndex, last do
+		local row = layoutRows[r]
+		if row.header then
+			usedHeaders = usedHeaders + 1
+			PlaceHeader(usedHeaders, row.header, row.y, width)
+		else
+			local entries = row.entries
+			local column = 0
+			for position = row.first, row.last do
+				usedButtons = usedButtons + 1
+				PlaceButton(usedButtons, entries[position], column * cell, row.y, cell)
+				column = column + 1
+			end
+		end
+		if deadline and r < last and debugprofilestop() >= deadline then
+			HideUnused(usedHeaders, usedButtons)
+			pendingRender = {
+				version = layoutVersion,
+				first = first,
+				last = last,
+				row = r + 1,
+				usedHeaders = usedHeaders,
+				usedButtons = usedButtons,
+			}
+			ScheduleRender()
+			return
+		end
+	end
+
+	HideUnused(usedHeaders, usedButtons)
+	pendingRender = nil
+	renderedVersion, renderedFirst, renderedLast = layoutVersion, first, last
+end
+
+local function Layout(deadline)
+	if not panel or not visibleSections or not IsOpen() then
 		return
 	end
 	local width = ns.Number(scroll:GetWidth(), 0)
 	if width <= 0 then
 		return
 	end
-	local columns = math.max(1, math.floor(width / CELL_WIDTH))
-	local cell = width / columns
-	local y, usedButtons, usedHeaders = 0, 0, 0
-	for _, section in ipairs(visibleSections) do
-		if #section.entries > 0 then
-			usedHeaders = usedHeaders + 1
-			local header = AcquireHeader(usedHeaders)
-			header:SetText(section.title)
-			header:ClearAllPoints()
-			header:SetPoint("TOPLEFT", content, "TOPLEFT", INSET, -y - 3)
-			header:SetWidth(math.max(1, width - INSET * 2))
-			header:Show()
-			y = y + HEADER_HEIGHT
-			for position, entry in ipairs(section.entries) do
-				usedButtons = usedButtons + 1
-				local button = AcquireButton(usedButtons)
-				local column, row = (position - 1) % columns, math.floor((position - 1) / columns)
-				button.entry = entry
-				button.token = entry.token
-				button.Text:SetText(entry.command)
-				button:ClearAllPoints()
-				button:SetPoint("TOPLEFT", content, "TOPLEFT", column * cell, -(y + row * ROW_HEIGHT))
-				button:SetWidth(cell)
-				button:Show()
-			end
-			y = y + math.ceil(#section.entries / columns) * ROW_HEIGHT + SECTION_GAP
+	local viewHeight = ScrollViewHeight()
+	local sameWidth = layoutWidth == width
+	local sameSections = layoutSections == visibleSections
+	if sameWidth and layoutHeight == viewHeight and sameSections
+		and (renderedVersion == layoutVersion or (pendingRender and pendingRender.version == layoutVersion)) then
+		return
+	end
+	layoutHeight = viewHeight
+	if not (sameWidth and sameSections) then
+		local columns = math.max(1, math.floor(width / CELL_WIDTH))
+		local rows, totalHeight, totalEntries = Emotes.BuildRows(visibleSections, columns)
+		layoutRows = rows
+		layoutSections = visibleSections
+		layoutWidth = width
+		layoutCell = width / columns
+		layoutTotalHeight = totalHeight
+		layoutVersion = layoutVersion + 1
+		if emptyText then
+			emptyText:SetShown(totalEntries == 0)
+		end
+		content:SetSize(width, math.max(totalHeight, 1))
+		if scroll.UpdateScrollChildRect then
+			scroll:UpdateScrollChildRect()
 		end
 	end
-	for index = usedHeaders + 1, #headers do
-		headers[index]:Hide()
+	local maxScroll = math.max(0, layoutTotalHeight - viewHeight)
+	local offset = ns.Number(scroll:GetVerticalScroll(), 0)
+	if offset > maxScroll and scroll.SetVerticalScroll then
+		suppressScroll = true
+		scroll:SetVerticalScroll(maxScroll)
+		suppressScroll = false
 	end
-	for index = usedButtons + 1, #buttons do
-		buttons[index]:Hide()
-	end
-	if emptyText then
-		emptyText:SetShown(usedButtons == 0)
-	end
-	content:SetSize(width, math.max(y, 1))
-	if scroll.UpdateScrollChildRect then
-		scroll:UpdateScrollChildRect()
-	end
+	RenderVisible(not (sameWidth and sameSections), deadline or (debugprofilestop() + RENDER_BUDGET))
 end
 
 local function ApplyFilter()
@@ -330,9 +582,11 @@ local function ApplyFilter()
 	end
 	visibleSections = Emotes.FilterSections(allSections, query)
 	if scroll and scroll.SetVerticalScroll then
+		suppressScroll = true
 		scroll:SetVerticalScroll(0)
+		suppressScroll = false
 	end
-	Layout()
+	Layout(debugprofilestop() + RENDER_BUDGET)
 end
 
 local function BuildPanel()
@@ -422,15 +676,31 @@ local function BuildPanel()
 	content:SetSize(1, 1)
 	scroll:SetScrollChild(content)
 
+	local onScroll = ns.Measured("ChatEmotes: scroll", function()
+		if not suppressScroll and IsOpen() then
+			RenderVisible(false, debugprofilestop() + RENDER_BUDGET)
+		end
+	end)
+	if scroll.GetScript and scroll:GetScript("OnVerticalScroll") and scroll.HookScript then
+		scroll:HookScript("OnVerticalScroll", onScroll)
+	else
+		scroll:SetScript("OnVerticalScroll", onScroll)
+	end
+
 	emptyText = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	emptyText:SetPoint("CENTER", scroll, "CENTER")
 	emptyText:SetText(L.CHATEMOTES_EMPTY)
 	emptyText:Hide()
 
-	panel:SetScript("OnSizeChanged", ns.Measured("ChatEmotes: layout", Layout))
+	panel:SetScript("OnSizeChanged", ns.Measured("ChatEmotes: layout", function()
+		if not suppressSizeLayout then
+			Layout()
+		end
+	end))
 end
 
 local function Close()
+	CancelRender()
 	if searchBox and searchBox.ClearFocus then
 		searchBox:ClearFocus()
 	end
@@ -442,6 +712,7 @@ end
 
 -- Over the background of the chat window that is shown in the dock.
 local function Open()
+	local deadline = debugprofilestop() + OPEN_BUDGET
 	BuildPanel()
 	local chatFrame = SelectedChatFrame()
 	local area = chatFrame and (chatFrame.Background or chatFrame)
@@ -449,11 +720,13 @@ local function Open()
 		return
 	end
 	panel:SetFrameLevel(math.max(ns.Number(chatFrame:GetFrameLevel(), 5) + 20, 30))
+	suppressSizeLayout = true
 	panel:ClearAllPoints()
 	panel:SetPoint("TOPLEFT", area, "TOPLEFT")
 	panel:SetPoint("BOTTOMRIGHT", area, "BOTTOMRIGHT")
 	panel:Show()
-	Layout()
+	suppressSizeLayout = false
+	Layout(deadline)
 	SyncTabAppearance()
 end
 

@@ -357,6 +357,7 @@ read_globals = {
 	"GetQuestProgressBarPercent",
 	"floor",
 	"hooksecurefunc",
+	"MacroPopupFrame",
 	"issecretvalue", "issecrettable",
 	"GetCameraZoom",
 	"CloseItemText",

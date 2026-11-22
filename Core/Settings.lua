@@ -303,6 +303,7 @@ local PAGES = {
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("actionColors", "colorRange", "colorMana", "colorUnusable",
 			"colorActiveBuff", "castsLeft", "paladinRecommendations", "paladinSealRecommendation", "combatBuffRecommendation", "buffExceptions") },
 		{ "Visuals", header = L.VISUALS_SQUID_HEADER, keys = Keys("squid") },
+		{ "MacroIcons", header = L.MACROICONS_TITLE },
 	},
 	{ group = 3, title = L.PAGE_COMBAT,
 		{ "QoL", header = L.QOL_NAMEPLATES_HEADER, keys = Keys("nameplatesCombat", "nameplatesFade", "nameplatesTargetFull", "nameplatesFadeCombat", "nameplatesFadeAmount") },

@@ -97,6 +97,8 @@ Modules\Trivial.lua
 Modules\ChatIndent.lua
 Modules\ChatMinimize.lua
 Modules\Durability.lua
+Data\MacroIcons.lua
+Modules\MacroIcons.lua
 Data\TalentPresets.lua
 Data\TrainerSpells.lua
 Modules\TalentSummary.lua

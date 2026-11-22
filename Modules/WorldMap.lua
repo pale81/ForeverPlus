@@ -29,6 +29,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		questStarts = true,
 		questTurnIns = true,
 		discoveries = false,
+		discoveryWaypoint = true,
 		filterMenu = true,
 		zoneLevels = true, -- the level range after the name of the zone under the mouse
 	},
@@ -506,6 +507,7 @@ WorldMap.options = {
 	{ key = "questStarts", type = "toggle", name = L.WORLDMAP_QUEST_STARTS, desc = L.WORLDMAP_QUEST_STARTS_DESC },
 	{ key = "questTurnIns", type = "toggle", name = L.WORLDMAP_QUEST_TURN_INS, desc = L.WORLDMAP_QUEST_TURN_INS_DESC, new = true },
 	{ key = "discoveries", type = "toggle", name = L.WORLDMAP_DISCOVERIES, desc = L.WORLDMAP_DISCOVERIES_DESC, new = true },
+	{ key = "discoveryWaypoint", type = "toggle", name = L.WORLDMAP_DISCOVERY_WAYPOINT, parent = "discoveries", new = true },
 	{ type = "button", name = L.WORLDMAP_DISCOVERY_RESET, text = L.WORLDMAP_DISCOVERY_RESET, parent = "discoveries", func = function()
 		ns.MapSymbols.ResetDiscoveryMarks()
 	end },

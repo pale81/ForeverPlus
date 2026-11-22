@@ -6424,14 +6424,40 @@ end)()
 	local loch = pins(1432)
 	assert(#loch == 7 and loch[1].x == 0.457 and loch[1].y == 0.433, "the toolbox, dam and hatchling, without QuestieDB")
 	local lines = {}
-	loch[1].tooltip({ AddLine = function(_, line) lines[#lines + 1] = line end }, loch[1])
+	local tooltip = { AddLine = function(_, line) lines[#lines + 1] = line end }
+	local savedInstruction = GameTooltip_AddInstructionLine
+	GameTooltip_AddInstructionLine = tooltip.AddLine
+	loch[1].tooltip(tooltip, loch[1])
 	assert(lines[1] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER and lines[2] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER_TOOLBOX
 		and lines[3] == ns.L.WORLDMAP_DISCOVERY_POSSIBLE:format(45.7, 43.3), "localized hint and possible coordinates")
+	assert(lines[4] == ns.L.WORLDMAP_DISCOVERY_WAYPOINT_CLICK and lines[5] == ns.L.WORLDMAP_DISCOVERY_MARK,
+		"the tooltip shows both mouse actions")
 	assert(#pins(1415) == 0 and #pins(1447) == 1 and #pins(2521) == 3, "discoveries appear on their own zone maps")
+	local waypoint = ns:GetModule("Waypoint")
+	local savedSetOnMap, savedPrint = waypoint.SetOnMap, ns.PrintAlways
+	local goal, message
+	waypoint.SetOnMap = function(mapID, x, y, name)
+		goal = { mapID, x, y, name }
+		return true
+	end
+	loch[2].click(loch[2], "LeftButton")
+	assert(goal and goal[1] == 1432 and goal[2] == 48 and goal[3] == 40 and goal[4] == ns.L.WORLDMAP_DISCOVERY_TEXT.SILVER,
+		"left click sets a named waypoint at the selected possible location")
+	assert(#pins(1432) == 7 and redraws == 0, "setting a waypoint leaves the discovery open")
+	waypoint.SetOnMap = function() return false end
+	ns.PrintAlways = function(text) message = text end
 	loch[1].click(loch[1], "LeftButton")
-	assert(#pins(1432) == 7 and redraws == 0, "left click leaves the pins alone")
+	assert(message == ns.L.WAYPOINT_NOT_HERE and not marks.silver, "an unavailable waypoint reports the failure without marking the find")
+	db.discoveryWaypoint = false
+	message, lines = nil, {}
+	loch[1].click(loch[1], "LeftButton")
+	loch[1].tooltip(tooltip, loch[1])
+	assert(not message and #lines == 4 and lines[4] == ns.L.WORLDMAP_DISCOVERY_MARK,
+		"turning off discovery waypoints disables left click and its tooltip hint")
 	loch[1].click(loch[1], "RightButton")
 	assert(marks.silver == "manual" and #pins(1432) == 3 and redraws == 1, "right click hides all alternative positions")
+	db.discoveryWaypoint = true
+	waypoint.SetOnMap, ns.PrintAlways, GameTooltip_AddInstructionLine = savedSetOnMap, savedPrint, savedInstruction
 	symbols.ResetDiscoveryMarks()
 	assert(#pins(1432) == 7 and not marks.silver, "manual marks can be cleared")
 	faction = "Horde"

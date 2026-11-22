@@ -570,7 +570,16 @@ function Symbols.ResetDiscoveryMarks()
 	Symbols.Refresh()
 end
 
-local function MarkDiscovery(symbol, button)
+local function ClickDiscovery(symbol, button)
+	if button == "LeftButton" and Options().discoveryWaypoint then
+		local point = symbol.point
+		local name = L.WORLDMAP_DISCOVERY_TEXT[symbol.data.name]
+		GameTooltip:Hide()
+		if not ns:GetModule("Waypoint").SetOnMap(symbol.mapID, point[1], point[2], name) then
+			ns.PrintAlways(L.WAYPOINT_NOT_HERE)
+		end
+		return
+	end
 	if button ~= "RightButton" then return end
 	local collected, id = DiscoveryMarks(), symbol.data.id
 	if not collected[id] then collected[id] = "manual" end
@@ -585,6 +594,9 @@ local function DiscoveryTooltip(tooltip, symbol)
 	tooltip:AddLine(strings[discovery.hint], 1, 0.82, 0, true)
 	local coordinates = #discovery.points > 1 and L.WORLDMAP_DISCOVERY_POSSIBLE or L.WORLDMAP_DISCOVERY_COORDS
 	tooltip:AddLine(coordinates:format(point[1], point[2]), 0.8, 0.8, 0.8)
+	if Options().discoveryWaypoint then
+		GameTooltip_AddInstructionLine(tooltip, L.WORLDMAP_DISCOVERY_WAYPOINT_CLICK)
+	end
 	GameTooltip_AddInstructionLine(tooltip, L.WORLDMAP_DISCOVERY_MARK)
 end
 
@@ -596,7 +608,7 @@ Symbols.AddSource(function(mapID, add)
 		if not collected[discovery.id] and (not discovery.faction or discovery.faction == faction) then
 			for _, point in ipairs(discovery.points) do
 				add(point[1] / 100, point[2] / 100, { kind = "discovery", texture = 1518645, round = true, size = 17,
-					data = discovery, point = point, tooltip = DiscoveryTooltip, click = MarkDiscovery })
+					mapID = mapID, data = discovery, point = point, tooltip = DiscoveryTooltip, click = ClickDiscovery })
 			end
 		end
 	end

@@ -276,7 +276,7 @@ local PAGES = {
 	{ group = 3, title = L.ITEMS_TITLE,
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",
 			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "junkList") },
-		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu", "moneyPickup", "fullSound", "fullSoundChoice") },
+		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu", "moneyPickup", "fullSound", "fullSoundChoice", "fullSoundTest") },
 		{ "BankView" },
 		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "rewardUpgrade", "scoreSpec", "upgradeScore",
 			"upgradePopup", "upgradeCelebrate", "upgradeMarkOld", "upgradeStyle") },

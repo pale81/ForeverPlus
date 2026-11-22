@@ -2982,7 +2982,7 @@ Items.options = {
 	{ key = "fullSoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "fullSound", new = true, values = function()
 		return ns.AlertSounds and ns.AlertSounds.choices or {}
 	end },
-	{ type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST, func = function()
+	{ key = "fullSoundTest", type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST, func = function()
 		if ns.AlertSounds then
 			ns.AlertSounds.play(Items.db.fullSoundChoice)
 		end

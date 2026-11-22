@@ -845,6 +845,30 @@ local scan = uv(uv(quests.OnLogin, "QueueScan"), "ScanQuests")
 scan(); qstate.done = 1; scan(); qstate.done = 2; qstate.complete = true; scan()
 print("  sounds:", table.concat(played, ","))
 assert(played[1] == 558137 or played[1] == "558137", "quest progress sound")
+;(function()
+	local bagOptions
+	for _, page in ipairs(ns.SettingsPages) do
+		for _, entry in ipairs(page) do
+			if entry[1] == "Items" and entry.header == ns.L.ITEMS_BAGS then
+				bagOptions = entry.keys
+			end
+		end
+	end
+	local preview
+	for _, opt in ipairs(itemsM.options) do
+		if opt.type == "button" and opt.name == ns.L.ITEMS_FULL_SOUND_TEST then
+			preview = opt
+		end
+	end
+	assert(preview and bagOptions and bagOptions[preview.key], "the Bags settings include the sound preview")
+	local savedChoice = itemsM.db.fullSoundChoice
+	itemsM.db.fullSoundChoice = "complete"
+	preview.func()
+	itemsM.db.fullSoundChoice = "ping"
+	preview.func()
+	itemsM.db.fullSoundChoice = savedChoice
+	assert(played[#played - 1] == "done" and played[#played] == "ping", "the preview plays the selected bag sound")
+end)()
 -- Keyword alert
 local chat = ns:GetModule("Chat")
 UnitClass = function() return "Schamane", "SHAMAN" end

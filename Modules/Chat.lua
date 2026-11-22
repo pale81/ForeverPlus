@@ -40,6 +40,53 @@ local Chat = ns:NewModule("Chat", {
 local styled = {}
 local buttonParents = {}
 
+local wanderlustHost, wanderlustVisible = nil, false
+local wanderlustFrames = {}
+
+local function KeepChatFrameVisible(frame)
+	if frame and not frame:IsForbidden() and not frame:IsProtected() and frame:GetParent() == UIParent then
+		FrameUtil.SetParentMaintainRenderLayering(frame, wanderlustHost)
+		wanderlustFrames[frame] = true
+	end
+end
+
+local function RefreshWanderlustChat()
+	if not wanderlustVisible then return end
+	KeepChatFrameVisible(GeneralDockManager)
+	for _, name in ipairs(CHAT_FRAMES) do
+		KeepChatFrameVisible(_G[name])
+		KeepChatFrameVisible(_G[name .. "Tab"])
+		KeepChatFrameVisible(_G[name .. "EditBox"])
+		KeepChatFrameVisible(_G[name .. "Minimized"])
+	end
+end
+
+function Chat.SetWanderlustVisible(visible, alpha)
+	if visible == wanderlustVisible then return end
+	wanderlustVisible = visible
+	if visible then
+		if not wanderlustHost then
+			wanderlustHost = CreateFrame("Frame", nil, WorldFrame)
+			wanderlustHost:SetAllPoints(UIParent)
+			-- Temporary windows, undocked tabs and minimized buttons may get a new top-level parent.
+			local refresh = ns.Measured("Chat: Wanderlust chat frames", RefreshWanderlustChat)
+			for _, name in ipairs({ "FCF_OpenNewWindow", "FCF_OpenTemporaryWindow", "FCF_UnDockFrame", "FCF_MinimizeFrame" }) do
+				if _G[name] then hooksecurefunc(name, refresh) end
+			end
+		end
+		wanderlustHost:SetScale(UIParent:GetEffectiveScale() / WorldFrame:GetEffectiveScale())
+		wanderlustHost:SetAlpha(alpha)
+		RefreshWanderlustChat()
+	else
+		for frame in pairs(wanderlustFrames) do
+			if not frame:IsForbidden() and frame:GetParent() == wanderlustHost then
+				FrameUtil.SetParentMaintainRenderLayering(frame, UIParent)
+			end
+		end
+		wipe(wanderlustFrames)
+	end
+end
+
 local TAB_TEXTURES = {
 	"Left", "Middle", "Right",
 	"ActiveLeft", "ActiveMiddle", "ActiveRight",

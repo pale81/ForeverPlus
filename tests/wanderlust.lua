@@ -11,12 +11,32 @@ local cursorX, cursorY = 0, 0
 local ui = { shown = true, alpha = 0.9 }
 function ui:IsShown() return self.shown end
 function ui:GetAlpha() return self.alpha end
+function ui:GetEffectiveScale() return 0.8 end
 function ui:SetAlpha(alpha) self.alpha = alpha end
 function ui:HookScript(script, fn)
 	assert(script == "OnShow")
 	hooks = hooks + 1
 	self.onShow = fn
 end
+
+local world = { GetEffectiveScale = function() return 1 end }
+local function ChatFrame(parent, shown, protected)
+	return { parent = parent, shown = shown, GetParent = function(self) return self.parent end,
+		IsShown = function(self) return self.shown end, IsProtected = function() return protected end,
+		IsForbidden = function() return false end }
+end
+local chatDock = ChatFrame(ui, true)
+local chatFrame = ChatFrame(ui, true)
+local floatingTab = ChatFrame(ui, true)
+local chatEdit = ChatFrame(ui, false)
+local chatHost, chatInputOpened
+globals.ChatFrame1 = chatFrame
+globals.ChatFrame1Tab = ChatFrame(chatDock, true)
+globals.ChatFrame1EditBox = chatEdit
+globals.ChatFrame2 = ChatFrame(ui, false)
+globals.ChatFrame3Tab = floatingTab
+globals.ChatFrame4 = ChatFrame(ui, true, true)
+globals.FCF_MinimizeFrame = function() globals.ChatFrame3Minimized = ChatFrame(ui, true) end
 
 -- The cluster stays in the interface; only its parent-alpha flag changes.
 local cluster = { ignore = false }
@@ -50,7 +70,7 @@ local function SetVisibility(shown)
 		-- Model Blizzard's target-lost and window-close sounds on parent hiding.
 		if target or focus or bagsOpen then closeSounds = closeSounds + 1 end
 		for _, frame in pairs(globals) do
-			if frame.closeSound and frame:IsShown() then closeSounds = closeSounds + 1 end
+			if type(frame) == "table" and frame.closeSound and frame:IsShown() then closeSounds = closeSounds + 1 end
 		end
 	end
 	ui.shown = shown
@@ -60,21 +80,28 @@ end
 local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
+	WANDERLUST_CHAT = "Chat", WANDERLUST_CHAT_DESC = "description",
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
 local hoverDetached = false
 local tooltip = { SetWanderlustHover = function(active) hoverDetached = active end }
 function ns:GetModule(name)
+	if name == "Chat" then return self.chat end
 	assert(name == "Tooltip")
 	return tooltip
 end
 function ns:NewModule(name, spec)
+	if name == "Chat" then
+		self.chat = spec
+		return spec
+	end
 	assert(name == "Wanderlust")
 	self.module = spec
 	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions,
-		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText }
+		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat }
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
 end
+function ns.FormatToPattern() end -- Loading Chat here does not exercise its message filters.
 function ns.RunOutOfCombat(fn)
 	if combat then regenQueue[#regenQueue + 1] = fn else fn() end
 end
@@ -104,11 +131,24 @@ local recipeReads, bookReads = 0, 0
 function ns.Secret(value) return rawequal(value, secret) end
 function ns.Number(value, fallback) return type(value) == "number" and value or fallback end
 local chunk = assert(loadfile(root .. "/Modules/Wanderlust.lua"))
-setfenv(chunk, setmetatable({
+local env = setmetatable({
 	_G = globals,
 	UIParent = ui,
+	WorldFrame = world,
+	GeneralDockManager = chatDock,
+	CHAT_FRAMES = { "ChatFrame1", "ChatFrame2", "ChatFrame3", "ChatFrame4" },
+	FrameUtil = { SetParentMaintainRenderLayering = function(frame, parent)
+		assert(not frame:IsProtected(), "protected chat frames are never moved")
+		assert(frame ~= chatActive or parent ~= ui or ui.shown, "moving the active edit box must preserve its focus")
+		frame.parent = parent
+	end },
+	EventRegistry = { RegisterCallback = function(_, event, callback)
+		assert(event == "ChatFrame.OnEditBoxShow")
+		chatInputOpened = callback
+	end },
 	BankFrame = bank,
 	hooksecurefunc = function(object, method, hook)
+		if type(object) == "string" then object, method, hook = globals, object, method end
 		local original = object[method]
 		object[method] = function(...)
 			original(...)
@@ -119,6 +159,15 @@ setfenv(chunk, setmetatable({
 	Minimap = map,
 	GetCursorPosition = function() return cursorX, cursorY end,
 	CreateFrame = function(_, _, parent)
+		if parent == world then
+			assert(not chatHost, "one host keeps the chat frames visible")
+			chatHost = {
+				SetAllPoints = function(self, frame) self.anchor = frame end,
+				SetScale = function(self, scale) self.scale = scale end,
+				SetAlpha = function(self, alpha) self.alpha = alpha end,
+			}
+			return chatHost
+		end
 		assert(not parent and not peekDriver, "one parentless driver checks the cursor")
 		peekDriver = { shown = true }
 		function peekDriver:SetShown(shown) self.shown = shown end
@@ -140,6 +189,8 @@ setfenv(chunk, setmetatable({
 	UISpecialFrames = specialFrames,
 	PlaySound = function() error("Wanderlust must not add any interface sound") end,
 	SetCVar = function() error("Wanderlust must not mute game audio") end,
+	UnitName = function() return "Player" end,
+	wipe = function(t) for key in pairs(t) do t[key] = nil end end,
 	UnitCastingInfo = function() return nil, nil, nil, nil, nil, castingTrade end,
 	UnitChannelInfo = function() return nil, nil, nil, nil, nil, channelTrade end,
 	GetProfessions = function() return nil, 2 end, -- absent profession slots must not end the scan
@@ -154,7 +205,10 @@ setfenv(chunk, setmetatable({
 		recipeReads = recipeReads + 1
 		return { professionID = id == 2001 and 171 or 0 }
 	end },
-}, { __index = _G }))
+}, { __index = _G })
+local chatChunk = assert(loadfile(root .. "/Modules/Chat.lua"))
+setfenv(chatChunk, env)("ForeverPlus", ns)
+setfenv(chunk, env)
 chunk("ForeverPlus", ns)
 local module = ns.module
 local function Enable(enabled)
@@ -208,6 +262,7 @@ assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 
 assert(module.db.showProfessions == false, "profession abilities are excluded by default")
 assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
 assert(module.db.hoverText == true and not hoverDetached, "the default keeps mouseover text only during an automatic hide")
+assert(module.db.showChat == true and chatFrame.parent == ui, "chat is kept by default only during an automatic hide")
 Enable(true)
 assert(hooks == 1 and Pending() == 1, "enabling starts a single timer")
 Advance(59)
@@ -215,6 +270,13 @@ assert(ui.shown and visibilityCalls == 0, "the interface stays visible for the f
 Advance(1)
 assert(not ui.shown and visibilityCalls == 1 and Pending() == 0, "one full quiet minute hides the interface once")
 assert(hoverDetached, "an automatic hide keeps mouseover text available by default")
+assert(chatFrame.parent == chatHost and chatDock.parent == chatHost and chatEdit.parent == chatHost
+	and floatingTab.parent == chatHost and globals.ChatFrame1Tab.parent == chatDock,
+	"an automatic hide keeps the chat windows, dock, floating tabs and input in place")
+assert(chatHost.anchor == ui and chatHost.scale == 0.8 and chatHost.alpha == 0.9 and not chatEdit.shown,
+	"detaching chat preserves its position, scale, opacity and the state of the input")
+assert(not globals.ChatFrame2.shown and globals.ChatFrame4.parent == ui,
+	"hidden tabs stay hidden and protected frames are not moved")
 assert(peekDriver and peekDriver.shown and not Peeking(), "a hidden interface watches the minimap area without showing anything")
 Over(false)
 assert(not ui.shown and visibilityCalls == 1, "the cursor away from the minimap leaves the interface hidden")
@@ -232,6 +294,8 @@ combat = true
 Fire("PLAYER_REGEN_DISABLED")
 assert(ui.shown and Pending() == 0, "combat restores the interface during lockdown without another timer")
 assert(ui.alpha == 0.9 and not peekDriver.shown, "combat over the minimap makes the whole interface visible again")
+assert(chatFrame.parent == ui and chatDock.parent == ui and chatEdit.parent == ui,
+	"combat restores the native chat hierarchy")
 Advance(120)
 assert(ui.shown, "combat never hides the interface")
 combat = false
@@ -547,6 +611,20 @@ CheckWindow(chatActive)
 chatActive = nil
 Enable(true)
 Advance(60)
+assert(not ui.shown and chatEdit.parent == chatHost, "the chat input can open while the interface is hidden")
+chatEdit.shown, chatActive = true, chatEdit
+chatInputOpened()
+assert(ui.shown and chatEdit.parent == ui and Pending() == 0, "opening the chat input restores the interface immediately")
+chatEdit.shown, chatActive = false, nil
+Advance(1)
+Advance(59)
+assert(ui.shown, "the minute starts after closing the chat input")
+Advance(1)
+assert(not ui.shown, "Wanderlust can hide again after using the chat")
+Enable(false)
+
+Enable(true)
+Advance(60)
 editMode = true
 Advance(1)
 Advance(120)
@@ -579,6 +657,16 @@ module:OnOptionChanged("minimapMouseover", true)
 Over(true)
 assert(Peeking(), "the minimap option can be enabled while Wanderlust is already hidden")
 assert(hoverDetached, "mouse text remains available during the minimap preview")
+module.db.showChat = false
+module:OnOptionChanged("showChat", false)
+assert(Peeking() and chatFrame.parent == ui, "disabling chat preserves the minimap preview")
+module.db.showChat = true
+module:OnOptionChanged("showChat", true)
+assert(Peeking() and chatFrame.parent == chatHost and chatHost.alpha == 0.9,
+	"reenabling chat during the preview uses the original UI opacity")
+globals.FCF_MinimizeFrame()
+assert(globals.ChatFrame3Minimized.parent == chatHost, "newly minimized floating chat is still visible")
+floatingTab.parent = chatDock -- the game may move a tab back into the dock while Wanderlust is active
 module.db.hoverText = false
 module:OnOptionChanged("hoverText", false)
 assert(Peeking() and not hoverDetached, "disabling mouseover text while hidden leaves the minimap preview in place")
@@ -592,6 +680,8 @@ assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDrive
 Enable(false)
 assert(ui.shown and ui.alpha == 0.9, "disabling restores the interface")
 assert(not hoverDetached, "disabling Wanderlust restores normal mouseover text")
+assert(chatFrame.parent == ui and globals.ChatFrame3Minimized.parent == ui and floatingTab.parent == chatDock,
+	"restoring chat leaves changes to its dock alone")
 
 module.db.minimapMouseover = true
 Enable(true)
@@ -613,6 +703,7 @@ Over(true)
 assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"a manual hide during the minimap view stays hidden and is no longer Wanderlust's")
 assert(not hoverDetached, "manual hiding during the minimap preview hides the mouseover text too")
+assert(chatFrame.parent == ui, "manual hiding during the minimap preview also hides chat")
 Over(true)
 assert(not ui.shown, "the minimap no longer reveals an interface the player hid")
 SetVisibility(true)
@@ -644,4 +735,4 @@ assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.sh
 	SetVisibility(true)
 	globals.BankFrame = nil
 end)()
-print("Wanderlust timing, minimap mouseover, abilities, targets, windows and lifecycle OK")
+print("Wanderlust timing, chat, mouseover, abilities, targets, windows and lifecycle OK")

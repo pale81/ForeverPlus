@@ -328,7 +328,7 @@ read_globals = {
 	"GetShapeshiftFormInfo",
 	"TRACKER_HEADER_QUESTS",
 	"TooltipDataProcessor",
-	"UIParent", "HideUIPanel", "GeneralDockManager", "CharacterFrame",
+	"UIParent", "HideUIPanel", "GeneralDockManager", "CharacterFrame", "FrameUtil",
 	"UIPanelWindows",
 	"UISpecialFrames",
 	"tContains",

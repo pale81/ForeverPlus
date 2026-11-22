@@ -4,13 +4,18 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true },
+	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true, showChat = true },
 })
 
 local QUIET_SECONDS = 60
 local timer, activityTicker, hidUI, hooked, restoring, blocked
 local PEEK_INTERVAL = 0.1
 local peek, peekArea, peekDriver, UpdateHiddenUI
+
+local function UpdateHiddenChat()
+	local visible = hidUI and Wanderlust.db.enabled and Wanderlust.db.showChat or false
+	ns:GetModule("Chat").SetWanderlustVisible(visible, visible and (peek and peek.alpha or UIParent:GetAlpha()))
+end
 
 -- Minimap on mouseover while Wanderlust hides the interface. SetUIVisibility(false) stops drawing the map itself and
 -- the game's blips ignore alpha, so a detached or faded minimap cannot work. Instead the interface comes back
@@ -105,13 +110,14 @@ local function RestoreUI()
 	EndPeek(false)
 	if hidUI then
 		hidUI = nil
-		UpdateHiddenUI()
 		if not UIParent:IsShown() then
 			-- Use the same native API as the game's Toggle UI binding, including in combat.
 			restoring = true
 			SetUIVisibility(true)
 			restoring = nil
 		end
+		-- Keep a focused chat input visible when it returns to UIParent.
+		UpdateHiddenUI()
 	end
 end
 
@@ -135,6 +141,7 @@ local function StartTimer()
 			-- No open target or window is hidden, so its OnHide cannot play a close sound.
 			hidUI = true
 			SavePeekArea()
+			UpdateHiddenChat()
 			SetUIVisibility(false)
 			UpdateHiddenUI()
 		end
@@ -189,6 +196,7 @@ end
 
 UpdateHiddenUI = function()
 	local hidden = hidUI and Wanderlust.db.enabled
+	UpdateHiddenChat()
 	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
 	local active = hidden and Wanderlust.db.minimapMouseover
 		and MinimapCluster and not MinimapCluster:IsForbidden() or false
@@ -210,6 +218,14 @@ end
 local function InteractionOpened()
 	blocked = true
 	Stop()
+end
+
+local function ChatInputOpened()
+	if not hidUI then return end
+	-- Let the edit box take focus before moving it back to the visible interface.
+	ns.After("Wanderlust: chat input", 0, function()
+		if hidUI and WindowShown(ChatEdit_GetActiveWindow()) then InteractionOpened() end
+	end)
 end
 
 -- The bank's OnShow buys a free first tab (protected C_Bank.PurchaseBankTab). The interaction event reaches
@@ -296,6 +312,7 @@ function Wanderlust:Apply()
 	if enabled and not hooked then
 		hooked = true
 		UIParent:HookScript("OnShow", ns.Measured("Wanderlust: interface shown", OnUIShown))
+		EventRegistry:RegisterCallback("ChatFrame.OnEditBoxShow", ns.Measured("Wanderlust: chat opened", ChatInputOpened), self)
 		if BankFrame and BankFrame.SetPortraitToUnit then
 			hooksecurefunc(BankFrame, "SetPortraitToUnit", ns.Measured("Wanderlust: bank opening", BankOpening))
 		end
@@ -346,7 +363,7 @@ function Wanderlust:OnLogin()
 end
 
 function Wanderlust:OnOptionChanged(key)
-	if key == "hoverText" then
+	if key == "hoverText" or key == "showChat" then
 		UpdateHiddenUI()
 	else
 		self:Apply()
@@ -357,5 +374,6 @@ Wanderlust.options = {
 	{ key = "enabled", type = "toggle", name = L.WANDERLUST_TITLE, desc = L.WANDERLUST_DESC },
 	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
 	{ key = "hoverText", type = "toggle", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC, parent = "enabled" },
+	{ key = "showChat", type = "toggle", name = L.WANDERLUST_CHAT, desc = L.WANDERLUST_CHAT_DESC, parent = "enabled" },
 	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

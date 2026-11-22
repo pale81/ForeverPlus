@@ -143,6 +143,24 @@ local function ProcDPS(imbue, damage, interval, damageMultiplier, crit)
 	return 0, bonus * chance / interval
 end
 
+-- Extra damage one main-hand hit brings through imbue `id` with a weapon of this speed and DPS:
+-- Windfury's expected extra attacks or Flametongue's fire. Nil for other imbues or unreadable values.
+-- Read by the item rating for the hits of Stormstrike.
+function ns.ImbueHitDamage(id, speed, weaponDPS, attackPower)
+	local imbue = imbues[id]
+	if not imbue or (imbue.kind ~= "wind" and imbue.kind ~= "fire") then return end
+	local rank = ElementalWeaponsRank()
+	local first, second, third = ImbueValues(imbue.spellID)
+	if imbue.kind == "wind" then
+		if not third or first > 100 or second < 1 or second > 5 then return end
+		local extraAP = third * (1 + (WIND_TALENT_BONUS[rank] or 0))
+		return first / 100 * second * (weaponDPS + (attackPower + extraAP) / 14) * speed
+	end
+	if not first or not second or second < first then return end
+	local spellPower = ns.Number(GetSpellBonusDamage(3)) or 0
+	return (second * speed / 4 + FIRE_COEFFICIENT * spellPower) * (1 + 0.05 * rank)
+end
+
 local function ReadEnchants(slot, isMain, snapshot, other)
 	local list = C_Item.GetWeaponEnchantInfo(slot)
 	if type(list) ~= "table" or ns.Secret(list) then return false end

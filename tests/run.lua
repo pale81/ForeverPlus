@@ -2415,6 +2415,53 @@ end)()
 	assert(math.abs(worn - 40 * 14 - 14 * 10 / 60 * 40 * (1.5 - 2.4)) < 0.001, "the slow sword replaces the fast main hand")
 	assert(score > worn, "a slow main hand is an upgrade for Sinister Strike")
 
+	-- Instant Poison VI on both hands: a faster weapon procs it more often, in either hand.
+	local savedSlot, savedEnchants, savedHit = Enum.WeaponSlot, C_Item.GetWeaponEnchantInfo, ns.ImbueHitDamage
+	local enchants = { [1] = 625, [2] = 625 }
+	Enum.WeaponSlot = { MainHand = 1, OffHand = 2 }
+	C_Item.GetWeaponEnchantInfo = function(slot) return { { hasEnchant = true, enchantID = enchants[slot] } } end
+	clear()
+	local poison = function(speed) return 0.2 * (88 + 0.01 * 280) * (1 / speed - 1 / 2.4) end
+	assert(math.abs(select(4, scoreFn(slow, false, true)) - 14 * poison(2.9)) < 0.001, "slow off hand: less poison")
+	assert(math.abs(select(4, scoreFn(fast, false, true)) - 14 * poison(1.5)) < 0.001, "fast off hand: more poison")
+	enchants = {}
+	clear()
+	assert(select(4, scoreFn(fast, false, true)) == 0, "no poison, no speed rating in the off hand")
+
+	-- Weapon skill counts for the weapon in hand only: Edgemaster's Handguards with a dagger.
+	local gloves, dagger = "edgemaster", "dagger"
+	ITEMS[gloves] = { "INVTYPE_HAND", 4, 2, {} }
+	ITEMS[dagger] = { "INVTYPE_WEAPON", 2, 15, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	tips[gloves] = de and { { leftText = "Anlegen: Äxte +7." }, { leftText = "Anlegen: Dolche +7." }, { leftText = "Anlegen: Schwerter +7." } }
+		or { { leftText = "Equip: Increased Axes +7." }, { leftText = "Equip: Increased Daggers +7." }, { leftText = "Equip: Increased Swords +7." } }
+	GetInventoryItemLink = function(_, slot) return slot == 16 and dagger or nil end
+	clear()
+	local hit = upvalue(getW, "WEIGHTS").ROGUE[2].HIT
+	assert(math.abs(scoreFn(gloves) - hit * 0.2 * 7) < 0.001, "seven dagger skill, axes and swords do not count")
+
+	-- Undead and Demons: shown in the tooltip, not part of the rating.
+	local seal = "markOfTheChampion"
+	ITEMS[seal] = { "INVTYPE_TRINKET", 4, 0, {} }
+	tips[seal] = { { leftText = de and "Anlegen: +150 Angriffskraft im Kampf gegen Untote und Dämonen. Ermöglicht das Einsammeln von Geißelsteinen."
+		or "Equip: +150 Attack Power when fighting Undead and Demons.  It also allows the acquisition of Scourgestones." } }
+	clear()
+	assert(scoreFn(seal) == 0, "situational attack power stays out of the rating")
+	lines = {}
+	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, seal)
+	assert(lines[#lines] == ns.L.ITEMS_SCORE_CREATURE_LINE:format(de and "Untote und Dämonen" or "Undead and Demons", 150),
+		"the tooltip shows the rating against Undead and Demons")
+
+	-- Stormstrike's hit brings the imbue: the slower weapon's bigger Windfury hits count.
+	profile("SHAMAN", 2)
+	enchants = { [1] = 1669 }
+	ns.ImbueHitDamage = function(id, speed, dps, ap) return id == 1669 and 0.2 * 2 * (dps + ap / 14) * speed or nil end
+	clear()
+	local stormstrike = 14 * 3 / 60 * (15.97 * (3.1 - 3.3) + 0.4 * (15.97 + 20) * (3.1 - 3.3))
+	assert(math.abs(select(4, scoreFn(hammer)) - stormstrike) < 0.001, "Stormstrike adds the Windfury difference")
+
+	Enum.WeaponSlot, C_Item.GetWeaponEnchantInfo, ns.ImbueHitDamage = savedSlot, savedEnchants, savedHit
+	ITEMS[gloves], ITEMS[dagger], ITEMS[seal] = nil, nil, nil
+
 	clear()
 	for _, link in ipairs({ axe, hammer, thrash, ironfoe, demolisher, hand, slow, fast }) do ITEMS[link] = nil end
 	ItemLocation.CreateFromEquipmentSlot, C_Item.DoesItemExist, UnitAttackPower = savedLocation, savedExists, savedAP
@@ -2424,6 +2471,22 @@ end)()
 	setuv(getW, "weightsTree", savedTree)
 	setuv(getW, "weights", savedProfile)
 	print("weapon speed, extra attack and haste rating OK")
+end)()
+-- The imbue damage of one main-hand hit, from the spell text as in the DPS simulator.
+;(function()
+	local savedSpell, savedTalents, savedBonus = C_Spell, C_ClassTalents, rawget(_G, "GetSpellBonusDamage")
+	local texts = { [16362] = "Imbue the Shaman's weapon with wind. Each hit has a 20% chance of dealing 2 additional attacks with 315 extra attack power.",
+		[16342] = "Imbue the Shaman's weapon with fire. Each hit causes 30 to 92 additional Fire damage." }
+	C_Spell = setmetatable({ GetSpellDescription = function(id) return texts[id] end }, { __index = savedSpell })
+	C_ClassTalents = { GetActiveConfigID = function() return nil end }
+	GetSpellBonusDamage = function() return 100 end
+	local wind = ns.ImbueHitDamage(1669, 3.6, 50, 700)
+	assert(math.abs(wind - 0.2 * 2 * (50 + (700 + 315) / 14) * 3.6) < 0.001, "Windfury: chance times extra attacks with extra attack power")
+	local fire = ns.ImbueHitDamage(1666, 2.0, 50, 700)
+	assert(math.abs(fire - (92 * 2.0 / 4 + 0.1 * 100)) < 0.001, "Flametongue: upper endpoint scaled from 4.0 s plus spell power")
+	assert(ns.ImbueHitDamage(1664, 3.6, 50, 700) == nil, "Rockbiter brings no hit damage")
+	C_Spell, C_ClassTalents, GetSpellBonusDamage = savedSpell, savedTalents, savedBonus
+	print("imbue hit damage OK")
 end)()
 -- Upgrade toast: gain over the worn item, none for an empty slot
 do

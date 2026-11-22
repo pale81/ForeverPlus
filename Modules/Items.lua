@@ -487,7 +487,8 @@ do
 				{ 1240193, 1464, 8820, 11604, 11605, perMinute = 4, swing = true }, OVERPOWER },
 			{ { 1680, perMinute = 6 }, OVERPOWER },
 		},
-		SHAMAN = { nil, { { 17364, perMinute = 3 } } },
+		-- Stormstrike's hit also brings the main hand's Windfury or Flametongue (DPS simulator values).
+		SHAMAN = { nil, { { 17364, perMinute = 3, imbue = true } } },
 		-- Seal of Command: 7 procs per minute, each 70% of a weapon swing.
 		PALADIN = { nil, nil, { { 20375, 20915, 20918, 20919, 20920, perMinute = 4.9, swing = true } } },
 		ROGUE = {
@@ -497,6 +498,16 @@ do
 		},
 		HUNTER = { HUNTER, HUNTER, HUNTER },
 	}
+	-- Instant Poison per enchant: Forever's average base damage (SpellEffect, build 1.60.1.70938) at a 20%
+	-- chance per hit, plus 1% of attack power (WoWSims, measured in game). More hits from a faster weapon
+	-- mean more poison; Deadly Poison only keeps its stacks up, whatever the speed.
+	local INSTANT_POISON = { [323] = 15, [324] = 23, [325] = 33, [623] = 51, [624] = 71, [625] = 88 }
+	local POISON_CHANCE, POISON_AP = 0.2, 0.01
+	-- Weapon skill names on items and the weapon subclasses they raise (checked: Edgemaster's Handguards,
+	-- Aged Core Leather Gloves). Each point lowers miss and dodge by 0.1% each (Classic and Forever).
+	local SKILL_SUBCLASS = { [L.ITEMS_SKILL_AXES:lower()] = 0, [L.ITEMS_SKILL_SWORDS:lower()] = 7,
+		[L.ITEMS_SKILL_DAGGERS:lower()] = 15 }
+	local SKILL_HIT = 0.2
 	for _, trees in pairs(ABILITIES) do
 		for _, tree in pairs(trees) do
 			for _, ability in ipairs(tree) do
@@ -540,6 +551,45 @@ do
 		return math.max(0, Readable(base) + Readable(plus) + Readable(minus))
 	end
 
+	-- Temporary enchant (imbue, poison) on a hand, 0 without or while unreadable.
+	local function HandEnchant(slot)
+		local list = Enum.WeaponSlot and C_Item.GetWeaponEnchantInfo and C_Item.GetWeaponEnchantInfo(slot)
+		if type(list) ~= "table" or ns.Secret(list) then
+			return 0
+		end
+		for _, enchant in pairs(list) do
+			if not ns.Secret(enchant) and type(enchant) == "table" and not ns.Secret(enchant.hasEnchant)
+				and enchant.hasEnchant and not ns.Secret(enchant.enchantID) then
+				return tonumber(enchant.enchantID) or 0
+			end
+		end
+		return 0
+	end
+
+	-- Both hands' temporary enchants, part of the rating's cache key.
+	function PROC.Enchants()
+		if not Enum.WeaponSlot then
+			return 0, 0
+		end
+		return HandEnchant(Enum.WeaponSlot.MainHand), HandEnchant(Enum.WeaponSlot.OffHand)
+	end
+
+	-- Weapon subclass held in a hand, nil without a weapon.
+	local function HandSubclass(slot)
+		local link = GetInventoryItemLink("player", slot)
+		return link and not ns.Secret(link) and select(7, C_Item.GetItemInfoInstant(link)) or nil
+	end
+
+	-- Weapon skill bonus of an Equip line ("Daggers +5") counted for the weapons in hand, 0 otherwise.
+	function Items.WeaponSkill(effect)
+		local name, points = effect:lower():match(L.ITEMS_SKILL)
+		local subclass = name and SKILL_SUBCLASS[name]
+		if subclass and (HandSubclass(INVSLOT_MAINHAND) == subclass or HandSubclass(INVSLOT_OFFHAND) == subclass) then
+			return tonumber(points)
+		end
+		return 0
+	end
+
 	local function MainHandDPS()
 		local link = GetInventoryItemLink("player", INVSLOT_MAINHAND)
 		local stats = link and not ns.Secret(link) and C_Item.GetItemStats(link)
@@ -569,15 +619,26 @@ do
 
 	-- Extra damage per second of weapon speed through the known instant attacks, compared with the
 	-- weapon type's normalized speed.
-	local function SpeedDPS(link, info, tree, ranged, ap)
-		local speedGain = info.speed - NormalSpeed(link, ranged)
+	local function SpeedDPS(link, info, tree, ranged, offhand, ap)
+		local normal = NormalSpeed(link, ranged)
+		local speedGain = info.speed - normal
 		local abilities = ABILITIES[playerClass]
+		local mainEnchant, offEnchant = PROC.Enchants()
 		local dps = 0
-		for _, ability in ipairs(abilities and abilities[tree] or {}) do
+		for _, ability in ipairs(not offhand and abilities and abilities[tree] or {}) do
 			if (not ability.ranged) == (not ranged) and Known(ability) then
 				local hit = info.dps + (ability.swing and ap / PROC.apPerDPS or 0)
 				dps = dps + ability.perMinute / 60 * hit * speedGain
+				local imbued = ability.imbue and ns.ImbueHitDamage
+					and ns.ImbueHitDamage(mainEnchant, info.speed, info.dps, ap)
+				if imbued then
+					dps = dps + ability.perMinute / 60 * (imbued - ns.ImbueHitDamage(mainEnchant, normal, info.dps, ap))
+				end
 			end
+		end
+		local poison = INSTANT_POISON[offhand and offEnchant or mainEnchant]
+		if poison and not ranged then
+			dps = dps + POISON_CHANCE * (poison + POISON_AP * ap) * (1 / info.speed - 1 / normal)
 		end
 		return dps
 	end
@@ -603,8 +664,11 @@ do
 			procPoints = procPoints + (w.HASTE or 0) * info.haste * math.min(1, PROC.perMinute * info.hasteDuration / 60)
 		end
 		local speedPoints = 0
-		if info.speed and info.dps and not offhand then
-			speedPoints = apWeight * PROC.apPerDPS * SpeedDPS(link, info, tree, ranged, ap)
+		if info.speed and info.dps then
+			speedPoints = apWeight * PROC.apPerDPS * SpeedDPS(link, info, tree, ranged, offhand, ap)
+		end
+		if info.weaponSkill > 0 and not ranged then
+			procPoints = procPoints + (w.HIT or 0) * SKILL_HIT * info.weaponSkill
 		end
 		return procPoints, speedPoints
 	end
@@ -612,7 +676,7 @@ do
 	function TooltipStats(link, readDPS, readAP, readProc)
 		local data = type(C_TooltipInfo.GetHyperlink) == "function" and C_TooltipInfo.GetHyperlink(link)
 		local info = { ap = 0, humanoidAP = 0, procDamage = 0, extraAttacks = 0, haste = 0, hasteDuration = 0,
-			equipExtraChance = 0, equipExtraAttacks = 0 }
+			equipExtraChance = 0, equipExtraAttacks = 0, weaponSkill = 0, creatureAP = {} }
 		for _, line in ipairs(data and data.lines or {}) do
 			local value = line.leftText
 			if not ns.Secret(value) and type(value) == "string" then
@@ -632,6 +696,11 @@ do
 						effect = effect:gsub("%.?%s*$", "")
 						info.ap = info.ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
 						info.humanoidAP = info.humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+						info.weaponSkill = info.weaponSkill + Items.WeaponSkill(effect)
+						local creatureAP, creatures = effect:match(L.ITEMS_EFFECT_AP_CREATURE)
+						if creatureAP and not effect:match(humanoidPowerPattern) then
+							info.creatureAP[#info.creatureAP + 1] = { tonumber(creatureAP), creatures }
+						end
 						local extra = Items.ExtraAttacks(effect)
 						local chance = tonumber(effect:match("(%d+)%%"))
 						if extra > 0 and chance then
@@ -655,10 +724,11 @@ do
 end
 
 local function Score(link, ranged, offhand)
-	local cacheKey = link .. (ranged and "#r" or "") .. (offhand and "#o" or "")
+	local mainEnchant, offEnchant = PROC.Enchants()
+	local cacheKey = link .. (ranged and "#r" or "") .. (offhand and "#o" or "") .. "#" .. mainEnchant .. ":" .. offEnchant
 	local cached = scoreCache[cacheKey]
 	if cached then
-		return cached[1], cached[2], cached[3], cached[4]
+		return cached[1], cached[2], cached[3], cached[4], cached[5]
 	end
 	local w, _, tree = GetWeights()
 	local score, humanoidBonus, hasDPS, hasAP, weaponDPS = 0, 0, false, false, nil
@@ -693,7 +763,7 @@ local function Score(link, ranged, offhand)
 	local readAP = w.AP and w.AP > 0
 	local procWeight = w[ranged and "RAP" or "AP"]
 	local readProc = procWeight and procWeight > 0
-	local procPoints, speedPoints = 0, 0
+	local procPoints, speedPoints, creatures = 0, 0, nil
 	if readDPS or readAP or readProc then
 		local info = TooltipStats(link, readDPS, readAP, readProc)
 		if info.dps then
@@ -705,14 +775,15 @@ local function Score(link, ranged, offhand)
 				score = score + w.AP * info.ap
 			end
 			humanoidBonus = w.AP * info.humanoidAP
+			creatures = info.creatureAP
 		end
 		if readProc then
 			procPoints, speedPoints = PROC.WeaponExtras(link, info, w, tree, ranged, offhand)
 			score = score + procPoints + speedPoints
 		end
 	end
-	scoreCache[cacheKey] = { score, humanoidBonus, procPoints, speedPoints }
-	return score, humanoidBonus, procPoints, speedPoints
+	scoreCache[cacheKey] = { score, humanoidBonus, procPoints, speedPoints, creatures }
+	return score, humanoidBonus, procPoints, speedPoints, creatures
 end
 
 local function IsRed(color)
@@ -1009,7 +1080,11 @@ local function AddRatingLines(tooltip, link, score, equippedScore, humanoidScore
 		tooltip:AddLine(L.ITEMS_SCORE_HUMANOID_LINE:format(humanoidScore, equippedHumanoidScore), 0.5, 0.7, 1)
 	end
 	local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
-	local _, _, procPoints, speedPoints = Score(link, slots and slots[1] == INVSLOT_RANGED)
+	local _, _, procPoints, speedPoints, creatures = Score(link, slots and slots[1] == INVSLOT_RANGED)
+	local apWeight = GetWeights().AP or 0
+	for _, bonus in ipairs(creatures or {}) do
+		tooltip:AddLine(L.ITEMS_SCORE_CREATURE_LINE:format(bonus[2], score + apWeight * bonus[1]), 0.5, 0.7, 1)
+	end
 	if procPoints and procPoints ~= 0 then
 		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procPoints, PROC.perMinute), 0.5, 0.7, 1)
 	end

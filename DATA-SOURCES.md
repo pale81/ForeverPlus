@@ -32,7 +32,7 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 **Auction sale sound.** `Media/AuctionKaChing.mp3` is synthesized locally by `tools/build_kaching.py` from mathematical waveforms and filtered noise (mechanical drawer slide, brass dome bell, coin clinks), with `SOUNDKIT.LOOT_WINDOW_COIN_SOUND` as fallback when `PlaySoundFile` fails.
 
-**Bags-full warning.** `Media/BagsFull.mp3` is synthesized from two descending pulses by `tools/build_bags_full_sound.py`. The client’s `SOUNDKIT.RAID_WARNING` is the fallback if the file fails to play.
+**Bags-full warning.** The default is the client's quest failure sound `sound/interface/igquestfailed.ogg` (FileDataID 567459), played by `PlaySoundFile`. The client's `SOUNDKIT.RAID_WARNING` is the fallback. Audio stays in the game installation.
 
 **Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). The mean alpha threshold is 150/255, with 30/255 in the tail region (columns 13–24, rows 18–24, counted from the top left). The game renders its own Blizzard textures.
 

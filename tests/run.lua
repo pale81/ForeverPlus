@@ -865,9 +865,9 @@ assert(played[1] == 558137 or played[1] == "558137", "quest progress sound")
 	assert(preview and bagOptions and bagOptions[preview.key], "the Bags settings include the sound preview")
 	local db = itemsM.db
 	assert(db.fullSoundChoice == "warning" and choices[1][1] == "warning", "the warning is the default and first choice")
-	local warning = [[Interface\AddOns\ForeverPlus\Media\BagsFull.mp3]]
+	local warning = 567459
 	preview.func()
-	assert(played[#played] == warning, "the preview plays the bundled warning")
+	assert(played[#played] == warning, "the preview plays the client's quest failure sound")
 	local savedTime, last = GetTime, itemsM.fullState.last
 	GetTime = function() return 100 end
 	itemsM.fullState.last = 0

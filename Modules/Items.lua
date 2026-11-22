@@ -2617,11 +2617,12 @@ end
 
 -- A sound when the bags have just become full (the last free slot taken) or an item found no room.
 Items.fullState = { last = 0 }
+local QUEST_FAILED_SOUND = 567459 -- sound/interface/igquestfailed.ogg in the client
 
 local function PlaySelectedFullSound()
 	local choice = Items.db.fullSoundChoice
 	if choice == "warning" then
-		if not PlaySoundFile([[Interface\AddOns\ForeverPlus\Media\BagsFull.mp3]], "Master") and SOUNDKIT and SOUNDKIT.RAID_WARNING then
+		if not PlaySoundFile(QUEST_FAILED_SOUND, "Master") and SOUNDKIT and SOUNDKIT.RAID_WARNING then
 			PlaySound(SOUNDKIT.RAID_WARNING, "Master")
 		end
 	elseif ns.AlertSounds then

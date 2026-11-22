@@ -1268,6 +1268,68 @@ end)()
 	ns.db.playerNotes = oldStore
 	print("player notes OK")
 end)()
+-- Scout: node kinds, remembered spots, rare announcements
+;(function()
+	local scout = ns:GetModule("Scout")
+	assert(scout.NodeKind({ { 7, 9 } }) == "herb" and scout.NodeKind({ { 15, 0 }, { 7, 7 } }) == "ore"
+		and scout.NodeKind({ { 2, 0 } }) == nil, "node kind from the loot")
+	local list = {}
+	scout.AddNode(list, 1731, "ore", 0.5, 0.5)
+	scout.AddNode(list, 1731, "ore", 0.503, 0.498)
+	scout.AddNode(list, 1731, "ore", 0.6, 0.5)
+	scout.AddNode(list, 1617, "herb", 0.5, 0.5)
+	assert(#list == 3 and list[1][5] == 2, "the same spot counts again, other spots and nodes are new")
+	local last = {}
+	assert(scout.ShouldAnnounce("g", 10, last) and not scout.ShouldAnnounce("g", 500, last)
+		and scout.ShouldAnnounce("g", 611, last), "rares are announced again after ten minutes")
+	-- gathering from a loot window
+	local saved = {}
+	for _, key in ipairs({ "C_Map", "UnitClassification", "UnitIsDead", "UnitGUID", "UnitName", "UnitLevel", "PlaySound" }) do
+		saved[key] = rawget(_G, key)
+	end
+	local oldNodes, oldItem = ns.db.gatherNodes, C_Item
+	ns.db.gatherNodes = nil
+	C_Map = { GetBestMapForUnit = function() return 1429 end, GetPlayerMapPosition = function() return { x = 0.4, y = 0.6 } end }
+	C_Item = setmetatable({ GetItemInfoInstant = function(id) return id, nil, nil, nil, nil, 7, id == 2770 and 7 or 9 end },
+		{ __index = oldItem })
+	local sources = ns:GetModule("LootSources")
+	local listener = sources.objectListeners[#sources.objectListeners]
+	listener("object:1731", { 2770 })
+	listener("npc:5", { 2770 })
+	assert(#ns.db.gatherNodes[1429] == 1 and ns.db.gatherNodes[1429][1][4] == "ore", "an ore vein is remembered")
+	local symbols = {}
+	for _, source in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
+		pcall(source, 1429, function(_, _, symbol) if symbol.kind == "gather" then symbols[#symbols + 1] = symbol end end)
+	end
+	assert(#symbols == 1 and symbols[1].texture:find("Ore", 1, true), "remembered vein on the world map")
+	scout.db.gatherMap = false
+	wipe(symbols)
+	for _, source in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
+		pcall(source, 1429, function(_, _, symbol) if symbol.kind == "gather" then symbols[#symbols + 1] = symbol end end)
+	end
+	assert(#symbols == 0, "map option hides the symbols")
+	scout.db.gatherMap = true
+	-- rare nameplate
+	local printed, sounds = {}, 0
+	local oldPrint = ns.PrintAlways
+	ns.PrintAlways = function(fmt, ...) printed[#printed + 1] = fmt:format(...) end
+	UnitClassification = function(unit) return unit == "nameplate1" and "rareelite" or "normal" end
+	UnitIsDead = function() return false end
+	UnitGUID = function(unit) return "Creature-" .. unit end
+	UnitName = function() return "Mor'Ladim" end
+	UnitLevel = function() return 35 end
+	PlaySound = function() sounds = sounds + 1 end
+	local onNameplate = uv(scout.OnLogin, "OnNameplate")
+	for _, unit in ipairs({ "nameplate1", "nameplate1", "nameplate2" }) do
+		onNameplate(nil, "NAME_PLATE_UNIT_ADDED", unit)
+	end
+	assert(#printed == 1 and printed[1]:find("Mor'Ladim", 1, true) and printed[1]:find("35", 1, true) and sounds == 1,
+		"a rare is announced once")
+	ns.PrintAlways = oldPrint
+	for key, value in pairs(saved) do _G[key] = value end
+	ns.db.gatherNodes, C_Item = oldNodes, oldItem
+	print("scout OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

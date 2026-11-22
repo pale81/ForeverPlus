@@ -66,6 +66,7 @@ read_globals = {
 	"GameFontHighlight", "ITEM_QUALITY_COLORS", "NONE", "SetItemRef", "UnitIsDead",
 	"ProfessionsBookFrame",
 	"HandleModifiedItemClick",
+	"UnitClassification",
 	"UnitHealthPercent",
 	"IsInInstance",
 	"UnitHealthMax", "UnitIsPlayer", "GetTrainerServiceSkillReq", "GetTrainerServiceLevelReq", "ProfessionsFrame", "GetBindingKey", "GetBindingText", "UnitPowerMax", "C_LFGListRoles", "UnitIsGroupLeader", "GROUP", "UnitCanAssist", "UnitIsConnected", "UnitCanAttack", "GameTooltipTextLeft1",

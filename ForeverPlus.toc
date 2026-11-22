@@ -80,6 +80,7 @@ Modules\Roleplay.xml
 Modules\RoleplayMSP.lua
 Modules\Roleplay.lua
 Modules\PlayerNotes.lua
+Modules\Scout.lua
 Modules\Flight.lua
 Modules\Waypoint.lua
 Modules\Moments.lua

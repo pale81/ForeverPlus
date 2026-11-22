@@ -4,12 +4,116 @@ local L = ns.L
 
 local BankView = ns:NewModule("BankView", {
 	title = L.BANKVIEW_TITLE,
-	defaults = { enabled = true },
+	defaults = { enabled = true, ownedCount = true },
 	charDefaults = {},
 	options = {
 		{ key = "enabled", type = "toggle", name = L.BANKVIEW_ENABLE, desc = L.BANKVIEW_ENABLE_DESC },
+		{ key = "ownedCount", type = "toggle", name = L.BANKVIEW_OWNED, desc = L.BANKVIEW_OWNED_DESC },
 	},
 })
+
+---------------------------------------------------------------------------
+-- Items owned by all characters of the account: each character saves its counts (bags with what it wears, and
+-- the bank from its last visit) in ns.db.inventories["Name-Realm"]; item tooltips add them up.
+---------------------------------------------------------------------------
+local function Inventories()
+	if type(ns.db.inventories) ~= "table" then ns.db.inventories = {} end
+	return ns.db.inventories
+end
+
+local function CharacterKey()
+	local name, realm = UnitName("player"), GetRealmName()
+	if type(name) ~= "string" or ns.Secret(name) or type(realm) ~= "string" or ns.Secret(realm) then return end
+	return name .. "-" .. realm, name
+end
+
+local function OwnEntry()
+	local key, name = CharacterKey()
+	if not key then return end
+	local inventories = Inventories()
+	local entry = inventories[key]
+	if type(entry) ~= "table" then
+		entry = {}
+		inventories[key] = entry
+	end
+	entry.name, entry.class = name, select(2, UnitClass("player"))
+	entry.bags, entry.bank = entry.bags or {}, entry.bank or {}
+	return entry, key
+end
+
+local function AddCount(counts, id, count)
+	id, count = ns.Number(id), ns.Number(count)
+	if id and count and count > 0 then counts[id] = (counts[id] or 0) + count end
+end
+
+local function SaveBagCounts()
+	local entry = OwnEntry()
+	if not entry then return end
+	local counts = {}
+	for bag = BACKPACK_CONTAINER or 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+		for slot = 1, ns.Number(C_Container.GetContainerNumSlots(bag), 0) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if info then AddCount(counts, info.itemID, info.stackCount) end
+		end
+	end
+	for slot = 1, 19 do
+		AddCount(counts, GetInventoryItemID("player", slot), 1)
+	end
+	entry.bags, entry.updated = counts, time()
+end
+
+local function SaveBankCounts(snapshot)
+	local entry = OwnEntry()
+	if not entry or type(snapshot) ~= "table" or type(snapshot.items) ~= "table" then return end
+	local counts = {}
+	for _, items in pairs(snapshot.items) do
+		for _, item in pairs(items) do
+			AddCount(counts, type(item.link) == "string" and item.link:match("item:(%d+)"), item.count)
+		end
+	end
+	entry.bank = counts
+end
+
+-- Total of an item over all characters and the characters that have it: { { key, name, class, bags, bank } }, most
+-- first, the current character first among equals.
+function BankView.Owned(inventories, itemID, current)
+	local total, rows = 0, {}
+	for key, entry in pairs(inventories or {}) do
+		local bags = type(entry) == "table" and type(entry.bags) == "table" and entry.bags[itemID] or 0
+		local bank = type(entry) == "table" and type(entry.bank) == "table" and entry.bank[itemID] or 0
+		if bags + bank > 0 then
+			total = total + bags + bank
+			rows[#rows + 1] = { key = key, name = entry.name or key, class = entry.class, bags = bags, bank = bank }
+		end
+	end
+	table.sort(rows, function(a, b)
+		if a.bags + a.bank ~= b.bags + b.bank then return a.bags + a.bank > b.bags + b.bank end
+		if (a.key == current) ~= (b.key == current) then return a.key == current end
+		return a.key < b.key
+	end)
+	return total, rows
+end
+
+local MAX_OWNER_LINES = 6
+
+ns.AddItemSection(12, function(data)
+	if not BankView.db.ownedCount then return end
+	local itemID = data and ns.Number(data.id)
+	if not itemID then return end
+	local total, rows = BankView.Owned(ns.db.inventories, itemID, (CharacterKey()))
+	if total == 0 then return end
+	local gold = { NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b }
+	local lines = { { left = L.BANKVIEW_OWNED_LINE, right = tostring(total), lc = gold, rc = { 1, 1, 1 } } }
+	for index = 1, math.min(#rows, MAX_OWNER_LINES) do
+		local row = rows[index]
+		local color = row.class and C_ClassColor.GetClassColor(row.class)
+		local where = row.bank > 0 and (row.bags > 0 and L.BANKVIEW_OWNED_BOTH:format(row.bags, row.bank)
+			or L.BANKVIEW_OWNED_BANK:format(row.bank)) or tostring(row.bags)
+		lines[#lines + 1] = { left = "  " .. row.name, right = where,
+			lc = color and { color.r, color.g, color.b } or { 1, 1, 1 }, rc = { 0.8, 0.8, 0.8 } }
+	end
+	return lines
+end)
 
 local bankType = Enum.BankType.Character
 local firstBankBag, lastBankBag = Enum.BagIndex.CharacterBankTab_1, Enum.BagIndex.CharacterBankTab_9
@@ -246,6 +350,7 @@ local function SaveBank()
 		bags = bags, items = items, sizes = sizes, equipped = equipped,
 		maxBags = ns.Number(C_Bank.FetchMaxNumBankTabs(bankType), #bags), updated = time(),
 	}
+	SaveBankCounts(BankView.cdb.snapshot)
 	QueueRedraw()
 end
 
@@ -414,6 +519,10 @@ function BankView:OnOptionChanged()
 end
 
 function BankView:OnLogin()
+	SaveBankCounts(self.cdb.snapshot)
+	SaveBagCounts()
+	self:RegisterEvent("BAG_UPDATE_DELAYED", ns.Measured("BankView: owned counts", SaveBagCounts))
+	self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", ns.Measured("BankView: owned counts (gear)", SaveBagCounts))
 	CreateBagButton(_G.ContainerFrame1)
 	CreateBagButton(ContainerFrameCombinedBags)
 	self:RegisterEvent("BANKFRAME_OPENED", function()

@@ -1150,6 +1150,23 @@ end)()
 	GetCVar, SetCVar = oldGet, oldSet
 	print("loot sparkle OK")
 end)()
+-- Items owned by all characters: bags (with gear) and bank add up, the most first, the current character on ties
+;(function()
+	local bank = ns:GetModule("BankView")
+	local inventories = {
+		["Ana-Realm"] = { name = "Ana", class = "MAGE", bags = { [2589] = 3 }, bank = { [2589] = 2 } },
+		["Bo-Realm"] = { name = "Bo", class = "WARRIOR", bags = { [2589] = 5 }, bank = {} },
+		["Cy-Realm"] = { name = "Cy", bags = {}, bank = { [2589] = 5, [774] = 1 } },
+		["Broken"] = "x",
+	}
+	local total, rows = bank.Owned(inventories, 2589, "Cy-Realm")
+	assert(total == 15 and #rows == 3, "counts of all characters add up")
+	assert(rows[1].key == "Cy-Realm" and rows[2].key == "Ana-Realm" and rows[3].key == "Bo-Realm",
+		"most first, current character first on ties")
+	assert(rows[2].bags == 3 and rows[2].bank == 2, "bags and bank stay apart")
+	assert(bank.Owned(inventories, 999, "Ana-Realm") == 0 and bank.Owned(nil, 2589) == 0, "nothing owned")
+	print("owned counts OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

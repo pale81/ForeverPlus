@@ -30,6 +30,8 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 **Landing sounds.** `Modules/Landing.lua` references native sounds by FileDataID through `PlaySoundFile`. Classic footsteps `Sound/CHARACTER/FOOTSTEPS/mFootSmallDirt` A–E use 540227, 540136, 540099, 540201 and 540128. Thuds `Sound/DOODAD/FX_DeathThud_DirtGrass_med_01`–`06` use 950654, 950656, 950658, 950660, 950662 and 950664. Names are mapped by the [community listfile](https://github.com/wowdev/wow-listfile). Audio stays in the game installation.
 
+**Auction sale sound.** `Media/AuctionKaChing.mp3` is synthesized locally by `tools/build_kaching.py` from mathematical waveforms and filtered noise (mechanical drawer slide, brass dome bell, coin clinks), with `SOUNDKIT.LOOT_WINDOW_COIN_SOUND` as fallback when `PlaySoundFile` fails.
+
 **Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). The mean alpha threshold is 150/255, with 30/255 in the tail region (columns 13–24, rows 18–24, counted from the top left). The game renders its own Blizzard textures.
 
 **Player portrait styles.** The Forever client supplies the portrait mask, class portrait atlases, Alliance and Horde emblems from character creation, and the Zephras Isle emblem for the Skyborne. The other playable races use the client's tournament banner icons (FileDataIDs 255128–255135).

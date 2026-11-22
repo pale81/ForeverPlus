@@ -23,6 +23,7 @@ local Auction = ns:NewModule("Auction", {
 		duration24 = true,
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
+		saleSound = true, -- vintage cash register sound on auction sales and unread auction sale mail with gold
 	},
 	charDefaults = {
 		crafted = {}, -- itemID -> true: made by a recipe this character knows (read when a profession is opened)
@@ -1338,6 +1339,157 @@ local function OnCraftTooltip(tooltip, data)
 end
 
 ---------------------------------------------------------------------------
+-- Sale sound: vintage cash register "ka-ching" on live sales and unread
+-- auction house sale mail carrying proceeds.
+---------------------------------------------------------------------------
+local ApplySaleSound
+do
+	local SALE_SOUND_FILE = [[Interface\AddOns\ForeverPlus\Media\AuctionKaChing.mp3]]
+	local SALE_SOUND_GAP = 1.5 -- seconds: multiple sales in the same moment play one sound
+	local lastSaleSoundAt
+	local seenSaleMails = {}
+	local soldChatFormat, soldChatPattern
+	local soldMailFormat, soldMailPattern
+
+	local function PatternFor(formatString, cachedFormat, cachedPattern)
+		if type(formatString) ~= "string" or formatString == "" then
+			return formatString, nil
+		end
+		if cachedFormat ~= formatString then
+			cachedFormat = formatString
+			cachedPattern = ns.FormatToPattern(formatString, true).pattern
+		end
+		return cachedFormat, cachedPattern
+	end
+
+	function Auction.PlaySaleSound(force)
+		if not force then
+			if not Auction.db.saleSound then
+				return false
+			end
+			local now = GetTime()
+			if lastSaleSoundAt and now - lastSaleSoundAt < SALE_SOUND_GAP then
+				return false
+			end
+			lastSaleSoundAt = now
+		end
+		if not PlaySoundFile(SALE_SOUND_FILE, "Master") then
+			local kit = SOUNDKIT and SOUNDKIT.LOOT_WINDOW_COIN_SOUND
+			if kit then
+				PlaySound(kit, "Master")
+			end
+		end
+		return true
+	end
+
+	function Auction.IsSaleSystemMessage(message)
+		local text = Plain(message)
+		if type(text) ~= "string" then
+			return false
+		end
+		soldChatFormat, soldChatPattern = PatternFor(ERR_AUCTION_SOLD_S, soldChatFormat, soldChatPattern)
+		return soldChatPattern ~= nil and text:match(soldChatPattern) ~= nil
+	end
+
+	-- Read-only check for an unread auction sale mail with proceeds attached.
+	-- Uses GetInboxHeaderInfo and GetInboxInvoiceInfo only (never GetInboxText,
+	-- which marks mail as read).
+	function Auction.SaleMailKey(index)
+		if not GetInboxHeaderInfo then
+			return nil
+		end
+		local _, _, sender, subject, money, _, _, _, wasRead = GetInboxHeaderInfo(index)
+		sender = Plain(sender)
+		subject = Plain(subject)
+		money = Plain(money)
+		wasRead = Plain(wasRead)
+		if wasRead or type(money) ~= "number" or money <= 0 then
+			return nil
+		end
+		local invoiceType, itemName, _, bid
+		if GetInboxInvoiceInfo then
+			invoiceType, itemName, _, bid = GetInboxInvoiceInfo(index)
+			invoiceType = Plain(invoiceType)
+			itemName = Plain(itemName)
+			bid = Plain(bid)
+		end
+		if invoiceType ~= nil then
+			if invoiceType ~= "seller" then
+				return nil
+			end
+		else
+			soldMailFormat, soldMailPattern = PatternFor(AUCTION_SOLD_MAIL_SUBJECT, soldMailFormat, soldMailPattern)
+			if not soldMailPattern or type(subject) ~= "string" or not subject:match(soldMailPattern) then
+				return nil
+			end
+		end
+		return ("%s\0%s\0%d\0%s\0%d"):format(sender or "", subject or "", money, itemName or "", type(bid) == "number" and bid or 0)
+	end
+
+	function Auction.ScanSaleMail(allowEmpty)
+		local numItems = GetInboxNumItems and Plain(GetInboxNumItems()) or 0
+		if numItems == 0 and not allowEmpty then
+			return false
+		end
+		local current, foundNew = {}, false
+		for index = 1, numItems do
+			local key = Auction.SaleMailKey(index)
+			if key then
+				local count = (current[key] or 0) + 1
+				current[key] = count
+				if count > (seenSaleMails[key] or 0) then
+					foundNew = true
+				end
+			end
+		end
+		seenSaleMails = current
+		if foundNew then
+			return Auction.PlaySaleSound()
+		end
+		return false
+	end
+
+	function Auction.ResetSaleMailState()
+		seenSaleMails = {}
+		lastSaleSoundAt = nil
+	end
+
+	local onNotification = ns.Measured("Auction: sale notification", function(_, _, notification)
+		local kind = Plain(notification)
+		local sold = Enum and Enum.AuctionHouseNotification and Enum.AuctionHouseNotification.AuctionSold
+		if sold ~= nil and kind == sold then
+			Auction.PlaySaleSound()
+		end
+	end)
+
+	local onSystemMessage = ns.Measured("Auction: sale chat", function(_, _, message)
+		if Auction.IsSaleSystemMessage(message) then
+			Auction.PlaySaleSound()
+		end
+	end)
+
+	local onMailShow = ns.Measured("Auction: sale mail", function()
+		Auction.ScanSaleMail(false)
+	end)
+
+	local onMailInboxUpdate = ns.Measured("Auction: sale mail", function()
+		Auction.ScanSaleMail(true)
+	end)
+
+	ApplySaleSound = function()
+		local enabled = Auction.db.saleSound
+		if not enabled then
+			Auction.ResetSaleMailState()
+		end
+		Auction:ToggleEvent("AUCTION_HOUSE_SHOW_FORMATTED_NOTIFICATION", enabled, onNotification)
+		Auction:ToggleEvent("AUCTION_HOUSE_SHOW_NOTIFICATION", enabled, onNotification)
+		Auction:ToggleEvent("CHAT_MSG_SYSTEM", enabled, onSystemMessage)
+		Auction:ToggleEvent("MAIL_SHOW", enabled, onMailShow)
+		Auction:ToggleEvent("MAIL_INBOX_UPDATE", enabled, onMailInboxUpdate)
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
@@ -1346,6 +1498,7 @@ function Auction:OnLogin()
 		self.db.scoreSort = false -- before they excluded each other, "Value" was a sub-option of the rating sort
 	end
 	self:ApplyDuration()
+	ApplySaleSound()
 	-- Auction prices are noted on every look (also with the tooltip line switched off: they are there when it is on).
 	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", OnBrowseResults)
 	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", OnBrowseResults)
@@ -1427,6 +1580,8 @@ function Auction:OnOptionChanged(key)
 		self:ApplyDuration()
 	elseif key == "startTab" then
 		ApplyStartTab()
+	elseif key == "saleSound" then
+		ApplySaleSound()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
 		or key == "hideVendorItems" or key == "scoreValueSort" then
 		ApplyBuyFilter()
@@ -1460,4 +1615,8 @@ Auction.options = {
 		{ "sell", L.AUCTION_TAB_SELL },
 		{ "auctions", L.AUCTION_TAB_AUCTIONS },
 	} },
+	{ key = "saleSound", type = "toggle", name = L.AUCTION_SALE_SOUND, desc = L.AUCTION_SALE_SOUND_DESC },
+	{ type = "button", name = L.AUCTION_SALE_SOUND_TEST, text = L.QUESTS_TEST, func = function()
+		Auction.PlaySaleSound(true)
+	end },
 }

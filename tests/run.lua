@@ -8871,14 +8871,14 @@ end)()
 	browse(A, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", { result(1, 80), result(6, 600) })
 	do
 		local frame = { UpdateBrowseResults = function() end, browseResults = { result(7, 700) } }
-		local savedHook, queue, unregistered = hooksecurefunc, nil, 0
+		local savedHook, savedUnregister, queue, unregistered = hooksecurefunc, A.UnregisterEvent, nil, 0
 		hooksecurefunc = function(target, name, fn)
 			assert(target == frame and name == "UpdateBrowseResults")
 			queue = fn
 		end
 		A.UnregisterEvent = function() unregistered = unregistered + 1 end
 		uv(A.OnLogin, "HookBrowsePrices")(frame)
-		A.UnregisterEvent, hooksecurefunc = nil, savedHook
+		A.UnregisterEvent, hooksecurefunc = savedUnregister, savedHook
 		assert(unregistered == 2, "the Blizzard hook replaces both browse event listeners")
 		queue(frame)
 		queue(frame, { result(7, 650) })
@@ -10602,6 +10602,163 @@ end)()
 		"two timed entries: the longer one")
 	Enum.ItemEnchantType = saved
 	print("weapon enchant time OK")
+end)()
+-- Auction house: vintage cash register sound on live sales and unread sale mail with gold
+;(function()
+	local A = ns:GetModule("Auction")
+	local saved = {
+		PlaySoundFile, PlaySound, GetTime, GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo,
+		ERR_AUCTION_SOLD_S, AUCTION_SOLD_MAIL_SUBJECT, Enum.AuctionHouseNotification, SOUNDKIT.LOOT_WINDOW_COIN_SOUND,
+		A.db.saleSound,
+	}
+	local now, filePlays, kitPlays, fileOk = 100, {}, {}, true
+	PlaySoundFile = function(file, channel)
+		filePlays[#filePlays + 1] = { file, channel }
+		return fileOk
+	end
+	PlaySound = function(kit, channel)
+		kitPlays[#kitPlays + 1] = { kit, channel }
+	end
+	GetTime = function() return now end
+	SOUNDKIT.LOOT_WINDOW_COIN_SOUND = 895
+	Enum.AuctionHouseNotification = {
+		BidPlaced = 0, AuctionRemoved = 1, AuctionWon = 2,
+		AuctionOutbid = 3, AuctionSold = 4, AuctionExpired = 5,
+	}
+	ERR_AUCTION_SOLD_S = "Für Eure Auktion von %s wurde ein Käufer gefunden."
+	AUCTION_SOLD_MAIL_SUBJECT = "Auktion erfolgreich: %s"
+
+	local inbox = {}
+	GetInboxNumItems = function() return #inbox, #inbox end
+	GetInboxHeaderInfo = function(index)
+		local m = inbox[index]
+		if not m then return nil end
+		return nil, nil, m.sender, m.subject, m.money, 0, 29, m.items, m.wasRead
+	end
+	GetInboxInvoiceInfo = function(index)
+		local m = inbox[index]
+		if not m then return nil end
+		return m.invoiceType, m.itemName, m.playerName, m.bid
+	end
+
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function Fire(event, ...)
+		eventFrame:GetScript("OnEvent")(eventFrame, event, ...)
+	end
+
+	A.db.saleSound = true
+	A:OnOptionChanged("saleSound")
+	A.ResetSaleMailState()
+
+	-- Live notification events: only AuctionSold plays
+	Fire("AUCTION_HOUSE_SHOW_FORMATTED_NOTIFICATION", Enum.AuctionHouseNotification.AuctionExpired, "Kupfererz")
+	Fire("AUCTION_HOUSE_SHOW_FORMATTED_NOTIFICATION", Enum.AuctionHouseNotification.AuctionOutbid, "Kupfererz")
+	Fire("AUCTION_HOUSE_SHOW_FORMATTED_NOTIFICATION", Enum.AuctionHouseNotification.AuctionWon, "Kupfererz")
+	assert(#filePlays == 0, "expired, outbid, won stay silent")
+
+	Fire("AUCTION_HOUSE_SHOW_FORMATTED_NOTIFICATION", Enum.AuctionHouseNotification.AuctionSold, "Kupfererz")
+	assert(#filePlays == 1 and filePlays[1][1]:find("AuctionKaChing%.mp3$") and filePlays[1][2] == "Master",
+		"live formatted AuctionSold plays the cash register sound on Master")
+
+	-- Debounce prevents stacked noise when several auctions sell in the same second
+	now = 100.5
+	Fire("AUCTION_HOUSE_SHOW_NOTIFICATION", Enum.AuctionHouseNotification.AuctionSold)
+	assert(#filePlays == 1, "rapid second sale within cooldown stays silent")
+
+	now = 103
+	Fire("AUCTION_HOUSE_SHOW_NOTIFICATION", Enum.AuctionHouseNotification.AuctionSold)
+	assert(#filePlays == 2, "sale after cooldown plays again")
+
+	-- System chat fallback matches both German and English ERR_AUCTION_SOLD_S
+	now = 110
+	Fire("CHAT_MSG_SYSTEM", "Eure Auktion von Kupfererz ist abgelaufen.")
+	assert(#filePlays == 2, "unrelated system message stays silent")
+	Fire("CHAT_MSG_SYSTEM", "Für Eure Auktion von Kupfererz wurde ein Käufer gefunden.")
+	assert(#filePlays == 3, "German ERR_AUCTION_SOLD_S system message plays")
+	ERR_AUCTION_SOLD_S = "A buyer has been found for your auction of %s."
+	now = 115
+	Fire("CHAT_MSG_SYSTEM", "A buyer has been found for your auction of Copper Ore.")
+	assert(#filePlays == 4, "English ERR_AUCTION_SOLD_S system message plays")
+
+	-- Mailbox scan: only unread AH sale mail with money plays
+	now = 120
+	inbox = {
+		{ sender = "Auktionshaus der Allianz", subject = "Auktion abgelaufen: Kupfererz", money = 0, wasRead = false },
+		{ sender = "Auktionshaus der Allianz", subject = "Überboten: Kupfererz", money = 5000, wasRead = false },
+		{ sender = "Auktionshaus der Allianz", subject = "Auktion gewonnen: Leinenstoff", money = 0, wasRead = false, invoiceType = "buyer", itemName = "Leinenstoff", bid = 1200 },
+		{ sender = "Auktionshaus der Allianz", subject = "Auktion erfolgreich: Seidenstoff", money = 0, wasRead = false, invoiceType = "seller_temp_invoice", itemName = "Seidenstoff", bid = 3000 },
+		{ sender = "Freund", subject = "Hier dein Gold", money = 10000, wasRead = false },
+		{ sender = "Auktionshaus der Allianz", subject = "Auktion erfolgreich: Kupfererz", money = 4750, wasRead = true, invoiceType = "seller", itemName = "Kupfererz", bid = 5000 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 4, "expired, outbid, bought, pending temp invoice, player gold, and already-read sale mail stay silent")
+
+	-- Unread seller mail with proceeds plays once, not repeatedly while the mailbox stays open
+	now = 125
+	inbox[#inbox + 1] = {
+		sender = "Auktionshaus der Allianz", subject = "Auktion erfolgreich: Silbererz",
+		money = 9500, wasRead = false, invoiceType = "seller", itemName = "Silbererz", bid = 10000,
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 5, "unread AH sale mail with gold plays")
+
+	now = 130
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 5, "same unread sale mail does not replay on next inbox update")
+
+	-- MAIL_SHOW with empty inbox before server response must not clear remembered unread mails
+	local savedInbox = inbox
+	inbox = {}
+	now = 135
+	Fire("MAIL_SHOW")
+	inbox = savedInbox
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 5, "empty MAIL_SHOW before MAIL_INBOX_UPDATE keeps remembered sale mails")
+
+	-- A second identical unread sale increases the count and plays
+	now = 140
+	inbox[#inbox + 1] = {
+		sender = "Auktionshaus der Allianz", subject = "Auktion erfolgreich: Silbererz",
+		money = 9500, wasRead = false, invoiceType = "seller", itemName = "Silbererz", bid = 10000,
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 6, "a second identical unread sale plays")
+
+	-- After looting all mails, a later identical sale plays again
+	inbox = {}
+	now = 145
+	Fire("MAIL_INBOX_UPDATE")
+	inbox = {
+		{ sender = "Auktionshaus der Allianz", subject = "Auktion erfolgreich: Silbererz", money = 9500, wasRead = false },
+	}
+	now = 150
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 7, "fallback subject match plays when invoice info is nil and money > 0")
+
+	-- Fallback to Blizzard coin sound when PlaySoundFile returns false
+	fileOk = false
+	now = 155
+	Fire("AUCTION_HOUSE_SHOW_NOTIFICATION", Enum.AuctionHouseNotification.AuctionSold)
+	assert(#kitPlays == 1 and kitPlays[1][1] == 895 and kitPlays[1][2] == "Master",
+		"falls back to LOOT_WINDOW_COIN_SOUND when custom file fails")
+	fileOk = true
+
+	-- Option off unregisters events; test button still plays via force
+	A.db.saleSound = false
+	A:OnOptionChanged("saleSound")
+	now = 160
+	Fire("AUCTION_HOUSE_SHOW_NOTIFICATION", Enum.AuctionHouseNotification.AuctionSold)
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#filePlays == 8, "option off: live sale and mailbox updates stay silent")
+	assert(A.PlaySaleSound(true) == true and #filePlays == 9, "test button plays regardless of option and cooldown")
+	assert(A.PlaySaleSound(true) == true and #filePlays == 10, "repeated test clicks play without cooldown")
+
+	PlaySoundFile, PlaySound, GetTime, GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo = unpack(saved, 1, 6)
+	ERR_AUCTION_SOLD_S, AUCTION_SOLD_MAIL_SUBJECT, Enum.AuctionHouseNotification, SOUNDKIT.LOOT_WINDOW_COIN_SOUND = unpack(saved, 7, 10)
+	A.db.saleSound = saved[11]
+	A:OnOptionChanged("saleSound")
+	A.ResetSaleMailState()
+	print("auction sale sound OK")
 end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Synthesize a realistic antique mechanical cash-register 'kaaaa-chiiiing'.
+"""Synthesize a crisp, classic antique cash-register 'cha-chiiiing'.
 
 Builds Media/AuctionKaChing.mp3 from physical/modal synthesis:
-  1. Heavy steel key-press and escapement lever trip ("ka-chak")
-  2. Spring-driven mechanical gear ratchet and steel drawer rolling on rails ("-aaaa-")
-  3. Solid hardwood/iron drawer-stop slam ("-klunk")
-  4. Heavy antique cast-brass dome bell with long natural ring-out ("-chiiiiiiiiing")
-  5. Organic wooden-shop early reflections
+  1. Snappy steel latch release & quick spring-drawer slide ("cha-") (~0.15 s)
+  2. Crisp drawer-stop clack right as the hammer strikes
+  3. Heavy antique cast-brass dome bell with long natural ring-out ("-chiiiiiiiiing")
+  4. Subtle dry metallic tray/coin clatter and short wooden-shop early reflections
 """
 from math import cos, exp, pi, sin, tanh
 from pathlib import Path
@@ -16,7 +15,7 @@ import subprocess
 import wave
 
 SAMPLE_RATE = 44100
-DURATION = 2.85
+DURATION = 2.55
 N_SAMPLES = int(SAMPLE_RATE * DURATION)
 TARGET = Path(__file__).resolve().parent.parent / "Media/AuctionKaChing.mp3"
 
@@ -73,7 +72,7 @@ def biquad_lowpass(samples, freq, q=0.707):
     return out
 
 
-def add_damped_sine(buf, t_start, freq, amp, decay, attack=0.0007, phase=0.0):
+def add_damped_sine(buf, t_start, freq, amp, decay, attack=0.0006, phase=0.0):
     """Add an exponentially decaying resonant mode with a smooth attack."""
     start_i = max(0, int(t_start * SAMPLE_RATE))
     max_len = int((attack + decay * 10.0) * SAMPLE_RATE)
@@ -87,25 +86,6 @@ def add_damped_sine(buf, t_start, freq, amp, decay, attack=0.0007, phase=0.0):
         if dt < attack:
             env *= dt / attack
         buf[i] += amp * env * sin(w * (i - start_i) + phase)
-
-
-def add_modal_hit(buf, t_start, modes, amp, rng):
-    """Excite a cluster of narrow metallic/wooden body resonances with a dry click."""
-    # Short dry impact burst + narrow damped modal rings (no hissy broadband wash)
-    start_i = max(0, int(t_start * SAMPLE_RATE))
-    click_len = min(len(buf) - start_i, int(0.012 * SAMPLE_RATE))
-    if click_len > 0:
-        raw = [rng.uniform(-1.0, 1.0) for _ in range(click_len)]
-        click = biquad_bandpass(raw, 1900.0, 1.6)
-        inv_sr = 1.0 / SAMPLE_RATE
-        for k in range(click_len):
-            dt = k * inv_sr
-            buf[start_i + k] += amp * 0.24 * exp(-dt / 0.0022) * click[k]
-    for freq, rel_amp, decay in modes:
-        add_damped_sine(
-            buf, t_start, freq, amp * rel_amp, decay,
-            attack=0.0004, phase=rng.uniform(0.0, 2.0 * pi),
-        )
 
 
 def add_metallic_impulse(buf, t_start, duration, freq, q, amp, attack, decay, rng):
@@ -143,108 +123,92 @@ def add_room_reflections(buf):
         d = int(delay_s * SAMPLE_RATE)
         for i in range(d, len(buf)):
             wet[i] += gain * buf[i - d]
-    wet = biquad_lowpass(wet, 3400.0, 0.7)
-    return [buf[i] + 0.50 * wet[i] for i in range(len(buf))]
+    wet = biquad_lowpass(wet, 3600.0, 0.7)
+    return [buf[i] + 0.48 * wet[i] for i in range(len(buf))]
 
 
 def synthesize():
-    rng = random.Random(16003)
+    rng = random.Random(16005)
     buf = [0.0] * N_SAMPLES
 
-    # 1. Heavy steel key press & escapement trip ("KA-CHAK") at 0.008 s and 0.068 s
-    # Dry, unpitched broadband mechanical impacts (no musical tone!)
-    add_metallic_impulse(buf, 0.008, 0.070, 185.0, 1.3, 0.85, 0.0008, 0.022, rng)
-    add_metallic_impulse(buf, 0.008, 0.045, 780.0, 1.8, 0.55, 0.0005, 0.012, rng)
-    add_metallic_impulse(buf, 0.009, 0.030, 2150.0, 2.0, 0.62, 0.0004, 0.007, rng)
-    add_metallic_impulse(buf, 0.009, 0.022, 4200.0, 2.2, 0.36, 0.0003, 0.005, rng)
+    # 1. Crisp, punchy mechanical "CHA-" (0.005 s - 0.142 s) — tight steel mechanics, no slow rattle
+    # Sharp steel key-slam + metal latch trip at t = 0.005 s
+    add_metallic_impulse(buf, 0.005, 0.036, 195.0, 1.4, 0.72, 0.0004, 0.012, rng)
+    add_metallic_impulse(buf, 0.005, 0.028, 1280.0, 2.2, 0.74, 0.0003, 0.008, rng)
+    add_metallic_impulse(buf, 0.005, 0.022, 3150.0, 2.6, 0.62, 0.0003, 0.006, rng)
+    add_metallic_impulse(buf, 0.006, 0.016, 5600.0, 2.8, 0.34, 0.0002, 0.004, rng)
 
-    # Escapement lever snapping back as the drawer spring releases
-    add_metallic_impulse(buf, 0.068, 0.045, 310.0, 1.6, 0.50, 0.0006, 0.014, rng)
-    add_metallic_impulse(buf, 0.068, 0.030, 1580.0, 2.2, 0.58, 0.0004, 0.008, rng)
-    add_metallic_impulse(buf, 0.069, 0.022, 3450.0, 2.4, 0.40, 0.0003, 0.005, rng)
-
-    # 2. Long heavy iron/wood drawer rolling out on steel tracks ("-AAAAA-") (0.10 s - 0.40 s)
-    # Constant-pitch gritty mechanical rolling rumble + dry steel gear ticks (NO rising pitch!)
-    roll_start = int(0.098 * SAMPLE_RATE)
-    roll_len = int(0.315 * SAMPLE_RATE)
-    roll_raw = [rng.uniform(-1.0, 1.0) for _ in range(roll_len)]
-    roll_wood = biquad_bandpass(roll_raw, 190.0, 1.5)
-    roll_iron = biquad_bandpass(roll_raw, 560.0, 1.8)
-    roll_rail = biquad_bandpass(roll_raw, 1420.0, 2.0)
-    for k in range(roll_len):
-        u = k / float(roll_len)
-        # Mechanical bearing grain (gentle uneven texture, not tonal)
-        grain = 0.78 + 0.22 * sin(2.0 * pi * (37.0 * u)) * sin(2.0 * pi * (13.0 * u + 0.4))
-        env = min(1.0, u / 0.14) * (1.0 - max(0.0, (u - 0.88) / 0.12))
-        env *= (0.72 + 0.35 * u) * grain
-        buf[roll_start + k] += env * (
-            0.52 * roll_wood[k] + 0.34 * roll_iron[k] + 0.24 * roll_rail[k]
+    # Short, heavy iron/wood drawer slide impulse (0.022 s - 0.130 s, low-mid body, minimal hiss)
+    zip_start = int(0.022 * SAMPLE_RATE)
+    zip_len = int(0.108 * SAMPLE_RATE)
+    zip_raw = [rng.uniform(-1.0, 1.0) for _ in range(zip_len)]
+    zip_low = biquad_bandpass(zip_raw, 310.0, 1.5)
+    zip_mid = biquad_bandpass(zip_raw, 1380.0, 2.2)
+    zip_hi = biquad_bandpass(zip_raw, 3400.0, 2.8)
+    for k in range(zip_len):
+        u = k / float(zip_len)
+        env = min(1.0, u / 0.16) * (1.0 - max(0.0, (u - 0.84) / 0.16))
+        env *= 0.65 + 0.45 * u
+        buf[zip_start + k] += env * (
+            0.38 * zip_low[k] + 0.32 * zip_mid[k] + 0.12 * zip_hi[k]
         )
 
-    # Dry, unpitched steel gear-pawl ticks along the drawer travel (tight 3-4 ms clicks)
-    ratchet_times = [
-        0.112, 0.145, 0.176, 0.205, 0.233,
-        0.260, 0.288, 0.317, 0.347, 0.378,
-    ]
-    for idx, t in enumerate(ratchet_times):
-        t_j = t + rng.uniform(-0.003, 0.003)
-        grow = 0.65 + 0.04 * idx
-        f_a = rng.uniform(1150.0, 1850.0)
-        f_b = rng.uniform(2600.0, 3900.0)
-        add_metallic_impulse(buf, t_j, 0.022, f_a, 2.6, 0.44 * grow, 0.0003, 0.0045, rng)
-        add_metallic_impulse(buf, t_j, 0.018, f_b, 2.8, 0.32 * grow, 0.0003, 0.0035, rng)
-        add_metallic_impulse(buf, t_j, 0.028, rng.uniform(260.0, 420.0), 1.8, 0.26 * grow, 0.0005, 0.007, rng)
+    # Crisp spring-lever snap mid-stroke at t = 0.068 s ("-CHAK")
+    add_metallic_impulse(buf, 0.068, 0.032, 480.0, 1.8, 0.54, 0.0004, 0.010, rng)
+    add_metallic_impulse(buf, 0.068, 0.024, 2150.0, 2.8, 0.68, 0.0003, 0.0065, rng)
+    add_metallic_impulse(buf, 0.069, 0.018, 4600.0, 3.2, 0.44, 0.0002, 0.0045, rng)
 
-    # 3. Heavy hardwood & cast-iron drawer-stop impact ("-KLUNK!") at t = 0.412 s
-    t_stop = 0.412
-    add_metallic_impulse(buf, t_stop, 0.110, 115.0, 1.3, 1.05, 0.0010, 0.036, rng)
-    add_metallic_impulse(buf, t_stop, 0.085, 275.0, 1.7, 0.72, 0.0008, 0.025, rng)
-    add_metallic_impulse(buf, t_stop, 0.065, 860.0, 2.0, 0.56, 0.0005, 0.016, rng)
-    add_metallic_impulse(buf, t_stop, 0.045, 2150.0, 2.2, 0.42, 0.0004, 0.010, rng)
+    # 2. Solid drawer-stop impact ("-KLACK") at t = 0.132 s right before the bell hammer
+    t_stop = 0.132
+    add_metallic_impulse(buf, t_stop, 0.070, 135.0, 1.3, 0.92, 0.0006, 0.024, rng)
+    add_metallic_impulse(buf, t_stop, 0.052, 410.0, 1.8, 0.60, 0.0005, 0.016, rng)
+    add_metallic_impulse(buf, t_stop, 0.034, 1780.0, 2.4, 0.62, 0.0004, 0.009, rng)
+    add_metallic_impulse(buf, t_stop, 0.024, 4100.0, 2.8, 0.40, 0.0003, 0.006, rng)
 
-    # 4. Heavy antique cast-brass register bell ("-CHIIIIIIIIIIING!") at t = 0.432 s
-    # Classic thick cast-brass dome bell (~2120 Hz): bright, authentic, rich, long ~2.4 s ring.
-    t_bell = 0.432
+    # 3. Heavy antique cast-brass register bell ("-CHIIIIIIIIIIING!") at t = 0.145 s
+    # Long, clear, authentic antique cast-brass dome bell (~2120 Hz, ~2.4 s ring-out).
+    t_bell = 0.145
     f0 = 2120.0
 
-    # Crisp steel-clapper-on-brass strike transient (short, tight, metallic — zero hiss)
-    add_metallic_impulse(buf, t_bell, 0.024, 5800.0, 2.2, 0.68, 0.0002, 0.0030, rng)
-    add_metallic_impulse(buf, t_bell, 0.032, 3100.0, 3.4, 0.38, 0.0003, 0.0065, rng)
+    # Crisp steel-clapper-on-brass strike transient
+    add_metallic_impulse(buf, t_bell, 0.024, 5900.0, 2.0, 0.72, 0.0002, 0.0032, rng)
+    add_metallic_impulse(buf, t_bell, 0.032, 3150.0, 3.2, 0.40, 0.0003, 0.0065, rng)
 
     # Thick cast-brass dome shell partials: (ratio, amp, decay_sec, phase)
     bell_modes = [
-        (0.5012, 0.048, 1.05, 0.0),   # faint warm brass body hum
-        (1.0000, 0.560, 1.02, 0.0),   # main singing brass bell fundamental
-        (1.0011, 0.135, 0.94, 0.6),   # slow organic cast-shell shimmer (~2.3 Hz)
-        (1.5840, 0.050, 0.48, 1.2),   # subtle inharmonic dome shell tone
-        (2.0090, 0.190, 0.54, 0.3),   # bright slightly stretched octave partial
-        (2.0122, 0.045, 0.44, 2.0),   # faint upper brass shimmer
-        (2.7560, 0.155, 0.28, 0.9),   # signature bell shell overtone
-        (3.6680, 0.090, 0.14, 2.4),   # crisp upper metallic ring
-        (4.7820, 0.052, 0.065, 0.5),  # metallic attack brilliance
-        (6.1100, 0.028, 0.028, 1.5),  # crisp steel-on-brass strike sheen
+        (0.5012, 0.048, 1.02, 0.0),   # faint warm brass body hum
+        (1.0000, 0.565, 1.00, 0.0),   # main singing brass bell fundamental
+        (1.0011, 0.135, 0.92, 0.6),   # slow organic cast-shell shimmer (~2.3 Hz)
+        (1.5840, 0.050, 0.46, 1.2),   # subtle inharmonic dome shell tone
+        (2.0090, 0.195, 0.52, 0.3),   # bright slightly stretched octave partial
+        (2.0122, 0.045, 0.42, 2.0),   # faint upper brass shimmer
+        (2.7560, 0.155, 0.27, 0.9),   # signature bell shell overtone
+        (3.6680, 0.092, 0.135, 2.4),  # crisp upper metallic ring
+        (4.7820, 0.054, 0.062, 0.5),  # metallic attack brilliance
+        (6.1100, 0.030, 0.026, 1.5),  # crisp steel-on-brass strike sheen
     ]
     for ratio, amp, decay, phase in bell_modes:
         add_damped_sine(buf, t_bell, f0 * ratio, amp, decay, attack=0.0005, phase=phase)
 
-    # 5. Subtle mechanical spring-latch recoil & drawer-tray settle (0.48 s - 0.68 s)
-    recoil_modes = [
-        (380.0, 0.14, 0.015),
-        (1240.0, 0.12, 0.010),
-        (2850.0, 0.09, 0.008),
+    # 4. Subtle dry metallic tray/coin clatter right as the drawer pops open (0.17 s - 0.36 s)
+    clatter = [
+        (0.175, 3850.0, 0.18, 0.011),
+        (0.212, 4950.0, 0.14, 0.010),
+        (0.258, 3420.0, 0.11, 0.009),
+        (0.315, 4480.0, 0.07, 0.008),
     ]
-    add_modal_hit(buf, 0.495, recoil_modes, 0.24, rng)
-    add_metallic_impulse(buf, 0.565, 0.036, 3650.0, 9.5, 0.12, 0.0004, 0.014, rng)
-    add_metallic_impulse(buf, 0.635, 0.032, 4320.0, 10.5, 0.08, 0.0004, 0.011, rng)
+    for t_c, freq_c, amp_c, dec_c in clatter:
+        add_metallic_impulse(buf, t_c, 0.032, freq_c, 8.0, amp_c, 0.0003, dec_c, rng)
+        add_metallic_impulse(buf, t_c, 0.024, freq_c * 1.47, 9.5, amp_c * 0.6, 0.0003, dec_c * 0.7, rng)
 
     # Natural wooden-shop early reflections
     buf = add_room_reflections(buf)
 
-    # Clean fade-in (3 ms) and long natural fade-out (200 ms)
-    fade_in = int(0.003 * SAMPLE_RATE)
+    # Clean fade-in (2 ms) and long natural fade-out (180 ms)
+    fade_in = int(0.002 * SAMPLE_RATE)
     for i in range(fade_in):
         buf[i] *= i / float(fade_in)
-    fade_out = int(0.200 * SAMPLE_RATE)
+    fade_out = int(0.180 * SAMPLE_RATE)
     for k in range(fade_out):
         buf[N_SAMPLES - 1 - k] *= k / float(fade_out)
 

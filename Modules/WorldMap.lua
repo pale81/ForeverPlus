@@ -260,7 +260,7 @@ ns.AddMapFilterEntry(function(root)
 		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_SHOW, "WorldMap", "reveal", L.WORLDMAP_REVEAL_DESC)
 		reveal:CreateTitle(L.WORLDMAP_REVEAL_ALPHA)
 		for _, percent in ipairs({ 20, 40, 60, 80, 100 }) do
-			reveal:CreateRadio(("%d %%"):format(percent), function()
+			ns.CreateMenuRadio(reveal, ("%d %%"):format(percent), function()
 				return math.abs((WorldMap.db.revealAlpha or 60) - percent) < 10
 			end, function()
 				ns.SetOption("WorldMap", "revealAlpha", percent)

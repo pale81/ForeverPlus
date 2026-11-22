@@ -285,6 +285,7 @@ Fenster und ForeverPlus-Anzeigen wie Koordinaten oder FPS/MS sind anfangs gesper
 - Auktionspreise werden über mehrere Bilder gespeichert. Beim Nachladen zählt nur die neue Ergebnisseite. Der Kauffilter prüft Treffer in kürzeren Abschnitten und baut die sichtbare Liste bei Änderungen neu auf. Chat-Umbrüche teilen sich pro Fenster einen Durchlauf durch den Verlauf. Bei Aura-Änderungen werden nur Aktionsknöpfe mit Selbstbuffs oder Gegenständen neu eingefärbt; reine Laufzeit- und Stapeländerungen lösen keinen Aura-Scan aus.
 - Ausschließlich `hooksecurefunc`/`HookScript`, `TooltipDataProcessor`, Settings-API, `EventRegistry` (Bearbeitungsmodus) – keine Ersetzung von Blizzard-Funktionen.
 - Ereignisse werden nur registriert, solange eine Funktion aktiv ist. Dauerhafte `OnUpdate`-Schleifen gibt es nur für das Mouseover-Ausblenden (Prüfung alle 0,1 s, Überblendung nur während des Übergangs). Koordinaten und Minimap-Pins aktualisieren nur während der Bewegung, der Skalierungs-Fänger nur bei gedrückter Strg-Taste.
+- Auswahlmenüs (Deckkraft unentdeckter Gebiete, Symbol- und Namensgrößen, Sortierung der Questverfolgung, Farben des Kampftexts, Talentpläne) bleiben nach einer Wahl offen und schließen mit Esc oder Klick daneben.
 - Lua-Fehler werden aus Blizzards eigenem `ScriptErrorsFrame` gelesen (kein eigener Error-Handler); das Popup wird über die CVar `scriptErrors` unterdrückt und beim Deaktivieren wiederhergestellt.
 
 ## Bekannte Grenzen / ungeprüft

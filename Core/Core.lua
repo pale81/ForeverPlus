@@ -194,6 +194,16 @@ function ns.CreateOptionCheckbox(parent, text, moduleName, key, tooltip)
 	return checkbox
 end
 
+-- A choice in a menu that keeps the menu open after picking it, so another choice is one click away
+-- (Blizzard's radio buttons close every menu by default).
+function ns.CreateMenuRadio(parent, text, isSelected, setSelected, data)
+	local radio = parent:CreateRadio(text, isSelected, setSelected, data)
+	if radio and radio.SetResponse then
+		radio:SetResponse(MenuResponse.Refresh)
+	end
+	return radio
+end
+
 -- A submenu with the sizes (percent) of a module's symbols as radio buttons; the setting is
 -- "ForeverPlus_<module>_<key>" like on the settings page.
 local SIZE_STEPS = { 50, 75, 100, 125, 150, 200 }
@@ -204,7 +214,7 @@ function ns.CreateSizeMenu(parent, text, moduleName, key)
 		return menu
 	end
 	for _, percent in ipairs(SIZE_STEPS) do
-		menu:CreateRadio(("%d %%"):format(percent), function()
+		ns.CreateMenuRadio(menu, ("%d %%"):format(percent), function()
 			local module = ns:GetModule(moduleName)
 			return math.abs((module and module.db[key] or 100) - percent) < 12
 		end, function()

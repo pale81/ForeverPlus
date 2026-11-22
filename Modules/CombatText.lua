@@ -373,7 +373,7 @@ local function CreateEditOptions()
 		end)
 		dropdown:SetupMenu(function(_, root)
 			for _, choice in ipairs(COLOR_CHOICES) do
-				root:CreateRadio(choice[2], IsSelected, SetSelected, choice[1])
+				ns.CreateMenuRadio(root, choice[2], IsSelected, SetSelected, choice[1])
 			end
 		end)
 		y = y - 27

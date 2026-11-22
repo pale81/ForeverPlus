@@ -999,7 +999,7 @@ local function ShowSortMenu(owner)
 	MenuUtil.CreateContextMenu(owner, function(_, root)
 		root:CreateTitle(L.QUESTS_SORT)
 		for _, mode in ipairs(SORT_MODES) do
-			root:CreateRadio(L["QUESTS_SORT_" .. mode], function()
+			ns.CreateMenuRadio(root, L["QUESTS_SORT_" .. mode], function()
 				return Quests.db.trackerSort == mode
 			end, function()
 				ns.SetOption("Quests", "trackerSort", mode)

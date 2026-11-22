@@ -8439,6 +8439,25 @@ end)()
 	assert(R.Look(nil, 1, false) == "SHEET", "a single sheet on parchment")
 	assert(R.Look("Parchment", 1, true) == "BOOK" and R.Look("Parchment", 2, false) == "BOOK", "several pages: a book")
 	assert(R.Look("ParchmentLarge", 1, false) == "BOOK", "the large parchment is a book")
+-- Choices in menus keep the menu open
+;(function()
+	MenuResponse = { Open = 1, Refresh = 2, Close = 3, CloseAll = 4 }
+	local response, picked
+	local parent = { CreateRadio = function(_, text, isSelected, setSelected, data)
+		return { text = text, isSelected = isSelected, setSelected = setSelected, data = data,
+			SetResponse = function(_, value) response = value end }
+	end }
+	local radio = ns.CreateMenuRadio(parent, "60 %", function() return true end, function(value) picked = value end, 60)
+	radio.setSelected(radio.data)
+	assert(radio.text == "60 %" and radio.isSelected() and picked == 60, "text, state and choice passed through")
+	assert(response == MenuResponse.Refresh, "the menu stays open after a choice")
+	local sizes = 0
+	parent.CreateButton = function() return { CreateRadio = function(...) sizes = sizes + 1 return parent.CreateRadio(...) end } end
+	response = nil
+	ns.CreateSizeMenu(parent, "Size", "WorldMap", "symbolScale")
+	assert(sizes == 6 and response == MenuResponse.Refresh, "size menus stay open too")
+	print("menu choices OK")
+end)()
 	local look, material = R.Look("Stone", 1, true)
 	assert(look == "SHEET" and material == "Stone", "stone stays a plate, also with several pages")
 	assert(select(2, R.Look("Valentine", 1, false)) == "Parchment", "unknown material on parchment")

@@ -291,7 +291,7 @@ local function ShowBuildMenu(owner)
 		if Talents.db.planner then
 			root:CreateTitle(L.TALENTS_BUILDS)
 			for _, build in ipairs(BuildList()) do
-				root:CreateRadio(("%s (%d)"):format(build.name, ns.TalentBuilds.Points(build)), function()
+				ns.CreateMenuRadio(root, ("%s (%d)"):format(build.name, ns.TalentBuilds.Points(build)), function()
 					return ActiveBuild() == build
 				end, function()
 					ActivatePlan(build.id)

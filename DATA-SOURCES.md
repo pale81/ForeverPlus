@@ -22,6 +22,8 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 ## Sources reviewed
 
+**Weapon proc rate.** The item rating values damage from "Chance on hit" effects at 1 proc per minute. This is the typical value in the community combat-log measurements of Classic weapons collected in [Classic-WoW-Armaments](https://github.com/TheGroxEmpire/Classic-WoW-Armaments/blob/main/chance_on_hit_items.md) (most between 0.5 and 2 per minute; the repository states no licence, so no per-item values are bundled). The conversion follows [Procs per minute](https://warcraft.wiki.gg/wiki/Procs_per_minute). No rate has been published or measured for Forever.
+
 **Solo Party lettering.** The cards use the current interface font selected in ForeverPlus, with a dark shadow and separate sizes for labels, amounts and record percentages.
 
 **Solo Party effects.** The animated profession book is the visual reference for individual particles. The comic frames, water effects, leaves, strands, steam, healing sparks and feathered mask use separate textures in `Media/`. The game also renders its own smoke, sparkles and coin textures. Optional Bloody artwork uses a separate crimson card and four comic blood-splash sprites in `Media/SoloPartyBloody.tga` and `Media/SoloPartyBloodSplats.tga`.

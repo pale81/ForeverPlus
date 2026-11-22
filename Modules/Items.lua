@@ -465,36 +465,59 @@ local attackPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP, true).pattern
 local attackPowerLongPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_LONG, true).pattern
 local humanoidPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_HUMANOID, true).pattern
 local equipLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnEquip
+-- "Chance on hit" damage is valued at 1 proc per minute: the median of the combat-log
+-- measurements for Classic weapons (most between 0.5 and 2). Forever's rates are unmeasured.
+-- 14 attack power add 1 damage per second, so a point of proc damage per second is worth 14 AP.
+local PROC = { perMinute = 1, apPerDPS = 14 }
+local TooltipStats
+do
+	local procPattern = ns.FormatToPattern(L.ITEMS_PROC_EFFECT, true).pattern
+	local procLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnProc
 
-local function TooltipStats(link, readDPS, readAP)
-	local data = type(C_TooltipInfo.GetHyperlink) == "function" and C_TooltipInfo.GetHyperlink(link)
-	local dps, ap, humanoidAP = nil, 0, 0
-	for _, line in ipairs(data and data.lines or {}) do
-		local value = line.leftText
-		if not ns.Secret(value) and type(value) == "string" then
-			if readDPS and not dps then
-				local number = value:match(DPS_PATTERN)
-				dps = number and tonumber((number:gsub(",", ".")))
-			end
-			if readAP then
-				local plain = value:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+$", "")
-				local effect = plain:match(equipPattern) or (equipLineType and line.type == equipLineType and plain)
-				if effect then
-					effect = effect:gsub("%.?%s*$", "")
-					ap = ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
-					humanoidAP = humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+	-- Average damage of a "Chance on hit" effect text ("… 155 to 197 Fire damage"), 0 without damage.
+	function Items.ProcDamage(effect)
+		local text = effect:lower()
+		local low, high = text:match(L.ITEMS_PROC_DAMAGE_RANGE)
+		if low then
+			return (tonumber(low) + tonumber(high)) / 2
+		end
+		return tonumber(text:match(L.ITEMS_PROC_DAMAGE)) or 0
+	end
+
+	function TooltipStats(link, readDPS, readAP, readProc)
+		local data = type(C_TooltipInfo.GetHyperlink) == "function" and C_TooltipInfo.GetHyperlink(link)
+		local dps, ap, humanoidAP, procDamage = nil, 0, 0, 0
+		for _, line in ipairs(data and data.lines or {}) do
+			local value = line.leftText
+			if not ns.Secret(value) and type(value) == "string" then
+				if readDPS and not dps then
+					local number = value:match(DPS_PATTERN)
+					dps = number and tonumber((number:gsub(",", ".")))
+				end
+				if readAP or readProc then
+					local plain = value:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+$", "")
+					local effect = readAP and (plain:match(equipPattern) or (equipLineType and line.type == equipLineType and plain))
+					if effect then
+						effect = effect:gsub("%.?%s*$", "")
+						ap = ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
+						humanoidAP = humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+					end
+					local proc = readProc and (plain:match(procPattern) or (procLineType and line.type == procLineType and plain))
+					if proc then
+						procDamage = procDamage + Items.ProcDamage(proc)
+					end
 				end
 			end
 		end
+		return dps, ap, humanoidAP, procDamage
 	end
-	return dps, ap, humanoidAP
 end
 
 local function Score(link, ranged)
 	local cacheKey = ranged and link .. "#r" or link
 	local cached = scoreCache[cacheKey]
 	if cached then
-		return cached[1], cached[2]
+		return cached[1], cached[2], cached[3]
 	end
 	local w = GetWeights()
 	local score, humanoidBonus, hasDPS, hasAP = 0, 0, false, false
@@ -527,8 +550,12 @@ local function Score(link, ranged)
 	local readDPS = not hasDPS and DPS_PATTERN and dpsWeight
 		and select(6, C_Item.GetItemInfoInstant(link)) == Enum.ItemClass.Weapon
 	local readAP = w.AP and w.AP > 0
-	if readDPS or readAP then
-		local dps, ap, humanoidAP = TooltipStats(link, readDPS, readAP)
+	local procWeight = w[ranged and "RAP" or "AP"]
+	local readProc = procWeight and procWeight > 0
+	local procDamage = 0
+	if readDPS or readAP or readProc then
+		local dps, ap, humanoidAP
+		dps, ap, humanoidAP, procDamage = TooltipStats(link, readDPS, readAP, readProc)
 		if dps then
 			score = score + dpsWeight * dps
 		end
@@ -538,9 +565,12 @@ local function Score(link, ranged)
 			end
 			humanoidBonus = w.AP * humanoidAP
 		end
+		if readProc then
+			score = score + procWeight * PROC.apPerDPS * procDamage * PROC.perMinute / 60
+		end
 	end
-	scoreCache[cacheKey] = { score, humanoidBonus }
-	return score, humanoidBonus
+	scoreCache[cacheKey] = { score, humanoidBonus, procDamage }
+	return score, humanoidBonus, procDamage
 end
 
 local function IsRed(color)
@@ -825,12 +855,17 @@ function ns.CompareWinner(link, worn)
 	return nil
 end
 
-local function AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
+local function AddRatingLines(tooltip, link, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	local _, treeName = GetWeights()
 	tooltip:AddLine(L.ITEMS_SCORE_LINE:format(score, equippedScore, ("%+.1f"):format(score - equippedScore),
 		treeName or L.ITEMS_SCORE_DEFAULT), 0.5, 0.7, 1)
 	if humanoidScore then
 		tooltip:AddLine(L.ITEMS_SCORE_HUMANOID_LINE:format(humanoidScore, equippedHumanoidScore), 0.5, 0.7, 1)
+	end
+	local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
+	local _, _, procDamage = Score(link, slots and slots[1] == INVSLOT_RANGED)
+	if procDamage and procDamage > 0 then
+		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procDamage * PROC.perMinute / 60, PROC.perMinute), 0.5, 0.7, 1)
 	end
 end
 
@@ -842,7 +877,7 @@ function ns.AddRecipeScoreLine(tooltip, link)
 	end
 	local score, equippedScore, humanoidScore, equippedHumanoidScore = CompareScores(link)
 	if score then
-		AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
+		AddRatingLines(tooltip, link, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	end
 end
 
@@ -877,7 +912,7 @@ local function AddScoreLine(tooltip)
 	if not score then
 		return
 	end
-	AddRatingLines(tooltip, score, equippedScore, humanoidScore, equippedHumanoidScore)
+	AddRatingLines(tooltip, link, score, equippedScore, humanoidScore, equippedHumanoidScore)
 	tooltip:Show()
 end
 

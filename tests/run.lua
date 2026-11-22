@@ -148,7 +148,7 @@ C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true en
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
 C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end,
 	GetUnit = function() return { lines = {} } end }
-Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45 }
+Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45, ItemSpellTriggerOnProc = 46 }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
 GetCVar = function() return "1" end
@@ -2270,6 +2270,49 @@ end)()
 	GetInventoryItemLink, C_TooltipInfo.GetHyperlink = savedEquipped, savedTooltip
 	setuv(getW, "weights", savedProfile)
 	print("protection paladin attack power and humanoid cloak comparison OK")
+end)()
+-- "Chance on hit" damage counts at 1 proc per minute (screenshot: axe against Ironforge great hammer).
+;(function()
+	local savedProfile = upvalue(getW, "weights")
+	local savedEquipped, savedTooltip = GetInventoryItemLink, C_TooltipInfo.GetHyperlink
+	local savedLocation, savedExists, savedEnabled = ItemLocation.CreateFromEquipmentSlot, C_Item.DoesItemExist, itemsMod.db.upgradeScore
+	local clear = uv(uv(itemsMod.OnOptionChanged, "QueueWeighRefresh"), "ClearWeighCaches")
+	local de = GetLocale() == "deDE"
+	local procText = de and "Trefferchance: Fügt einem Ziel 42 Feuerschaden zu." or "Chance on hit: Blasts a target for 42 Fire damage."
+	assert(itemsMod.ProcDamage(de and "Schleudert einen Feuerball, der 155 bis 197 Feuerschaden verursacht."
+		or "Hurls a fiery ball that causes 155 to 197 Fire damage.") == 176, "a damage range counts with its average")
+	assert(itemsMod.ProcDamage(de and "Verursacht 30 Schaden." or "Deals 30 damage.") == 30, "plain damage without a school")
+	assert(itemsMod.ProcDamage(de and "Betäubt das Ziel 3 Sek. lang." or "Stuns target for 3 sec.") == 0, "no damage, no value")
+	local axe, hammer = "excavationAxe", "ironforgeHammer"
+	ITEMS[axe] = { "INVTYPE_2HWEAPON", 2, 1, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 17.5, ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 8 } }
+	ITEMS[hammer] = { "INVTYPE_2HWEAPON", 2, 5, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 15.97 } }
+	GetInventoryItemLink = function(_, slot) return slot == 16 and axe or nil end
+	ItemLocation.CreateFromEquipmentSlot = function(_, slot) return { slot = slot } end
+	C_Item.DoesItemExist = function(location) return location.slot == 16 end
+	C_TooltipInfo.GetHyperlink = function(link)
+		return { lines = link == hammer and { { type = 46, leftText = "|cff00ff00" .. procText .. "|r" } } or {} }
+	end
+	setuv(getW, "weights", upvalue(getW, "WEIGHTS").SHAMAN[2])
+	clear()
+	local score, worn = compare(hammer)
+	assert(math.abs(worn - 262.8) < 0.001, "equipped axe: 17.5 DPS, 7 strength, 8 stamina")
+	assert(math.abs(score - (15.97 * 14 + 42 / 60 * 14)) < 0.001, "the hammer gains 0.7 damage per second from its proc")
+	assert(BagComparisonState(0, 1, hammer) == "worse", "the proc does not make up for the axe's stats")
+	local lines = {}
+	itemsMod.db.upgradeScore = true
+	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, hammer)
+	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(0.7, 1), "the tooltip names the counted proc damage")
+	setuv(getW, "weights", upvalue(getW, "WEIGHTS").MAGE[1])
+	clear()
+	assert(select(3, scoreFn(hammer)) == 0, "casters do not count melee procs")
+
+	clear()
+	ITEMS[axe], ITEMS[hammer] = nil, nil
+	itemsMod.db.upgradeScore = savedEnabled
+	ItemLocation.CreateFromEquipmentSlot, C_Item.DoesItemExist = savedLocation, savedExists
+	GetInventoryItemLink, C_TooltipInfo.GetHyperlink = savedEquipped, savedTooltip
+	setuv(getW, "weights", savedProfile)
+	print("chance on hit damage rating OK")
 end)()
 -- Upgrade toast: gain over the worn item, none for an empty slot
 do

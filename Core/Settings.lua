@@ -337,7 +337,7 @@ local PAGES = {
 	{ group = 3, title = L.XP_TITLE, { "XPBar", exclude = Keys("textMode") }, { "RepFlash", header = L.REPFLASH_TITLE } },
 	{ group = 1, title = L.VISUALS_TITLE,
 		{ "Visuals", header = L.VISUALS_ACTION_HEADER, keys = Keys("auraActionFrame", "bagActionFrame") },
-		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerDragon", "dragonScale") },
+		{ "Visuals", header = L.VISUALS_PORTRAIT_HEADER, keys = Keys("playerPortraitWheel", "playerDragon", "dragonScale") },
 		{ "Visuals", header = L.VISUALS_BARS_HEADER, keys = Keys("unitBars") },
 		{ "Companion", header = L.COMPANION_TITLE },
 		{ "Wanderlust" },

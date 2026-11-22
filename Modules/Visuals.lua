@@ -26,9 +26,11 @@ local Visuals = ns:NewModule("Visuals", {
 		bagFrameOff = false,
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
+		playerPortraitWheel = true,
 		playerDragon = "none",
 		dragonScale = 100,
 	},
+	charDefaults = { playerPortraitMode = 1 },
 })
 
 ---------------------------------------------------------------------------
@@ -1606,6 +1608,134 @@ local function HookTrackingBars()
 end
 
 ---------------------------------------------------------------------------
+-- Shift-wheel portrait styles, anchored to the portrait inside the player frame.
+---------------------------------------------------------------------------
+local PORTRAIT_STYLES = { "normal", "model", "class", "race", "faction" }
+local RACE_BANNERS = {
+	Dwarf = 255128, Gnome = 255129, Human = 255130, NightElf = 255131,
+	Orc = 255132, Scourge = 255133, Tauren = 255134, Troll = 255135,
+}
+local FACTION_EMBLEMS = {
+	Alliance = "charactercreate-icon-alliance",
+	Horde = "charactercreate-icon-horde",
+}
+local portraitWheel, portraitBackground, portraitIcon, portraitModel
+
+local function ShowsOwnPortrait()
+	local unit = PlayerFrame.unit
+	return not ns.Secret(unit) and unit == "player"
+end
+
+local function CanCyclePortrait()
+	return Visuals.db.playerPortraitWheel and ShowsOwnPortrait() and not EditModeManagerFrame:IsEditModeActive()
+end
+
+local function UpdatePortraitWheel()
+	portraitWheel:EnableMouseWheel(CanCyclePortrait() and IsShiftKeyDown() and true or false)
+end
+
+local function UpdatePlayerPortrait()
+	local style = Visuals.db.playerPortraitWheel and ShowsOwnPortrait() and PORTRAIT_STYLES[Visuals.cdb.playerPortraitMode]
+	local atlas, banner, modelShown
+	if style == "model" then
+		if not portraitModel then
+			portraitModel = CreateFrame("PlayerModel", nil, portraitWheel:GetParent())
+			portraitModel:SetPoint("CENTER", portraitBackground)
+			-- Fit the model viewport inside the 60-pixel circular portrait.
+			portraitModel:SetSize(40, 40)
+			portraitModel:EnableMouse(false)
+			portraitModel:SetScript("OnModelLoaded", ns.Measured("Visuals: zoom player portrait model", function(model)
+				model:SetPortraitZoom(1)
+			end))
+		end
+		modelShown = portraitModel:SetUnit("player", false)
+		if modelShown then portraitModel:SetPortraitZoom(1) end
+	elseif style == "class" then
+		local _, class = UnitClass("player")
+		if class then atlas = "UI-HUD-UnitFrame-Player-Portrait-ClassIcon-" .. class:lower() .. "-2x" end
+	elseif style == "race" then
+		local _, race = UnitRace("player")
+		if race == "Skyborne" then
+			atlas = "skyborne-zephras-isles-c60"
+		else
+			banner = RACE_BANNERS[race]
+		end
+	elseif style == "faction" then
+		atlas = FACTION_EMBLEMS[UnitFactionGroup("player")]
+	end
+
+	local iconShown
+	local info = atlas and C_Texture.GetAtlasInfo(atlas)
+	if info then
+		local scale = (style == "class" and 60 or 44) / math.max(info.width, info.height)
+		portraitIcon:SetSize(info.width * scale, info.height * scale)
+		portraitIcon:SetAtlas(atlas)
+		iconShown = true
+	elseif banner then
+		portraitIcon:SetSize(56, 56)
+		iconShown = portraitIcon:SetTexture(banner)
+	end
+
+	if portraitModel then portraitModel:SetShown(modelShown == true) end
+	portraitIcon:SetShown(iconShown == true)
+	portraitBackground:SetShown(modelShown == true or iconShown == true)
+end
+
+local function RefreshPortraitUnit(_, _, unit)
+	if not ns.Secret(unit) and unit == "player" then UpdatePlayerPortrait() end
+end
+
+local function RefreshPlayerPortrait()
+	if not portraitWheel then return end
+	UpdatePortraitWheel()
+	UpdatePlayerPortrait()
+	local enabled = Visuals.db.playerPortraitWheel
+	Visuals:ToggleEvent("MODIFIER_STATE_CHANGED", enabled, UpdatePortraitWheel)
+	Visuals:ToggleEvent("UNIT_MODEL_CHANGED", enabled, RefreshPortraitUnit)
+	Visuals:ToggleEvent("UNIT_FACTION", enabled, RefreshPortraitUnit)
+	Visuals:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, UpdatePlayerPortrait)
+end
+
+local function SetupPlayerPortrait()
+	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
+	local portrait = container and container.PlayerPortrait
+	local mask = container and container.PlayerPortraitMask
+	if not (portrait and mask) then return end
+	portraitWheel = CreateFrame("Frame", "ForeverPlusPlayerPortraitWheel", container)
+	portraitWheel:SetAllPoints(portrait)
+	portraitWheel:SetFrameLevel(PlayerFrame:GetFrameLevel() + 12)
+	portraitWheel:SetMouseClickEnabled(false)
+	portraitWheel:SetMouseMotionEnabled(false)
+	portraitWheel:SetScript("OnMouseWheel", ns.Measured("Visuals: cycle player portrait", function(_, delta)
+		if delta == 0 or not IsShiftKeyDown() or not CanCyclePortrait() then return end
+		local current = Visuals.cdb.playerPortraitMode
+		if not PORTRAIT_STYLES[current] then current = 1 end
+		local step = delta > 0 and 1 or -1
+		Visuals.cdb.playerPortraitMode = (current - 1 + step) % #PORTRAIT_STYLES + 1
+		UpdatePlayerPortrait()
+	end))
+	-- Use the portrait's own mask and draw below the dragon and status flash.
+	portraitBackground = container:CreateTexture(nil, "ARTWORK", nil, 0)
+	portraitBackground:SetAllPoints(portrait)
+	portraitBackground:AddMaskTexture(mask)
+	portraitBackground:SetColorTexture(0.06, 0.05, 0.04, 1)
+	portraitIcon = container:CreateTexture(nil, "ARTWORK", nil, 1)
+	portraitIcon:SetPoint("CENTER", portrait)
+	portraitIcon:AddMaskTexture(mask)
+
+	hooksecurefunc("UnitFrame_SetUnit", ns.Measured("Visuals: player portrait unit", function(frame)
+		if frame == PlayerFrame and Visuals.db.playerPortraitWheel then
+			UpdatePortraitWheel()
+			UpdatePlayerPortrait()
+		end
+	end))
+	local onEditMode = ns.Measured("Visuals: player portrait wheel state", UpdatePortraitWheel)
+	EventRegistry:RegisterCallback("EditMode.Enter", onEditMode, Visuals)
+	EventRegistry:RegisterCallback("EditMode.Exit", onEditMode, Visuals)
+	RefreshPlayerPortrait()
+end
+
+---------------------------------------------------------------------------
 -- Elite/rare dragon around the player portrait (target frame art, mirrored)
 ---------------------------------------------------------------------------
 -- Tint on the desaturated gold dragon: the bronze of the game's portrait frame (ratio green/blue to red about
@@ -1661,8 +1791,7 @@ local DRAGON_GRID = 24
 local dragon, dragonButtons
 
 local function CanUsePlayerDragon()
-	local unit = PlayerFrame.unit
-	return not ns.Secret(unit) and unit == "player" and not ns:IsEditModeActive()
+	return ShowsOwnPortrait() and not ns:IsEditModeActive()
 end
 
 local function DrawDragonHover(group)
@@ -1849,6 +1978,7 @@ function Visuals:OnLogin()
 	UpdateCastWatch()
 	RefreshUnitBars()
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookTrackingBars)
+	SetupPlayerPortrait()
 	Visuals.ApplyPlayerDragon()
 end
 
@@ -1879,6 +2009,8 @@ function Visuals:OnOptionChanged(key)
 		FrameBuffs()
 	elseif key == "bagActionFrame" then
 		RefreshBagFrames()
+	elseif key == "playerPortraitWheel" then
+		RefreshPlayerPortrait()
 	elseif key == "playerDragon" or key == "dragonScale" then
 		Visuals.ApplyPlayerDragon()
 	elseif key == "castsLeft" then
@@ -1938,6 +2070,7 @@ Visuals.options = {
 		Visuals:ShowBuffExceptions(button)
 	end },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
+	{ key = "playerPortraitWheel", type = "toggle", name = L.VISUALS_PORTRAIT_WHEEL, desc = L.VISUALS_PORTRAIT_WHEEL_DESC },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },
 		{ "silver", L.VISUALS_DRAGON_SILVER }, { "silverWinged", L.VISUALS_DRAGON_SILVER_WINGED },

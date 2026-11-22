@@ -110,6 +110,7 @@ for _, n in ipairs({ "ChatFrameMenuButton", "ChatFrameChannelButton", "QuickJoin
 	"ContainerFrame1", "ContainerFrameCombinedBags", "FramePositionDelegate", "ActionBarButtonEventsFrame", "BuffFrame", "MinimapBackdrop" }) do NewFrame("Frame", n) end
 NewFrame("Button", "PlayerFrame").unit = "player"
 PlayerFrame.PlayerFrameContainer = NewFrame("Frame")
+PlayerFrame.PlayerFrameContainer.PlayerPortrait = false
 ContainerFrameContainer = { ContainerFrames = {} }
 WorldMapFrame.EnumeratePinsByTemplate = function() return function() end end
 ActionBarButtonEventsFrame.frames = {}
@@ -9291,6 +9292,138 @@ end)()
 	print("unit bar textures OK")
 end)()
 ;(function()
+	local visuals = ns:GetModule("Visuals")
+	local setup = uv(visuals.OnLogin, "SetupPlayerPortrait")
+	local refresh = uv(setup, "RefreshPlayerPortrait")
+	local draw = uv(refresh, "UpdatePlayerPortrait")
+	local oldCreate, oldPlayer, oldHook = CreateFrame, PlayerFrame, hooksecurefunc
+	local oldShift, oldEdit, oldRegistry = IsShiftKeyDown, EditModeManagerFrame, EventRegistry
+	local oldClass, oldRace, oldFaction, oldAtlas = UnitClass, UnitRace, UnitFactionGroup, C_Texture.GetAtlasInfo
+	local shift, edit, faction, race, modelReady, atlasAvailable = false, false, "Alliance", "Dwarf", true, true
+	local callbacks, textures = {}, {}
+	local unitChanged, wheel, model
+	local frame, container, original, mask = NewFrame("Button"), NewFrame("Frame"), NewFrame("Texture"), NewFrame("Mask")
+	frame.unit, frame.PlayerFrameContainer = "player", container
+	container.PlayerPortrait, container.PlayerPortraitMask = original, mask
+	container.CreateTexture = function()
+		local texture = NewFrame("Texture")
+		texture.SetAllPoints = function(self, region) self.bounds = region end
+		texture.AddMaskTexture = function(self, region) self.mask = region end
+		texture.SetAtlas = function(self, atlas) self.asset = atlas end
+		texture.SetTexture = function(self, fileID) self.asset = fileID return true end
+		textures[#textures + 1] = texture
+		return texture
+	end
+	PlayerFrame = frame
+	hooksecurefunc = function(name, fn) assert(name == "UnitFrame_SetUnit") unitChanged = fn end
+	EventRegistry = { RegisterCallback = function(_, event, fn, owner) callbacks[event] = function() fn(owner) end end }
+	IsShiftKeyDown = function() return shift end
+	EditModeManagerFrame = { IsEditModeActive = function() return edit end }
+	UnitClass = function(unit) assert(unit == "player") return "Mage", "MAGE" end
+	UnitRace = function(unit) assert(unit == "player") return race, race end
+	UnitFactionGroup = function(unit) assert(unit == "player") return faction end
+	C_Texture.GetAtlasInfo = function() return atlasAvailable and { width = 64, height = 64 } or nil end
+	CreateFrame = function(kind, name, parent)
+		assert(parent == container, "the added frames belong to the player portrait container")
+		local region = NewFrame(kind)
+		region.EnableMouseWheel = function(self, enabled) self.wheelEnabled = enabled end
+		region.SetAllPoints = function(self, bounds) self.bounds = bounds end
+		region.SetMouseClickEnabled = function(self, enabled) self.clickEnabled = enabled end
+		region.SetMouseMotionEnabled = function(self, enabled) self.motionEnabled = enabled end
+		region.GetParent = function() return parent end
+		if name == "ForeverPlusPlayerPortraitWheel" then
+			wheel = region
+		elseif kind == "PlayerModel" then
+			model = region
+			model.SetUnit = function(self, unit)
+				assert(unit == "player")
+				self.loads = (rawget(self, "loads") or 0) + 1
+				return modelReady
+			end
+			model.SetPortraitZoom = function(self, zoom) self.zoom = zoom end
+		end
+		return region
+	end
+
+	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
+	local oldMode = visuals.cdb.playerPortraitMode
+	assert(visuals.db.playerPortraitWheel and oldMode == 1, "new characters start with their standard portrait")
+	setup()
+	local background, icon = unpack(textures)
+	assert(wheel.bounds == original and wheel.clickEnabled == false and wheel.motionEnabled == false)
+	assert(background.bounds == original and background.mask == mask and icon.mask == mask)
+	assert(original:IsShown() and not background:IsShown() and not icon:IsShown() and not model)
+	local scroll = wheel:GetScript("OnMouseWheel")
+	assert(not wheel.wheelEnabled)
+	scroll(wheel, 1)
+	assert(visuals.cdb.playerPortraitMode == 1 and not model, "plain scrolling does not choose a portrait")
+	shift = true
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+	assert(wheel.wheelEnabled)
+	scroll(wheel, 1)
+	assert(model:IsShown() and model.zoom == 1 and model.loads == 1 and background:IsShown() and not icon:IsShown())
+	onEvent(nil, "UNIT_MODEL_CHANGED", "target")
+	assert(model.loads == 1)
+	onEvent(nil, "UNIT_MODEL_CHANGED", "player")
+	assert(model.loads == 2)
+	scroll(wheel, 1)
+	assert(icon:IsShown() and icon.asset == "UI-HUD-UnitFrame-Player-Portrait-ClassIcon-mage-2x" and not model:IsShown())
+	scroll(wheel, 1)
+	assert(icon:IsShown() and icon.asset == 255128)
+	race = "Skyborne"
+	onEvent(nil, "PLAYER_ENTERING_WORLD")
+	assert(icon.asset == "skyborne-zephras-isles-c60")
+	scroll(wheel, 1)
+	assert(icon.asset == "charactercreate-icon-alliance")
+	faction = "Horde"
+	onEvent(nil, "UNIT_FACTION", "player")
+	assert(icon.asset == "charactercreate-icon-horde")
+	scroll(wheel, 1)
+	assert(visuals.cdb.playerPortraitMode == 1 and not icon:IsShown() and not background:IsShown())
+	scroll(wheel, -1)
+	assert(visuals.cdb.playerPortraitMode == 5 and icon:IsShown(), "reverse scrolling also wraps")
+
+	frame.unit = "vehicle"
+	unitChanged(frame)
+	scroll(wheel, -1)
+	assert(not wheel.wheelEnabled and not icon:IsShown() and visuals.cdb.playerPortraitMode == 5)
+	frame.unit = "player"
+	unitChanged(frame)
+	assert(wheel.wheelEnabled and icon:IsShown())
+	edit = true
+	callbacks["EditMode.Enter"]()
+	scroll(wheel, -1)
+	assert(not wheel.wheelEnabled and visuals.cdb.playerPortraitMode == 5)
+	edit = false
+	callbacks["EditMode.Exit"]()
+	assert(wheel.wheelEnabled)
+	shift = false
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+	assert(not wheel.wheelEnabled)
+	ns.SetOption("Visuals", "playerPortraitWheel", false)
+	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
+	ns.SetOption("Visuals", "playerPortraitWheel", true)
+	assert(icon:IsShown() and icon.asset == "charactercreate-icon-horde")
+
+	atlasAvailable = false
+	onEvent(nil, "PLAYER_ENTERING_WORLD")
+	assert(not icon:IsShown() and not background:IsShown(), "a missing emblem leaves the standard portrait visible")
+	visuals.cdb.playerPortraitMode, modelReady = 2, false
+	onEvent(nil, "PLAYER_ENTERING_WORLD")
+	assert(not model:IsShown() and not background:IsShown(), "a failed model also leaves the standard portrait visible")
+
+	ns.SetOption("Visuals", "playerPortraitWheel", false)
+	visuals.db.playerPortraitWheel, visuals.cdb.playerPortraitMode = true, oldMode
+	setuv(setup, "portraitWheel", nil)
+	setuv(draw, "portraitBackground", nil)
+	setuv(draw, "portraitIcon", nil)
+	setuv(draw, "portraitModel", nil)
+	CreateFrame, PlayerFrame, hooksecurefunc = oldCreate, oldPlayer, oldHook
+	IsShiftKeyDown, EditModeManagerFrame, EventRegistry = oldShift, oldEdit, oldRegistry
+	UnitClass, UnitRace, UnitFactionGroup, C_Texture.GetAtlasInfo = oldClass, oldRace, oldFaction, oldAtlas
+	print("player portrait wheel OK")
+end)()
+;(function()
 	local rp = ns:GetModule("Roleplay")
 	local now, player, friendly, own = 10000, true, true, false
 	local messages, timeout, save, encodedFixtures = {}, nil, nil, {}
@@ -9744,7 +9877,8 @@ end)()
 	panel.entries.rows[1]:GetScript("OnClick")(panel.entries.rows[1], "LeftButton")
 	assert(panel.bossDetails.lootButton:IsShown(), "boss details offer the loot button")
 	panel.bossDetails.lootButton:GetScript("OnClick")()
-	assert(panel.listTitle.testText:find("Rethilgore", 1, true), "loot button filters to the selected boss")
+	local bossName = GetLocale() == "deDE" and rethilgore[3] or rethilgore[2]
+	assert(panel.listTitle.testText:find(bossName, 1, true), "loot button filters to the selected boss")
 	local ownRow
 	for _, row in ipairs(panel.entries.rows) do if row:IsShown() and row.item.id == 777001 then ownRow = row end end
 	assert(ownRow and ownRow.text.testText == "Testklinge", "own item appears with its name")

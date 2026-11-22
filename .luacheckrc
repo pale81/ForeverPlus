@@ -100,6 +100,7 @@ read_globals = {
 	"Mixin",
 	"UIErrorsFrame",
 	"PlayerFrame", "TargetFrame", "FocusFrame", "MainStatusTrackingBarContainer", "SecondaryStatusTrackingBarContainer",
+	"UnitFrame_SetUnit",
 	"PlaySoundFile",
 	"C_NamePlate",
 	"PlayerSpellsFrame",

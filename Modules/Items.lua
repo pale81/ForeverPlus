@@ -465,14 +465,45 @@ local attackPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP, true).pattern
 local attackPowerLongPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_LONG, true).pattern
 local humanoidPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_HUMANOID, true).pattern
 local equipLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnEquip
--- "Chance on hit" damage is valued at 1 proc per minute: the median of the combat-log
+-- "Chance on hit" effects are valued at 1 proc per minute: the median of the combat-log
 -- measurements for Classic weapons (most between 0.5 and 2). Forever's rates are unmeasured.
--- 14 attack power add 1 damage per second, so a point of proc damage per second is worth 14 AP.
+-- 14 attack power add 1 damage per second, so a point of extra damage per second is worth 14 AP.
 local PROC = { perMinute = 1, apPerDPS = 14 }
 local TooltipStats
 do
 	local procPattern = ns.FormatToPattern(L.ITEMS_PROC_EFFECT, true).pattern
 	local procLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnProc
+	-- Instant attacks that add the weapon's own hit: a slower weapon of the same DPS hits harder.
+	-- Uses per minute are rotation estimates; `swing` attacks also scale attack power with the weapon
+	-- speed, the others use the normalized speed (WoWSims Forever). Only spells the player knows count.
+	local BACKSTAB = { 53, 2589, 2590, 2591, 8721, 11279, 11280, 11281, 25300 }
+	local OVERPOWER = { 7384, 7887, 11584, 11585, perMinute = 1 }
+	local AIMED_SHOT = { 19434, 20900, 20901, 20902, 20903, 20904, perMinute = 6, ranged = true }
+	local MULTI_SHOT = { 2643, perMinute = 6, ranged = true }
+	local HUNTER = { AIMED_SHOT, MULTI_SHOT }
+	local ABILITIES = {
+		WARRIOR = {
+			{ { 12294, 21551, 21552, 21553, perMinute = 10 }, { 1680, perMinute = 6 },
+				{ 1240193, 1464, 8820, 11604, 11605, perMinute = 4, swing = true }, OVERPOWER },
+			{ { 1680, perMinute = 6 }, OVERPOWER },
+		},
+		SHAMAN = { nil, { { 17364, perMinute = 3 } } },
+		-- Seal of Command: 7 procs per minute, each 70% of a weapon swing.
+		PALADIN = { nil, nil, { { 20375, 20915, 20918, 20919, 20920, perMinute = 4.9, swing = true } } },
+		ROGUE = {
+			{ { 399956, 1241582, 1241584, unpack(BACKSTAB) } },
+			{ { 1752, 1757, 1758, 1759, 1760, 8621, 11293, 11294 } },
+			{ { 16511, unpack(BACKSTAB) } },
+		},
+		HUNTER = { HUNTER, HUNTER, HUNTER },
+	}
+	for _, trees in pairs(ABILITIES) do
+		for _, tree in pairs(trees) do
+			for _, ability in ipairs(tree) do
+				ability.perMinute = ability.perMinute or 10
+			end
+		end
+	end
 
 	-- Average damage of a "Chance on hit" effect text ("… 155 to 197 Fire damage"), 0 without damage.
 	function Items.ProcDamage(effect)
@@ -484,47 +515,157 @@ do
 		return tonumber(text:match(L.ITEMS_PROC_DAMAGE)) or 0
 	end
 
+	-- Extra attacks granted by an effect text ("Grants 2 extra attacks"), 0 without.
+	function Items.ExtraAttacks(effect)
+		local count = effect:lower():match(L.ITEMS_EXTRA_ATTACK)
+		return count and (tonumber(count) or 1) or 0
+	end
+
+	-- Attack speed increase in percent and its duration in seconds, nil without.
+	function Items.ProcHaste(effect)
+		local text = effect:lower()
+		local percent = tonumber(text:match(L.ITEMS_PROC_HASTE))
+		local duration = tonumber(text:match(L.ITEMS_PROC_DURATION))
+		if percent and duration then
+			return percent, duration
+		end
+	end
+
+	local function Readable(value)
+		return type(value) == "number" and not ns.Secret(value) and value or 0
+	end
+
+	local function AttackPower(ranged)
+		local base, plus, minus = (ranged and UnitRangedAttackPower or UnitAttackPower)("player")
+		return math.max(0, Readable(base) + Readable(plus) + Readable(minus))
+	end
+
+	local function MainHandDPS()
+		local link = GetInventoryItemLink("player", INVSLOT_MAINHAND)
+		local stats = link and not ns.Secret(link) and C_Item.GetItemStats(link)
+		return stats and stats.ITEM_MOD_DAMAGE_PER_SECOND_SHORT or 0
+	end
+
+	-- Normalized speed of the weapon type, the reference for the weapon speed rating.
+	local function NormalSpeed(link, ranged)
+		local _, _, _, equipLoc, _, _, subClassID = C_Item.GetItemInfoInstant(link)
+		if ranged then
+			return 2.8
+		elseif equipLoc == "INVTYPE_2HWEAPON" then
+			return 3.3
+		elseif subClassID == Enum.ItemWeaponSubclass.Dagger then
+			return 1.7
+		end
+		return 2.4
+	end
+
+	local function Known(ability)
+		for _, spellID in ipairs(ability) do
+			if IsPlayerSpell(spellID) then
+				return true
+			end
+		end
+	end
+
+	-- Extra damage per second of weapon speed through the known instant attacks, compared with the
+	-- weapon type's normalized speed.
+	local function SpeedDPS(link, info, tree, ranged, ap)
+		local speedGain = info.speed - NormalSpeed(link, ranged)
+		local abilities = ABILITIES[playerClass]
+		local dps = 0
+		for _, ability in ipairs(abilities and abilities[tree] or {}) do
+			if (not ability.ranged) == (not ranged) and Known(ability) then
+				local hit = info.dps + (ability.swing and ap / PROC.apPerDPS or 0)
+				dps = dps + ability.perMinute / 60 * hit * speedGain
+			end
+		end
+		return dps
+	end
+
+	-- Rating of the effects the item stats leave out: "Chance on hit" damage, extra attacks and attack
+	-- speed, the Equip chance of an extra attack, and the weapon speed. Returns proc and speed points.
+	function PROC.WeaponExtras(link, info, w, tree, ranged, offhand)
+		local apWeight = w[ranged and "RAP" or "AP"] or 0
+		if apWeight <= 0 then
+			return 0, 0
+		end
+		local ap = AttackPower(ranged)
+		local perSecond = PROC.perMinute / 60
+		local dps = info.procDamage * perSecond
+		if info.speed and info.dps then
+			dps = dps + perSecond * info.extraAttacks * (info.dps + ap / PROC.apPerDPS) * info.speed
+		end
+		if info.equipExtraChance > 0 then
+			dps = dps + info.equipExtraChance / 100 * info.equipExtraAttacks * (MainHandDPS() + ap / PROC.apPerDPS)
+		end
+		local procPoints = apWeight * PROC.apPerDPS * dps
+		if info.haste > 0 and not ranged then
+			procPoints = procPoints + (w.HASTE or 0) * info.haste * math.min(1, PROC.perMinute * info.hasteDuration / 60)
+		end
+		local speedPoints = 0
+		if info.speed and info.dps and not offhand then
+			speedPoints = apWeight * PROC.apPerDPS * SpeedDPS(link, info, tree, ranged, ap)
+		end
+		return procPoints, speedPoints
+	end
+
 	function TooltipStats(link, readDPS, readAP, readProc)
 		local data = type(C_TooltipInfo.GetHyperlink) == "function" and C_TooltipInfo.GetHyperlink(link)
-		local dps, ap, humanoidAP, procDamage = nil, 0, 0, 0
+		local info = { ap = 0, humanoidAP = 0, procDamage = 0, extraAttacks = 0, haste = 0, hasteDuration = 0,
+			equipExtraChance = 0, equipExtraAttacks = 0 }
 		for _, line in ipairs(data and data.lines or {}) do
 			local value = line.leftText
 			if not ns.Secret(value) and type(value) == "string" then
-				if readDPS and not dps then
+				if readDPS and not info.dps then
 					local number = value:match(DPS_PATTERN)
-					dps = number and tonumber((number:gsub(",", ".")))
+					info.dps = number and tonumber((number:gsub(",", ".")))
+				end
+				local right = line.rightText
+				if readProc and not info.speed and type(right) == "string" and not ns.Secret(right) then
+					local number = right:match("(%d+[%.,]%d%d)$")
+					info.speed = number and tonumber((number:gsub(",", ".")))
 				end
 				if readAP or readProc then
 					local plain = value:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+$", "")
 					local effect = readAP and (plain:match(equipPattern) or (equipLineType and line.type == equipLineType and plain))
 					if effect then
 						effect = effect:gsub("%.?%s*$", "")
-						ap = ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
-						humanoidAP = humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+						info.ap = info.ap + (tonumber(effect:match(attackPowerPattern) or effect:match(attackPowerLongPattern)) or 0)
+						info.humanoidAP = info.humanoidAP + (tonumber(effect:match(humanoidPowerPattern)) or 0)
+						local extra = Items.ExtraAttacks(effect)
+						local chance = tonumber(effect:match("(%d+)%%"))
+						if extra > 0 and chance then
+							info.equipExtraChance, info.equipExtraAttacks = chance, extra
+						end
 					end
 					local proc = readProc and (plain:match(procPattern) or (procLineType and line.type == procLineType and plain))
 					if proc then
-						procDamage = procDamage + Items.ProcDamage(proc)
+						info.procDamage = info.procDamage + Items.ProcDamage(proc)
+						info.extraAttacks = info.extraAttacks + Items.ExtraAttacks(proc)
+						local haste, duration = Items.ProcHaste(proc)
+						if haste then
+							info.haste, info.hasteDuration = haste, duration
+						end
 					end
 				end
 			end
 		end
-		return dps, ap, humanoidAP, procDamage
+		return info
 	end
 end
 
-local function Score(link, ranged)
-	local cacheKey = ranged and link .. "#r" or link
+local function Score(link, ranged, offhand)
+	local cacheKey = link .. (ranged and "#r" or "") .. (offhand and "#o" or "")
 	local cached = scoreCache[cacheKey]
 	if cached then
-		return cached[1], cached[2], cached[3]
+		return cached[1], cached[2], cached[3], cached[4]
 	end
-	local w = GetWeights()
-	local score, humanoidBonus, hasDPS, hasAP = 0, 0, false, false
+	local w, _, tree = GetWeights()
+	local score, humanoidBonus, hasDPS, hasAP, weaponDPS = 0, 0, false, false, nil
 	for key, value in pairs(C_Item.GetItemStats(link) or {}) do
 		local name = StatName(key)
 		if name == "DPS" then
-			hasDPS = true
+			hasDPS, weaponDPS = true, value
 			if ranged then
 				name = "RDPS"
 			end
@@ -552,25 +693,26 @@ local function Score(link, ranged)
 	local readAP = w.AP and w.AP > 0
 	local procWeight = w[ranged and "RAP" or "AP"]
 	local readProc = procWeight and procWeight > 0
-	local procDamage = 0
+	local procPoints, speedPoints = 0, 0
 	if readDPS or readAP or readProc then
-		local dps, ap, humanoidAP
-		dps, ap, humanoidAP, procDamage = TooltipStats(link, readDPS, readAP, readProc)
-		if dps then
-			score = score + dpsWeight * dps
+		local info = TooltipStats(link, readDPS, readAP, readProc)
+		if info.dps then
+			score = score + dpsWeight * info.dps
 		end
+		info.dps = weaponDPS or info.dps
 		if readAP then
 			if not hasAP then
-				score = score + w.AP * ap
+				score = score + w.AP * info.ap
 			end
-			humanoidBonus = w.AP * humanoidAP
+			humanoidBonus = w.AP * info.humanoidAP
 		end
 		if readProc then
-			score = score + procWeight * PROC.apPerDPS * procDamage * PROC.perMinute / 60
+			procPoints, speedPoints = PROC.WeaponExtras(link, info, w, tree, ranged, offhand)
+			score = score + procPoints + speedPoints
 		end
 	end
-	scoreCache[cacheKey] = { score, humanoidBonus, procDamage }
-	return score, humanoidBonus, procDamage
+	scoreCache[cacheKey] = { score, humanoidBonus, procPoints, speedPoints }
+	return score, humanoidBonus, procPoints, speedPoints
 end
 
 local function IsRed(color)
@@ -650,7 +792,7 @@ local function EquippedScore(invSlot)
 	end
 	local value, bonus = 0, 0
 	if link then
-		value, bonus = Score(link, invSlot == INVSLOT_RANGED)
+		value, bonus = Score(link, invSlot == INVSLOT_RANGED, invSlot == INVSLOT_OFFHAND)
 	end
 	equippedCache[invSlot] = { value, bonus }
 	return value, bonus
@@ -682,7 +824,8 @@ local function CompareScores(link)
 		return nil
 	end
 
-	local equippedScore, equippedHumanoidScore
+	local ranged = slots[1] == INVSLOT_RANGED
+	local score, bonus, equippedScore, equippedHumanoidScore, humanoidScore
 	if equipLoc == "INVTYPE_2HWEAPON" then
 		-- Replaces main and off hand together.
 		local mainScore, mainBonus = EquippedScore(INVSLOT_MAINHAND)
@@ -692,27 +835,30 @@ local function CompareScores(link)
 		end
 		equippedScore = mainScore + offScore
 		equippedHumanoidScore = equippedScore + mainBonus + offBonus
+		score, bonus = Score(link, ranged)
+		humanoidScore = score + bonus
 	elseif slots[1] == INVSLOT_OFFHAND and IsTwoHand(EquippedLink(INVSLOT_MAINHAND)) then
 		-- No off hand next to a two-hand weapon.
 		return false
 	else
+		-- The slot with the largest gain; an off-hand weapon has no weapon speed rating.
 		for _, invSlot in ipairs(slots) do
-			local value, bonus = EquippedScore(invSlot)
+			local value, equippedBonus = EquippedScore(invSlot)
 			if value == false then
 				return nil
 			end
-			if not equippedScore or value < equippedScore then
-				equippedScore = value
+			local own, ownBonus = Score(link, ranged, invSlot == INVSLOT_OFFHAND)
+			if not score or own - value > score - equippedScore then
+				score, bonus, equippedScore = own, ownBonus, value
 			end
-			local humanoidValue = value + bonus
-			if not equippedHumanoidScore or humanoidValue < equippedHumanoidScore then
-				equippedHumanoidScore = humanoidValue
+			local humanoidValue = value + equippedBonus
+			if not humanoidScore or own + ownBonus - humanoidValue > humanoidScore - equippedHumanoidScore then
+				humanoidScore, equippedHumanoidScore = own + ownBonus, humanoidValue
 			end
 		end
 	end
-	local score, bonus = Score(link, slots[1] == INVSLOT_RANGED)
-	if bonus ~= 0 or equippedScore ~= equippedHumanoidScore then
-		return score, equippedScore, score + bonus, equippedHumanoidScore
+	if bonus ~= 0 or equippedScore ~= equippedHumanoidScore or humanoidScore ~= score + bonus then
+		return score, equippedScore, humanoidScore, equippedHumanoidScore
 	end
 	return score, equippedScore
 end
@@ -863,9 +1009,12 @@ local function AddRatingLines(tooltip, link, score, equippedScore, humanoidScore
 		tooltip:AddLine(L.ITEMS_SCORE_HUMANOID_LINE:format(humanoidScore, equippedHumanoidScore), 0.5, 0.7, 1)
 	end
 	local slots = ns.EquipSlots(select(4, C_Item.GetItemInfoInstant(link)))
-	local _, _, procDamage = Score(link, slots and slots[1] == INVSLOT_RANGED)
-	if procDamage and procDamage > 0 then
-		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procDamage * PROC.perMinute / 60, PROC.perMinute), 0.5, 0.7, 1)
+	local _, _, procPoints, speedPoints = Score(link, slots and slots[1] == INVSLOT_RANGED)
+	if procPoints and procPoints ~= 0 then
+		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procPoints, PROC.perMinute), 0.5, 0.7, 1)
+	end
+	if speedPoints and speedPoints ~= 0 then
+		tooltip:AddLine(L.ITEMS_SCORE_SPEED_LINE:format(speedPoints), 0.5, 0.7, 1)
 	end
 end
 
@@ -3032,7 +3181,8 @@ function Items:OnLogin()
 	hooksecurefunc("QuestInfo_Display", MarkRewardUpgrades)
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	-- The character window also uses these weights, even with all item ratings switched off.
-	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
+	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
+		"LEARNED_SPELL_IN_SKILL_LINE" }) do
 		self:RegisterEvent(event, QueueWeighRefresh)
 	end
 	self:Refresh()

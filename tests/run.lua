@@ -2283,6 +2283,8 @@ end)()
 		or "Hurls a fiery ball that causes 155 to 197 Fire damage.") == 176, "a damage range counts with its average")
 	assert(itemsMod.ProcDamage(de and "Verursacht 30 Schaden." or "Deals 30 damage.") == 30, "plain damage without a school")
 	assert(itemsMod.ProcDamage(de and "Betäubt das Ziel 3 Sek. lang." or "Stuns target for 3 sec.") == 0, "no damage, no value")
+	assert(itemsMod.ProcDamage("Schleudert eine glühende Kugel hinaus, die 155 bis 197 Punkt(e) Feuerschaden sowie zusätzlich 6 Sek. lang 24 Punkt(e) Schaden verursacht.") == 176
+		or not de, "German damage with Punkt(e)")
 	local axe, hammer = "excavationAxe", "ironforgeHammer"
 	ITEMS[axe] = { "INVTYPE_2HWEAPON", 2, 1, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 17.5, ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 8 } }
 	ITEMS[hammer] = { "INVTYPE_2HWEAPON", 2, 5, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 15.97 } }
@@ -2301,7 +2303,7 @@ end)()
 	local lines = {}
 	itemsMod.db.upgradeScore = true
 	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, hammer)
-	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(0.7, 1), "the tooltip names the counted proc damage")
+	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(42 / 60 * 14, 1), "the tooltip names the counted proc rating")
 	setuv(getW, "weights", upvalue(getW, "WEIGHTS").MAGE[1])
 	clear()
 	assert(select(3, scoreFn(hammer)) == 0, "casters do not count melee procs")
@@ -2313,6 +2315,115 @@ end)()
 	GetInventoryItemLink, C_TooltipInfo.GetHyperlink = savedEquipped, savedTooltip
 	setuv(getW, "weights", savedProfile)
 	print("chance on hit damage rating OK")
+end)()
+-- Weapon speed through known instant attacks, extra attacks, attack speed procs and Hand of Justice.
+;(function()
+	local savedProfile = upvalue(getW, "weights")
+	local savedEquipped, savedTooltip, savedKnown = GetInventoryItemLink, C_TooltipInfo.GetHyperlink, IsPlayerSpell
+	local savedLocation, savedExists, savedAP = ItemLocation.CreateFromEquipmentSlot, C_Item.DoesItemExist, rawget(_G, "UnitAttackPower")
+	local savedDual, savedSubclass = rawget(_G, "CanDualWield"), Enum.ItemWeaponSubclass
+	local savedClass, savedTree = upvalue(getW, "playerClass"), upvalue(getW, "weightsTree")
+	local clear = uv(uv(itemsMod.OnOptionChanged, "QueueWeighRefresh"), "ClearWeighCaches")
+	local de = GetLocale() == "deDE"
+	local function speedLine(speed) return { leftText = "1 - 2", rightText = (de and "Tempo " or "Speed ") .. speed } end
+	local axe, hammer, thrash, ironfoe, demolisher, hand = "speedAxe", "speedHammer", "thrashBlade", "ironfoe", "demolisher", "handOfJustice"
+	ITEMS[axe] = { "INVTYPE_2HWEAPON", 2, 1, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 17.5, ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 8 } }
+	ITEMS[hammer] = { "INVTYPE_2HWEAPON", 2, 5, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 15.97 } }
+	ITEMS[thrash] = { "INVTYPE_WEAPON", 2, 7, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	ITEMS[ironfoe] = { "INVTYPE_WEAPON", 2, 4, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	ITEMS[demolisher] = { "INVTYPE_WEAPON", 2, 4, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	ITEMS[hand] = { "INVTYPE_TRINKET", 4, 0, {} }
+	local tips = {
+		[axe] = { speedLine("2,40") },
+		[hammer] = { speedLine("3,10"), { type = 46, leftText = de and "Trefferchance: Fügt einem Ziel 42 Feuerschaden zu." or "Chance on hit: Blasts a target for 42 Fire damage." } },
+		[thrash] = { speedLine("2.70"), { leftText = de and "Trefferchance: Gewährt Euch einen zusätzlichen Angriff bei Eurem nächsten Schwung."
+			or "Chance on hit: Grants an extra attack on your next swing." } },
+		[ironfoe] = { speedLine("2.40"), { leftText = de and "Trefferchance: Gewährt Euch 2 zusätzliche Angriffe bei Eurem nächsten Schwung."
+			or "Chance on hit: Grants 2 extra attacks on your next swing." } },
+		[demolisher] = { speedLine("2.40"), { leftText = de and "Trefferchance: Erhöht Euer Angriffstempo 10 Sek. lang um 20%."
+			or "Chance on hit: Increases your attack speed by 20% for 10 sec." } },
+		[hand] = { { leftText = de and "Anlegen: Chance von 2%, bei einem Nahkampftreffer einen zusätzlichen Angriff zu erhalten."
+			or "Equip: 2% chance on melee hit to gain 1 extra attack." } },
+	}
+	C_TooltipInfo.GetHyperlink = function(link) return { lines = tips[link] or {} } end
+	local mainHand = axe
+	GetInventoryItemLink = function(_, slot) return slot == 16 and mainHand or nil end
+	ItemLocation.CreateFromEquipmentSlot = function(_, slot) return { slot = slot } end
+	C_Item.DoesItemExist = function(location) return location.slot == 16 end
+	UnitAttackPower = function() return 0, 0, 0 end
+	Enum.ItemWeaponSubclass = { Dagger = 15, Fishingpole = 20 }
+	local known = {}
+	IsPlayerSpell = function(id) return known[id] == true end
+	local function profile(class, tree)
+		setuv(getW, "weights", upvalue(getW, "WEIGHTS")[class][tree])
+		setuv(getW, "weightsTree", tree)
+		setuv(getW, "playerClass", class)
+		clear()
+	end
+
+	-- Level 15 Enhancement shaman without Stormstrike: the weapon speed does not count.
+	profile("SHAMAN", 2)
+	local _, _, proc, speed = scoreFn(hammer)
+	assert(speed == 0 and math.abs(proc - 42 / 60 * 14) < 0.001, "no Stormstrike, no speed rating")
+	-- With Stormstrike (3 per minute, normalized): the slower weapon loses less against 3.3 s.
+	known[17364] = true
+	clear()
+	local hammerScore, _, _, hammerSpeed = scoreFn(hammer)
+	local axeScore, _, _, axeSpeed = scoreFn(axe)
+	assert(math.abs(hammerSpeed - 14 * 3 / 60 * 15.97 * (3.1 - 3.3)) < 0.001, "hammer speed rating")
+	assert(math.abs(axeSpeed - 14 * 3 / 60 * 17.5 * (2.4 - 3.3)) < 0.001, "axe speed rating")
+	assert(axeScore > hammerScore, "the axe stays better with Stormstrike")
+	local lines = {}
+	itemsMod.db.upgradeScore = true
+	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, hammer)
+	assert(lines[#lines] == ns.L.ITEMS_SCORE_SPEED_LINE:format(hammerSpeed), "the tooltip names the speed rating")
+	-- Attack power counts for swing attacks (Seal of Command) but not for normalized ones.
+	UnitAttackPower = function() return 700, 0, 0 end
+	clear()
+	assert(math.abs(select(4, scoreFn(hammer)) - hammerSpeed) < 0.001, "normalized attacks ignore attack power")
+	profile("PALADIN", 3)
+	known[20375] = true
+	assert(math.abs(select(4, scoreFn(hammer)) - 0.8 * 14 * 4.9 / 60 * (15.97 + 50) * (3.1 - 3.3)) < 0.001,
+		"Seal of Command scales attack power with the weapon speed")
+
+	-- Extra attacks: one proc per minute adds a whole swing with attack power.
+	profile("ROGUE", 2)
+	UnitAttackPower = function() return 280, 0, 0 end
+	local thrashProc = select(3, scoreFn(thrash))
+	assert(math.abs(thrashProc - 1 * 14 * (1 / 60) * (40 + 20) * 2.7) < 0.001, "one extra attack per proc")
+	assert(math.abs(select(3, scoreFn(ironfoe)) - 1 * 14 * (2 / 60) * (40 + 20) * 2.4) < 0.001, "two extra attacks per proc")
+	-- Attack speed: 20% for 10 s of every minute.
+	local haste = upvalue(getW, "WEIGHTS").ROGUE[2].HASTE
+	assert(math.abs(select(3, scoreFn(demolisher)) - haste * 20 * 10 / 60) < 0.001, "attack speed proc uses the haste weight")
+	-- Hand of Justice: 2% of the main hand's white damage per second.
+	mainHand = thrash
+	clear()
+	assert(math.abs(select(3, scoreFn(hand)) - 1 * 14 * 0.02 * (40 + 20)) < 0.001, "Equip chance of an extra attack")
+
+	-- Dual wield: Sinister Strike rates the main hand speed, the off hand has none.
+	known[1752] = true
+	CanDualWield = function() return true end
+	C_Item.DoesItemExist = function(location) return location.slot == 16 or location.slot == 17 end
+	local slow, fast = "slowSword", "fastSword"
+	ITEMS[slow] = { "INVTYPE_WEAPON", 2, 7, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	ITEMS[fast] = { "INVTYPE_WEAPON", 2, 7, { ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 40 } }
+	tips[slow], tips[fast] = { speedLine("2.90") }, { speedLine("1.50") }
+	GetInventoryItemLink = function(_, slot) return (slot == 16 or slot == 17) and fast or nil end
+	clear()
+	assert(select(4, scoreFn(slow, false, true)) == 0, "no speed rating in the off hand")
+	local score, worn = compare(slow)
+	assert(math.abs(worn - 40 * 14 - 14 * 10 / 60 * 40 * (1.5 - 2.4)) < 0.001, "the slow sword replaces the fast main hand")
+	assert(score > worn, "a slow main hand is an upgrade for Sinister Strike")
+
+	clear()
+	for _, link in ipairs({ axe, hammer, thrash, ironfoe, demolisher, hand, slow, fast }) do ITEMS[link] = nil end
+	ItemLocation.CreateFromEquipmentSlot, C_Item.DoesItemExist, UnitAttackPower = savedLocation, savedExists, savedAP
+	GetInventoryItemLink, C_TooltipInfo.GetHyperlink, IsPlayerSpell = savedEquipped, savedTooltip, savedKnown
+	CanDualWield, Enum.ItemWeaponSubclass = savedDual, savedSubclass
+	setuv(getW, "playerClass", savedClass)
+	setuv(getW, "weightsTree", savedTree)
+	setuv(getW, "weights", savedProfile)
+	print("weapon speed, extra attack and haste rating OK")
 end)()
 -- Upgrade toast: gain over the worn item, none for an empty slot
 do

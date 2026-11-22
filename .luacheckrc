@@ -174,6 +174,7 @@ read_globals = {
 	"C_EventUtils",
 	"C_SpecializationInfo",
 	"UnitLevel",
+	"UnitAttackPower", "UnitRangedAttackPower",
 	"UnitGroupRolesAssigned",
 	"UnitStat",
 	"GetCombatRatingBonusForCombatRatingValue",

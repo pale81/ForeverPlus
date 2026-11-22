@@ -465,10 +465,19 @@ local attackPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP, true).pattern
 local attackPowerLongPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_LONG, true).pattern
 local humanoidPowerPattern = ns.FormatToPattern(L.ITEMS_EFFECT_AP_HUMANOID, true).pattern
 local equipLineType = Enum.TooltipDataLineType.ItemSpellTriggerOnEquip
--- "Chance on hit" effects are valued at 1 proc per minute: the median of the combat-log
--- measurements for Classic weapons (most between 0.5 and 2). Forever's rates are unmeasured.
+-- "Chance on hit" effects count at the weapon's procs per minute from Data/ProcRates.lua (WoWSims
+-- Forever), otherwise at the median of the rates measured on Forever.
 -- 14 attack power add 1 damage per second, so a point of extra damage per second is worth 14 AP.
-local PROC = { perMinute = 1, apPerDPS = 14 }
+local PROC = { apPerDPS = 14 }
+
+-- Procs per minute of the item and the kind of source (0 = default, see Data/ProcRates.lua).
+function PROC.Rate(link)
+	local entry = ns.ProcRates and ns.ProcRates[C_Item.GetItemInfoInstant(link)]
+	if entry then
+		return entry[1], entry[2]
+	end
+	return ns.ProcRateDefault or 1, 0
+end
 local TooltipStats
 do
 	local procPattern = ns.FormatToPattern(L.ITEMS_PROC_EFFECT, true).pattern
@@ -651,7 +660,8 @@ do
 			return 0, 0
 		end
 		local ap = AttackPower(ranged)
-		local perSecond = PROC.perMinute / 60
+		local perMinute = PROC.Rate(link)
+		local perSecond = perMinute / 60
 		local dps = info.procDamage * perSecond
 		if info.speed and info.dps then
 			dps = dps + perSecond * info.extraAttacks * (info.dps + ap / PROC.apPerDPS) * info.speed
@@ -661,7 +671,7 @@ do
 		end
 		local procPoints = apWeight * PROC.apPerDPS * dps
 		if info.haste > 0 and not ranged then
-			procPoints = procPoints + (w.HASTE or 0) * info.haste * math.min(1, PROC.perMinute * info.hasteDuration / 60)
+			procPoints = procPoints + (w.HASTE or 0) * info.haste * math.min(1, perMinute * info.hasteDuration / 60)
 		end
 		local speedPoints = 0
 		if info.speed and info.dps then
@@ -1086,7 +1096,8 @@ local function AddRatingLines(tooltip, link, score, equippedScore, humanoidScore
 		tooltip:AddLine(L.ITEMS_SCORE_CREATURE_LINE:format(bonus[2], score + apWeight * bonus[1]), 0.5, 0.7, 1)
 	end
 	if procPoints and procPoints ~= 0 then
-		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procPoints, PROC.perMinute), 0.5, 0.7, 1)
+		local perMinute, kind = PROC.Rate(link)
+		tooltip:AddLine(L.ITEMS_SCORE_PROC_LINE:format(procPoints, perMinute, L["ITEMS_PROC_RATE_" .. kind]), 0.5, 0.7, 1)
 	end
 	if speedPoints and speedPoints ~= 0 then
 		tooltip:AddLine(L.ITEMS_SCORE_SPEED_LINE:format(speedPoints), 0.5, 0.7, 1)

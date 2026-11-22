@@ -2279,6 +2279,8 @@ end)()
 	local clear = uv(uv(itemsMod.OnOptionChanged, "QueueWeighRefresh"), "ClearWeighCaches")
 	local de = GetLocale() == "deDE"
 	local procText = de and "Trefferchance: Fügt einem Ziel 42 Feuerschaden zu." or "Chance on hit: Blasts a target for 42 Fire damage."
+	local R = ns.ProcRateDefault
+	assert(R == 1.95 and ns.ProcRates[17705][1] == 1, "bundled rates: default is the Forever median, Thrash Blade measured")
 	assert(itemsMod.ProcDamage(de and "Schleudert einen Feuerball, der 155 bis 197 Feuerschaden verursacht."
 		or "Hurls a fiery ball that causes 155 to 197 Fire damage.") == 176, "a damage range counts with its average")
 	assert(itemsMod.ProcDamage(de and "Verursacht 30 Schaden." or "Deals 30 damage.") == 30, "plain damage without a school")
@@ -2298,12 +2300,21 @@ end)()
 	clear()
 	local score, worn = compare(hammer)
 	assert(math.abs(worn - 262.8) < 0.001, "equipped axe: 17.5 DPS, 7 strength, 8 stamina")
-	assert(math.abs(score - (15.97 * 14 + 42 / 60 * 14)) < 0.001, "the hammer gains 0.7 damage per second from its proc")
+	assert(math.abs(score - (15.97 * 14 + R * 42 / 60 * 14)) < 0.001, "the hammer's proc counts at the default rate")
 	assert(BagComparisonState(0, 1, hammer) == "worse", "the proc does not make up for the axe's stats")
 	local lines = {}
 	itemsMod.db.upgradeScore = true
 	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, hammer)
-	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(42 / 60 * 14, 1), "the tooltip names the counted proc rating")
+	assert(#lines == 2 and lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(R * 42 / 60 * 14, R, ns.L.ITEMS_PROC_RATE_0),
+		"the tooltip names the counted proc rating and the default rate")
+	-- A weapon with a measured rate uses it (the harness gives every item ID 1).
+	ns.ProcRates[1] = { 0.95, 1 }
+	clear()
+	assert(math.abs(scoreFn(hammer) - (15.97 * 14 + 0.95 * 42 / 60 * 14)) < 0.001, "measured rate")
+	lines = {}
+	ns.AddRecipeScoreLine({ AddLine = function(_, line) lines[#lines + 1] = line end }, hammer)
+	assert(lines[2] == ns.L.ITEMS_SCORE_PROC_LINE:format(0.95 * 42 / 60 * 14, 0.95, ns.L.ITEMS_PROC_RATE_1), "the tooltip names a measured rate")
+	ns.ProcRates[1] = nil
 	setuv(getW, "weights", upvalue(getW, "WEIGHTS").MAGE[1])
 	clear()
 	assert(select(3, scoreFn(hammer)) == 0, "casters do not count melee procs")
@@ -2364,7 +2375,8 @@ end)()
 	-- Level 15 Enhancement shaman without Stormstrike: the weapon speed does not count.
 	profile("SHAMAN", 2)
 	local _, _, proc, speed = scoreFn(hammer)
-	assert(speed == 0 and math.abs(proc - 42 / 60 * 14) < 0.001, "no Stormstrike, no speed rating")
+	local R = ns.ProcRateDefault
+	assert(speed == 0 and math.abs(proc - R * 42 / 60 * 14) < 0.001, "no Stormstrike, no speed rating")
 	-- With Stormstrike (3 per minute, normalized): the slower weapon loses less against 3.3 s.
 	known[17364] = true
 	clear()
@@ -2390,11 +2402,11 @@ end)()
 	profile("ROGUE", 2)
 	UnitAttackPower = function() return 280, 0, 0 end
 	local thrashProc = select(3, scoreFn(thrash))
-	assert(math.abs(thrashProc - 1 * 14 * (1 / 60) * (40 + 20) * 2.7) < 0.001, "one extra attack per proc")
-	assert(math.abs(select(3, scoreFn(ironfoe)) - 1 * 14 * (2 / 60) * (40 + 20) * 2.4) < 0.001, "two extra attacks per proc")
+	assert(math.abs(thrashProc - 1 * 14 * (R / 60) * (40 + 20) * 2.7) < 0.001, "one extra attack per proc")
+	assert(math.abs(select(3, scoreFn(ironfoe)) - 1 * 14 * (2 * R / 60) * (40 + 20) * 2.4) < 0.001, "two extra attacks per proc")
 	-- Attack speed: 20% for 10 s of every minute.
 	local haste = upvalue(getW, "WEIGHTS").ROGUE[2].HASTE
-	assert(math.abs(select(3, scoreFn(demolisher)) - haste * 20 * 10 / 60) < 0.001, "attack speed proc uses the haste weight")
+	assert(math.abs(select(3, scoreFn(demolisher)) - haste * 20 * R * 10 / 60) < 0.001, "attack speed proc uses the haste weight")
 	-- Hand of Justice: 2% of the main hand's white damage per second.
 	mainHand = thrash
 	clear()

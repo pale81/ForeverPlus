@@ -54,6 +54,7 @@ Data\MapDiscoveries.lua
 Modules\WorldMap.lua
 Modules\MapSymbols.lua
 Modules\DungeonJournal.lua
+Data\ProcRates.lua
 Modules\Items.lua
 Modules\BankView.lua
 Modules\Restock.lua

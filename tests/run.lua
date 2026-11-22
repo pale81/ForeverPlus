@@ -1330,6 +1330,44 @@ end)()
 	ns.db.gatherNodes, C_Item = oldNodes, oldItem
 	print("scout OK")
 end)()
+-- Upgrades per slot: best upgrades of each slot, wearable now before "later", loading items are counted
+;(function()
+	local upgrades = ns:GetModule("Upgrades")
+	local picked = upgrades.Pick({
+		{ id = 1, slot = "INVTYPE_HEAD", gain = 5, state = true },
+		{ id = 2, slot = "INVTYPE_HEAD", gain = 9, state = "later" },
+		{ id = 3, slot = "INVTYPE_HEAD", gain = 7, state = true },
+		{ id = 4, slot = "INVTYPE_HEAD", gain = 6, state = true },
+		{ id = 5, slot = "INVTYPE_FEET", gain = 2, state = true },
+		{ id = 6, slot = "INVTYPE_FEET", gain = 0, state = true },
+		{ id = 7, slot = "INVTYPE_HAND", gain = 3, state = false },
+	}, 3, upgrades.ORDER)
+	assert(#picked == 2 and picked[1].slot == "INVTYPE_HEAD" and picked[2].slot == "INVTYPE_FEET", "slots in window order")
+	assert(#picked[1].rows == 3 and picked[1].rows[1].id == 3 and picked[1].rows[2].id == 4 and picked[1].rows[3].id == 1,
+		"wearable now first, by gain, three per slot")
+	assert(#picked[2].rows == 1, "no gain is no upgrade")
+	-- rating candidates from the loot data
+	local oldData, oldItem, oldState, oldGain = ns.LootData, C_Item, ns.ItemLinkUpgradeState, ns.ItemUpgradeGain
+	ns.LootData = { names = {}, items = { [100] = { { "npc:9", 1, 4 } }, [101] = {}, [102] = {} },
+		encounters = { [2741] = { 4, { { 103, 2 } } } } }
+	local loads = {}
+	C_Item = setmetatable({
+		GetItemInfoInstant = function(id) return id, nil, nil, id == 101 and "" or "INVTYPE_HEAD" end,
+		GetItemInfo = function(id) if id ~= 102 then return "Item " .. id, "item:" .. id, 2, nil, 30 end end,
+		RequestLoadItemDataByID = function(id) loads[#loads + 1] = id end,
+		GetItemIconByID = function() return 1 end,
+	}, { __index = oldItem })
+	ns.ItemLinkUpgradeState = function(link) return link == "item:100" and true or link == "item:103" and "later" or false end
+	ns.ItemUpgradeGain = function(link) return link == "item:100" and 4 or 8 end
+	local rows, loading = upgrades.Rate()
+	assert(#rows == 2 and loading == 1 and loads[1] == 102, "equippable candidates rated, missing data requested")
+	local built = uv(upgrades.Open, "Build")()
+	assert(built.items[1].text and built.items[2].text == "Item 100" and built.items[3].text:find("Item 103", 1, true)
+		and built.items[3].right == "50%", "list with header, items and boss share")
+	assert(built.title == ns.L.UPGRADES_LOADING:format(1), "title tells what is still loading")
+	ns.LootData, C_Item, ns.ItemLinkUpgradeState, ns.ItemUpgradeGain = oldData, oldItem, oldState, oldGain
+	print("upgrades per slot OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

@@ -920,6 +920,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("DungeonJournal").Toggle()
 	elseif msg == "dps" or msg == "sim" then
 		ns:GetModule("DPSSim").Open()
+	elseif msg == "besser" or msg == "upgrades" then
+		ns:GetModule("Upgrades").Open()
 	elseif msg == "rp" then
 		ns:GetModule("Roleplay").OpenEditor()
 	elseif msg == "mausrad" or msg == "wheel" then

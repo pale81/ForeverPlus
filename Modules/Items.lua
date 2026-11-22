@@ -1023,6 +1023,13 @@ local function LinkUpgradeState(link)
 end
 
 ns.ItemLinkUpgradeState = LinkUpgradeState
+
+-- How much an item (a link) adds over what it would replace, by the same rating as the arrows; nil if unknown.
+function ns.ItemUpgradeGain(link)
+	if type(link) ~= "string" or ns.Secret(link) then return end
+	local score, equippedScore = CompareScores(link)
+	if score and equippedScore then return score - equippedScore end
+end
 ns.RecipeUpgradeState = LinkUpgradeState
 
 -- For lists sorted by rating (auction house): the weighted value an item adds over the weakest worn item it would

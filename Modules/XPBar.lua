@@ -11,6 +11,7 @@ local XPBar = ns:NewModule("XPBar", {
 		format = "full",
 		repFormat = "full",
 		questXP = true,
+		xpRate = true,
 		restedShimmer = true,
 		bar1Width = 100,
 		bar1Height = 100,
@@ -51,6 +52,48 @@ local function Number(value)
 	return BreakUpLargeNumbers and BreakUpLargeNumbers(value) or tostring(value)
 end
 
+-- Experience per hour since login (or /reload), level-ups included. No figure for the first two minutes.
+local RATE_WARMUP = 120
+local session = {}
+
+function XPBar.TrackXP(now, current, maximum)
+	now, current, maximum = ns.Number(now), ns.Number(current), ns.Number(maximum)
+	if not (now and current and maximum) then return end
+	if not session.start then
+		session.start, session.gained, session.last, session.lastMax = now, 0, current, maximum
+		return
+	end
+	if current >= session.last then
+		session.gained = session.gained + current - session.last
+	else
+		session.gained = session.gained + (session.lastMax - session.last) + current
+	end
+	session.last, session.lastMax = current, maximum
+end
+
+function XPBar.ResetRate()
+	wipe(session)
+end
+
+function XPBar.Rate(now)
+	local elapsed = session.start and now - session.start or 0
+	if elapsed < RATE_WARMUP or session.gained <= 0 then return end
+	return session.gained / elapsed * 3600
+end
+
+local function Duration(hours)
+	local minutes = math.floor(hours * 60 + 0.5)
+	return L.XP_DURATION:format(math.floor(minutes / 60), minutes % 60)
+end
+
+local function RateText(remaining)
+	local rate = XPBar.db.xpRate and XPBar.Rate(GetTime())
+	if not rate then return end
+	return L.XP_RATE:format(Number(math.floor(rate + 0.5))) .. " – " .. L.XP_TO_LEVEL:format(Duration(remaining / rate))
+end
+
+XPBar.RateText = RateText
+
 local function BarText(current, maximum, format, extras)
 	local percent = maximum > 0 and current / maximum * 100 or 0
 	local remaining = maximum - current
@@ -71,6 +114,10 @@ local function BarText(current, maximum, format, extras)
 	end
 	if questXP > 0 then
 		text = text .. " – " .. L.XP_QUESTS:format(Number(questXP))
+	end
+	local rate = RateText(remaining)
+	if rate then
+		text = text .. " – " .. rate
 	end
 	return text
 end
@@ -445,7 +492,11 @@ function XPBar:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_StatusTrackingBar", HookBars)
 	ns.OnAddOnLoaded("Blizzard_EditMode", SetupEditSizeControls)
 	self:RegisterEvent("QUEST_LOG_UPDATE", QueueScan)
-	self:RegisterEvent("PLAYER_XP_UPDATE", UpdateBars)
+	XPBar.TrackXP(GetTime(), UnitXP("player"), UnitXPMax("player"))
+	self:RegisterEvent("PLAYER_XP_UPDATE", function()
+		XPBar.TrackXP(GetTime(), UnitXP("player"), UnitXPMax("player"))
+		UpdateBars()
+	end)
 	QueueScan()
 end
 
@@ -480,4 +531,5 @@ XPBar.options = {
 		{ "remaining", L.XP_FORMAT_REMAINING }, { "full", L.XP_REP_FORMAT_FULL },
 	} },
 	{ key = "questXP", type = "toggle", name = L.XP_QUEST_OVERLAY, desc = L.XP_QUEST_OVERLAY_DESC },
+	{ key = "xpRate", type = "toggle", name = L.XP_RATE_OPTION, desc = L.XP_RATE_OPTION_DESC },
 }

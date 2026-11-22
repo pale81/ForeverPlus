@@ -1103,6 +1103,29 @@ local barText = uv(uv(xp.OnLogin, "HookBars"), "UpdateBars")
 local textFn = uv(barText, "UpdateText")
 local bar = { currXP = 1250, maxBar = 5000, IsCapped = function() return false end, SetBarText = function(_, t) print("  xp:", t) end }
 for _, f in ipairs({ "percent", "both", "remaining", "full" }) do xp.db.format = f; textFn(bar) end
+-- XP per hour: level-ups count, no figure in the first two minutes
+;(function()
+	xp.ResetRate()
+	xp.TrackXP(1000, 4000, 5000)
+	xp.TrackXP(1060, 4600, 5000)
+	assert(xp.Rate(1060) == nil, "no rate during the warm-up")
+	xp.TrackXP(1200, 300, 6000)
+	assert(xp.Rate(1200) == 1300 / 200 * 3600, "level-up adds the rest of the old level")
+	local oldGetTime = GetTime
+	GetTime = function() return 1200 end
+	assert(xp.Rate(1200) and xp.RateText(2340):find("23400", 1, true) and xp.RateText(2340):find("0:06", 1, true),
+		"rate and time to level")
+	xp.db.xpRate = false
+	assert(xp.RateText(2340) == nil, "option turns the rate off")
+	xp.db.xpRate = true
+	local text
+	xp.db.format = "full"
+	textFn({ currXP = 300, maxBar = 6000, IsCapped = function() return false end, SetBarText = function(_, t) text = t end })
+	GetTime = oldGetTime
+	assert(text:find(ns.L.XP_RATE:format("23400"), 1, true), "full text carries the rate")
+	xp.ResetRate()
+	print("xp per hour OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

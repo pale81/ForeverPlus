@@ -931,8 +931,10 @@ local function AddChatItemUpgrade(tooltip, link)
 	if not state then
 		return
 	end
-	local color = state == "later" and GRAY_FONT_COLOR or GREEN_FONT_COLOR
-	GameTooltip_AddColoredLine(tooltip, L.ITEMS_UPGRADE_POPUP_HEAD, color, false, 16)
+	local worse = state == "worse"
+	local color = worse and RED_FONT_COLOR or state == "later" and GRAY_FONT_COLOR or GREEN_FONT_COLOR
+	local label = worse and L.ITEMS_DOWNGRADE or L.ITEMS_UPGRADE_POPUP_HEAD
+	GameTooltip_AddColoredLine(tooltip, label, color, false, 16)
 	if not chatItemArrow then
 		chatItemArrow = tooltip:CreateTexture(nil, "OVERLAY")
 		chatItemArrow:SetAtlas("bags-greenarrow")
@@ -940,13 +942,10 @@ local function AddChatItemUpgrade(tooltip, link)
 	end
 	chatItemArrow:ClearAllPoints()
 	chatItemArrow:SetPoint("RIGHT", tooltip:GetLeftLine(tooltip:NumLines()), "LEFT", -3, 0)
-	chatItemArrow:SetDesaturated(state == "later")
-	chatItemArrow:Show()
+	ns.SetItemComparisonArrow(chatItemArrow, state)
 end
 
--- Comparison tooltips: an arrow in the top right corner of the tooltip whose item is better (the hovered one or
--- the worn one), by the same rule as the upgrade arrows. A long item name would run under it: then the arrow
--- sits on the top edge instead.
+-- Comparison arrows sit in the top right corner, or on the top edge if the item name needs the space.
 local compareArrows = {}
 local ARROW_SIZE, ARROW_INSET = 22, 6
 
@@ -975,8 +974,7 @@ local function ShowCompareArrow(tooltip, state)
 	else
 		arrow:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, -ARROW_INSET)
 	end
-	arrow:SetDesaturated(state == "later")
-	arrow:Show()
+	ns.SetItemComparisonArrow(arrow, state)
 end
 
 local function ItemLinkOf(tooltip)
@@ -1080,6 +1078,9 @@ local function UpdateCompareArrows(manager)
 		ShowCompareArrow(tooltip, value)
 	elseif winner == "worn" then
 		ShowCompareArrow(wornTips[value], true)
+		if ns.ItemLinkUpgradeState(link) == "worse" then
+			ShowCompareArrow(tooltip, "worse")
+		end
 	end
 end
 

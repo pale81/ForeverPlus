@@ -10,7 +10,7 @@ local ProfessionPlan = ns:NewModule("ProfessionPlan", {
 	order = 6.1,
 	defaults = {
 		upcoming = false, -- the unlearned section in the profession window (switched in its filter menu)
-		preview = true,   -- recipes: Ctrl + click tries the product on, green arrow and rating for better equipment
+		preview = true,   -- recipes: Ctrl + click tries the product on, comparison arrow and rating for equipment
 		efficientSkillUps = false,
 		extraTabs = true,
 	},
@@ -235,8 +235,7 @@ local function UpdateRecipeArrows(ticker)
 			if state then
 				local arrow = frame.fpArrow or CreateRecipeArrow(frame, label)
 				frame.fpArrow = arrow
-				arrow:SetDesaturated(state == "later")
-				arrow:Show()
+				ns.SetItemComparisonArrow(arrow, state)
 			elseif frame.fpArrow then
 				frame.fpArrow:Hide()
 			end

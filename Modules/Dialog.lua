@@ -935,7 +935,7 @@ local function CreateRow(frame)
 	row.Icon = row:CreateTexture(nil, "ARTWORK")
 	row.Icon:SetSize(16, 16)
 	row.Icon:SetPoint("TOPLEFT", 0, -1)
-	-- Small green arrow between the icon and the number: the ware beats what is worn.
+	-- Small equipment comparison arrow beside the icon.
 	row.Arrow = row:CreateTexture(nil, "OVERLAY")
 	row.Arrow:SetAtlas("bags-greenarrow")
 	row.Arrow:SetSize(12, 12)
@@ -1009,7 +1009,7 @@ local function CreateItem(frame)
 	item.Icon:SetAllPoints()
 	item.Count = item:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 	item.Count:SetPoint("BOTTOMRIGHT", -2, 2)
-	-- Action button frame, tinted in the item quality; green arrow when it beats the worn item.
+	-- Action button frame tinted by item quality, with an equipment comparison arrow.
 	ns.ApplyActionFrame(item, item.Icon, "standalone", 3)
 	-- The coin of the junk mark: the choice that sells for the most.
 	item.Coin = item:CreateTexture(nil, "OVERLAY", nil, 6)
@@ -1265,8 +1265,7 @@ local function RenderView(view)
 			end
 			row.Arrow:ClearAllPoints()
 			row.Arrow:SetPoint("LEFT", row.Icon, "RIGHT", 3, 0)
-			row.Arrow:SetShown(info.upgrade and true or false)
-			row.Arrow:SetDesaturated(info.upgrade == "later")
+			ns.SetItemComparisonArrow(row.Arrow, info.upgrade)
 			row.Check:SetShown(info.picked and true or false)
 			row.Picked:SetShown(info.picked and true or false)
 			local number, emphasised = nil, false
@@ -1369,8 +1368,7 @@ local function RenderView(view)
 				row.Arrow:SetPoint("TOPLEFT", 21, -2)
 				row.ButtonBack:SetShown(screen and info.action ~= nil)
 				local iconWidth = (info.icon and 20 or 0) + (info.arrowSlot and 14 or 0)
-				row.Arrow:SetShown(info.upgrade and true or false)
-				row.Arrow:SetDesaturated(info.upgrade == "later")
+				ns.SetItemComparisonArrow(row.Arrow, info.upgrade)
 				row.link = info.link
 				row.Icon:SetShown(info.icon ~= nil)
 				if info.icon then
@@ -1478,11 +1476,12 @@ local function RenderView(view)
 					end) or false
 				end
 				item.Coin:SetShown(info.choice ~= nil and bestChoice == info.choice)
-				item.Upgrade:SetShown(ns.IsRewardUpgrade and ns.IsRewardUpgrade(info.link, function()
+				local state = ns.RewardComparisonState and ns.RewardComparisonState(info.link, function()
 					if current and not current.pending and frame:IsShown() then
 						Render(current.view)
 					end
-				end) and true or false)
+				end)
+				ns.SetItemComparisonArrow(item.Upgrade, state)
 				item.tooltip = info.tooltip
 				local chosen = block.choose and current and current.selected == info.choice or false
 				if chosen then
@@ -2565,7 +2564,7 @@ end
 
 function Dialog.TrainerView()
 	local available, locked = TrainerServices()
-	-- Products of recipes that beat the worn items get the green arrow (grey when only the level is missing).
+	-- Compare the crafted equipment with what is worn.
 	local previewArrows = false
 	for _, entry in ipairs(available) do
 		previewArrows = previewArrows or entry.link ~= nil
@@ -2928,7 +2927,7 @@ function Dialog.MerchantView()
 	end
 	local rows = {}
 	-- All rows leave room for the arrow when the option for upgrade arrows is on (so the texts stay aligned).
-	local arrowSlot = not buyback and ns.IsRewardUpgrade ~= nil and ns:GetModule("Items").db.rewardUpgrade
+	local arrowSlot = not buyback and ns.RewardComparisonState ~= nil and ns:GetModule("Items").db.rewardUpgrade
 	-- While something is in the basket every row leaves room for the quantity field: the prices stay in one column.
 	local reserve = #picks > 0 and not buyback and 48 or nil
 	local shown = entries
@@ -2956,8 +2955,8 @@ function Dialog.MerchantView()
 				icon = info.texture,
 				number = wareNumber,
 				arrowSlot = arrowSlot,
-				upgrade = not buyback and info.isUsable ~= false and ns.IsRewardUpgrade
-					and ns.IsRewardUpgrade(GetMerchantItemLink(index), RefreshMerchant) or false,
+				upgrade = arrowSlot and info.isUsable ~= false
+					and ns.RewardComparisonState(GetMerchantItemLink(index), RefreshMerchant) or false,
 				dim = info.isPurchasable == false,
 				picked = isPicked, -- in the basket: a tick on the icon, a green tint and the quantity field
 				counter = isPicked and not buyback and QuantityOf(index) or nil,

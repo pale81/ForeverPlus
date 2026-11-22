@@ -149,8 +149,8 @@ function ns.EquipSlots(equipLoc)
 	return EQUIP_SLOTS[equipLoc]
 end
 
-local upgradeCache = {}    -- hyperlink -> bool
-local linkUpgradeCache = {} -- hyperlink -> upgrade state outside the bags
+local upgradeCache = {}     -- hyperlink -> comparison state in the bags
+local linkUpgradeCache = {} -- hyperlink -> comparison state outside the bags
 local scoreCache = {}      -- hyperlink (+ ranged) -> base score and bonus against Humanoids
 local equippedCache = {}   -- inventory slot -> base score and bonus against Humanoids
 
@@ -638,12 +638,9 @@ local function IsTwoHand(link)
 	return link and select(4, C_Item.GetItemInfoInstant(link)) == "INVTYPE_2HWEAPON"
 end
 
--- An upgrade is the best armor type for the class, usable, and has a higher
--- weighted value (stats of the current specialization) than the weakest
--- equipped item it could replace. Unknown data never shows an arrow.
 -- Returns the weighted value of the item and of the weakest equipped item it
 -- could replace, with a second comparison against Humanoids when different.
--- False if it never counts as an upgrade, nil while loading.
+-- False if it is unsuitable for comparison, nil while loading.
 local function CompareScores(link)
 	local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(link)
 	local slots = ns.EquipSlots(equipLoc)
@@ -690,13 +687,31 @@ local function CompareScores(link)
 	return score, equippedScore
 end
 
--- An upgrade is the best armor type for the class, usable, and has a higher
--- weighted value (stats of the current talent tree) than the weakest
--- equipped item it could replace. Unknown data never shows an arrow.
+-- Arrow states: true for an upgrade, "later" for a level-gated upgrade, "worse"
+-- for an equippable downgrade, false for a tie or unsuitable gear.
+local function ScoreDirection(score, equippedScore)
+	if score then
+		local gain = score - equippedScore
+		if gain > 0.01 then
+			return true
+		elseif gain < -0.01 then
+			return "worse"
+		end
+	end
+	return false
+end
+
+local function UsableArrowState(direction, block)
+	if block == "ok" then
+		return direction
+	end
+	return direction == true and block == "level" and "later" or false
+end
+
 local WEIGH_BUDGET = 0.6 -- ms per bag update: the rest of the new items is weighed a moment later
 local weighStart, weighDone, weighDeferred, weighActive = 0, 0, false, false
 
-local function IsUpgrade(bag, slot, link)
+local function BagComparisonState(bag, slot, link)
 	local cached = upgradeCache[link]
 	if cached ~= nil then
 		return cached
@@ -712,34 +727,17 @@ local function IsUpgrade(bag, slot, link)
 	if score == nil then
 		return false
 	end
-	-- Better, but the level is still missing: "later" (a grey arrow).
-	local result = false
-	if score and score > equippedScore + 0.01 then
-		local block = BagUseBlock(bag, slot)
-		result = block == "ok" or (block == "level" and "later") or false
+	local result = ScoreDirection(score, equippedScore)
+	if result then
+		result = UsableArrowState(result, BagUseBlock(bag, slot))
 	end
 	upgradeCache[link] = result
 	return result
 end
 
--- The same check for an item that is not in the bags (quest rewards, merchant): usable by the
--- red lines of its tooltip.
-local function CanUseLink(link)
-	local data = C_TooltipInfo.GetHyperlink(link)
-	if not data or not data.lines then
-		return false
-	end
-	for _, line in ipairs(data.lines) do
-		if IsRed(line.leftColor) or IsRed(line.rightColor) then
-			return false
-		end
-	end
-	return true
-end
-
--- An item outside the bags against what is worn: true, "later" (only the level is missing), false; nil while loading.
-local function LinkUpgradeState(link)
-	if not Items.db or not Items.db.upgradeArrow or type(link) ~= "string" or ns.Secret(link)
+-- As in the bags, using the linked item tooltip. Nil while data is loading.
+local function LinkComparisonState(link)
+	if type(link) ~= "string" or ns.Secret(link)
 		or not C_Item.IsEquippableItem(link) then
 		return false
 	end
@@ -751,14 +749,20 @@ local function LinkUpgradeState(link)
 	if score == nil then
 		return nil
 	end
-	local result = false
-	if score and score > equippedScore + 0.01 then
+	local result = ScoreDirection(score, equippedScore)
+	if result then
 		local data = C_TooltipInfo.GetHyperlink(link)
-		local block = Items.UseBlock(data and data.lines, LevelPattern())
-		result = block == "ok" or (block == "level" and "later") or false
+		if not data or not data.lines then
+			return nil
+		end
+		result = UsableArrowState(result, Items.UseBlock(data.lines, LevelPattern()))
 	end
 	linkUpgradeCache[link] = result
 	return result
+end
+
+local function LinkUpgradeState(link)
+	return Items.db and Items.db.upgradeArrow and LinkComparisonState(link)
 end
 
 ns.ItemLinkUpgradeState = LinkUpgradeState
@@ -844,23 +848,20 @@ end
 
 local rewardRetries = {}
 
--- True if the item (a link) beats what is worn, false if not or if it is no equipment, nil while its
--- data loads (onLoaded is called again a little later, at most three times per item).
-function ns.IsRewardUpgrade(link, onLoaded)
-	if not Items.db or not Items.db.rewardUpgrade or type(link) ~= "string" or ns.Secret(link)
-		or not C_Item.IsEquippableItem(link) then
+-- Rewards and merchant wares have a separate option and only mark currently usable equipment.
+function ns.RewardComparisonState(link, onLoaded)
+	if not Items.db or not Items.db.rewardUpgrade then
 		return false
 	end
-	local score, equippedScore = CompareScores(link)
-	if score == nil then
+	local state = LinkComparisonState(link)
+	if state == nil then
 		local tries = rewardRetries[link] or 0
 		if onLoaded and tries < 3 then
 			rewardRetries[link] = tries + 1
 			ns.After("Items: onLoaded", 1, onLoaded)
 		end
-		return nil
 	end
-	return score and score > equippedScore + 0.01 and CanUseLink(link) or false
+	return state ~= "later" and state
 end
 
 -- Optional tooltip line with both values, to check the rating.
@@ -1365,6 +1366,25 @@ local function SetUpgradeArrow(arrow, state)
 	end
 end
 
+-- Rotate and tint the same atlas on addon-owned textures. Recycled rows restore the original
+-- color and orientation when they next show an upgrade.
+function ns.SetItemComparisonArrow(arrow, state, laterAlpha)
+	if state and arrow.fpComparisonState ~= state then
+		arrow.fpComparisonState = state
+		local worse = state == "worse"
+		local accent = worse and 0.12 or 1
+		arrow:SetDesaturated(worse or state == "later")
+		arrow:SetVertexColor(1, accent, accent)
+		arrow:SetRotation(worse and math.pi or 0)
+		if laterAlpha then
+			arrow:SetAlpha(state == "later" and laterAlpha or 1)
+		end
+	end
+	arrow:SetShown(not not state)
+end
+
+local bagDowngradeArrows = setmetatable({}, { __mode = "k" })
+
 local function UpdateButton(button, excludedBags)
 	local bag, slot = button:GetBagID(), button:GetID()
 	local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -1402,9 +1422,20 @@ local function UpdateButton(button, excludedBags)
 		end
 		local show = false
 		if Items.db.upgradeArrow and info and info.hyperlink and C_Item.IsEquippableItem(info.hyperlink) then
-			show = IsUpgrade(bag, slot, info.hyperlink)
+			show = BagComparisonState(bag, slot, info.hyperlink)
 		end
-		SetUpgradeArrow(button.UpgradeIcon, show)
+		local worse = show == "worse"
+		SetUpgradeArrow(button.UpgradeIcon, not worse and show)
+		local arrow = bagDowngradeArrows[button]
+		if worse and not arrow then
+			arrow = button:CreateTexture(nil, "OVERLAY", nil, 2)
+			arrow:SetAtlas("bags-greenarrow", true)
+			arrow:SetPoint("TOPRIGHT", button, "TOPRIGHT")
+			bagDowngradeArrows[button] = arrow
+		end
+		if arrow then
+			ns.SetItemComparisonArrow(arrow, worse and show)
+		end
 	end
 end
 
@@ -1458,7 +1489,7 @@ local function UpdateLootRow(row, data)
 		lootArrows[row] = arrow
 	end
 	if arrow then
-		SetUpgradeArrow(arrow, state)
+		ns.SetItemComparisonArrow(arrow, state, 0.75)
 	end
 end
 
@@ -2467,8 +2498,7 @@ local function MarkBestReward()
 	end
 end
 
--- Green arrow on the items of a quest (offered choices and sure rewards, also in the quest log) that
--- are better than the worn ones.
+-- Comparison arrow on offered and guaranteed quest rewards, also in the quest log.
 local rewardArrows = {}
 
 local function GetRewardArrow(button)
@@ -2477,9 +2507,9 @@ local function GetRewardArrow(button)
 		arrow = CreateFrame("Frame", nil, button)
 		arrow:SetAllPoints(button.Icon or button.icon or button)
 		arrow:SetFrameLevel(button:GetFrameLevel() + 6)
-		local texture = arrow:CreateTexture(nil, "OVERLAY", nil, 3)
-		texture:SetAtlas("bags-greenarrow", true)
-		texture:SetPoint("TOPRIGHT", 0, 0)
+		arrow.texture = arrow:CreateTexture(nil, "OVERLAY", nil, 3)
+		arrow.texture:SetAtlas("bags-greenarrow", true)
+		arrow.texture:SetPoint("TOPRIGHT", 0, 0)
 		rewardArrows[button] = arrow
 	end
 	return arrow
@@ -2496,8 +2526,11 @@ local function MarkRewardUpgrades()
 	local getLink = QuestInfoFrame.questLog and GetQuestLogItemLink or GetQuestItemLink
 	for _, button in ipairs(rewardsFrame and rewardsFrame.RewardButtons or {}) do
 		if button:IsShown() and button.objectType == "item" and (button.type == "choice" or button.type == "reward") then
-			if ns.IsRewardUpgrade(getLink(button.type, button:GetID()), MarkRewardUpgrades) then
-				GetRewardArrow(button):Show()
+			local state = ns.RewardComparisonState(getLink(button.type, button:GetID()), MarkRewardUpgrades)
+			if state then
+				local arrow = GetRewardArrow(button)
+				ns.SetItemComparisonArrow(arrow.texture, state)
+				arrow:Show()
 			end
 		end
 	end

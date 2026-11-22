@@ -495,8 +495,7 @@ local function ItemInfo(id)
 	return name, not ns.Secret(link) and link or nil, ns.Number(quality)
 end
 
--- Same rule as the green arrow in the bags: true (better and usable), "later" (only the level is missing),
--- false, or nil while the item data loads (requested; the list refreshes when it arrives).
+-- Same comparison as in the bags. The list refreshes when pending item data arrives.
 local function UpgradeState(id)
 	local _, link = ItemInfo(id)
 	local state = link and ns.ItemLinkUpgradeState and ns.ItemLinkUpgradeState(link)
@@ -814,7 +813,9 @@ Render = function(reset)
 		local shown = {}
 		for _, record in ipairs(rows) do
 			record.upgrade = UpgradesAvailable() and UpgradeState(record.id)
-			if not upgradesOnly or record.upgrade then shown[#shown + 1] = record end
+			if not upgradesOnly or record.upgrade == true or record.upgrade == "later" then
+				shown[#shown + 1] = record
+			end
 		end
 		rows = shown
 	end
@@ -838,9 +839,15 @@ Render = function(reset)
 			row:HookScript("OnEnter", ns.Measured("DungeonJournal: entry tooltip", EntryTooltip))
 		end
 		row.text:SetTextColor(1, 0.82, 0)
+		local state = loot and record.upgrade
+		if state and not row.upgrade then
+			row.upgrade = row:CreateTexture(nil, "OVERLAY", nil, 7)
+			row.upgrade:SetAtlas("bags-greenarrow")
+			row.upgrade:SetSize(14, 14)
+			row.upgrade:SetPoint("TOPRIGHT", row.icon, "TOPRIGHT", 4, 4)
+		end
 		if row.upgrade then
-			row.upgrade:SetDesaturated(loot and record.upgrade == "later")
-			row.upgrade:SetShown(loot and record.upgrade and true or false)
+			ns.SetItemComparisonArrow(row.upgrade, state)
 		end
 		if loot then
 			local name, _, quality = ItemInfo(record.id)
@@ -849,12 +856,6 @@ Render = function(reset)
 			row.icon:SetDesaturated(false)
 			row.text:SetText(name)
 			if color then row.text:SetTextColor(color.r, color.g, color.b) end
-			if record.upgrade and not row.upgrade then
-				row.upgrade = row:CreateTexture(nil, "OVERLAY", nil, 7)
-				row.upgrade:SetAtlas("bags-greenarrow")
-				row.upgrade:SetSize(14, 14)
-				row.upgrade:SetPoint("TOPRIGHT", row.icon, "TOPRIGHT", 4, 4)
-			end
 			row.sub:SetText(BossName(record.boss) .. "  ·  " .. sources.DropRate(record.drops, record.windows))
 			row.sub:SetTextColor(GRAY_FONT_COLOR:GetRGB())
 		elseif quests then

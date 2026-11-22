@@ -29,6 +29,8 @@ frameMeta.__index = function(t, k)
 		SetShown = function(self, v) self.shown = v and true or false end,
 		IsShown = function(self) return self.shown end, IsVisible = function(self) return self.shown end,
 		GetAlpha = function(self) return self.alpha end, SetAlpha = function(self, a) self.alpha = a end,
+		SetRotation = function(self, angle) self.rotation = angle end,
+		SetVertexColor = function(self, r, g, b) self.vertexColor = { r, g, b } end,
 		GetWidth = function(self) return self.w end, GetHeight = function(self) return self.h end,
 		GetSize = function(self) return self.w, self.h end,
 		GetVerticalScroll = function(self) return rawget(self, "verticalScroll") or 0 end,
@@ -554,10 +556,10 @@ local itemsMod = ns:GetModule("Items")
 local UpdateAllBags = upvalue(itemsMod.OnOptionChanged, "UpdateAllBags")
 local UpdateContainerFrame = upvalue(UpdateAllBags, "UpdateContainerFrame")
 local UpdateButton = upvalue(UpdateContainerFrame, "UpdateButton")
-local IsUpgrade = upvalue(UpdateButton, "IsUpgrade")
-assert(IsUpgrade, "IsUpgrade found")
+local BagComparisonState = upvalue(UpdateButton, "BagComparisonState")
+assert(BagComparisonState, "BagComparisonState found")
 Enum.ItemClass = { Armor = 4, Weapon = 2 }
-local cache = upvalue(IsUpgrade, "upgradeCache")
+local cache = upvalue(BagComparisonState, "upgradeCache")
 local ITEMS = {
 	["equippedBelt"] = { "INVTYPE_WAIST", 4, 2, { RESISTANCE0_NAME = 25 } },
 	["clothBelt"] = { "INVTYPE_WAIST", 4, 1, { RESISTANCE0_NAME = 9, ITEM_MOD_INTELLECT_SHORT = 5 } },
@@ -577,7 +579,7 @@ C_TooltipInfo.GetBagItem = function() return { lines = {} } end
 C_SpecializationInfo = { GetSpecialization = function() return 2 end, GetSpecializationInfo = function() return 263, "Enh", nil, nil, "DAMAGER" end }
 UnitLevel = function() return 20 end
 local _, cls = UnitClass("player")
-local compare = upvalue(IsUpgrade, "CompareScores")
+local compare = upvalue(BagComparisonState, "CompareScores")
 local up = upvalue(compare, "IsBestArmorType")
 -- player class in harness is MAGE; force shaman
 for i = 1, 200 do local n = debug.getupvalue(up, i) if not n then break end if n == "playerClass" then debug.setupvalue(up, i, "SHAMAN") end end
@@ -586,7 +588,7 @@ local function check(link, expect)
 	for k in pairs(cache) do cache[k] = nil end
 	for k in pairs(upvalue(GetWeights, "scoreCache")) do upvalue(GetWeights, "scoreCache")[k] = nil end
 	for k in pairs(upvalue(upvalue(compare, "EquippedScore"), "equippedCache")) do upvalue(upvalue(compare, "EquippedScore"), "equippedCache")[k] = nil end
-	local r = IsUpgrade(0, 1, link)
+	local r = BagComparisonState(0, 1, link)
 	print("  upgrade", link, r)
 	assert(r == expect, link)
 end
@@ -594,8 +596,26 @@ check("clothBelt", false)
 check("leatherAgi", true)
 check("leatherInt", true)
 GetInventoryItemLink = function(_, slot) return slot == 6 and "leatherAgi" or nil end
-check("leatherInt", false)
+check("leatherInt", "worse")
+check("leatherAgi", false)
 check("mailBelt", false) -- level 20: mail not best type
+;(function()
+	local savedInfo = C_Container.GetContainerItemInfo
+	local button = NewFrame("Button")
+	button.GetBagID = function() return 0 end
+	button.JunkIcon = false
+	button.UpgradeIcon = NewFrame("Texture")
+	local link = "leatherInt"
+	C_Container.GetContainerItemInfo = function() return link and { hyperlink = link } end
+	UpdateButton(button)
+	local arrow = upvalue(UpdateButton, "bagDowngradeArrows")[button]
+	assert(arrow:IsShown() and arrow.rotation == math.pi and arrow.vertexColor[2] < 0.2
+		and not button.UpgradeIcon:IsShown(), "a worse item shows the red down arrow in the bag slot")
+	link = "leatherAgi"
+	UpdateButton(button)
+	assert(not arrow:IsShown() and not button.UpgradeIcon:IsShown(), "the bag slot clears both arrows for equal gear")
+	C_Container.GetContainerItemInfo = savedInfo
+end)()
 UnitLevel = function() return 40 end
 print("dbg", up(4, 3, "INVTYPE_WAIST"), upvalue(up, "ARMOR_TYPE").SHAMAN[2], UnitLevel())
 check("mailBelt", true)
@@ -666,10 +686,23 @@ print("upgrade OK")
 	Send("LOOT_SLOT_CHANGED", 4)
 	assert(arrow:IsShown() and not arrow.grey and arrow:GetAlpha() == 1, "an equippable upgrade shows the green arrow")
 	GetInventoryItemLink = function(_, slot) return slot == 6 and "mailBelt" or nil end
+	ITEMS.weakerMailBelt = { "INVTYPE_WAIST", 4, 3, { RESISTANCE0_NAME = 20 } }
+	slots[4] = "weakerMailBelt"
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	assert(arrow:IsShown() and arrow.rotation == math.pi and arrow.vertexColor[2] < 0.2,
+		"an equippable downgrade shows the red down arrow on the same loot row")
+	canUse = false
+	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	assert(not arrow:IsShown(), "a level-gated downgrade has no arrow")
+	slots[4], canUse = "mailBelt", true
+	ITEMS.weakerMailBelt = nil
+	GetInventoryItemLink = function(_, slot) return slot == 6 and "mailBelt" or nil end
 	Send("PLAYER_EQUIPMENT_CHANGED", 6)
 	assert(not arrow:IsShown(), "equipping equivalent gear updates the open window")
 	GetInventoryItemLink = savedEquipped
 	Send("PLAYER_EQUIPMENT_CHANGED", 6)
+	assert(arrow:IsShown() and arrow.rotation == 0 and arrow.vertexColor[2] == 1 and not arrow.grey,
+		"recycling a red loot arrow for an upgrade restores green and the upward direction")
 	itemsMod.db.upgradeArrow = false
 	itemsMod:OnOptionChanged("upgradeArrow")
 	assert(not arrow:IsShown(), "the existing option hides loot arrows")
@@ -2186,7 +2219,7 @@ end)()
 	local score, worn, humanoid, wornHumanoid = compare(defender)
 	assert(math.abs(score - 4.7) < 0.001 and math.abs(worn - 5.55) < 0.001, "flat attack power beats two additional armor")
 	assert(humanoid == score and math.abs(wornHumanoid - 6.95) < 0.001, "equipped cloak gains only four more AP against Humanoids")
-	assert(not IsUpgrade(0, 1, defender), "the Defender Cloak is no upgrade over the Catacomb Cloak")
+	assert(BagComparisonState(0, 1, defender) == "worse", "the Defender Cloak is worse than the Catacomb Cloak")
 
 	local lines = {}
 	local tip = { AddLine = function(_, line) lines[#lines + 1] = line end }
@@ -2202,13 +2235,14 @@ end)()
 	equipped = defender
 	local conditional, normal, againstHumanoid, wornAgainst = compare(situational)
 	assert(conditional < normal and againstHumanoid > wornAgainst, "a situational cloak can win the Humanoid comparison")
-	assert(not IsUpgrade(0, 1, situational), "the generic arrow does not use the situational rating")
+	assert(BagComparisonState(0, 1, situational) == "worse", "the generic arrow uses the base rating")
 
 	-- Comparison tooltips: the arrow goes to the better of the hovered and the worn item.
 	clear()
 	equipped = cloak
 	local winner, which = ns.CompareWinner(defender, { cloak })
 	assert(winner == "worn" and which == 1, "the better worn cloak gets the arrow")
+	assert(ns.RewardComparisonState(defender) == "worse", "a worse quest reward uses the same rating")
 	equipped = defender
 	clear()
 	winner, which = ns.CompareWinner(cloak, { defender })
@@ -2469,6 +2503,7 @@ end)()
 	local savedTooltip, savedUtil, savedCompare = GameTooltip, TooltipUtil, GameTooltip_ShowCompareItem
 	local savedShift, savedSections, savedArrow = IsShiftKeyDown, ns.itemSections, ns.ItemLinkUpgradeState
 	local savedGetter, savedEquippable = C_TooltipInfo.GetHyperlink, C_Item.IsEquippableItem
+	local savedColoredLine = GameTooltip_AddColoredLine
 	local savedFlag, savedCalls = module.db.shiftInfo, #TEST_POSTCALLS
 	local armor, food = "item:1234:0:0:0", "item:5678:0:0:0"
 	local shift, compared, lines, arrow = false, false, {}
@@ -2481,6 +2516,7 @@ end)()
 	tip.GetOwner = function(self) return self.owner end
 	tip.GetPrimaryTooltipInfo = function(self) return self.infoList and self.infoList[1] end
 	tip.AddLine = function(_, line) lines[line] = true end
+	GameTooltip_AddColoredLine = function(_, line, color) lines[line] = color end
 	tip.CreateTexture = function()
 		arrow = NewFrame("Texture")
 		arrow.SetDesaturated = function(self, value) self.desaturated = value end
@@ -2520,6 +2556,11 @@ end)()
 	shift = false
 	shiftChanged(nil, nil, "LSHIFT")
 	assert(not lines["Shift item info"] and compared, "releasing Shift removes extras and keeps the comparison")
+	ns.ItemLinkUpgradeState = function() return "worse" end
+	tip:RefreshData()
+	assert(lines[ns.L.ITEMS_DOWNGRADE] == RED_FONT_COLOR and arrow:IsShown()
+		and arrow.rotation == math.pi and arrow.vertexColor[2] < 0.2,
+		"chat previews label downgrades and show the red down arrow")
 	leave(nil, ChatFrame1)
 	assert(not tip:IsShown() and not compared and not arrow:IsShown(), "leaving the link closes the preview")
 	enter(nil, ChatFrame1, food)
@@ -2536,6 +2577,7 @@ end)()
 	GameTooltip, TooltipUtil, GameTooltip_ShowCompareItem = savedTooltip, savedUtil, savedCompare
 	IsShiftKeyDown, ns.itemSections, ns.ItemLinkUpgradeState = savedShift, savedSections, savedArrow
 	C_TooltipInfo.GetHyperlink, C_Item.IsEquippableItem = savedGetter, savedEquippable
+	GameTooltip_AddColoredLine = savedColoredLine
 	module.db.shiftInfo, module.db.chatItemLinks = savedFlag, true
 	print("Chat item hover, comparison and Shift OK")
 end)()
@@ -4794,8 +4836,8 @@ end)()
 	assert(dialog.GroupWares(single, function(e) return e.k, "H" end) == single, "one group: no heading")
 	local saved = { GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair,
 		GetNumBuybackItems, ns.MerchantTools, C_Item.GetItemInfoInstant, rawget(_G, "INVTYPE_CHEST"), rawget(_G, "INVTYPE_HAND"),
-		dialog.db.merchantGroups, ns.IsRewardUpgrade }
-	ns.MerchantTools, ns.IsRewardUpgrade = nil, nil
+		dialog.db.merchantGroups, ns.RewardComparisonState }
+	ns.MerchantTools, ns.RewardComparisonState = nil, nil
 	GetMerchantNumItems = function() return 10 end
 	C_MerchantFrame = { GetItemInfo = function(i) return { name = "Ware" .. i, texture = 1, price = 10, stackCount = 1, numAvailable = -1, isPurchasable = true, isUsable = true } end }
 	GetMerchantItemLink = function(i) return "item:" .. i end
@@ -4879,7 +4921,7 @@ end)()
 	bubble.SetHeight, buy.SetPoint = setHeight, setPoint
 	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
 	GetMerchantNumItems, C_MerchantFrame, GetMerchantItemLink, GetMoney, GetMoneyString, CanMerchantRepair, GetNumBuybackItems,
-		ns.MerchantTools, C_Item.GetItemInfoInstant, INVTYPE_CHEST, INVTYPE_HAND, dialog.db.merchantGroups, ns.IsRewardUpgrade = unpack(saved, 1, 13)
+		ns.MerchantTools, C_Item.GetItemInfoInstant, INVTYPE_CHEST, INVTYPE_HAND, dialog.db.merchantGroups, ns.RewardComparisonState = unpack(saved, 1, 13)
 	print("merchant columns OK")
 end)()
 ;(function()
@@ -9225,18 +9267,16 @@ end)()
 		assert(A.RowLink({ itemLink = "|Hbattlepet:1|h[P]|h" }) == nil, "pets get no arrow")
 		local asked
 		ns.ItemLinkUpgradeState = function(link) asked = link return "later" end
-		local tex = { shown = false, desat = false }
-		function tex:SetAtlas() end
-		function tex:SetSize() end
-		function tex:SetPoint() end
+		local tex = NewFrame("Texture")
 		function tex:SetDesaturated(v) self.desat = v end
-		function tex:SetShown(v) self.shown = v end
-		function tex:Hide() self.shown = false end
 		local cell = { Icon = { IsShown = function() return true end }, rowData = {},
 			CreateTexture = function() return tex end }
 		local onCell, onClear = uv(A.OnLogin, "OnItemCell"), uv(A.OnLogin, "OnItemCellCleared")
 		onCell(cell, { itemID = 5 })
 		assert(asked == sample and tex.shown and tex.desat, "grey arrow if only the level is missing")
+		ns.ItemLinkUpgradeState = function() return "worse" end
+		onCell(cell, { itemID = 5 })
+		assert(tex.shown and tex.rotation == math.pi and tex.vertexColor[2] < 0.2, "worse auctions show the red down arrow")
 		onClear(cell)
 		assert(not tex.shown, "a cleared cell hides the arrow")
 		cell.Prefix = {}
@@ -10409,8 +10449,9 @@ end)()
 	ownRow:GetScript("OnClick")(ownRow, "LeftButton")
 	assert(linked == "|Hitem:777001|h[Testklinge]|h", "clicks pass the item link to the game")
 
-	-- Green arrow and the filter for upgrades the character can wear (same rule as the bags).
-	ns.ItemLinkUpgradeState = function(link) return link:find("777001", 1, true) and true or false end
+	-- Comparison arrows and the upgrade-only filter use the bag ratings.
+	local state = true
+	ns.ItemLinkUpgradeState = function(link) return link:find("777001", 1, true) and state or false end
 	panel.tabs.loot:GetScript("OnClick")()
 	assert(panel.upgradesOnly:IsShown(), "the loot tab offers the upgrade filter")
 	local function ShownItems()
@@ -10429,15 +10470,22 @@ end)()
 			plain = plain + 1
 		end
 	end
-	assert(arrows == 1 and plain > 0, "only upgrades get an arrow")
+	assert(arrows == 1 and plain > 0, "only the rated item gets an arrow")
+	state = "worse"
+	panel.tabs.loot:GetScript("OnClick")()
+	for _, row in ipairs(ShownItems()) do
+		if row.item.id == 777001 then
+			assert(row.upgrade:IsShown() and row.upgrade.rotation == math.pi, "worse loot has a down arrow")
+		end
+	end
 	panel.upgradesOnly.GetChecked = function() return true end
 	panel.upgradesOnly:GetScript("OnClick")(panel.upgradesOnly)
+	assert(#ShownItems() == 0 and panel.empty:IsShown() and panel.empty.testText == ns.L.JOURNAL_NO_UPGRADES,
+		"the upgrade filter excludes worse gear")
+	state = true
+	panel.tabs.loot:GetScript("OnClick")()
 	local filtered = ShownItems()
 	assert(journal.db.lootUpgradesOnly and #filtered == 1 and filtered[1].item.id == 777001, "filter keeps only upgrades")
-	ns.ItemLinkUpgradeState = function() return false end
-	panel.tabs.loot:GetScript("OnClick")()
-	assert(#ShownItems() == 0 and panel.empty:IsShown() and panel.empty.testText == ns.L.JOURNAL_NO_UPGRADES,
-		"filter without upgrades says so")
 	panel.tabs.bosses:GetScript("OnClick")()
 	assert(not panel.upgradesOnly:IsShown(), "the filter belongs to the loot tab")
 	items.db.upgradeArrow = false
@@ -10614,22 +10662,35 @@ end)()
 	-- Comparison tooltips that reveal nothing: worn items come from the slots, in order
 	local update = uv(module.OnInitialize, "UpdateCompareArrows")
 	local savedWinner, savedSlots, savedWorn, savedInfo = ns.CompareWinner, ns.EquipSlots, GetInventoryItemLink, C_Item.GetItemInfoInstant
+	local savedState = ns.ItemLinkUpgradeState
 	local seen
 	ns.CompareWinner = function(_, worn) seen = worn return "worn", 2 end
+	ns.ItemLinkUpgradeState = function() return "worse" end
 	ns.EquipSlots = function() return { 11, 12 } end
 	GetInventoryItemLink = function(_, slot) return "item:" .. slot .. ":0:0:0" end
 	C_Item.GetItemInfoInstant = function() return 1, nil, nil, "INVTYPE_FINGER" end
-	local function shopping()
-		local shown = tip({})
-		shown.CreateTexture = function() return NewFrame("Texture") end
+	local function shopping(extra)
+		local shown = tip(extra or {})
+		shown.CreateTexture = function(self)
+			self.arrow = NewFrame("Texture")
+			return self.arrow
+		end
 		shown.GetLeftLine = function() return { GetStringWidth = function() return 10 end } end
 		shown.GetWidth = function() return 200 end
 		return shown
 	end
 	local first, second = shopping(), shopping()
-	local main = tip({ GetItem = function() return "Ring", link end, shoppingTooltips = { first, second } })
+	local main = shopping({ GetItem = function() return "Ring", link end, shoppingTooltips = { first, second } })
 	update({ tooltip = main })
 	assert(seen and seen[1] == "item:11:0:0:0" and seen[2] == "item:12:0:0:0", "worn items by slot order")
+	assert(main.arrow:IsShown() and main.arrow.rotation == math.pi and main.arrow.vertexColor[2] < 0.2
+		and second.arrow:IsShown() and second.arrow.rotation == 0,
+		"the hovered item shows a red down arrow beside the better worn item's green up arrow")
+	ns.CompareWinner = function() return "hovered", true end
+	update({ tooltip = main })
+	assert(not second.arrow:IsShown() and main.arrow:IsShown() and main.arrow.rotation == 0
+		and main.arrow.vertexColor[2] == 1, "the hovered tooltip restores the green up arrow for better gear")
+	ns.ItemLinkUpgradeState = savedState
 	ns.CompareWinner, ns.EquipSlots, GetInventoryItemLink, C_Item.GetItemInfoInstant = savedWinner, savedSlots, savedWorn, savedInfo
 	print("compare tooltip without GetItem OK")
 end)()

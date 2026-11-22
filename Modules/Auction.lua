@@ -153,7 +153,7 @@ function Auction.RowLink(rowData, itemKey)
 	end
 end
 
--- The upgrade arrow of bags and loot on the icon of an item in the browse list (grey if only the level is missing).
+-- The equipment comparison arrow beside the icon in the browse list.
 local itemArrows = setmetatable({}, { __mode = "k" })
 -- With the list sorted by rating: the gain over what is worn at the right end of the name cell.
 local gainLabels = setmetatable({}, { __mode = "k" })
@@ -222,8 +222,7 @@ local function OnItemCell(cell, itemKey)
 		itemArrows[cell] = arrow
 	end
 	if arrow then
-		arrow:SetDesaturated(state == "later")
-		arrow:SetShown(state and true or false)
+		ns.SetItemComparisonArrow(arrow, state)
 	end
 	UpdateGainLabel(cell)
 end

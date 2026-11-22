@@ -4,11 +4,15 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true, showChat = true },
+	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true, showChat = true,
+		hideTeleports = true },
 })
 
 local QUIET_SECONDS = 60
 local timer, activityTicker, hidUI, hooked, restoring, blocked
+local teleport
+local MIN_TELEPORT_CAST_MS = 2000
+local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
 local peek, peekArea, peekDriver, UpdateHiddenUI
 
@@ -106,7 +110,15 @@ local function CancelTimer()
 	end
 end
 
+local function ClearTeleport()
+	if teleport then
+		teleport.timer:Cancel()
+		teleport = nil
+	end
+end
+
 local function RestoreUI()
+	ClearTeleport()
 	EndPeek(false)
 	if hidUI then
 		hidUI = nil
@@ -121,6 +133,15 @@ local function RestoreUI()
 	end
 end
 
+local function HideUI()
+	-- No open target or window is hidden, so its OnHide cannot play a close sound.
+	hidUI = true
+	SavePeekArea()
+	UpdateHiddenChat()
+	SetUIVisibility(false)
+	UpdateHiddenUI()
+end
+
 local function StartTimer()
 	CancelTimer()
 	-- hidUI: the interface is Wanderlust's, also while it is see-through over the minimap.
@@ -129,6 +150,10 @@ local function StartTimer()
 	end
 	blocked = ActivityBlocked()
 	if blocked then return end
+	if teleport then
+		if not teleport.ending then HideUI() end
+		return
+	end
 	local pending
 	pending = ns.NewTimer("Wanderlust: hide interface", QUIET_SECONDS, function()
 		if timer ~= pending then
@@ -137,13 +162,7 @@ local function StartTimer()
 		timer = nil
 		if Wanderlust.db.enabled and not InCombatLockdown() and UIParent:IsShown() then
 			blocked = ActivityBlocked()
-			if blocked then return end
-			-- No open target or window is hidden, so its OnHide cannot play a close sound.
-			hidUI = true
-			SavePeekArea()
-			UpdateHiddenChat()
-			SetUIVisibility(false)
-			UpdateHiddenUI()
+			if not blocked then HideUI() end
 		end
 	end)
 	timer = pending
@@ -153,6 +172,7 @@ local function OnUIShown()
 	if peek then return end -- Wanderlust's own see-through reveal over the minimap
 	-- Escape, Toggle UI and other features give the player another full minute.
 	-- A later manual hide now belongs to the player, not to Wanderlust.
+	ClearTeleport()
 	hidUI = nil
 	UpdateHiddenUI()
 	if not restoring then
@@ -169,7 +189,7 @@ local function RefreshActivity()
 	if not Wanderlust.db.enabled or InCombatLockdown() then return end
 	if ActivityBlocked() then
 		blocked = true
-		Stop()
+		if hidUI then Stop() else CancelTimer() end
 	elseif blocked then
 		blocked = false
 		StartTimer()
@@ -184,6 +204,7 @@ local function CheckPeek()
 		if not UIParent:IsShown() then
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
 			EndPeek(false)
+			ClearTeleport()
 			hidUI = nil
 			UpdateHiddenUI()
 		elseif not CursorOverMinimap() then
@@ -287,15 +308,81 @@ local function IsProfessionSpell(event, spellID)
 	return professionSpells[spellID]
 end
 
-local function OnSpellCast(_, event, unit, _, spellID)
+local function FinishTeleport()
+	RestoreUI()
+	StartTimer()
+end
+
+local function ScheduleTeleportFinish(seconds)
+	if teleport.timer then teleport.timer:Cancel() end
+	local pending
+	pending = ns.NewTimer("Wanderlust: teleport finish", seconds, function()
+		if teleport and teleport.timer == pending then FinishTeleport() end
+	end)
+	teleport.timer = pending
+end
+
+local function AwaitTeleportArrival()
+	if teleport.ending then return end
+	-- STOP can precede success and the loading screen. Same-map arrivals also need a finish.
+	teleport.ending = true
+	ScheduleTeleportFinish(TELEPORT_TRANSITION)
+end
+
+local function StartTeleport(event, guid, spellID)
+	if not Wanderlust.db.hideTeleports or not spellID or ns.Secret(guid) or not guid then return false end
+	local channel = event == "UNIT_SPELLCAST_CHANNEL_START"
+	local readCast = channel and UnitChannelInfo or UnitCastingInfo
+	local _, _, _, startMS, endMS = readCast("player")
+	startMS, endMS = ns.Number(startMS), ns.Number(endMS)
+	if not startMS or not endMS or endMS - startMS < MIN_TELEPORT_CAST_MS
+		or not ns:GetModule("Teleports").IsTravelSpell(spellID) then
+		return false
+	end
+	ClearTeleport()
+	teleport = { guid = guid, channel = channel }
+	-- Recover at the end of the cast even if no terminal event arrives.
+	ScheduleTeleportFinish((endMS - startMS) / 1000 + 1)
+	StartTimer()
+	return true
+end
+
+local function OnTeleportStopped(_, event, unit, guid)
+	if not teleport or ns.Secret(unit) or unit ~= "player" or ns.Secret(guid) or guid ~= teleport.guid then return end
+	if event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+		if (event == "UNIT_SPELLCAST_CHANNEL_STOP") == teleport.channel then
+			AwaitTeleportArrival()
+		end
+	else
+		FinishTeleport()
+	end
+end
+
+local function OnSpellCast(_, event, unit, guid, spellID)
 	if ns.Secret(unit) or unit ~= "player" then return end
 	if InCombatLockdown() then
 		Stop()
 		return
 	end
 	if not hidUI and not UIParent:IsShown() then return end
-	if not Wanderlust.db.showProfessions and IsProfessionSpell(event, ns.Number(spellID)) then return end
+	spellID = ns.Number(spellID)
+	if event == "UNIT_SPELLCAST_SUCCEEDED" then
+		if teleport then
+			if not teleport.channel and not ns.Secret(guid) and guid == teleport.guid then
+				AwaitTeleportArrival()
+			end
+			return
+		end
+	elseif StartTeleport(event, guid, spellID) then
+		return
+	end
+	if not Wanderlust.db.showProfessions and IsProfessionSpell(event, spellID) then return end
 	RestoreUI()
+	StartTimer()
+end
+
+local function EnteringWorld()
+	if teleport then RestoreUI() end
 	StartTimer()
 end
 
@@ -307,6 +394,7 @@ end
 
 function Wanderlust:Apply()
 	local enabled = self.db.enabled
+	if teleport and not self.db.hideTeleports then Stop() end
 	InvalidateProfessions()
 	nativeProfessions = {}
 	if enabled and not hooked then
@@ -319,13 +407,17 @@ function Wanderlust:Apply()
 	end
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", enabled, Stop)
 	self:ToggleEvent("PLAYER_REGEN_ENABLED", enabled, StartTimer)
-	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, StartTimer)
+	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, EnteringWorld)
 	self:ToggleEvent("PLAYER_LEAVING_WORLD", enabled, Stop)
 	self:ToggleEvent("PLAYER_LOGOUT", enabled, Stop)
 	self:ToggleEvent("PLAYER_TARGET_CHANGED", enabled, RefreshActivity)
 	self:ToggleEvent("PLAYER_FOCUS_CHANGED", enabled, RefreshActivity)
 	for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_SUCCEEDED" }) do
 		self:ToggleEvent(event, enabled, OnSpellCast)
+	end
+	for _, event in ipairs({ "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_FAILED",
+		"UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED" }) do
+		self:ToggleEvent(event, enabled and self.db.hideTeleports, OnTeleportStopped)
 	end
 	for _, event in ipairs({ "SPELLS_CHANGED", "SKILL_LINES_CHANGED" }) do
 		self:ToggleEvent(event, enabled and not self.db.showProfessions, InvalidateProfessions)
@@ -375,5 +467,6 @@ Wanderlust.options = {
 	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
 	{ key = "hoverText", type = "toggle", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC, parent = "enabled" },
 	{ key = "showChat", type = "toggle", name = L.WANDERLUST_CHAT, desc = L.WANDERLUST_CHAT_DESC, parent = "enabled" },
+	{ key = "hideTeleports", type = "toggle", name = L.WANDERLUST_TELEPORTS, desc = L.WANDERLUST_TELEPORTS_DESC, parent = "enabled" },
 	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

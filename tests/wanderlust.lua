@@ -81,11 +81,13 @@ local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "descripti
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
 	WANDERLUST_CHAT = "Chat", WANDERLUST_CHAT_DESC = "description",
+	WANDERLUST_TELEPORTS = "Teleports", WANDERLUST_TELEPORTS_DESC = "description",
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
 local hoverDetached = false
 local tooltip = { SetWanderlustHover = function(active) hoverDetached = active end }
 function ns:GetModule(name)
 	if name == "Chat" then return self.chat end
+	if name == "Teleports" then return self.teleports end
 	assert(name == "Tooltip")
 	return tooltip
 end
@@ -94,10 +96,15 @@ function ns:NewModule(name, spec)
 		self.chat = spec
 		return spec
 	end
+	if name == "Teleports" then
+		self.teleports = spec
+		return spec
+	end
 	assert(name == "Wanderlust")
 	self.module = spec
 	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions,
-		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat }
+		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat,
+		hideTeleports = spec.defaults.hideTeleports }
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
 end
@@ -125,6 +132,8 @@ end
 
 local secret = {}
 local castingTrade, channelTrade = false, false
+local castDurationMS
+local travelItemSpells = {}
 local spellBook = { { spellID = 18248, name = "Fishing" }, { spellID = 8613, name = "Skinning" } }
 local names = { [7620] = "Fishing", [8613] = "Skinning" }
 local recipeReads, bookReads = 0, 0
@@ -191,8 +200,8 @@ local env = setmetatable({
 	SetCVar = function() error("Wanderlust must not mute game audio") end,
 	UnitName = function() return "Player" end,
 	wipe = function(t) for key in pairs(t) do t[key] = nil end end,
-	UnitCastingInfo = function() return nil, nil, nil, nil, nil, castingTrade end,
-	UnitChannelInfo = function() return nil, nil, nil, nil, nil, channelTrade end,
+	UnitCastingInfo = function() return nil, nil, nil, 1000, castDurationMS and 1000 + castDurationMS, castingTrade end,
+	UnitChannelInfo = function() return nil, nil, nil, 1000, castDurationMS and 1000 + castDurationMS, channelTrade end,
 	GetProfessions = function() return nil, 2 end, -- absent profession slots must not end the scan
 	GetProfessionInfo = function() return "Profession", nil, nil, nil, #spellBook, 0 end,
 	Enum = { SpellBookSpellBank = { Player = 0 } },
@@ -201,6 +210,7 @@ local env = setmetatable({
 		return spellBook[slot]
 	end },
 	C_Spell = { GetSpellName = function(id) return names[id] end },
+	C_Item = { GetItemSpell = function(itemID) return nil, travelItemSpells[itemID] end },
 	C_TradeSkillUI = { GetProfessionInfoByRecipeID = function(id)
 		recipeReads = recipeReads + 1
 		return { professionID = id == 2001 and 171 or 0 }
@@ -208,6 +218,8 @@ local env = setmetatable({
 }, { __index = _G })
 local chatChunk = assert(loadfile(root .. "/Modules/Chat.lua"))
 setfenv(chatChunk, env)("ForeverPlus", ns)
+local teleportChunk = assert(loadfile(root .. "/Modules/Teleports.lua"))
+setfenv(teleportChunk, env)("ForeverPlus", ns)
 setfenv(chunk, env)
 chunk("ForeverPlus", ns)
 local module = ns.module
@@ -263,6 +275,7 @@ assert(module.db.showProfessions == false, "profession abilities are excluded by
 assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
 assert(module.db.hoverText == true and not hoverDetached, "the default keeps mouseover text only during an automatic hide")
 assert(module.db.showChat == true and chatFrame.parent == ui, "chat is kept by default only during an automatic hide")
+assert(module.db.hideTeleports == true, "Wanderlust hides during longer teleports by default")
 Enable(true)
 assert(hooks == 1 and Pending() == 1, "enabling starts a single timer")
 Advance(59)
@@ -488,6 +501,82 @@ combat = false
 Enable(false)
 Fire("UNIT_SPELLCAST_START", "player", "disabled", 1001)
 assert(not next(events) and Pending() == 0, "disabling unregisters all ability and profession events")
+
+;(function()
+	assert(not ns.teleports.IsTravelSpell(10059), "creating a group portal does not count as travelling")
+	assert(not ns.teleports.IsTravelSpell(99001), "uncached transport items can be resolved later")
+	travelItemSpells[18986] = 99001
+	assert(ns.teleports.IsTravelSpell(99001), "the item use spell is resolved through the teleport menu entry")
+	travelItemSpells[18986] = nil
+	assert(ns.teleports.IsTravelSpell(99001), "a resolved teleport item spell remains cached")
+
+	Enable(true)
+	castDurationMS = 10000
+	Fire("UNIT_SPELLCAST_START", "player", "portal", 10059)
+	assert(ui.shown, "a long cast that creates a portal uses normal Wanderlust behaviour")
+	castDurationMS = 1500
+	Fire("UNIT_SPELLCAST_START", "player", "short", 3561)
+	assert(ui.shown, "short teleports do not trigger the special hide")
+	castDurationMS = 10000
+	Fire("UNIT_SPELLCAST_START", "player", "hearthstone", 8690)
+	assert(not ui.shown and hoverDetached and chatFrame.parent == chatHost,
+		"a hearthstone hides the interface at cast start and uses the regular Wanderlust display options")
+	Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "stale", 8690)
+	Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "unrelated", 1002)
+	assert(not ui.shown, "other cast GUIDs do not end the teleport hide")
+	Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "hearthstone", 8690)
+	assert(ui.shown and Pending() == 1, "interrupting a cast immediately restores the interface and starts the minute")
+
+	bagsOpen = true
+	Fire("UNIT_SPELLCAST_START", "player", "from-bag", 8690)
+	assert(ui.shown, "a hearthstone used from the bag waits for the bag to close")
+	bagsOpen = false
+	Fire("BAG_CLOSED")
+	assert(not ui.shown, "closing the bag during the cast hides the interface")
+	Fire("UNIT_SPELLCAST_STOP", "player", "from-bag", 8690)
+	Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "from-bag", 8690)
+	assert(not ui.shown, "STOP and success do not flash the interface before loading")
+	Fire("PLAYER_LEAVING_WORLD")
+	assert(ui.shown and Pending() == 0, "a loading screen releases the hide and all timers")
+	Fire("PLAYER_ENTERING_WORLD")
+	Advance(59)
+	assert(ui.shown, "arrival starts a full minute")
+
+	Fire("UNIT_SPELLCAST_START", "player", "recall", 556)
+	assert(not ui.shown, "Astral Recall triggers the same hide")
+	Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "recall", 556)
+	Advance(1)
+	assert(ui.shown, "a successful same-map teleport recovers without a loading screen")
+
+	Fire("UNIT_SPELLCAST_CHANNEL_START", "player", "transport", 99001)
+	Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "transport", 99001)
+	Advance(1)
+	assert(not ui.shown, "a channel's early success does not end a longer teleport")
+	Fire("UNIT_SPELLCAST_CHANNEL_STOP", "player", "transport", 99001)
+	Advance(1)
+	assert(ui.shown, "the interface returns when the transport channel ends")
+
+	Fire("UNIT_SPELLCAST_START", "player", "no-event", 3561)
+	Advance(11)
+	assert(ui.shown, "the interface recovers if no terminal event arrives")
+	Fire("UNIT_SPELLCAST_START", "player", "option", 18960)
+	assert(not ui.shown, "the Moonglade spell triggers the hide")
+	module.db.hideTeleports = false
+	module:OnOptionChanged("hideTeleports", false)
+	assert(ui.shown and not events.UNIT_SPELLCAST_STOP, "turning off the option restores the interface and unregisters cast stops")
+	Fire("UNIT_SPELLCAST_START", "player", "opt-out", 8690)
+	assert(ui.shown, "an opted-out teleport uses normal Wanderlust behaviour")
+	module.db.hideTeleports = true
+	module:OnOptionChanged("hideTeleports", true)
+	Fire("UNIT_SPELLCAST_START", "player", "manual", 8690)
+	SetVisibility(true)
+	SetVisibility(false)
+	Fire("UNIT_SPELLCAST_FAILED", "player", "manual", 8690)
+	assert(not ui.shown, "a player manually taking over visibility keeps ownership after the teleport ends")
+	SetVisibility(true)
+	Enable(false)
+	castDurationMS = nil
+end)()
 
 Enable(true)
 Advance(60)
@@ -735,4 +824,4 @@ assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.sh
 	SetVisibility(true)
 	globals.BankFrame = nil
 end)()
-print("Wanderlust timing, chat, mouseover, abilities, targets, windows and lifecycle OK")
+print("Wanderlust timing, teleports, chat, mouseover, abilities, targets, windows and lifecycle OK")

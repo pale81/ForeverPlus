@@ -34,6 +34,31 @@ local ENTRIES = {
 	{ "spell", 11417, portal = true }, { "spell", 11418, portal = true }, { "spell", 11420, portal = true },
 }
 
+-- The spell cast by the hearthstone, plus personal travel spells from the menu.
+local travelSpells, travelItems = { [8690] = true }, {}
+for _, entry in ipairs(ENTRIES) do
+	local kind, id = entry[1], entry[2]
+	if kind == "spell" and not entry.portal then
+		travelSpells[id] = true
+	elseif kind == "item" and not entry.hearth then
+		travelItems[id] = true
+	end
+end
+
+function Teleports.IsTravelSpell(spellID)
+	if not spellID then return false end
+	if travelSpells[spellID] then return true end
+	for itemID in pairs(travelItems) do
+		local itemSpell = ns.Number(select(2, C_Item.GetItemSpell(itemID)))
+		if itemSpell then
+			travelSpells[itemSpell] = true
+			-- Item data can be missing until the game loads it, so only cache resolved entries.
+			travelItems[itemID] = nil
+		end
+	end
+	return travelSpells[spellID] == true
+end
+
 local function Accessible(value)
 	if value == nil or ns.Secret(value) then
 		return nil

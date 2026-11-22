@@ -3059,6 +3059,29 @@ print("active buff OK")
 	updateAuras()
 	print("weapon imbue OK")
 end)()
+;(function()
+	-- A slow call during which the Lua memory went down carries "(GC)"; fast calls and growing memory do not.
+	local savedTime, savedClock, savedGC = GetTime, debugprofilestop, collectgarbage
+	local now, clock, memory = 900, 0, 1000
+	GetTime = function() return now end
+	debugprofilestop = function() return clock end
+	collectgarbage = function(option)
+		if option == "count" then
+			return memory
+		end
+		return savedGC(option)
+	end
+	ns.SetMeasuring(true)
+	now = 901
+	ns.Measured("Test: slow with GC", function() clock, memory = clock + 8, memory - 200 end)()
+	ns.Measured("Test: slow, memory grows", function() clock, memory = clock + 8, memory + 50 end)()
+	ns.Measured("Test: fast with GC", function() clock, memory = clock + 1, memory - 200 end)()
+	assert(ns.timings["Test: slow with GC (GC)"] and not ns.timings["Test: slow with GC"], "slow call with GC is marked")
+	assert(ns.timings["Test: slow, memory grows"] and ns.timings["Test: fast with GC"], "others keep their name")
+	ns.SetMeasuring(false)
+	GetTime, debugprofilestop, collectgarbage = savedTime, savedClock, savedGC
+	print("GC mark OK")
+end)()
 -- Exceptions and timed measure
 vis.db.activeBuffExceptions = { ["Siegel der Rechtschaffenheit"] = true }
 auras = { { name = "Siegel der Rechtschaffenheit" } }

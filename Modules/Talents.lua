@@ -64,6 +64,24 @@ end
 
 local TRAINER_FILTERS = { "available", "unavailable", "used" }
 
+-- Measured on their own: switching a filter rebuilds the service list of the game (and possibly its trainer window).
+local ShowAllServices = ns.Measured("Talents: trainer filters on", function(saved)
+	for _, filter in ipairs(TRAINER_FILTERS) do
+		saved[filter] = GetTrainerServiceTypeFilter(filter)
+		if not saved[filter] then
+			SetTrainerServiceTypeFilter(filter, true)
+		end
+	end
+end)
+
+local RestoreFilters = ns.Measured("Talents: trainer filters back", function(saved)
+	for _, filter in ipairs(TRAINER_FILTERS) do
+		if not saved[filter] then
+			SetTrainerServiceTypeFilter(filter, false)
+		end
+	end
+end)
+
 local function ScanTrainer()
 	local trainerType = C_Trainer and C_Trainer.GetTrainerType and C_Trainer.GetTrainerType()
 	if trainerType == Enum.TrainerType.Tradeskills then
@@ -75,12 +93,7 @@ local function ScanTrainer()
 		classLines[info.name] = true
 	end
 	local saved = {}
-	for _, filter in ipairs(TRAINER_FILTERS) do
-		saved[filter] = GetTrainerServiceTypeFilter(filter)
-		if not saved[filter] then
-			SetTrainerServiceTypeFilter(filter, true)
-		end
-	end
+	ShowAllServices(saved)
 	local list = isPet and PetTrainerList() or TrainerList()
 	local found = {}
 	for index = 1, GetNumTrainerServices() do
@@ -91,11 +104,7 @@ local function ScanTrainer()
 				known = isPet and serviceType == "used" or nil }
 		end
 	end
-	for _, filter in ipairs(TRAINER_FILTERS) do
-		if not saved[filter] then
-			SetTrainerServiceTypeFilter(filter, false)
-		end
-	end
+	RestoreFilters(saved)
 	if #found == 0 then
 		return
 	end
@@ -2152,7 +2161,7 @@ function Talents:OnLogin()
 	end)
 	self:RegisterEvent("PLAYER_LEVEL_UP", self.Update)
 	self:RegisterEvent("TRAINER_SHOW", function()
-		ns.After("Talents: OnLogin (timer)", 0.3, function()
+		ns.After("Talents: trainer visit (timer)", 0.3, function()
 			ScanTrainer()
 			self:Update()
 		end)

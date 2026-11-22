@@ -326,6 +326,15 @@ function ns.RecordLoad(name, elapsed)
 	ns.loadTimings[name] = elapsed
 end
 
+-- A slow call during which the Lua memory went down: the garbage collector ran inside it, and its time (for all
+-- addons) counts to this call. Such calls carry " (GC)" in their name.
+local function SpikeName(name, elapsed, memoryBefore)
+	if elapsed > ns.SLOW_MS and collectgarbage("count") < memoryBefore then
+		return name .. " (GC)"
+	end
+	return name
+end
+
 local function RecordFrameCall(name, elapsed)
 	local now = GetTime()
 	if now ~= frameTopAt then
@@ -484,14 +493,15 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 		if ns.measuring or sessionSampler then
 			for owner, fn in pairs(set) do
 				local measurement = ActiveMeasurement()
+				local memory = collectgarbage("count")
 				local start = debugprofilestop()
 				runningOwner = owner
 				xpcall(fn, ErrorHandler, owner, event, ...)
 				local elapsed = debugprofilestop() - start
 				if measurement and measurement == ns.spikes and ns.measuring then
-					ns.RecordTiming(OwnerName(owner) .. ": " .. event, elapsed)
+					ns.RecordTiming(SpikeName(OwnerName(owner) .. ": " .. event, elapsed, memory), elapsed)
 				elseif elapsed >= SESSION_CALL_MIN then
-					RecordFrameCall(OwnerName(owner) .. ": " .. event, elapsed)
+					RecordFrameCall(SpikeName(OwnerName(owner) .. ": " .. event, elapsed, memory), elapsed)
 				end
 			end
 		else
@@ -517,13 +527,14 @@ function ns.Measured(name, fn)
 			return
 		end
 		local measurement = ActiveMeasurement()
+		local memory = collectgarbage("count")
 		local start = debugprofilestop()
 		fn(...)
 		local elapsed = debugprofilestop() - start
 		if measurement and measurement == ns.spikes and ns.measuring then
-			ns.RecordTiming(name, elapsed)
+			ns.RecordTiming(SpikeName(name, elapsed, memory), elapsed)
 		elseif elapsed >= SESSION_CALL_MIN then
-			RecordFrameCall(name, elapsed)
+			RecordFrameCall(SpikeName(name, elapsed, memory), elapsed)
 		end
 	end
 end

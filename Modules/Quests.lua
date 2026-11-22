@@ -27,6 +27,8 @@ local Quests = ns:NewModule("Quests", {
 		foreverWatermark = true,
 		shareDone = false,
 		sharePartial = false,
+		lootSparkle = false,
+		-- sparkleBefore: the game's value before the option set it (comes back when it is turned off)
 	},
 	charDefaults = {
 		trackerTab = "world",
@@ -1289,8 +1291,29 @@ local function HookPreview()
 	end
 end
 
+-- Loot sparkle on quest items (the game uses the same setting for quest givers). Graphics presets switch it
+-- off; the option switches it back on and gives the earlier value back when it is turned off.
+local SPARKLE = "outlineModeShowLootEffectWhenDisabled"
+
+function Quests.ApplySparkle()
+	local current = GetCVar(SPARKLE)
+	if type(current) ~= "string" then return end -- unknown to this client
+	local db = Quests.db
+	if db.lootSparkle then
+		if db.sparkleBefore == nil then db.sparkleBefore = current end
+		if current ~= "1" then SetCVar(SPARKLE, "1") end
+	elseif db.sparkleBefore ~= nil then
+		SetCVar(SPARKLE, db.sparkleBefore)
+		db.sparkleBefore = nil
+	end
+	Quests:ToggleEvent("CVAR_UPDATE", db.lootSparkle, function(_, _, name, value)
+		if name == SPARKLE and value ~= "1" then Quests.ApplySparkle() end
+	end)
+end
+
 function Quests:OnLogin()
 	Quests.HookWowheadMenus()
+	Quests.ApplySparkle()
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Quests: drop objectives", OnUnitTooltip))
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
@@ -1349,6 +1372,8 @@ end
 function Quests:OnOptionChanged(key, value)
 	if key == "foreverWatermark" then
 		UpdateWatermark()
+	elseif key == "lootSparkle" then
+		Quests.ApplySparkle()
 	end
 	if key == "sounds" then
 		-- Off silences both; on brings back the defaults if both were silent.
@@ -1424,6 +1449,7 @@ Quests.options = {
 		{ "ICON", L.QUESTS_FOREVER_STYLE_ICON }, { "COLOR", L.QUESTS_FOREVER_STYLE_COLOR },
 	} },
 	{ key = "foreverWatermark", type = "toggle", name = L.QUESTS_FOREVER_WATERMARK, desc = L.QUESTS_FOREVER_WATERMARK_DESC, new = true },
+	{ key = "lootSparkle", type = "toggle", name = L.QUESTS_LOOT_SPARKLE, desc = L.QUESTS_LOOT_SPARKLE_DESC },
 	{ type = "header", name = L.QUESTS_WINDOW },
 	{ type = "header", name = L.QUESTS_ITEM_BUTTON },
 	{ key = "itemButton", type = "toggle", name = L.QUESTS_ITEM_BUTTON_OPT, desc = L.QUESTS_ITEM_BUTTON_DESC },

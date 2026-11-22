@@ -1126,6 +1126,30 @@ for _, f in ipairs({ "percent", "both", "remaining", "full" }) do xp.db.format =
 	xp.ResetRate()
 	print("xp per hour OK")
 end)()
+-- Loot sparkle: set, kept against graphics presets, the earlier value comes back
+;(function()
+	local q = ns:GetModule("Quests")
+	local cvars, sets = { outlineModeShowLootEffectWhenDisabled = "0" }, 0
+	local oldGet, oldSet = GetCVar, SetCVar
+	GetCVar = function(name) return cvars[name] end
+	SetCVar = function(name, value) cvars[name] = value sets = sets + 1 end
+	q.db.lootSparkle, q.db.sparkleBefore = true, nil
+	q.ApplySparkle()
+	assert(cvars.outlineModeShowLootEffectWhenDisabled == "1" and q.db.sparkleBefore == "0", "option switches the sparkle on")
+	cvars.outlineModeShowLootEffectWhenDisabled = "0"
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	eventFrame:GetScript("OnEvent")(eventFrame, "CVAR_UPDATE", "outlineModeShowLootEffectWhenDisabled", "0")
+	assert(cvars.outlineModeShowLootEffectWhenDisabled == "1" and q.db.sparkleBefore == "0", "a graphics preset cannot switch it off")
+	q.db.lootSparkle = false
+	q:OnOptionChanged("lootSparkle", false)
+	assert(cvars.outlineModeShowLootEffectWhenDisabled == "0" and q.db.sparkleBefore == nil, "turning off restores the earlier value")
+	local before = sets
+	cvars.outlineModeShowLootEffectWhenDisabled = nil
+	q.ApplySparkle()
+	assert(sets == before, "unknown setting is left alone")
+	GetCVar, SetCVar = oldGet, oldSet
+	print("loot sparkle OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

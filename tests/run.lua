@@ -1167,6 +1167,36 @@ end)()
 	assert(bank.Owned(inventories, 999, "Ana-Realm") == 0 and bank.Owned(nil, 2589) == 0, "nothing owned")
 	print("owned counts OK")
 end)()
+-- Profiles as text: round trip, damaged and foreign texts are refused, imports are cleaned and never overwrite
+;(function()
+	local profiles = ns:GetModule("Profiles")
+	local value = { a = "x:y;T E", [3] = 1.25, nested = { flag = true, off = false, list = { "k1", "k2" } }, ["ü"] = "ä" }
+	local text = profiles.Encode(value)
+	local back = profiles.Decode("  " .. text .. "  ")
+	assert(back and back.a == "x:y;T E" and back[3] == 1.25 and back.nested.flag == true and back.nested.off == false
+		and back.nested.list[2] == "k2" and back["ü"] == "ä", "round trip keeps strings, numbers, booleans and nesting")
+	assert(profiles.Decode(text:sub(1, -2)) == nil, "a cut text is refused")
+	assert(profiles.Decode(text .. "x") == nil, "trailing rubbish is refused")
+	assert(profiles.Decode("return os.exit()") == nil and profiles.Decode("FP1:s99:abc") == nil, "foreign texts are refused")
+	local deep = "FP1:" .. ("Ts1:a"):rep(40) .. "b1" .. ("E"):rep(40)
+	assert(profiles.Decode(deep) == nil, "nesting has a limit")
+	local oldStore = ns.db.profiles
+	ns.db.profiles = { Main = { time = 5, cvars = { a = "1" }, bindings = { JUMP = { "SPACE" } }, layouts = {}, addon = {} } }
+	local exported = profiles.ExportText("Main")
+	local evil = profiles.Encode({ name = "Main", profile = { cvars = { ok = "1", bad = 5, gxApi = "x" },
+		bindings = { JUMP = { "SPACE", 7 }, X = "nope" }, layouts = { { name = "L", text = "t" }, { name = 1 } }, extra = "drop" } })
+	local name = profiles.ImportText(evil)
+	local kept = ns.db.profiles[name]
+	assert(name == "Main (2)" and ns.db.profiles.Main.cvars.a == "1", "import never overwrites a profile")
+	assert(kept.cvars.ok == "1" and kept.cvars.bad == nil and kept.cvars.gxApi == nil and kept.cvarCount == 1,
+		"imported console settings are cleaned")
+	assert(#kept.bindings.JUMP == 1 and kept.bindings.X == nil and #kept.layouts == 1 and kept.extra == nil
+		and kept.automatic == false, "imported bindings and layouts are cleaned")
+	assert(profiles.ImportText(exported) == "Main (3)", "an exported profile comes back")
+	assert(profiles.ImportText("FP1:Tb1") == nil, "a broken text keeps nothing")
+	ns.db.profiles = oldStore
+	print("profile text OK")
+end)()
 -- XP bar: extra shrinking
 ;(function()
 	STATUS_BAR_SIZE_ADJUSTMENT = 3

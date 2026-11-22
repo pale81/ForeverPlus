@@ -225,6 +225,143 @@ local function AutoBackup()
 end
 
 ---------------------------------------------------------------------------
+-- As text, to take to another installation: "FP1:" and a compact encoding read by a small parser (never run as
+-- code, the text may come from someone else). T…E a table of key/value pairs, s<length>:<bytes> a string,
+-- n<number>; a number, b1/b0 a boolean. Keys are strings or numbers.
+---------------------------------------------------------------------------
+local PREFIX, MAX_DEPTH, MAX_TEXT = "FP1:", 32, 4 * 1024 * 1024
+
+local function EncodeValue(value, out)
+	local kind = type(value)
+	if kind == "table" then
+		out[#out + 1] = "T"
+		for key, item in pairs(value) do
+			local keyKind, itemKind = type(key), type(item)
+			if (keyKind == "string" or keyKind == "number")
+				and (itemKind == "table" or itemKind == "string" or itemKind == "number" or itemKind == "boolean") then
+				EncodeValue(key, out)
+				EncodeValue(item, out)
+			end
+		end
+		out[#out + 1] = "E"
+	elseif kind == "string" then
+		out[#out + 1] = "s" .. #value .. ":" .. value
+	elseif kind == "number" then
+		out[#out + 1] = ("n%.17g;"):format(value)
+	elseif kind == "boolean" then
+		out[#out + 1] = value and "b1" or "b0"
+	end
+end
+
+function Profiles.Encode(value)
+	local out = { PREFIX }
+	EncodeValue(value, out)
+	return table.concat(out)
+end
+
+local function DecodeValue(text, pos, depth)
+	local tag = text:sub(pos, pos)
+	if tag == "T" then
+		if depth >= MAX_DEPTH then return end
+		local result = {}
+		pos = pos + 1
+		while text:sub(pos, pos) ~= "E" do
+			if pos > #text then return end
+			local key
+			key, pos = DecodeValue(text, pos, depth + 1)
+			if type(key) ~= "string" and type(key) ~= "number" then return end
+			local item
+			item, pos = DecodeValue(text, pos, depth + 1)
+			if item == nil then return end
+			result[key] = item
+		end
+		return result, pos + 1
+	elseif tag == "s" then
+		local length, stop = text:match("^(%d+)():", pos + 1)
+		length = tonumber(length)
+		if not length or stop + length > #text then return end
+		return text:sub(stop + 1, stop + length), stop + length + 1
+	elseif tag == "n" then
+		local digits, stop = text:match("^([%d%.eE%+%-]+);()", pos + 1)
+		local number = tonumber(digits)
+		if not number or number ~= number or number == math.huge or number == -math.huge then return end
+		return number, stop
+	elseif tag == "b" then
+		local flag = text:sub(pos + 1, pos + 1)
+		if flag == "1" or flag == "0" then return flag == "1", pos + 2 end
+	end
+end
+
+-- The table of an encoded text, or nil if the text is not one (or is damaged).
+function Profiles.Decode(text)
+	if type(text) ~= "string" then return end
+	text = strtrim(text)
+	if #text > MAX_TEXT or text:sub(1, #PREFIX) ~= PREFIX then return end
+	local value, stop = DecodeValue(text, #PREFIX + 1, 0)
+	if type(value) == "table" and stop == #text + 1 then return value end
+end
+
+-- Only the parts a profile has, with the expected kinds; everything else of an imported text is dropped.
+local function CleanProfile(profile)
+	if type(profile) ~= "table" then return end
+	local clean = { time = ns.Number(profile.time, time()), build = type(profile.build) == "string" and profile.build or nil,
+		cvars = {}, bindings = {}, layouts = {}, cvarCount = 0, automatic = false }
+	for name, value in pairs(type(profile.cvars) == "table" and profile.cvars or {}) do
+		if type(name) == "string" and type(value) == "string" and not Skipped(name) then
+			clean.cvars[name] = value
+			clean.cvarCount = clean.cvarCount + 1
+		end
+	end
+	for command, keys in pairs(type(profile.bindings) == "table" and profile.bindings or {}) do
+		if type(command) == "string" and type(keys) == "table" then
+			local list = {}
+			for _, key in ipairs(keys) do
+				if type(key) == "string" then list[#list + 1] = key end
+			end
+			if #list > 0 then clean.bindings[command] = list end
+		end
+	end
+	for _, layout in ipairs(type(profile.layouts) == "table" and profile.layouts or {}) do
+		if type(layout) == "table" and type(layout.name) == "string" and type(layout.text) == "string" then
+			clean.layouts[#clean.layouts + 1] = { name = layout.name, text = layout.text }
+		end
+	end
+	local addon = profile.addon
+	if type(addon) == "table" then
+		clean.addon = {}
+		for _, part in ipairs({ "modules", "frames", "unlocked", "plain" }) do
+			clean.addon[part] = type(addon[part]) == "table" and addon[part] or {}
+		end
+	end
+	return clean
+end
+
+function Profiles.ExportText(name)
+	local profile = Store()[name]
+	return profile and Profiles.Encode({ name = name, profile = profile })
+end
+
+-- Keeps the profile of a text under its name (with a number if the name is taken); returns the name or nil.
+function Profiles.ImportText(text)
+	local data = Profiles.Decode(text)
+	local profile = data and CleanProfile(data.profile)
+	if not profile then
+		ns.PrintAlways(L.PROFILES_IMPORT_INVALID)
+		return
+	end
+	local store = Store()
+	local base = type(data.name) == "string" and strtrim(data.name) ~= "" and strtrim(data.name) or L.PROFILES_IMPORT_NAME
+	local name, suffix = base, 2
+	while store[name] do
+		name = ("%s (%d)"):format(base, suffix)
+		suffix = suffix + 1
+	end
+	store[name] = profile
+	ns.PrintAlways(L.PROFILES_IMPORTED, name)
+	return name
+end
+
+---------------------------------------------------------------------------
 -- Bringing back
 ---------------------------------------------------------------------------
 local function RestoreCVars(cvars)
@@ -380,7 +517,7 @@ function Profiles.ShowList(owner)
 				end,
 			}
 		end
-		return { title = L.PROFILES_LIST, items = items, empty = L.PROFILES_NONE, width = 460,
+		return { title = L.PROFILES_LIST, items = items, empty = L.PROFILES_NONE, width = 600,
 			footer = { { text = L.PROFILES_CREATE, onClick = function()
 				EditName()
 			end }, { text = L.PROFILES_LOAD, onClick = function()
@@ -391,6 +528,17 @@ function Profiles.ShowList(owner)
 				if selected then
 					Profiles.ShowLayouts(owner, selected)
 				end
+			end }, { text = L.PROFILES_TEXT, onClick = function()
+				popup:Hide()
+				local text = selected and Profiles.ExportText(selected) or ""
+				ns.ShowEditWindow("ProfileText", L.PROFILES_TEXT_TITLE, text, L.PROFILES_IMPORT, function(pasted)
+					if pasted ~= "" and pasted ~= text then
+						selected = Profiles.ImportText(pasted) or selected
+					end
+					if owner and owner:IsVisible() then
+						Profiles.ShowList(owner)
+					end
+				end, L.PROFILES_TEXT_HINT)
 			end }, { text = L.PROFILES_RENAME, onClick = function()
 				if selected and Store()[selected] then
 					EditName(selected)

@@ -525,9 +525,10 @@ end
 
 local function DiscoveryFound(discovery, faction, event, questID)
 	local fullScan = not event or event == "PLAYER_ENTERING_WORLD"
-	if discovery.item and (fullScan or event == "BAG_UPDATE_DELAYED")
-		and ns.Number(C_Item.GetItemCount(discovery.item, true), 0) > 0 then
-		return true
+	if discovery.items and (fullScan or event == "BAG_UPDATE_DELAYED") then
+		for _, item in ipairs(discovery.items) do
+			if ns.Number(C_Item.GetItemCount(item, true), 0) > 0 then return true end
+		end
 	end
 	if discovery.pet and (fullScan or event == "PET_JOURNAL_LIST_UPDATE") and C_PetJournal and C_PetJournal.GetNumPetsInJournal then
 		local _, count = C_PetJournal.GetNumPetsInJournal(discovery.pet)

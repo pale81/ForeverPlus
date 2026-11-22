@@ -6389,7 +6389,10 @@ end)()
 		end
 		return result
 	end
-	assert(db.discoveries == false and #pins(1432) == 0, "discoveries are opt-in")
+	assert(db.discoveries == false, "discoveries are opt-in")
+	for mapID in pairs(ns.MapDiscoveries) do
+		assert(#pins(mapID) == 0, "the default filter hides every discovery")
+	end
 	db.discoveries = true
 	local loch = pins(1432)
 	assert(#loch == 7 and loch[1].x == 0.457 and loch[1].y == 0.433, "the toolbox, dam and hatchling, without QuestieDB")
@@ -6409,7 +6412,7 @@ end)()
 	fire("QUEST_TURNED_IN", 4821)
 	assert(marks.alienEgg == true and #pins(1441) == 0, "the turn-in marks the egg even if it has already left the bags")
 	fire("QUEST_ACCEPTED", 79007)
-	assert(#pins(1413) == 0 and #pins(1436) == 1, "a Horde quest pickup marks only its own sleeping bag stop")
+	assert(#pins(1413) == 0 and pins(1436)[1].data.id == "bagWestfall", "a Horde quest pickup marks only its own sleeping bag stop")
 	completed[99267] = true
 	faction = "Alliance"
 	fire("PLAYER_ENTERING_WORLD")
@@ -6426,10 +6429,38 @@ end)()
 	fire("BAG_UPDATE_DELAYED")
 	items[5167], db.discoveries = false, true
 	assert(marks.webwoodEgg == true and #pins(1438) == 0, "looted nest items are remembered even with the filter off")
+	local elwynn = pins(1429)
+	assert(#elwynn == 2 and elwynn[1].data.id == "applejackStill" and elwynn[1].point[1] == 24.5,
+		"the Applejack Still and its follow-up are marked in Elwynn")
+	items[247824] = true
+	fire("BAG_UPDATE_DELAYED")
+	assert(marks.applejackStill == true and #pins(1429) == 1 and pins(1429)[1].data.id == "applejackTreat",
+		"obtaining the Applejack leaves the follow-up visible")
+	fire("QUEST_TURNED_IN", 91738)
+	assert(marks.applejackTreat == true and #pins(1429) == 0, "the follow-up hides once turned in")
+	assert(#pins(1453) == 1 and #pins(1454) == 0 and #pins(1434) == 1, "Alliance and neutral Alcaz contacts")
+	faction = "Horde"
+	marks.applejackStill, marks.applejackTreat = nil, nil
+	assert(#pins(1429) == 0 and #pins(1453) == 0 and #pins(1454) == 1 and #pins(1434) == 1,
+		"Horde and neutral Alcaz contacts, no Applejack quests")
+	fire("QUEST_TURNED_IN", 96379)
+	assert(#pins(1434) == 0 and #pins(1454) == 0, "the neutral turn-in also finishes the Horde route")
+	faction = "Alliance"
+	fire("QUEST_TURNED_IN", 96377)
+	assert(#pins(1453) == 0, "the faction turn-in finishes the Alliance route")
+	assert(#pins(1417) == 1 and #pins(1420) == 1 and #pins(1435) == 1 and #pins(1445) == 2, "all four Scarlet Echo stops")
+	items[215427] = true
+	fire("BAG_UPDATE_DELAYED")
+	assert(marks.scarletArathi == true and not marks.scarletTheramore and #pins(1417) == 0,
+		"one echo hides only its own marker")
+	items[215427], items[278030] = false, true
+	fire("PLAYER_ENTERING_WORLD")
+	assert(marks.scarletGraveyard == true and marks.scarletSwamp == true and marks.scarletTheramore == true
+		and #pins(1445) == 1 and pins(1445)[1].data.id == "alcazPrison", "owning the banner hides the remaining echo markers")
 	local ids = {}
 	for _, entries in pairs(ns.MapDiscoveries) do
 		for _, entry in ipairs(entries) do
-			assert(entry.id and not ids[entry.id] and (entry.item or entry.quests or entry.pet), "each discovery has a stable ID and detection data")
+			assert(entry.id and not ids[entry.id] and (entry.items or entry.quests or entry.pet), "each discovery has a stable ID and detection data")
 			assert(ns.L.WORLDMAP_DISCOVERY_TEXT[entry.name] and ns.L.WORLDMAP_DISCOVERY_TEXT[entry.hint], "each discovery has localized text")
 			ids[entry.id] = true
 		end

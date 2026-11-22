@@ -10881,6 +10881,52 @@ end)()
 	print("auction sale sound OK")
 end)()
 ;(function()
+	-- Emote tab: sections like the chat menu, aliases, faction filtering, search and token resolution.
+	local emotes = ns:GetModule("ChatEmotes")
+	assert(emotes and emotes.BuildSections and emotes.FilterSections and emotes.ResolveToken, "chat emotes module")
+	local strings = {
+		EMOTE1_TOKEN = "WAVE", EMOTE1_CMD1 = "/winken", EMOTE1_CMD2 = "/wave", EMOTE1_CMD3 = "/WINKEN",
+		EMOTE2_TOKEN = "BOW", EMOTE2_CMD1 = "/Verbeugen", EMOTE2_CMD2 = "/bow",
+		EMOTE3_TOKEN = "UNUSED", EMOTE3_CMD1 = "/unused",
+		EMOTE4_TOKEN = "CHEER", EMOTE4_CMD1 = "/jubeln", EMOTE4_CMD2 = "/cheer",
+		EMOTE5_TOKEN = "WAVE", EMOTE5_CMD1 = "/wave2",
+		EMOTE6_TOKEN = "NOCMD",
+		EMOTE7_TOKEN = "FORTHEALLIANCE", EMOTE7_CMD1 = "/fürdieallianz",
+		EMOTE8_TOKEN = "FORTHEHORDE", EMOTE8_CMD1 = "/fürdiehorde",
+	}
+	local sections = emotes.BuildSections(
+		function(name) return strings[name] end,
+		{ "WAVE", "UNKNOWN" },
+		{ "CHEER", "FORTHEALLIANCE", "FORTHEHORDE" },
+		8,
+		"Alliance"
+	)
+	assert(#sections == 3, "three sections")
+	assert(sections[1].title == ns.L.CHATEMOTES_ANIMATED and sections[2].title == ns.L.CHATEMOTES_VOICE
+		and sections[3].title == ns.L.CHATEMOTES_ALL, "section titles")
+	assert(sections[1].entries[1].token == "WAVE" and sections[1].entries[1].command == "/winken", "animated: first index command")
+	assert(#sections[1].entries[1].aliases == 1 and sections[1].entries[1].aliases[1] == "/wave", "aliases deduplicated case-insensitively")
+	assert(sections[1].entries[2].command == "UNKNOWN", "token without command keeps token as label")
+	assert(#sections[2].entries == 2 and sections[2].entries[1].token == "CHEER"
+		and sections[2].entries[2].token == "FORTHEALLIANCE", "voice emotes skip opposite faction")
+	local all = sections[3].entries
+	assert(#all == 4, "all: skips UNUSED, NOCMD, duplicate WAVE and opposite faction: " .. #all)
+	assert(all[1].token == "FORTHEALLIANCE" and all[2].token == "CHEER" and all[3].token == "BOW" and all[4].token == "WAVE",
+		"all: sorted by command")
+	assert(emotes.FilterSections(sections, "   ") == sections and emotes.FilterSections(sections, "/") == sections,
+		"empty or slash-only filter keeps all sections")
+	local byAlias = emotes.FilterSections(sections, "/WAVE")
+	assert(#byAlias == 1 and #byAlias[1].entries == 1 and byAlias[1].entries[1].token == "WAVE", "filter matches English alias with slash")
+	local byCmd = emotes.FilterSections(sections, "jubel")
+	assert(#byCmd == 1 and #byCmd[1].entries == 1 and byCmd[1].entries[1].token == "CHEER", "filter matches localized command")
+	assert(#emotes.FilterSections(sections, "gibtesnicht") == 0, "unmatched filter returns empty")
+	assert(emotes.ResolveToken("FORTHEHORDE", "Alliance") == "FORTHEALLIANCE", "resolve switches battle cry to Alliance")
+	assert(emotes.ResolveToken("FORTHEALLIANCE", "Horde") == "FORTHEHORDE", "resolve switches battle cry to Horde")
+	assert(emotes.ResolveToken("WAVE", "Horde") == "WAVE", "resolve leaves normal emotes untouched")
+	assert(#emotes.BuildSections(function() end, nil, nil, nil)[3].entries == 0, "missing game lists give empty sections")
+	print("chat emotes OK")
+end)()
+;(function()
 	local M = ns:GetModule("MacroIcons")
 	assert(M and M.db.enabled == true, "macro icon search on by default")
 	assert(M.Normalize("ÄÖÜ Sword_04") == "äöü sword 04", "normalize lowers ASCII, capital umlauts and underscores")

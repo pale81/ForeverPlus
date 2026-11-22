@@ -28,12 +28,14 @@ local Dialog = ns:NewModule("Dialog", {
 		textSpeed = "INSTANT", -- INSTANT, NORMAL, SLOW: how fast the NPC's words appear
 		portrait = true,       -- only the speaker's portrait for voiced lines
 		portraitAnimation = true,
+		portraitText = false,  -- also show the NPC's words below the portrait
 		cinematic = false,     -- separate subtitles and choices with voice only in the reader
 	},
 })
 
 local WIDTH = 300
 local PORTRAIT_SIZE, PORTRAIT_RIM, PORTRAIT_GAP = 64, 3, 8 -- picture, bronze ring around it, room below it
+local BOOK_SIZE, BOOK_RIM = 16, 2 -- small round WoW book button hugging the portrait rim
 local INSET = 16 -- the border art of the bubble lies this far around the content
 local ROW_GAP, BLOCK_GAP = 3, 8
 local NUM_WIDTH = 18 -- the column of the key numbers in front of the merchant's wares
@@ -479,6 +481,88 @@ local function CreatePortrait(frame)
 	return holder
 end
 
+local function ShowTextToggleTooltip(button)
+	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+	GameTooltip_SetTitle(GameTooltip, L.DIALOG_PORTRAIT_TEXT)
+	GameTooltip_AddNormalLine(GameTooltip, Dialog.db.portraitText and L.DIALOG_PORTRAIT_TEXT_ON or L.DIALOG_PORTRAIT_TEXT_OFF)
+	GameTooltip:Show()
+end
+
+function Dialog.UpdateTextToggle(useDark)
+	local button = bubble and bubble.TextToggle
+	if not button then return end
+	local active = Dialog.db.portraitText and true or false
+	local border = useDark and ns.PANEL_BORDER or Portrait.PLAYER_BORDER
+	button.Rim:SetColorTexture(unpack(border))
+	button.Icon:SetDesaturated(not active)
+	button.Icon:SetAlpha((button.hover or active) and 1 or 0.65)
+	button:ClearAllPoints()
+	if bubble.speaker then
+		button:SetPoint("CENTER", bubble.Portrait, "BOTTOMRIGHT", -4, 6)
+		local level = bubble.Portrait:GetFrameLevel() + 4
+		if bubble.Portrait.Cover then
+			level = math.max(level, bubble.Portrait.Cover:GetFrameLevel() + 2)
+		end
+		button:SetFrameLevel(level)
+	else
+		button:SetPoint("BOTTOMRIGHT", bubble, "BOTTOMRIGHT", 2, -2)
+		button:SetFrameLevel(bubble:GetFrameLevel() + 4)
+	end
+end
+
+-- Small round WoW book button in the same bronze ring as the portrait: toggles the NPC's text below the face.
+local function CreateTextToggle(frame)
+	local size = BOOK_SIZE + BOOK_RIM * 2
+	local button = CreateFrame("Button", nil, frame)
+	button:SetSize(size, size)
+	local function Disc(subLevel, diameter)
+		local disc = button:CreateTexture(nil, "ARTWORK", nil, subLevel)
+		disc:SetSize(diameter, diameter)
+		disc:SetPoint("CENTER")
+		local mask = button:CreateMaskTexture()
+		mask:SetAllPoints(disc)
+		mask:SetTexture([[Interface\CharacterFrame\TempPortraitAlphaMask]], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		disc:AddMaskTexture(mask)
+		return disc
+	end
+	button.Rim = Disc(0, size)
+	button.Rim:SetColorTexture(unpack(ns.PANEL_BORDER))
+	Disc(1, BOOK_SIZE):SetColorTexture(0.04, 0.05, 0.09, 1)
+	button.Icon = Disc(2, BOOK_SIZE)
+	button.Icon:SetTexture([[Interface\Icons\INV_Misc_Book_09]])
+	button.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	button:SetHighlightTexture([[Interface\Buttons\UI-Common-MouseHilight]], "ADD")
+	button:SetScript("OnEnter", ns.Measured("Dialog: text book hover", function(self)
+		self.hover = true
+		Dialog.UpdateTextToggle(frame.Portrait and frame.Portrait.dark)
+		ShowTextToggleTooltip(self)
+	end))
+	button:SetScript("OnLeave", ns.Measured("Dialog: text book leave", function(self)
+		self.hover = nil
+		Dialog.UpdateTextToggle(frame.Portrait and frame.Portrait.dark)
+		GameTooltip_Hide()
+	end))
+	button:SetScript("OnHide", ns.Measured("Dialog: text book hide", function(self)
+		self.hover = nil
+		if GameTooltip and GameTooltip.IsOwned and GameTooltip:IsOwned(self) then
+			GameTooltip:Hide()
+		end
+	end))
+	button:SetScript("OnClick", ns.Measured("Dialog: text book toggle", function(self)
+		if current and current.pending then return end
+		local showText = not Dialog.db.portraitText
+		if showText and current then
+			current.scrollOffset = 0
+		end
+		ns.SetOption("Dialog", "portraitText", showText)
+		if GameTooltip and GameTooltip.IsOwned and GameTooltip:IsOwned(self) then
+			ShowTextToggleTooltip(self)
+		end
+	end))
+	button:Hide()
+	return button
+end
+
 local function CreateBubble()
 	local frame = CreateFrame("Frame", "ForeverPlusDialogBubble", UIParent)
 	frame:SetFrameStrata("HIGH")
@@ -511,6 +595,7 @@ local function CreateBubble()
 	frame.hasArt = frame.Art ~= nil
 	frame.Subtitles = false
 	frame.Portrait = CreatePortrait(frame)
+	frame.TextToggle = CreateTextToggle(frame)
 	frame.Abandon =CreateFrame("Button", nil, frame)
 	frame.Abandon:SetSize(16, 16)
 	frame.Abandon:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 10, 10)
@@ -1036,8 +1121,10 @@ local function RenderView(view)
 	local scrolling = SCROLL_KINDS[view.kind] and true or false
 	local host = scrolling and frame.Content or frame
 	-- Portrait mode (see CreatePortrait): the speaker's face on top, the content below it.
-	local wordsHidden = not screen and Dialog.db.portrait and Dialog.SpokenReads(view) or false
-	local speaker = wordsHidden and Dialog.SpeakerUnit(view.kind) or nil
+	local portraitMode = not screen and Dialog.db.portrait and Dialog.SpokenReads(view) or false
+	local wordsHidden = portraitMode and not Dialog.db.portraitText
+	local speaker = portraitMode and Dialog.SpeakerUnit(view.kind) or nil
+	frame.portraitMode = portraitMode
 	frame.wordsHidden = wordsHidden
 	local portraitChanged = (speaker ~= nil) ~= frame.Portrait:IsShown()
 	frame.speaker = speaker
@@ -1046,9 +1133,15 @@ local function RenderView(view)
 	frame.Portrait.dark = useDark
 	local talking = PlayingClip(_G.Spoken)
 	Portrait.Update(frame.Portrait, speaker and MatchesVoice(view, talking) and talking, Dialog.db.portraitAnimation)
-	if speaker then
+	frame.TextToggle:SetShown(portraitMode)
+	if portraitMode then
+		Dialog.UpdateTextToggle(useDark)
+	end
+	if wordsHidden then
 		FinishReveal()
 		current.portraitShown = true
+	end
+	if speaker then
 		frame.Portrait:Update(speaker)
 		ns.After("Dialog: portrait (timer)", 0.3, function()
 			if current and current.view == view and frame.Portrait:IsShown() then
@@ -1982,9 +2075,14 @@ function Dialog.BindSpoken()
 			local clip = PlayingClip(spoken)
 			Portrait.Update(bubble.Portrait, bubble.speaker and MatchesVoice(current.view, clip) and clip,
 				Dialog.db.portraitAnimation)
+			if bubble.TextToggle and bubble.TextToggle:IsShown() then
+				Dialog.UpdateTextToggle(bubble.Portrait and bubble.Portrait.dark)
+			end
 			if InCombatLockdown() then return end
-			local hidden = Dialog.db.portrait and Dialog.SpokenReads(current.view) or false
-			if hidden ~= bubble.wordsHidden or Dialog.PortraitUnit(current.view) ~= bubble.speaker then
+			local portraitMode = Dialog.db.portrait and Dialog.SpokenReads(current.view) or false
+			local hidden = portraitMode and not Dialog.db.portraitText
+			if portraitMode ~= bubble.portraitMode or hidden ~= bubble.wordsHidden
+				or Dialog.PortraitUnit(current.view) ~= bubble.speaker then
 				Dialog.Rerender()
 			end
 		end
@@ -3277,6 +3375,7 @@ Dialog.options = {
 	}, new = true },
 	{ key = "portrait", type = "toggle", name = L.DIALOG_PORTRAIT, desc = L.DIALOG_PORTRAIT_DESC, parent = "enabled", new = true },
 	{ key = "portraitAnimation", type = "toggle", name = L.DIALOG_PORTRAIT_ANIMATION, desc = L.DIALOG_PORTRAIT_ANIMATION_DESC, parent = "portrait" },
+	{ key = "portraitText", type = "toggle", name = L.DIALOG_PORTRAIT_TEXT, desc = L.DIALOG_PORTRAIT_TEXT_DESC, parent = "portrait" },
 	{ key = "cinematic", type = "toggle", name = L.DIALOG_CINEMATIC, desc = L.DIALOG_CINEMATIC_DESC, parent = "enabled" },
 	{ key = "hidePlate", type = "toggle", name = L.DIALOG_HIDE_PLATE, desc = L.DIALOG_HIDE_PLATE_DESC, parent = "enabled", new = true },
 	{ key = "onScreen", type = "toggle", name = L.DIALOG_ONSCREEN, desc = L.DIALOG_ONSCREEN_DESC, parent = "enabled", new = true },

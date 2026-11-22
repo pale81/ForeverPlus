@@ -5,6 +5,7 @@ ns.DialogPortrait = Portrait
 
 -- The bronze baked into Media/Bubble/bubble.tga by tools/build_bubble.py.
 local PLAYER_BORDER = { 214 / 255, 168 / 255, 104 / 255 }
+Portrait.PLAYER_BORDER = PLAYER_BORDER
 
 local function CreateCover(holder)
 	-- A model cannot take a texture mask. Cover its square corners above the model

@@ -3389,6 +3389,100 @@ end)()
 	print("dialog voice lifecycle OK")
 end)()
 ;(function()
+	-- Small book button in portrait mode: toggles the NPC's words below the face,
+	-- analogous to unvoiced bubbles (including textSpeed reveal and scroll layout).
+	local dialog = ns:GetModule("Dialog")
+	local savedSpoken, savedExists, savedGUID = _G.Spoken, UnitExists, UnitGUID
+	local savedGossip = C_GossipInfo
+	local wasEnabled, wasPortrait = dialog.db.enabled, dialog.db.portrait
+	local wasPortraitText, wasSpeed = dialog.db.portraitText, dialog.db.textSpeed
+	local clip, notifyAudio
+	_G.Spoken = {
+		IsCompatible = function() return true end,
+		ShowsNarratorFor = function() return false end,
+		GetNowPlaying = function() return clip end,
+		IsPlaying = function() return clip ~= nil end,
+		IsPaused = function() return false end,
+		RegisterCallback = function(_, event, fn)
+			if event == "AUDIO_CHANGED" then notifyAudio = fn end
+		end,
+	}
+	local guid = "Creature-0-1-1-1-9-1"
+	UnitExists = function(unit) return unit == "npc" or unit == "questnpc" end
+	UnitGUID = function() return guid end
+	C_GossipInfo = {
+		GetText = function() return "Willkommen in Sturmwind, Abenteurer." end,
+		GetOptions = function() return { { gossipOptionID = 7, name = "Zeigt mir den Weg.", icon = 1 } } end,
+		GetActiveQuests = function() return {} end,
+		GetAvailableQuests = function() return {} end,
+	}
+	dialog.db.enabled, dialog.db.portrait, dialog.db.portraitText, dialog.db.textSpeed = true, true, false, "INSTANT"
+	local bubble = ForeverPlusDialogBubble
+	local scrollPoint, bookDesat
+	local origScrollSetPoint = rawget(bubble.Scroll, "SetPoint")
+	local origIconDesat = rawget(bubble.TextToggle.Icon, "SetDesaturated")
+	bubble.Scroll.SetPoint = function(_, ...) scrollPoint = { ... } end
+	bubble.TextToggle.Icon.SetDesaturated = function(_, v) bookDesat = v end
+	-- Without Spoken clip: text is already shown, portrait and book button stay hidden.
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(not bubble.Portrait:IsShown() and not bubble.TextToggle:IsShown(), "no book button without voice")
+	assert(not bubble.wordsHidden and bubble.lastUsed.text == 2, "unvoiced bubble shows name and speech")
+	-- Spoken starts reading: portrait and book button appear, text hidden by default.
+	clip = { source = { key = "gossip" }, text = C_GossipInfo.GetText(), unitGUID = guid }
+	notifyAudio()
+	assert(bubble.Portrait:IsShown() and bubble.TextToggle:IsShown(), "voiced bubble shows portrait and book button")
+	assert(bubble.wordsHidden and bubble.lastUsed.text == 0 and bookDesat == true, "text hidden and book grey initially")
+	assert(scrollPoint and scrollPoint[5] == -78, "scroll sits directly under the portrait")
+	-- Clicking the book button displays the text below the face while keeping the portrait.
+	bubble.TextToggle:GetScript("OnClick")(bubble.TextToggle)
+	assert(dialog.db.portraitText == true and not bubble.wordsHidden, "book click enables portrait text")
+	assert(bubble.Portrait:IsShown() and bubble.TextToggle:IsShown() and bookDesat == false,
+		"portrait stays visible and book lights up in colour")
+	assert(bubble.lastUsed.text == 2 and bubble.lastUsed.row == 1, "name, speech and choice render under the face")
+	assert(scrollPoint and scrollPoint[5] == -78, "text area remains anchored under the portrait")
+	-- Slow text reveal works on a fresh voiced step with portraitText enabled, analogous to without Spoken.
+	dialog.db.textSpeed = "SLOW"
+	local speechText
+	local text2 = bubble.pools.text[2]
+	local origSetText = rawget(text2, "SetText")
+	text2.SetText = function(_, t) speechText = t end
+	local freshLine = "Dies ist ein neuer gesprochener Satz fuer den Test."
+	C_GossipInfo.GetText = function() return freshLine end
+	clip = { source = { key = "gossip" }, text = freshLine, unitGUID = guid }
+	dialog:OnConversation("GOSSIP_SHOW")
+	assert(bubble.Portrait:IsShown() and bubble.TextToggle:IsShown() and not bubble.wordsHidden,
+		"fresh voiced gossip keeps portrait and shows text when book is active")
+	assert(speechText == "", "slow reveal starts empty on fresh step, analogous to unvoiced mode")
+	local onUpdate = bubble:GetScript("OnUpdate")
+	assert(onUpdate, "slow reveal update is active")
+	onUpdate(bubble, 1)
+	assert(type(speechText) == "string" and #speechText > 0, "slow reveal advances words below portrait")
+	text2.SetText = origSetText
+	-- Quest detail also renders title, speech and objectives below the portrait when active.
+	dialog.db.textSpeed = "INSTANT"
+	clip = { source = { key = "quests" }, questID = GetQuestID(), text = GetQuestText(), unitGUID = guid }
+	dialog:OnConversation("QUEST_DETAIL")
+	assert(bubble.Portrait:IsShown() and bubble.TextToggle:IsShown() and not bubble.wordsHidden,
+		"quest detail keeps portrait and shows text when book is active")
+	assert(bubble.lastUsed.text >= 3, "quest name, title and speech render below portrait")
+	-- Clicking the book button again hides the text, keeping the portrait.
+	bubble.TextToggle:GetScript("OnClick")(bubble.TextToggle)
+	assert(dialog.db.portraitText == false and bubble.wordsHidden, "second click hides text again")
+	assert(bubble.Portrait:IsShown() and bubble.TextToggle:IsShown() and bookDesat == true,
+		"portrait remains and book returns to grey")
+	-- When Spoken stops (not reading), portrait and book button hide and text returns.
+	clip = nil
+	notifyAudio()
+	assert(not bubble.Portrait:IsShown() and not bubble.TextToggle:IsShown() and not bubble.wordsHidden,
+		"book button hides when voice stops")
+	bubble.Scroll.SetPoint = origScrollSetPoint
+	bubble.TextToggle.Icon.SetDesaturated = origIconDesat
+	dialog.db.enabled, dialog.db.portrait = wasEnabled, wasPortrait
+	dialog.db.portraitText, dialog.db.textSpeed = wasPortraitText, wasSpeed
+	_G.Spoken, UnitExists, UnitGUID, C_GossipInfo = savedSpoken, savedExists, savedGUID, savedGossip
+	print("dialog portrait text book OK")
+end)()
+;(function()
 	-- Exercise the narrator renderer contract and bounded asynchronous model loading.
 	local portrait, saved = ns.DialogPortrait, _G.Spoken
 	local holder = { Face = NewFrame("Texture"), Scene = false }

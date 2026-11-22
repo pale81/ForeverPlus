@@ -27,7 +27,8 @@ local ROLE_ATLAS = {
 }
 local ROLE_SORT = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 local DUNGEON_CATEGORY, RAID_CATEGORY, QUEST_CATEGORY = 2, 114, 116
-local ICON_SIZE = 16
+local ICON_SIZE = 20
+local MAX_CLASS_ICONS_WIDTH = 160
 local displays = {} -- search entry -> our display
 local levelLabels = setmetatable({}, { __mode = "k" })
 
@@ -135,12 +136,12 @@ local function GetDisplay(entry)
 	local display = displays[entry]
 	if not display then
 		display = CreateFrame("Frame", nil, entry)
-		display:SetSize(200, 34)
+		display:SetSize(200, 2 * ICON_SIZE + 2)
 		display:SetPoint("RIGHT", entry, "RIGHT", -8, -1)
 		display.Classes = display:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		display.Classes:SetPoint("TOPRIGHT")
 		display.Classes:SetJustifyH("RIGHT")
-		display.Missing = display:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		display.Missing = display:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		display.Missing:SetPoint("BOTTOMRIGHT")
 		display.Missing:SetJustifyH("RIGHT")
 		displays[entry] = display
@@ -196,8 +197,9 @@ local function UpdateEntry(entry)
 	table.sort(members, SortMembers)
 
 	local icons = {}
+	local classIconSize = math.min(ICON_SIZE, math.floor(MAX_CLASS_ICONS_WIDTH / math.max(1, #members)))
 	for _, member in ipairs(members) do
-		icons[#icons + 1] = CreateAtlasMarkup("groupfinder-icon-class-" .. member.class:lower(), ICON_SIZE, ICON_SIZE)
+		icons[#icons + 1] = CreateAtlasMarkup("groupfinder-icon-class-" .. member.class:lower(), classIconSize, classIconSize)
 	end
 
 	local missing = {}

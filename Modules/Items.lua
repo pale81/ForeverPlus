@@ -12,7 +12,7 @@ local Items = ns:NewModule("Items", {
 		autoSort = false,
 		sortSkip = true,
 		fullSound = true,   -- a sound when the bags are full
-		fullSoundChoice = "ping",
+		fullSoundChoice = "warning",
 		bagMenu = true,
 		autoRepair = true,
 		repairGuild = true,
@@ -2618,6 +2618,17 @@ end
 -- A sound when the bags have just become full (the last free slot taken) or an item found no room.
 Items.fullState = { last = 0 }
 
+local function PlaySelectedFullSound()
+	local choice = Items.db.fullSoundChoice
+	if choice == "warning" then
+		if not PlaySoundFile([[Interface\AddOns\ForeverPlus\Media\BagsFull.mp3]], "Master") and SOUNDKIT and SOUNDKIT.RAID_WARNING then
+			PlaySound(SOUNDKIT.RAID_WARNING, "Master")
+		end
+	elseif ns.AlertSounds then
+		ns.AlertSounds.play(choice)
+	end
+end
+
 function Items.PlayFullSound()
 	local state = Items.fullState
 	local now = GetTime()
@@ -2625,9 +2636,7 @@ function Items.PlayFullSound()
 		return
 	end
 	state.last = now
-	if ns.AlertSounds then
-		ns.AlertSounds.play(Items.db.fullSoundChoice)
-	end
+	PlaySelectedFullSound()
 end
 
 -- Free slots of the bags that take any item (not those of special bags).
@@ -2882,6 +2891,13 @@ function Items:Refresh()
 end
 
 function Items:OnInitialize()
+	-- The old default was persisted even if the player never chose it.
+	if not self.db.fullSoundDefaultUpdated then
+		if self.db.fullSoundChoice == "ping" then
+			self.db.fullSoundChoice = self.defaults.fullSoundChoice
+		end
+		self.db.fullSoundDefaultUpdated = true
+	end
 	-- Former single switch for all messages of this module.
 	if self.db.messages == false then
 		self.db.sellMessage, self.db.repairMessage, self.db.markMessage = false, false, false
@@ -2980,13 +2996,13 @@ Items.options = {
 	{ key = "moneyPickup", type = "toggle", name = L.ITEMS_MONEY_PICKUP, desc = L.ITEMS_MONEY_PICKUP_DESC, new = true },
 	{ key = "fullSound", type = "toggle", name = L.ITEMS_FULL_SOUND, desc = L.ITEMS_FULL_SOUND_DESC, new = true },
 	{ key = "fullSoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "fullSound", new = true, values = function()
-		return ns.AlertSounds and ns.AlertSounds.choices or {}
-	end },
-	{ key = "fullSoundTest", type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST, func = function()
-		if ns.AlertSounds then
-			ns.AlertSounds.play(Items.db.fullSoundChoice)
+		local choices = { { "warning", L.ITEMS_FULL_SOUND_WARNING } }
+		for _, entry in ipairs(ns.AlertSounds and ns.AlertSounds.choices or {}) do
+			choices[#choices + 1] = entry
 		end
+		return choices
 	end },
+	{ key = "fullSoundTest", type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST, func = PlaySelectedFullSound },
 	{ type = "header", name = L.ITEMS_DISPLAY },
 	{ key = "questReward", type = "toggle", name = L.ITEMS_QUEST_REWARD, desc = L.ITEMS_QUEST_REWARD_DESC },
 	{ key = "upgradeArrow", type = "toggle", name = L.ITEMS_UPGRADE, desc = L.ITEMS_UPGRADE_DESC },

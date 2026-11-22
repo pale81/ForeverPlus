@@ -854,20 +854,48 @@ assert(played[1] == 558137 or played[1] == "558137", "quest progress sound")
 			end
 		end
 	end
-	local preview
+	local preview, choices
 	for _, opt in ipairs(itemsM.options) do
 		if opt.type == "button" and opt.name == ns.L.ITEMS_FULL_SOUND_TEST then
 			preview = opt
+		elseif opt.key == "fullSoundChoice" then
+			choices = opt.values()
 		end
 	end
 	assert(preview and bagOptions and bagOptions[preview.key], "the Bags settings include the sound preview")
-	local savedChoice = itemsM.db.fullSoundChoice
+	local db = itemsM.db
+	assert(db.fullSoundChoice == "warning" and choices[1][1] == "warning", "the warning is the default and first choice")
+	local warning = [[Interface\AddOns\ForeverPlus\Media\BagsFull.mp3]]
+	preview.func()
+	assert(played[#played] == warning, "the preview plays the bundled warning")
+	local savedTime, last = GetTime, itemsM.fullState.last
+	GetTime = function() return 100 end
+	itemsM.fullState.last = 0
+	local count = #played
+	itemsM.PlayFullSound()
+	itemsM.PlayFullSound()
+	assert(#played == count + 1 and played[#played] == warning, "the bag event plays the same warning with its cooldown")
+	GetTime, itemsM.fullState.last = savedTime, last
+	local savedPlayFile = PlaySoundFile
+	PlaySoundFile = function() return false end
+	preview.func()
+	assert(played[#played] == "rw", "the warning falls back to the client's raid warning")
+	PlaySoundFile = savedPlayFile
+
 	itemsM.db.fullSoundChoice = "complete"
 	preview.func()
 	itemsM.db.fullSoundChoice = "ping"
 	preview.func()
-	itemsM.db.fullSoundChoice = savedChoice
 	assert(played[#played - 1] == "done" and played[#played] == "ping", "the preview plays the selected bag sound")
+	itemsM:OnInitialize()
+	assert(db.fullSoundChoice == "ping", "a Ping selected after the update survives reload")
+	db.fullSoundDefaultUpdated = nil
+	itemsM:OnInitialize()
+	assert(db.fullSoundChoice == "warning", "the legacy Ping default switches to the warning once")
+	db.fullSoundDefaultUpdated, db.fullSoundChoice = nil, "none"
+	itemsM:OnInitialize()
+	assert(db.fullSoundChoice == "none", "a different saved choice survives the update")
+	db.fullSoundChoice = "warning"
 end)()
 -- Keyword alert
 local chat = ns:GetModule("Chat")

@@ -23,6 +23,7 @@ globals = {
 }
 
 read_globals = {
+	"bit", "C_Intl", "RegionalUniqueNamesEnabled",
 	"C_EncodingUtil", "GetNormalizedRealmName", "IsModifierKeyDown", "UnitFullName", "UnitIsFriend",
 	"C_PetJournal",
 	"CanInspect", "NotifyInspect", "ClearInspectPlayer", "InspectFrame",

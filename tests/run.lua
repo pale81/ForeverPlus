@@ -10227,6 +10227,7 @@ end)()
 	Enum.SendAddonMessageResult = { Success = 0 }
 
 	rp:OnLogin()
+	local profileTooltip = TEST_POSTCALLS[#TEST_POSTCALLS]
 	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
 	local function Deliver(text, sender, channel)
 		onEvent(nil, "CHAT_MSG_ADDON", "ForeverPlusRP1", text, channel or "WHISPER", sender)
@@ -10414,6 +10415,155 @@ end)()
 	Deliver("Q:aca456", "Reader-LocalRealm")
 	assert(not button:IsShown() and not viewer:IsShown() and #messages == before, "disabling hides the UI and stops sharing")
 
+	local oldTipUnit, oldTipAdd, oldRefresh = GameTooltip.GetUnit, GameTooltip.AddLine, ns.RefreshGameTooltip
+	local oldBit, oldOwner = rawget(_G, "bit"), rawget(_G, "msp_RPAddOn")
+	local function Bitwise(a, b, xor)
+		local result, place = 0, 1
+		while a > 0 or b > 0 do
+			local left, right = a % 2, b % 2
+			if (xor and left ~= right) or (not xor and left == 1 and right == 1) then result = result + place end
+			a, b, place = math.floor(a / 2), math.floor(b / 2), place * 2
+		end
+		return result
+	end
+	bit = { band = Bitwise, bxor = function(a, b) return Bitwise(a, b, true) end,
+		rshift = function(a, count) return math.floor(a / 2 ^ count) end }
+	local actor, unit, refreshes, tipLines = "Wren", "mouseover", 0, {}
+	local wasShown = GameTooltip:IsShown()
+	GameTooltip:Show()
+	UnitFullName = function() return actor, "Test Realm" end
+	GameTooltip.GetUnit = function() return actor, unit end
+	GameTooltip.AddLine = function(_, line) tipLines[#tipLines + 1] = line end
+	ns.RefreshGameTooltip = function() refreshes = refreshes + 1 end
+	local mspOut = {}
+	local function SendMSP(logged, prefix, text, channel, target)
+		assert(prefix == "MSP2" and #text <= 255 and channel == "WHISPER")
+		assert(text:find("^00A%x%x%x%x%x%x%x%x%x"))
+		mspOut[#mspOut + 1] = { text = text, logged = logged, target = target }
+		return 0
+	end
+	local registerNative, sendNative = C_ChatInfo.RegisterAddonMessagePrefix, C_ChatInfo.SendAddonMessage
+	C_ChatInfo.RegisterAddonMessagePrefix = function(prefix)
+		if prefix == "MSP2" then return 0 end
+		return registerNative(prefix)
+	end
+	C_ChatInfo.SendAddonMessage = function(prefix, ...)
+		if prefix == "MSP2" then return SendMSP(false, prefix, ...) end
+		return sendNative(prefix, ...)
+	end
+	C_ChatInfo.SendAddonMessageLogged = function(...) return SendMSP(true, ...) end
+	local function MSPMessage(text, logged, sender, seq, length)
+		local event = logged and "CHAT_MSG_ADDON_LOGGED" or "CHAT_MSG_ADDON"
+		onEvent(nil, event, "MSP2", ("00ABCD%03X%03X%s"):format(seq or 1, length or 1, text),
+			"WHISPER", sender or "Wren-TestRealm")
+	end
+
+	rp.db.enabled, rp.cdb.shared = true, false
+	rp:OnOptionChanged()
+	now = now + 20
+	MSPMessage("?TT", false)
+	assert(#mspOut == 0, "MSP never publishes a private profile")
+	own = true
+	profileTooltip(GameTooltip)
+	assert(tipLines[1] == "Émeline" and tipLines[2]:find("Bergführerin", 1, true) and #mspOut == 0,
+		"the own tooltip shows the saved name and occupation even for a private profile")
+	own, tipLines = false, {}
+	profileTooltip(GameTooltip)
+	profileTooltip(GameTooltip)
+	assert(#tipLines == 0 and #mspOut == 1 and not mspOut[1].logged
+		and mspOut[1].target == "Wren-TestRealm" and mspOut[1].text:sub(13) == "?TT`?PX`?RC",
+		"the player tooltip sends a throttled request for MSP summary fields")
+
+	MSPMessage("NA:Unsolicited", true, "Wren-LocalRealm")
+	MSPMessage("NA:Unlogged", false)
+	assert(refreshes == 0, "a wrong-realm or unlogged MSP response cannot refresh the tooltip")
+	MSPMessage("NA:~7Ccfffafa00Sire Élan~7Cr`PX:Sire`RC:Waldläufer`TT1234", true)
+	assert(refreshes == 1, "the MSP response refreshes the current player tooltip")
+	profileTooltip(GameTooltip)
+	assert(tipLines[1] == "Sire Élan" and tipLines[2] == "Waldläufer",
+		"the tooltip strips colour codes and uses the RP class if the short title is already part of the name")
+
+	click()
+	assert(#mspOut == 2 and mspOut[2].text:find("?HI", 13, true), "the target book also requests the full external profile")
+	local prior = #reads
+	MSPMessage("~7CLink~7C", true, nil, 2, 2)
+	assert(#reads == prior, "profile waits for all parts")
+	MSPMessage("NT:Hüterin`HB:Westfall`HH:Stormwind`DE:Beschreibung`PE:Silberner Ring`HI8AB1:Zeile~0A", true, nil, 1, 2)
+	assert(reads[#reads]:find("Hüterin", 1, true) and reads[#reads]:find("Westfall", 1, true)
+		and reads[#reads]:find("Stormwind", 1, true) and reads[#reads]:find("Beschreibung", 1, true)
+		and reads[#reads]:find("Silberner Ring", 1, true)
+		and reads[#reads]:find("Zeile\n||Link||", 1, true),
+		"the target book maps external fields and displays escaped UTF-8 text")
+	tipLines = {}
+	profileTooltip(GameTooltip)
+	assert(tipLines[2] == "Hüterin", "the long title takes precedence over the RP class")
+	actor = "SomeoneElse"
+	local beforeRefresh = refreshes
+	MSPMessage("NT:New Title", true)
+	assert(refreshes == beforeRefresh, "an answer never refreshes another player's tooltip")
+	click()
+
+	rp.cdb.shared = true
+	local savedStory = rp.cdb.profile.story
+	rp.cdb.profile.story = ("é~\\\n"):rep(175) .. "Ende"
+	now = now + 20
+	local first = #mspOut + 1
+	MSPMessage("?VA`?NA`?NT`?HB`?HH`?HI", false)
+	local wire = ns.RoleplayMSP
+	local payload, fragments = nil, {}
+	for index = first, #mspOut do
+		local packet = mspOut[index]
+		assert(packet.logged and packet.target == "Wren-TestRealm")
+		payload = wire.Packet(packet.text, true, fragments) or payload
+	end
+	assert(#mspOut > first and payload, "the logged profile response is split into Chomp packets")
+	local _, fields = wire.Commands(payload, true)
+	assert(fields.VP == "3" and fields.VA == "ForeverPlus/" .. ns.version and fields.NA == "Émeline"
+		and fields.NT == rp.cdb.profile.occupation and fields.HB == rp.cdb.profile.birthplace
+		and fields.HH == rp.cdb.profile.residence and fields.HI == rp.cdb.profile.story,
+		"other RP addons receive all five enabled fields, including multiline UTF-8 and codec characters")
+	msp_RPAddOn = "Other RP"
+	first = #mspOut
+	MSPMessage("?TT", false)
+	assert(#mspOut == first, "another local MSP addon owns the MSP answers")
+	msp_RPAddOn = oldOwner
+	local sendLogged = C_ChatInfo.SendAddonMessageLogged
+	Enum.SendAddonMessageResult.AddonMessageThrottle = 3
+	C_ChatInfo.SendAddonMessageLogged = function() return 3 end
+	now, timeout = now + 20, nil
+	MSPMessage("?TT", false)
+	assert(timeout, "a throttled MSP reply schedules a retry")
+	local retry = timeout
+	C_ChatInfo.SendAddonMessageLogged = sendLogged
+	rp.cdb.shared = false
+	retry()
+	assert(#mspOut == first, "an already queued reply stops when profile sharing is turned off")
+	rp.cdb.shared = true
+	rp.cdb.profile.story = savedStory
+
+	rp.db.compatibleProfiles = false
+	rp:OnOptionChanged("compatibleProfiles")
+	MSPMessage("?TT", false)
+	assert(#mspOut == first, "the compatibility toggle stops MSP replies")
+	now = now + 20
+	local nativeBefore = #messages
+	profileTooltip(GameTooltip)
+	assert(#messages == nativeBefore + 1 and #mspOut == first, "the tooltip uses native queries when MSP is off")
+	local id = messages[#messages].text:sub(3)
+	Deliver("Q:" .. id, "Reader")
+	for index = nativeBefore + 2, #messages do Deliver(messages[index].text, "SomeoneElse-TestRealm") end
+	tipLines = {}
+	profileTooltip(GameTooltip)
+	assert(tipLines[1] == "Émeline", "the tooltip displays a native ForeverPlus profile")
+	rp.db.profileTooltip = false
+	tipLines = {}
+	profileTooltip(GameTooltip)
+	assert(#tipLines == 0, "the tooltip option switches off both RP lines")
+	rp.db.profileTooltip, rp.db.compatibleProfiles = true, true
+	GameTooltip.GetUnit, GameTooltip.AddLine, ns.RefreshGameTooltip = oldTipUnit, oldTipAdd, oldRefresh
+	GameTooltip:SetShown(wasShown)
+	bit = oldBit
+
 	visuals.db.playerDragon, visuals.db.dragonScale = oldDragon, oldScale
 	setuv(visuals.ApplyPlayerDragon, "dragonButtons", oldGroup)
 	setuv(visuals.ApplyPlayerDragon, "dragon", oldArt)
@@ -10422,7 +10572,7 @@ end)()
 	C_Timer.After, ns.IsEditModeActive = oldAfter, oldEditMode
 	Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult = oldRegister, oldSend
 	rp.db.enabled, rp.cdb.shared, rp.cdb.profile = true, false, {}
-	print("roleplay editor and profile exchange OK")
+	print("roleplay editor, native and MSP profile exchange, and player tooltip OK")
 end)()
 ;(function()
 	local journal = ns:GetModule("DungeonJournal")

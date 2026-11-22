@@ -44,12 +44,13 @@ mspFullQuery = table.concat(mspFullQuery, "`")
 local BOOK_ICON = [[Interface\Icons\INV_Misc_Book_09]]
 local PREFIX = "ForeverPlusRP1"
 local SEPARATOR = "\031"
-local CHUNK_BYTES, MAX_CHUNKS, TIMEOUT = 220, 9, 8
+local CHUNK_BYTES, MAX_CHUNKS, TIMEOUT, MSP_TIMEOUT = 220, 9, 8, 20
 local HOVER_DELAY, LEAVE_DELAY = 0.2, 0.35
 local editor, viewer, targetButton, pending
 local viewerPeer, viewerNative
 local hoverTimer, hoverPreview, leaveElapsed
 local chatReady, mspReady, realm, regionalNames
+local surnameSeparator, realmSeparator = " ", "-"
 local serial = math.random(0, 0xFFFFFF)
 local sendBudget, mspSendBudget, budgetTime = 10, 20, 0
 local peers, peerCount = {}, 0
@@ -104,16 +105,20 @@ local function StripMarkup(value)
 		:gsub("{col:%x+}", ""):gsub("{/?col}", ""):gsub("{icon:[^}]*}", ""))
 end
 
--- Use realm-qualified names for whispers and for matching incoming senders.
-local function Address(name, server)
+-- Forever whispers use the regional character name. Addon events can still append a realm.
+local function Address(name, qualifier)
 	if regionalNames then
-		if name:find(" ", 1, true) then return name end
-		if server and server ~= "" then return name .. " " .. server end
+		local realmStart = realmSeparator ~= surnameSeparator and name:find(realmSeparator, 1, true)
+		if realmStart then name = name:sub(1, realmStart - 1) end
+		if name:find(surnameSeparator, 1, true) then return name end
+		if name ~= "" and type(qualifier) == "string" and qualifier ~= "" then
+			return name .. surnameSeparator .. qualifier
+		end
 		return
 	end
-	if server == "" then server = realm end
-	if type(server) ~= "string" or server == "" then return end
-	return name .. "-" .. server:gsub("[%s.%-]", "")
+	if qualifier == "" then qualifier = realm end
+	if type(qualifier) ~= "string" or qualifier == "" then return end
+	return name .. "-" .. qualifier:gsub("[%s.%-]", "")
 end
 
 local function UnitAddress(unit)
@@ -124,8 +129,10 @@ local function UnitAddress(unit)
 	if ns.Secret(name) or ns.Secret(server) or type(name) ~= "string" or name == "" then return end
 	local own = UnitIsUnit("player", unit)
 	if ns.Secret(own) then return end
+	local address = Address(name, server or "")
+	if regionalNames and address then name = address end
 	if own == true then return nil, name, true end
-	return Address(name, server or ""), name
+	return address, name
 end
 
 local function CanUseMSP()
@@ -194,13 +201,14 @@ local function RequestMSP(peer, full)
 	local now = GetTime()
 	local retry = peer.mspSummaryRetry
 	if full then retry = peer.mspFullRetry end
-	if retry and now < retry then return end
-	if not MSP.Request(peer.address, full and mspFullQuery or "?TT`?PX`?RC", ReserveMessages) then return end
+	if retry and now < retry and (not full or peer.mspAnswered or now < peer.mspUntil) then return end
+	if not MSP.Request(peer.address, full and mspFullQuery or "?TT`?PX`?RC", ReserveMessages) then return false end
 	if not peer.mspUntil or now >= peer.mspUntil then peer.fragments = {} end
-	peer.mspUntil = now + 20
+	peer.mspUntil = now + MSP_TIMEOUT
 	local nextRequest = now + (peer.mspAnswered and RETRY_KNOWN or RETRY_UNKNOWN)
 	peer.mspSummaryRetry = nextRequest
 	if full then peer.mspFullRetry = nextRequest end
+	return true
 end
 
 local function Reply(target, id)
@@ -463,14 +471,19 @@ local function OpenTargetProfile(preview)
 	viewerPeer, viewerNative = peer, nil
 	local request = NewRequest(address) or { address = address }
 	pending = request
-	if CanUseMSP() then RequestMSP(peer, true) end
-	if not request.id and not CanUseMSP() then
-		pending = nil
-		ShowText(L.RP_SEND_FAILED)
-		return
+	local mspResult
+	if CanUseMSP() then mspResult = RequestMSP(peer, true) end
+	if not ShowMSPProfile(peer) then
+		if not request.id and (not CanUseMSP() or mspResult == false) then
+			pending = nil
+			ShowText(L.RP_SEND_FAILED)
+			return
+		end
+		ShowText(L.RP_LOADING)
 	end
-	if not ShowMSPProfile(peer) then ShowText(L.RP_LOADING) end
-	ns.After("Roleplay: request timeout", TIMEOUT, function()
+	local wait = TIMEOUT
+	if CanUseMSP() and peer.mspUntil then wait = math.max(wait, peer.mspUntil - GetTime()) end
+	ns.After("Roleplay: request timeout", wait, function()
 		if viewerPeer ~= peer or pending ~= request then return end
 		pending = nil
 		if not viewerNative and not (CanUseMSP() and peer.msp and next(peer.msp)) then ShowText(L.RP_NO_REPLY) end
@@ -695,6 +708,11 @@ end
 function Roleplay:OnLogin()
 	realm = GetNormalizedRealmName()
 	regionalNames = type(RegionalUniqueNamesEnabled) == "function" and RegionalUniqueNamesEnabled()
+	local separators = Constants and Constants.CharacterNameSeparatorConsts
+	if separators then
+		surnameSeparator = separators.CHARACTERNAME_SURNAME_SEPARATOR or surnameSeparator
+		realmSeparator = separators.CHARACTERNAME_REALMNAME_SEPARATOR or realmSeparator
+	end
 	if TargetFrame and type(TargetFrame.GetPortrait) == "function" then targetButton = CreateTargetButton() end
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Roleplay: profile tooltip", OnProfileTooltip))
 	self:OnOptionChanged()

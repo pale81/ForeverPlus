@@ -10623,6 +10623,62 @@ end)()
 	profileTooltip(GameTooltip)
 	assert(#tipLines == 0, "the tooltip option switches off both RP lines")
 	rp.db.profileTooltip, rp.db.compatibleProfiles = true, true
+
+	-- Forever units return a surname, while a message can append an internal realm to its sender.
+	setuv(rp.OnLogin, "regionalNames", true)
+	UnitFullName = function() return "Wren", "Stonefist" end
+	rp:OnOptionChanged("compatibleProfiles")
+	now = now + 20
+	click()
+	assert(mspOut[#mspOut].target == "Wren Stonefist" and messages[#messages].target == "Wren Stonefist",
+		"Forever whispers address the full regional character name")
+	local displayed = #reads
+	MSPMessage("NA:Other profile", true, "Wren Birch-CAMWOW EU4 Realm 7 PvE")
+	assert(#reads == displayed, "another character with the same first name cannot answer")
+	MSPMessage("NA:Élan of Westfall`NT:Hüterin`HB:Westfall", true, "Wren Stonefist-CAMWOW EU4 Realm 7 PvE")
+	assert(reads[#reads]:find("Élan of Westfall", 1, true), "a realm-decorated Forever reply matches the open profile")
+	UnitFullName = function() return "Wren Stonefist", "CAMWOW EU4 Realm 7 PvE" end
+	tipLines = {}
+	profileTooltip(GameTooltip)
+	assert(tipLines[1] == "Élan of Westfall" and tipLines[2] == "Hüterin",
+		"the tooltip uses the same regional character key as the profile response")
+	now = now + 20
+	MSPMessage("?TT", false, "Reader Oak-CAMWOW EU4 Realm 7 PvE")
+	assert(mspOut[#mspOut].logged and mspOut[#mspOut].target == "Reader Oak", "MSP replies strip the sender's internal realm")
+	local activeProfile = rp.cdb.profile
+	rp.cdb.profile = { name = "Émeline" }
+	Deliver("Q:abc123", "Reader Oak-CAMWOW EU4 Realm 7 PvE")
+	assert(messages[#messages].target == "Reader Oak" and messages[#messages].text:find("^P:abc123:"),
+		"native replies also use the regional whisper name")
+	rp.cdb.profile = activeProfile
+	click()
+
+	UnitFullName = function() return "Doran", "Amber" end
+	now = now + 20
+	local beforeProbe = #mspOut
+	click()
+	timeout()
+	assert(#mspOut == beforeProbe + 1 and reads[#reads] == ns.L.RP_NO_REPLY, "an unanswered MSP request times out")
+	click()
+	now = now + 19
+	click()
+	assert(#mspOut == beforeProbe + 1, "manual reopening does not resend during the response window")
+	click()
+	now = now + 1
+	click()
+	assert(#mspOut == beforeProbe + 2, "manual reopening can retry an unanswered MSP query once the response window ends")
+	click()
+
+	local workingSend = C_ChatInfo.SendAddonMessage
+	C_ChatInfo.SendAddonMessage = function() return 7 end
+	UnitFullName = function() return "Aldren", "Ash" end
+	now = now + 20
+	click()
+	assert(reads[#reads] == ns.L.RP_SEND_FAILED, "the book reports a client send failure on both transports immediately")
+	click()
+	C_ChatInfo.SendAddonMessage = workingSend
+	setuv(rp.OnLogin, "regionalNames", false)
+
 	GameTooltip.GetUnit, GameTooltip.AddLine, ns.RefreshGameTooltip = oldTipUnit, oldTipAdd, oldRefresh
 	GameTooltip:SetShown(wasShown)
 	bit = oldBit

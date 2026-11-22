@@ -44,7 +44,8 @@ mspFullQuery = table.concat(mspFullQuery, "`")
 local BOOK_ICON = [[Interface\Icons\INV_Misc_Book_09]]
 local PREFIX = "ForeverPlusRP1"
 local SEPARATOR = "\031"
-local CHUNK_BYTES, MAX_CHUNKS, TIMEOUT, MSP_TIMEOUT = 220, 9, 8, 20
+local CHUNK_BYTES, MAX_CHUNKS = 220, 9
+local DISPLAY_TIMEOUT, NATIVE_TIMEOUT, MSP_TIMEOUT = 3, 8, 20
 local HOVER_DELAY, LEAVE_DELAY = 0.2, 0.35
 local editor, viewer, targetButton, pending
 local viewerPeer, viewerNative
@@ -404,7 +405,7 @@ local function NewRequest(address)
 	serial = (serial + 1) % 0x1000000
 	local id = ("%06x"):format(serial)
 	if Whisper(address, "Q:" .. id) then
-		return { address = address, id = id, parts = {}, received = 0 }
+		return { address = address, id = id, parts = {}, received = 0, deadline = GetTime() + NATIVE_TIMEOUT }
 	end
 end
 
@@ -416,12 +417,12 @@ local function OnProfileTooltip(tooltip)
 		local peer = GetPeer(address)
 		if CanUseMSP() then
 			RequestMSP(peer, false)
-		elseif chatReady and not (pending and pending.address == address) then
+		elseif chatReady then
 			local now = GetTime()
-			if not peer.nativeRetry or now >= peer.nativeRetry then
+			local waiting = pending and pending.address == address and pending.deadline and now < pending.deadline
+			if not waiting and (not peer.nativeRetry or now >= peer.nativeRetry) then
 				peer.nativeProbe = NewRequest(address)
 				if peer.nativeProbe then
-					peer.nativeProbe.deadline = now + TIMEOUT
 					peer.nativeRetry = now + (peer.nativeAnswered and RETRY_KNOWN or RETRY_UNKNOWN)
 				end
 			end
@@ -473,19 +474,16 @@ local function OpenTargetProfile(preview)
 	pending = request
 	local mspResult
 	if CanUseMSP() then mspResult = RequestMSP(peer, true) end
-	if not ShowMSPProfile(peer) then
-		if not request.id and (not CanUseMSP() or mspResult == false) then
-			pending = nil
-			ShowText(L.RP_SEND_FAILED)
-			return
-		end
-		ShowText(L.RP_LOADING)
-	end
-	local wait = TIMEOUT
-	if CanUseMSP() and peer.mspUntil then wait = math.max(wait, peer.mspUntil - GetTime()) end
-	ns.After("Roleplay: request timeout", wait, function()
-		if viewerPeer ~= peer or pending ~= request then return end
+	if ShowMSPProfile(peer) then return end
+	if not request.id and (not CanUseMSP() or mspResult == false) then
 		pending = nil
+		ShowText(L.RP_SEND_FAILED)
+		return
+	end
+	ShowText(L.RP_LOADING)
+	-- Stop showing the loading message while the transports can still deliver a reply.
+	ns.After("Roleplay: profile loading status", DISPLAY_TIMEOUT, function()
+		if viewerPeer ~= peer or pending ~= request then return end
 		if not viewerNative and not (CanUseMSP() and peer.msp and next(peer.msp)) then ShowText(L.RP_NO_REPLY) end
 	end)
 end
@@ -500,10 +498,8 @@ local function ReceiveNative(message, address)
 	local responding = message:match("^[NP]:(%x%x%x%x%x%x)")
 	local request = pending
 	local forViewer = responding and request and responding == request.id and viewerPeer == peer
-	if not forViewer then
-		request = peer.nativeProbe
-		if not request or responding ~= request.id or GetTime() >= request.deadline then return end
-	end
+	if not forViewer then request = peer.nativeProbe end
+	if not request or responding ~= request.id or GetTime() >= request.deadline then return end
 	local isPrivate = message == "N:" .. request.id
 	local index, count, chunk = message:match("^P:" .. request.id .. ":([1-9]):([1-9]):([%w+/=]+)$")
 	index, count = tonumber(index), tonumber(count)

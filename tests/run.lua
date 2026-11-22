@@ -10359,7 +10359,8 @@ end)()
 	end
 	local oldAfter, oldEditMode = C_Timer.After, ns.IsEditModeActive
 	ns.IsEditModeActive = function() return editMode end
-	C_Timer.After = function(_, fn) timeout = fn end
+	local timeoutDelay
+	C_Timer.After = function(delay, fn) timeoutDelay, timeout = delay, fn end
 	local oldRegister, oldSend = Enum.RegisterAddonMessagePrefixResult, Enum.SendAddonMessageResult
 	Enum.RegisterAddonMessagePrefixResult = { Success = 0, DuplicatePrefix = 1 }
 	Enum.SendAddonMessageResult = { Success = 0 }
@@ -10496,8 +10497,17 @@ end)()
 	friendly = true
 	onEvent(nil, "PLAYER_TARGET_CHANGED")
 	click()
+	local lateID = messages[#messages].text:sub(3)
+	assert(timeoutDelay == 3, "a silent native target stops showing the loading message after three seconds")
+	now = now + timeoutDelay
 	timeout()
-	assert(reads[#reads] == ns.L.RP_NO_REPLY, "unanswered request times out")
+	assert(reads[#reads] == ns.L.RP_NO_REPLY, "an unanswered native request shows its status")
+	now = now + 1
+	for index = 3, 11 do
+		local packet = messages[index].text:gsub("^P:%x+:", "P:" .. lateID .. ":")
+		Deliver(packet, "Aelwyn-TestRealm")
+	end
+	assert(reads[#reads]:find("Dun Morogh", 1, true), "a native reply still replaces the status after four seconds")
 
 	own, rp.cdb.shared = true, false
 	onEvent(nil, "PLAYER_TARGET_CHANGED")
@@ -10732,16 +10742,24 @@ end)()
 	now = now + 20
 	local beforeProbe = #mspOut
 	click()
+	assert(timeoutDelay == 3, "a silent MSP target stops showing the loading message after three seconds")
+	now = now + timeoutDelay
 	timeout()
-	assert(#mspOut == beforeProbe + 1 and reads[#reads] == ns.L.RP_NO_REPLY, "an unanswered MSP request times out")
+	assert(#mspOut == beforeProbe + 1 and reads[#reads] == ns.L.RP_NO_REPLY, "an unanswered MSP request shows its status")
 	click()
-	now = now + 19
+	now = now + 16
 	click()
 	assert(#mspOut == beforeProbe + 1, "manual reopening does not resend during the response window")
 	click()
 	now = now + 1
 	click()
 	assert(#mspOut == beforeProbe + 2, "manual reopening can retry an unanswered MSP query once the response window ends")
+	now = now + timeoutDelay
+	timeout()
+	assert(reads[#reads] == ns.L.RP_NO_REPLY)
+	now = now + 7
+	MSPMessage("NA:Doran of Ironforge", true, "Doran Amber")
+	assert(reads[#reads]:find("Doran of Ironforge", 1, true), "an MSP reply still replaces the status after ten seconds")
 	click()
 
 	local workingSend = C_ChatInfo.SendAddonMessage

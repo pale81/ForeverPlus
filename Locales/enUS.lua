@@ -1816,7 +1816,7 @@ L.RP_SHARE = "Share my profile with other players"
 L.RP_LOADING = "Requesting profile …"
 L.RP_EMPTY = "You haven't saved any RP details yet."
 L.RP_PRIVATE = "This character has no shared profile."
-L.RP_NO_REPLY = "No reply from the target. Close and reopen the profile to try again."
+L.RP_NO_REPLY = "No reply from the target yet."
 L.RP_SEND_FAILED = "The request could not be sent right now. Try again in a moment."
 
 L.CAMERA_TITLE = "Cinematic camera"

@@ -1848,7 +1848,7 @@ L.RP_SHARE = "Profil mit anderen Spielern teilen"
 L.RP_LOADING = "Profil wird abgefragt …"
 L.RP_EMPTY = "Du hast noch keine RP-Daten gespeichert."
 L.RP_PRIVATE = "Dieser Charakter hat kein Profil freigegeben."
-L.RP_NO_REPLY = "Keine Antwort vom Ziel. Zum erneuten Abfragen das Profil schließen und wieder öffnen."
+L.RP_NO_REPLY = "Bisher keine Antwort vom Ziel."
 L.RP_SEND_FAILED = "Die Abfrage konnte gerade nicht gesendet werden. Versuche es gleich noch einmal."
 
 L.CAMERA_TITLE = "Filmische Kamera"

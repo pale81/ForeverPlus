@@ -1345,7 +1345,7 @@ end
 local ApplySaleSound
 do
 	local SALE_SOUND_FILE = [[Interface\AddOns\ForeverPlus\Media\AuctionKaChing.mp3]]
-	local SALE_SOUND_GAP = 1.5 -- seconds: multiple sales in the same moment play one sound
+	local SALE_SOUND_GAP = 2.5 -- seconds: multiple sales in the same moment play one sound
 	local lastSaleSoundAt
 	local seenSaleMails = {}
 	local soldChatFormat, soldChatPattern

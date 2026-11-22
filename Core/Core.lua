@@ -307,6 +307,8 @@ ns.SLOW_MS = 5
 ns.spikes = { samples = 0, count = 0, worst = 0 }
 local frameTop, frameTopTime, frameTopAt
 local lastTop, lastTopTime, lastTopAt
+local frameCalls, frameCounts, frameMax, frameHasCalls = {}, {}, {}, false
+local lastCalls, lastCounts, lastMax, lastHasCalls = {}, {}, {}, false
 local previousFrameAt
 local sessionSampler
 local SESSION_CALL_MIN = 0.25
@@ -329,10 +331,26 @@ local function RecordFrameCall(name, elapsed)
 	if now ~= frameTopAt then
 		lastTop, lastTopTime, lastTopAt = frameTop, frameTopTime, frameTopAt
 		frameTop, frameTopTime, frameTopAt = nil, 0, now
+		lastCalls, frameCalls = frameCalls, lastCalls
+		lastCounts, frameCounts = frameCounts, lastCounts
+		lastMax, frameMax = frameMax, lastMax
+		lastHasCalls, frameHasCalls = frameHasCalls, lastHasCalls
+		if frameHasCalls then
+			wipe(frameCalls)
+			wipe(frameCounts)
+			wipe(frameMax)
+			frameHasCalls = false
+		end
 	end
 	if elapsed > frameTopTime then
 		frameTop, frameTopTime = name, elapsed
 	end
+	frameCalls[name] = (frameCalls[name] or 0) + elapsed
+	frameCounts[name] = (frameCounts[name] or 0) + 1
+	if elapsed > (frameMax[name] or 0) then
+		frameMax[name] = elapsed
+	end
+	frameHasCalls = true
 end
 
 function ns.RecordTiming(name, elapsed)
@@ -358,19 +376,25 @@ local spikeFrame = CreateFrame("Frame")
 spikeFrame:Hide()
 spikeFrame:SetScript("OnUpdate", function()
 	local now = GetTime()
-	local name, elapsed
+	local name, elapsed, calls, counts, maxes
 	-- Events may already have run in the current tick when OnUpdate samples the previous one.
 	if previousFrameAt then
 		if frameTopAt == previousFrameAt then
 			name, elapsed = frameTop, frameTopTime
+			if frameHasCalls then
+				calls, counts, maxes = frameCalls, frameCounts, frameMax
+			end
 		elseif lastTopAt == previousFrameAt then
 			name, elapsed = lastTop, lastTopTime
+			if lastHasCalls then
+				calls, counts, maxes = lastCalls, lastCounts, lastMax
+			end
 		end
 	end
 	local total
 	if sessionSampler then
 		local start = debugprofilestop()
-		total = sessionSampler(now, name, elapsed, previousFrameAt)
+		total = sessionSampler(now, name, elapsed, previousFrameAt, calls, counts, maxes)
 		local duration = debugprofilestop() - start
 		if duration >= SESSION_CALL_MIN then
 			RecordFrameCall("Info: CPU sampler", duration)
@@ -412,6 +436,18 @@ function ns.SetMeasuring(on)
 		if not sessionSampler then
 			frameTop, frameTopTime, frameTopAt = nil, nil, nil
 			lastTop, lastTopTime, lastTopAt = nil, nil, nil
+			if frameHasCalls then
+				wipe(frameCalls)
+				wipe(frameCounts)
+				wipe(frameMax)
+				frameHasCalls = false
+			end
+			if lastHasCalls then
+				wipe(lastCalls)
+				wipe(lastCounts)
+				wipe(lastMax)
+				lastHasCalls = false
+			end
 		end
 	end
 	spikeFrame:SetShown(ns.measuring or sessionSampler ~= nil)
@@ -528,7 +564,15 @@ function ns.RunSliced(name, count, fn, onDone, budget)
 		ticker:Cancel()
 		ns.RecordTiming(name, debugprofilestop() - start)
 		if onDone then
+			local measurement = ActiveMeasurement()
+			local doneStart = debugprofilestop()
 			onDone()
+			local doneElapsed = debugprofilestop() - doneStart
+			if measurement and measurement == ns.spikes and ns.measuring then
+				ns.RecordTiming(name .. " (done)", doneElapsed)
+			elseif sessionSampler and doneElapsed >= SESSION_CALL_MIN then
+				RecordFrameCall(name .. " (done)", doneElapsed)
+			end
 		end
 	end)
 end
@@ -700,8 +744,22 @@ loader:SetScript("OnEvent", function(self, event, arg1)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		local queue = regenQueue
 		regenQueue = {}
-		for i = 1, #queue do
-			xpcall(queue[i], ErrorHandler)
+		if #queue > 0 and (ns.measuring or sessionSampler) then
+			local measurement = ActiveMeasurement()
+			local start = debugprofilestop()
+			for i = 1, #queue do
+				xpcall(queue[i], ErrorHandler)
+			end
+			local elapsed = debugprofilestop() - start
+			if measurement and measurement == ns.spikes and ns.measuring then
+				ns.RecordTiming("Core: RunOutOfCombat", elapsed)
+			elseif elapsed >= SESSION_CALL_MIN then
+				RecordFrameCall("Core: RunOutOfCombat", elapsed)
+			end
+		else
+			for i = 1, #queue do
+				xpcall(queue[i], ErrorHandler)
+			end
 		end
 	end
 end)
@@ -819,6 +877,8 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		end
 	elseif msg == "zeiten" or msg == "zeit" or msg == "timings" then
 		ns.PrintTimings()
+	elseif msg == "spitzen" or msg == "spikes" then
+		ns:GetModule("Info").ShowSpikes()
 	elseif msg == "kopieren" or msg == "copy" then
 		ns:GetModule("Chat"):CopyChat()
 	elseif msg == "hilfe" or msg == "help" or msg == "?" then

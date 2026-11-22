@@ -814,6 +814,146 @@ print("info OK")
 	GetTime, C_AddOnProfiler.GetAddOnMetric = savedTime, savedMetric
 	print("cpu sampling grace OK")
 end)()
+;(function()
+	-- Collection of >5 ms moments: multi-call attribution, external addons, tooltip, copyable window, cap and reset.
+	local setup = uv(info.UpdatePerformance, "SetupProfilerSampler")
+	local sampler = uv(setup, "profilerSampler")
+	local event = sampler:GetScript("OnEvent")
+	local sample = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
+	local perf = uv(info.UpdatePerformance, "perfFrame")
+	local mouseUp = perf:GetScript("OnMouseUp")
+	local savedTime, savedMetric = GetTime, C_AddOnProfiler.GetAddOnMetric
+	local savedClock, savedDate, savedCombat = debugprofilestop, rawget(_G, "date"), InCombatLockdown
+	local savedShift, savedEdit = IsShiftKeyDown, ns.ShowEditWindow
+	local savedAddLine, savedAddDouble, savedAddNormal = GameTooltip.AddLine, GameTooltip.AddDoubleLine, GameTooltip_AddNormalLine
+
+	local now, clock = 770.5, 0
+	local perAddon = {}
+	local combat = false
+	local clockText = "19:00:01"
+	GetTime = function() return now end
+	debugprofilestop = function() return clock end
+	date = function() return clockText end
+	InCombatLockdown = function() return combat end
+	C_AddOnProfiler.GetAddOnMetric = function(name) return perAddon[name] or 0 end
+	IsShiftKeyDown = function() return false end
+
+	-- End loading screen + wait out zone grace (770.5 + 20 = 790.5).
+	event(sampler, "LOADING_SCREEN_DISABLED")
+	now = 791.0
+	sample()
+	assert(info.SpikesText(true) == nil, "no moments recorded before any >5 ms frame")
+
+	-- Frame 1 (791.0): multiple ForeverPlus calls, including one repeated 3x (6.0 ms total > 2.2 ms single call).
+	local fnRepeat = ns.Measured("Items: repeat", function() clock = clock + 2.0 end)
+	local fnOther = ns.Measured("Quests: tracker", function() clock = clock + 2.2 end)
+	fnRepeat()
+	fnRepeat()
+	fnRepeat()
+	fnOther()
+	-- Frame 2 (791.1): another slow call arrives BEFORE OnUpdate samples frame 791.0; must not leak into frame 791.0.
+	now, combat, clockText = 791.1, true, "19:00:02"
+	local fnNext = ns.Measured("Dialog: update", function() clock = clock + 8.5 end)
+	fnNext()
+	perAddon = { [ns.name] = 9.4, Slow = 0.2 }
+	sample()
+
+	-- Frame 3 (791.2): sample frame 791.1 (Dialog: update 8.5 ms) + external addon spike (Slow 7.3 ms).
+	now, combat, clockText = 791.2, false, "19:00:03"
+	local fnThird = ns.Measured("Tooltip: item", function() clock = clock + 0.4 end)
+	fnThird()
+	perAddon = { [ns.name] = 9.1, Slow = 7.3 }
+	sample()
+
+	-- Frame 4 (791.3): normal frame (<5 ms), must not add a moment.
+	now, clockText = 791.3, "19:00:04"
+	perAddon = { [ns.name] = 1.2, Slow = 0.5 }
+	sample()
+
+	-- Frame 5 (791.4): unattributed >5 ms frame for ForeverPlus (no call >= 0.25 ms in frame 791.3).
+	now, clockText = 791.4, "19:00:05"
+	perAddon = { [ns.name] = 5.6, Slow = 0.1 }
+	sample()
+
+	-- Frame 6 (791.5): second hit of Items: repeat (tests grouping count = 2).
+	fnRepeat()
+	fnRepeat()
+	fnRepeat()
+	now, clockText = 791.5, "19:00:06"
+	perAddon = { [ns.name] = 6.5, Slow = 0.1 }
+	sample()
+
+	local report = info.SpikesText()
+	assert(report:find(ns.L.INFO_SPIKES_SUMMARY:format(ns.SLOW_MS, 5), 1, true), "report counts all 5 >5 ms moments: " .. report)
+	assert(report:find(ns.L.INFO_SPIKES_TRIGGER_LINE:format("Items: repeat", 2, 6.0, 9.4), 1, true),
+		"repeated calls aggregate per frame and group across moments: " .. report)
+	assert(report:find(ns.L.INFO_SPIKES_TRIGGER_LINE:format("Dialog: update", 1, 8.5, 9.1), 1, true),
+		"second frame keeps its own call without leakage from frame 1: " .. report)
+	assert(report:find(ns.L.INFO_SPIKES_TRIGGER_UNATTRIBUTED:format(ns.L.INFO_SPIKES_UNATTRIBUTED, 1, 5.6), 1, true),
+		"unattributed >5 ms frames appear in summary: " .. report)
+	assert(report:find(ns.L.INFO_SPIKES_ADDON_LINE:format("Slow Addon", 1, 7.3), 1, true),
+		"external addon >5 ms moments appear in other addons section: " .. report)
+	assert(report:find("19:00:02 | " .. ns.name .. " | 9.4 ms | " .. ns.L.INFO_SPIKES_COMBAT
+		.. " | Items: repeat (6.0 ms, 3×), Quests: tracker (2.2 ms)", 1, true),
+		"moment line includes combat tag and all calls sorted by total ms: " .. report)
+	assert(report:find("19:00:03 | Slow Addon | 7.3 ms", 1, true), "external addon moment line formatted cleanly")
+	assert(not report:find("19:00:04", 1, true), "frames under 5 ms are not collected")
+
+	-- Tooltip lists the collected >5 ms moments and their functions.
+	local tipLines = {}
+	GameTooltip.AddLine = function(_, line) tipLines[#tipLines + 1] = tostring(line) end
+	GameTooltip.AddDoubleLine = function(_, left, right) tipLines[#tipLines + 1] = tostring(left) .. " | " .. tostring(right) end
+	GameTooltip_AddNormalLine = function(_, line) tipLines[#tipLines + 1] = tostring(line) end
+	perf:GetScript("OnEnter")(perf)
+	local tipJoined = table.concat(tipLines, "\n")
+	assert(tipJoined:find(ns.L.INFO_SPIKES_HEADER:format(ns.SLOW_MS, 5), 1, true), "tooltip shows moments header")
+	assert(tipJoined:find("Items: repeat (6.0 ms, 3×), Quests: tracker (2.2 ms)", 1, true), "tooltip shows captured calls")
+	assert(tipJoined:find(ns.L.INFO_SPIKES_EXTERNAL_NOTE, 1, true), "tooltip notes external addon limitation")
+
+	-- Diagnose includes >5 ms moments when present.
+	local diag = ns:GetModule("DataCapture").DiagnoseText()
+	assert(diag:find("== Moments over 5 ms ==", 1, true) and diag:find("Items: repeat", 1, true),
+		"diagnose report includes collected >5 ms moments")
+
+	-- Left-click on perfFrame opens the copyable window; slash commands also open it; Reset clears everything.
+	local openedKey, openedText, openedExtras
+	ns.ShowEditWindow = function(key, _, text, _, _, _, extras)
+		openedKey, openedText, openedExtras = key, text, extras
+	end
+	mouseUp(perf, "LeftButton")
+	assert(openedKey == "Spikes" and openedText == report and openedExtras and openedExtras[1],
+		"left-click opens spikes window with reset button")
+	openedKey = nil
+	SlashCmdList.FOREVERPLUS("spitzen")
+	assert(openedKey == "Spikes", "/fp spitzen opens spikes window")
+	openedKey = nil
+	SlashCmdList.FOREVERPLUS("spikes")
+	assert(openedKey == "Spikes", "/fp spikes opens spikes window")
+
+	-- Ring-buffer cap keeps latest 100 moments while tracking total count.
+	for i = 1, 102 do
+		now = 792.0 + i * 0.05
+		perAddon = { [ns.name] = 0, Slow = 6.0 }
+		sample()
+	end
+	local capped = info.SpikesText()
+	assert(capped:find(ns.L.INFO_SPIKES_SUMMARY_CAPPED:format(ns.SLOW_MS, 107, 100), 1, true),
+		"cap preserves total count and keeps last 100 moments: " .. capped:sub(1, 80))
+
+	-- Reset button clears moments and session metrics.
+	openedExtras[1].onClick()
+	assert(info.SpikesText(true) == nil and openedText == ns.L.INFO_SPIKES_EMPTY:format(ns.SLOW_MS),
+		"reset button clears collected moments and refreshes window")
+	assert(not ns:GetModule("DataCapture").DiagnoseText():find("== Moments over 5 ms ==", 1, true),
+		"diagnose omits moments section after reset")
+
+	GameTooltip.AddLine, GameTooltip.AddDoubleLine, GameTooltip_AddNormalLine = savedAddLine, savedAddDouble, savedAddNormal
+	IsShiftKeyDown, ns.ShowEditWindow = savedShift, savedEdit
+	debugprofilestop, date, InCombatLockdown = savedClock, savedDate, savedCombat
+	event(sampler, "LOADING_SCREEN_ENABLED")
+	GetTime, C_AddOnProfiler.GetAddOnMetric = savedTime, savedMetric
+	print("cpu spike moments OK")
+end)()
 -- Grey item keep exception
 local itemsM = ns:GetModule("Items")
 C_Container.GetContainerItemInfo = function() return { itemID = 99, hyperlink = "[grey]", quality = 0, stackCount = 1 } end

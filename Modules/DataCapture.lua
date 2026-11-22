@@ -256,6 +256,13 @@ function Capture.DiagnoseText()
 		end
 	end
 	Section("Longest calls", table.concat(timings, "\n"))
+	local info = ns:GetModule("Info")
+	if info and info.SpikesText then
+		local spikesText = info.SpikesText(true)
+		if spikesText then
+			Section(("Moments over %d ms"):format(ns.SLOW_MS), spikesText)
+		end
+	end
 	local status = {}
 	for _, entry in ipairs({ { "Chat", "Chat" }, { "Loot", "Loot" }, { "Talents", "Talents" }, { "RecipeRadar", "RecipeRadar" }, { "WorldMap", "WorldMap" } }) do
 		local module = ns:GetModule(entry[2])

@@ -190,12 +190,99 @@ local sampledAddons = {}
 local tooltipRows = {}
 local sessionMetrics = {}
 local resetAt
+local MAX_SPIKE_MOMENTS = 100
+local MAX_MOMENT_CALLS = 5
+local TOOLTIP_SPIKE_MOMENTS = 5
+local spikeMoments = {}
+local totalSpikeMoments = 0
 
 local function ResetMetrics(entry)
 	entry.peak, entry.slow = 0, 0
 	entry.peakAt, entry.peakCall, entry.peakCallTime = nil, nil, nil
 	entry.slowAt, entry.slowFrame, entry.slowCall, entry.slowCallTime = nil, nil, nil, nil
 	entry.recentIndex, entry.recentCount, entry.recentTotal = 1, 0, 0
+end
+
+local function ResetSession()
+	for _, entry in pairs(sessionMetrics) do
+		ResetMetrics(entry)
+	end
+	wipe(spikeMoments)
+	totalSpikeMoments = 0
+	resetAt = GetTime()
+end
+
+local function HigherCallTotal(a, b)
+	if a.total == b.total then
+		if a.max == b.max then
+			return a.name < b.name
+		end
+		return a.max > b.max
+	end
+	return a.total > b.total
+end
+
+local function SnapshotFrameCalls(frameCalls, frameCounts, frameMax, fallbackName, fallbackTime)
+	local list = {}
+	if frameCalls then
+		for name, total in pairs(frameCalls) do
+			list[#list + 1] = {
+				name = name,
+				total = total,
+				count = frameCounts and frameCounts[name] or 1,
+				max = frameMax and frameMax[name] or total,
+			}
+		end
+	end
+	if #list == 0 and fallbackName then
+		list[1] = { name = fallbackName, total = fallbackTime or 0, count = 1, max = fallbackTime or 0 }
+	end
+	if #list == 0 then
+		return nil
+	end
+	table.sort(list, HigherCallTotal)
+	for i = #list, MAX_MOMENT_CALLS + 1, -1 do
+		list[i] = nil
+	end
+	return list
+end
+
+local function FormatCallList(calls, limit)
+	if not calls or #calls == 0 then
+		return nil
+	end
+	local count = limit and math.min(limit, #calls) or #calls
+	local parts = {}
+	for i = 1, count do
+		local item = calls[i]
+		if item.count > 1 then
+			parts[i] = ("%s (%.1f ms, %d×)"):format(item.name, item.total, item.count)
+		else
+			parts[i] = ("%s (%.1f ms)"):format(item.name, item.total)
+		end
+	end
+	return table.concat(parts, ", ")
+end
+
+local function RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime)
+	local clock
+	if type(date) == "function" then
+		clock = date("%H:%M:%S")
+	end
+	spikeMoments[#spikeMoments + 1] = {
+		at = now,
+		clock = clock,
+		addon = entry.name,
+		title = entry.title,
+		own = entry.own,
+		ms = elapsed,
+		combat = InCombatLockdown() and true or false,
+		calls = entry.own and SnapshotFrameCalls(frameCalls, frameCounts, frameMax, peakCall, peakCallTime) or nil,
+	}
+	if #spikeMoments > MAX_SPIKE_MOMENTS then
+		table.remove(spikeMoments, 1)
+	end
+	totalSpikeMoments = totalSpikeMoments + 1
 end
 
 local function TrackAddon(name, title)
@@ -236,7 +323,7 @@ local function OnProfilerEvent(_, event, arg1, arg2)
 	end
 end
 
-local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt)
+local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, frameCalls, frameCounts, frameMax)
 	if resetAt and (not previousFrameAt or previousFrameAt <= resetAt) then
 		return
 	end
@@ -275,6 +362,7 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt)
 				entry.slowAt, entry.slowFrame = now, elapsed
 				entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
 			end
+			RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime)
 		end
 	end
 	return ownElapsed
@@ -373,6 +461,48 @@ local function StartMeasure()
 	end)
 end
 
+local function MomentStamp(moment, now)
+	if moment.clock and moment.clock ~= "" then
+		return moment.clock
+	end
+	local age = SecondsToTime(math.max(0, now - moment.at))
+	return age ~= "" and age or "<1 s"
+end
+
+local function AddSpikeMomentLines(now)
+	if #spikeMoments == 0 then
+		return
+	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	if totalSpikeMoments > #spikeMoments then
+		GameTooltip_AddNormalLine(GameTooltip, L.INFO_SPIKES_HEADER_CAPPED:format(ns.SLOW_MS, #spikeMoments, totalSpikeMoments))
+	else
+		GameTooltip_AddNormalLine(GameTooltip, L.INFO_SPIKES_HEADER:format(ns.SLOW_MS, totalSpikeMoments))
+	end
+	local sawExternal = false
+	local first = math.max(1, #spikeMoments - TOOLTIP_SPIKE_MOMENTS + 1)
+	for i = #spikeMoments, first, -1 do
+		local moment = spikeMoments[i]
+		local label = ("%s |cff999999%s|r"):format(moment.title, MomentStamp(moment, now))
+		local own = moment.own
+		GameTooltip:AddDoubleLine(label, ("%.1f ms"):format(moment.ms),
+			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
+			RED_FONT_COLOR.r, RED_FONT_COLOR.g, RED_FONT_COLOR.b)
+		if own then
+			local detail = FormatCallList(moment.calls, 2) or L.INFO_SPIKES_UNATTRIBUTED
+			GameTooltip:AddLine("  " .. detail, 0.62, 0.62, 0.62, true)
+		else
+			sawExternal = true
+		end
+	end
+	if sawExternal then
+		GameTooltip:AddLine(L.INFO_SPIKES_EXTERNAL_NOTE, 0.62, 0.62, 0.62, true)
+	end
+	if #spikeMoments > TOOLTIP_SPIKE_MOMENTS then
+		GameTooltip:AddLine(L.INFO_SPIKES_MORE:format(#spikeMoments - TOOLTIP_SPIKE_MOMENTS), 0.62, 0.62, 0.62, true)
+	end
+end
+
 local function ShowCpuTooltip(owner)
 	local now = GetTime()
 	lastCpuTooltipUpdate = now
@@ -385,7 +515,7 @@ local function ShowCpuTooltip(owner)
 		return
 	end
 	table.sort(tooltipRows, HigherPeak)
-	-- Sections: explanation, table (names white, values coloured), total, measurement, hints.
+	-- Sections: explanation, table (names white, values coloured), total, >5 ms moments, measurement, hints.
 	GameTooltip:AddLine(L.INFO_CPU_COLUMNS, 0.62, 0.62, 0.62, true)
 	if loadingScreen or not ignoreUntil then
 		GameTooltip_AddInstructionLine(GameTooltip, L.INFO_CPU_WAIT_WORLD)
@@ -421,6 +551,7 @@ local function ShowCpuTooltip(owner)
 	local color = CpuColor(total)
 	GameTooltip:AddDoubleLine(L.INFO_CPU_TOTAL, ("%.2f ms"):format(total),
 		NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, color.r, color.g, color.b)
+	AddSpikeMomentLines(now)
 	AddMeasureLines()
 	GameTooltip_AddBlankLineToTooltip(GameTooltip)
 	GameTooltip_AddInstructionLine(GameTooltip, L.DISPLAY_HINT)
@@ -453,6 +584,121 @@ end
 local RefreshCpuTooltip = ns.Measured("Info: CPU tooltip", ShowCpuTooltip)
 local lastFPS, lastMS, lastColorSetting
 
+local function HigherTriggerCount(a, b)
+	if a.count == b.count then
+		if a.maxFrame == b.maxFrame then
+			return a.name < b.name
+		end
+		return a.maxFrame > b.maxFrame
+	end
+	return a.count > b.count
+end
+
+function Info.SpikesText(nilIfEmpty)
+	if #spikeMoments == 0 then
+		if nilIfEmpty then
+			return nil
+		end
+		return L.INFO_SPIKES_EMPTY:format(ns.SLOW_MS)
+	end
+	local now = GetTime()
+	local out = {}
+	if totalSpikeMoments > #spikeMoments then
+		out[#out + 1] = L.INFO_SPIKES_SUMMARY_CAPPED:format(ns.SLOW_MS, totalSpikeMoments, #spikeMoments)
+	else
+		out[#out + 1] = L.INFO_SPIKES_SUMMARY:format(ns.SLOW_MS, totalSpikeMoments)
+	end
+
+	local ownByCall, ownTriggers = {}, {}
+	local extByAddon, extAddons = {}, {}
+	for _, moment in ipairs(spikeMoments) do
+		if moment.own then
+			local main = moment.calls and moment.calls[1]
+			local key = main and main.name or ""
+			local item = ownByCall[key]
+			if not item then
+				item = {
+					name = main and main.name or L.INFO_SPIKES_UNATTRIBUTED,
+					unattributed = not main,
+					count = 0,
+					maxCall = 0,
+					maxFrame = 0,
+				}
+				ownByCall[key] = item
+				ownTriggers[#ownTriggers + 1] = item
+			end
+			item.count = item.count + 1
+			if main and main.total > item.maxCall then
+				item.maxCall = main.total
+			end
+			if moment.ms > item.maxFrame then
+				item.maxFrame = moment.ms
+			end
+		else
+			local item = extByAddon[moment.addon]
+			if not item then
+				item = { name = moment.title, count = 0, maxFrame = 0 }
+				extByAddon[moment.addon] = item
+				extAddons[#extAddons + 1] = item
+			end
+			item.count = item.count + 1
+			if moment.ms > item.maxFrame then
+				item.maxFrame = moment.ms
+			end
+		end
+	end
+
+	if #ownTriggers > 0 then
+		table.sort(ownTriggers, HigherTriggerCount)
+		out[#out + 1] = ""
+		out[#out + 1] = L.INFO_SPIKES_SECTION_OWN
+		for _, item in ipairs(ownTriggers) do
+			if item.unattributed then
+				out[#out + 1] = L.INFO_SPIKES_TRIGGER_UNATTRIBUTED:format(item.name, item.count, item.maxFrame)
+			else
+				out[#out + 1] = L.INFO_SPIKES_TRIGGER_LINE:format(item.name, item.count, item.maxCall, item.maxFrame)
+			end
+		end
+	end
+
+	if #extAddons > 0 then
+		table.sort(extAddons, HigherTriggerCount)
+		out[#out + 1] = ""
+		out[#out + 1] = L.INFO_SPIKES_SECTION_OTHER
+		for _, item in ipairs(extAddons) do
+			out[#out + 1] = L.INFO_SPIKES_ADDON_LINE:format(item.name, item.count, item.maxFrame)
+		end
+		out[#out + 1] = L.INFO_SPIKES_EXTERNAL_NOTE
+	end
+
+	out[#out + 1] = ""
+	out[#out + 1] = L.INFO_SPIKES_SECTION_MOMENTS
+	for i = #spikeMoments, 1, -1 do
+		local moment = spikeMoments[i]
+		local parts = { MomentStamp(moment, now), moment.title, ("%.1f ms"):format(moment.ms) }
+		if moment.combat then
+			parts[#parts + 1] = L.INFO_SPIKES_COMBAT
+		end
+		if moment.own then
+			parts[#parts + 1] = FormatCallList(moment.calls) or L.INFO_SPIKES_UNATTRIBUTED
+		end
+		out[#out + 1] = table.concat(parts, " | ")
+	end
+	return table.concat(out, "\n")
+end
+
+function Info.ShowSpikes()
+	ns.ShowEditWindow("Spikes", L.INFO_SPIKES_TITLE:format(ns.SLOW_MS), Info.SpikesText(), CLOSE, nil, L.INFO_SPIKES_HINT, {
+		{ text = L.INFO_SPIKES_RESET, onClick = function()
+			ResetSession()
+			if perfFrame and GameTooltip:GetOwner() == perfFrame then
+				RefreshCpuTooltip(perfFrame)
+			end
+			Info.ShowSpikes()
+		end },
+	})
+end
+
 local function UpdatePerformance()
 	local _, _, latencyHome, latencyWorld = GetNetStats()
 	local label = NORMAL_FONT_COLOR
@@ -482,13 +728,12 @@ local function CreatePerfFrame()
 		if button == "MiddleButton" then
 			StartMeasure()
 		elseif button == "LeftButton" and IsShiftKeyDown() then
-			for _, entry in pairs(sessionMetrics) do
-				ResetMetrics(entry)
-			end
-			resetAt = GetTime()
+			ResetSession()
 			if GameTooltip:GetOwner() == self then
 				RefreshCpuTooltip(self)
 			end
+		elseif button == "LeftButton" then
+			Info.ShowSpikes()
 		end
 	end))
 	ns:RegisterDisplay(frame, "Performance", function(self)

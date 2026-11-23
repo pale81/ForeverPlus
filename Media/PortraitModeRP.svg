@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="256" height="256">
+  <defs>
+    <radialGradient id="tavern" cx="62%" cy="38%" r="74%">
+      <stop offset="0%" stop-color="#7a342a"/>
+      <stop offset="44%" stop-color="#45191d"/>
+      <stop offset="78%" stop-color="#220b10"/>
+      <stop offset="100%" stop-color="#100508"/>
+    </radialGradient>
+    <radialGradient id="candleGlow" cx="68%" cy="36%" r="48%">
+      <stop offset="0%" stop-color="#ffd98a" stop-opacity=".46"/>
+      <stop offset="50%" stop-color="#e38236" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="leather" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c4128"/>
+      <stop offset="55%" stop-color="#4a2216"/>
+      <stop offset="100%" stop-color="#240e0a"/>
+    </linearGradient>
+    <linearGradient id="pageL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d4b078"/>
+      <stop offset="65%" stop-color="#f7e6bf"/>
+      <stop offset="100%" stop-color="#b58d55"/>
+    </linearGradient>
+    <linearGradient id="pageR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a8804a"/>
+      <stop offset="32%" stop-color="#faf0d2"/>
+      <stop offset="100%" stop-color="#d9b67e"/>
+    </linearGradient>
+    <linearGradient id="goldTrim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff0bc"/>
+      <stop offset="50%" stop-color="#cf9644"/>
+      <stop offset="100%" stop-color="#69411b"/>
+    </linearGradient>
+    <linearGradient id="quillPlume" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#cbb086"/>
+      <stop offset="48%" stop-color="#fff8e6"/>
+      <stop offset="100%" stop-color="#f2cd7a"/>
+    </linearGradient>
+    <radialGradient id="waxSeal" cx="36%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#f0553c"/>
+      <stop offset="55%" stop-color="#a61c17"/>
+      <stop offset="100%" stop-color="#520a09"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3.5" stdDeviation="3.5" flood-color="#0d0305" flood-opacity=".85"/>
+    </filter>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch" result="n"/>
+      <feColorMatrix type="saturate" values="0" in="n" result="g"/>
+      <feComponentTransfer in="g" result="a"><feFuncA type="linear" slope="0.06"/></feComponentTransfer>
+      <feBlend mode="overlay" in="SourceGraphic" in2="a"/>
+    </filter>
+  </defs>
+  <g>
+    <rect width="128" height="128" fill="url(#tavern)"/>
+    <rect width="128" height="128" fill="url(#candleGlow)"/>
+
+    <!-- Open gilded chronicle tome + feather quill + wax seal shifted to (72, 54) -->
+    <g transform="translate(72, 55)" filter="url(#shadow)">
+      <!-- Leather cover with gilded corner clasps -->
+      <path d="M-34 -18 Q-16 -24 0 -17 Q16 -24 34 -18 L32 23 Q15 18 0 24 Q-15 18 -32 23 Z" fill="url(#leather)"/>
+      <path d="M-34 -18 Q-16 -24 0 -17 Q16 -24 34 -18 L32 23 Q15 18 0 24 Q-15 18 -32 23 Z" fill="none" stroke="url(#goldTrim)" stroke-width="1.8"/>
+      <!-- Thick stacked parchment pages -->
+      <path d="M-30 -20 Q-14 -26 0 -18 L0 20 Q-14 14 -29 19 Z" fill="url(#pageL)"/>
+      <path d="M0 -18 Q14 -26 30 -20 L29 19 Q14 14 0 20 Z" fill="url(#pageR)"/>
+      <!-- Soft spine crease shadow -->
+      <path d="M0 -18 L0 20" stroke="#5e3e1e" stroke-opacity=".55" stroke-width="2"/>
+      <!-- Warm calligraphic script lines -->
+      <g stroke="#78532c" stroke-opacity=".62" stroke-width="1.6" stroke-linecap="round">
+        <path d="M-23 -12 Q-14 -14 -5 -10"/>
+        <path d="M-23 -6 Q-14 -8 -5 -4"/>
+        <path d="M-22 0 Q-14 -2 -6 2"/>
+        <path d="M-21 6 Q-14 4 -7 8"/>
+        <path d="M6 -10 Q15 -14 23 -11"/>
+        <path d="M6 -4 Q15 -7 23 -5"/>
+        <path d="M6 2 Q14 0 21 2"/>
+      </g>
+      <!-- Crimson bookmark ribbon + stamped wax seal on right page -->
+      <path d="M13 10 L10 27 L15 23 L20 28 L19 10 Z" fill="#9c1c17"/>
+      <circle cx="16" cy="12" r="8.2" fill="#420908"/>
+      <circle cx="16" cy="12" r="7.1" fill="url(#waxSeal)"/>
+      <circle cx="16" cy="12" r="4.2" fill="none" stroke="#f7a47e" stroke-opacity=".5" stroke-width="1"/>
+      <circle cx="13.8" cy="9.8" r="1.6" fill="#ffbe99" opacity=".6"/>
+
+      <!-- Painterly golden-ivory quill sweeping diagonally across upper-right -->
+      <g>
+        <path d="M-6 14 C5 -2 17 -22 36 -38 C42 -39 44 -34 40 -26 C33 -13 20 1 5 10 L-4 14 Z" fill="url(#quillPlume)"/>
+        <!-- Delicate feather barbs & warm highlight -->
+        <path d="M27 -24 L35 -25 M20 -15 L29 -15 M12 -5 L21 -5 M5 3 L13 3" stroke="#997648" stroke-opacity=".55" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M-2 10 C9 -4 20 -20 37 -35" fill="none" stroke="#fffdf5" stroke-opacity=".75" stroke-width="1.4" stroke-linecap="round"/>
+        <!-- Golden quill shaft & nib -->
+        <path d="M-11 19 Q11 -4 37 -33" fill="none" stroke="url(#goldTrim)" stroke-width="2.1" stroke-linecap="round"/>
+        <polygon points="-14,22 -7,17 -10,14" fill="url(#goldTrim)"/>
+      </g>
+    </g>
+    <!-- Soft shadow vignette behind bottom-left level badge -->
+    <radialGradient id="blRP" cx="16%" cy="84%" r="44%">
+      <stop offset="0%" stop-color="#0c0305" stop-opacity=".82"/>
+      <stop offset="100%" stop-color="#0c0305" stop-opacity="0"/>
+    </radialGradient>
+    <rect width="128" height="128" fill="url(#blRP)"/>
+  </g>
+</svg>

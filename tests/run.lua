@@ -13145,5 +13145,125 @@ end)()
 	EventUtil, debugprofilestop, GetTime = savedEventUtil, savedClock2, savedTime
 	print("trainer scan and instrumentation OK")
 end)()
+;(function()
+	-- Compact group loot roll frames (Modules/LootRoll.lua)
+	local lr = ns:GetModule("LootRoll")
+	assert(lr and lr.db.enabled == true, "LootRoll module loaded and enabled by default")
+	for _, opt in ipairs(lr.options) do
+		if opt.type ~= "button" then
+			assert(opt.new == true, "LootRoll option marked NEW: " .. tostring(opt.key))
+		end
+	end
+	lr._ResetStateForTests()
+
+	local saved = {
+		GetLootRollItemInfo, GetLootRollItemLink, GetLootRollTimeLeft, RollOnLoot, ConfirmLootRoll,
+		IsShiftKeyDown, C_LootHistory, C_ClassColor, Enum.EncounterLootDropRollState,
+		LOOT_ROLL_INELIGIBLE_REASON1, LOOT_ROLL_NEED, LOOT_ROLL_PASSED,
+		C_Item.GetItemInfoInstant, ns.RewardComparisonState,
+	}
+	C_Item.GetItemInfoInstant = function(link)
+		return type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+	end
+	ns.RewardComparisonState = function(link)
+		return type(link) == "string" and link:find("item:17182", 1, true) and "better" or nil
+	end
+	local rolls = {
+		[101] = {
+			tex = 135328, name = "Sulfuras Shard", count = 1, quality = 4, bop = true,
+			canNeed = true, canGreed = true, canDE = false, rNeed = nil, rGreed = nil, rDE = nil, deSkill = nil, canTransmog = false,
+			link = "|cffa335ee|Hitem:17182::::::::60:::::::|h[Sulfuras Shard]|h|r", left = 45000,
+		},
+		[102] = {
+			tex = 134414, name = "Sapphire Ring", count = 2, quality = 3, bop = false,
+			canNeed = false, canGreed = true, canDE = true, rNeed = 1, rGreed = nil, rDE = nil, deSkill = nil, canTransmog = true,
+			link = "|cff0070dd|Hitem:20001::::::::60:::::::|h[Sapphire Ring]|h|r", left = 30000,
+		},
+	}
+	LOOT_ROLL_INELIGIBLE_REASON1 = "Cannot roll need"
+	LOOT_ROLL_NEED = "%s has selected Need for: %s"
+	LOOT_ROLL_PASSED = "%s passed on: %s"
+	GetLootRollItemInfo = function(id)
+		local r = rolls[id]
+		if not r then return nil end
+		return r.tex, r.name, r.count, r.quality, r.bop, r.canNeed, r.canGreed, r.canDE, r.rNeed, r.rGreed, r.rDE, r.deSkill, r.canTransmog
+	end
+	GetLootRollItemLink = function(id) return rolls[id] and rolls[id].link end
+	GetLootRollTimeLeft = function(id) return rolls[id] and rolls[id].left or 0 end
+	local rolled, confirmed = {}, {}
+	RollOnLoot = function(id, rt) rolled[#rolled + 1] = { id, rt } end
+	ConfirmLootRoll = function(id, rt) confirmed[#confirmed + 1] = { id, rt } end
+	local shiftDown = false
+	IsShiftKeyDown = function() return shiftDown end
+	Enum.EncounterLootDropRollState = { NeedMainSpec = 0, NeedOffSpec = 1, Transmog = 2, Greed = 3, NoRoll = 4, Pass = 5 }
+	C_ClassColor = {
+		GetClassColor = function(cls)
+			if cls == "WARRIOR" then
+				return { WrapTextInColorCode = function(_, s) return "|cffc69b6d" .. s .. "|r" end }
+			end
+		end,
+	}
+
+	-- Open two rolls and verify BoP/BoE, Transmog/DE buttons and disabled reason.
+	lr:START_LOOT_ROLL("START_LOOT_ROLL", 101, 60000)
+	lr:START_LOOT_ROLL("START_LOOT_ROLL", 102, 60000)
+	assert(#lr._activeBars == 2, "two compact loot roll bars opened")
+	local b1, b2 = lr._activeBars[1], lr._activeBars[2]
+	assert(b1.rollID == 101 and b1.bop == true and not b1.showTransmog and not b1.showDisenchant, "bar 1 BoP standard buttons")
+	assert(b1.UpgradeArrow:IsShown() and not b2.UpgradeArrow:IsShown(), "upgrade arrow shown only for better gear")
+	assert(b2.rollID == 102 and b2.bop == false and b2.showTransmog and b2.showDisenchant, "bar 2 BoE transmog + DE buttons")
+	assert(b2.buttons.need.reason == "Cannot roll need", "disabled need button stores ineligible reason")
+
+	-- Clicks: normal uses RollOnLoot, Shift uses ConfirmLootRoll for non-pass rolls.
+	b1.buttons.need:GetScript("OnClick")(b1.buttons.need)
+	assert(#rolled == 1 and rolled[1][1] == 101 and rolled[1][2] == 1, "normal click calls RollOnLoot")
+	shiftDown = true
+	b1.buttons.need:GetScript("OnClick")(b1.buttons.need)
+	assert(#confirmed == 1 and confirmed[1][1] == 101 and confirmed[1][2] == 1, "shift-click calls ConfirmLootRoll")
+	b1.buttons.pass:GetScript("OnClick")(b1.buttons.pass)
+	assert(#rolled == 2 and rolled[2][1] == 101 and rolled[2][2] == 0, "shift-click on pass still uses RollOnLoot")
+	shiftDown = false
+
+	-- Chat fallback updates counts on rolls without C_LootHistory.
+	lr:CHAT_MSG_LOOT("CHAT_MSG_LOOT", "Thrall has selected Need for: " .. rolls[101].link)
+	assert(#b1.voters.need == 1 and b1.voters.need[1] == "Thrall", "chat fallback tracks non-boss roll votes")
+
+	-- C_LootHistory updates counts with class colors and roll numbers, and takes precedence over chat.
+	C_LootHistory = {
+		GetSortedInfoForDrop = function()
+			return {
+				itemHyperlink = rolls[101].link,
+				rollInfos = {
+					{ playerName = "Arthas", playerClass = "WARRIOR", state = 0, roll = 92 },
+					{ playerName = "Jaina", playerClass = "MAGE", state = 5 },
+				},
+			}
+		end,
+	}
+	lr:LOOT_HISTORY_UPDATE_DROP("LOOT_HISTORY_UPDATE_DROP", 1, 1)
+	assert(#b1.voters.need == 1 and b1.voters.need[1] == "|cffc69b6dArthas|r (92)", "C_LootHistory sets class-colored roll voter")
+	assert(#b1.voters.pass == 1 and b1.voters.pass[1] == "Jaina", "C_LootHistory sets pass voter")
+
+	-- Cancel removes the roll bar cleanly; preview toggles and dismisses without calling RollOnLoot.
+	lr:CANCEL_LOOT_ROLL("CANCEL_LOOT_ROLL", 101)
+	assert(#lr._activeBars == 1 and lr._activeBars[1].rollID == 102, "CANCEL_LOOT_ROLL removes only matching roll")
+	lr:CANCEL_ALL_LOOT_ROLLS()
+	assert(#lr._activeBars == 0, "CANCEL_ALL_LOOT_ROLLS clears active rolls")
+
+	local rolledBefore = #rolled
+	lr.TogglePreview()
+	assert(#lr._activeBars == 3, "preview shows 3 sample bars")
+	lr._activeBars[1].buttons.pass:GetScript("OnClick")(lr._activeBars[1].buttons.pass)
+	assert(#lr._activeBars == 2 and #rolled == rolledBefore, "clicking preview bar dismisses it without RollOnLoot")
+	lr.TogglePreview()
+	assert(#lr._activeBars == 0, "second TogglePreview hides remaining preview bars")
+
+	lr._ResetStateForTests()
+	GetLootRollItemInfo, GetLootRollItemLink, GetLootRollTimeLeft, RollOnLoot, ConfirmLootRoll = unpack(saved, 1, 5)
+	IsShiftKeyDown, C_LootHistory, C_ClassColor, Enum.EncounterLootDropRollState = unpack(saved, 6, 9)
+	LOOT_ROLL_INELIGIBLE_REASON1, LOOT_ROLL_NEED, LOOT_ROLL_PASSED = unpack(saved, 10, 12)
+	C_Item.GetItemInfoInstant, ns.RewardComparisonState = saved[13], saved[14]
+	print("compact loot roll frames OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

@@ -913,6 +913,8 @@ local function RunSlashCommand(msg)
 		ns:GetModule("Durability"):PrintStatus()
 	elseif msg == "beute" or msg == "loot" then
 		ns:GetModule("Loot"):PrintStatus()
+	elseif msg == "würfel" or msg == "wuerfel" or msg == "roll" or msg == "rolls" then
+		ns:GetModule("LootRoll").Command()
 	elseif msg == "karte" or msg == "map" then
 		ns:GetModule("WorldMap"):PrintStatus()
 	elseif msg == "dungeon" or msg == "journal" then

@@ -284,6 +284,7 @@ local PAGES = {
 		{ "Upgrades", header = L.UPGRADES_TITLE },
 		{ "Durability" },
 		{ "Items", header = L.ITEMS_LOOT, keys = Keys("fastLoot", "destroyPrompt", "autoBind", "autoEquipBind", "deleteText", "rollCounts") },
+		{ "LootRoll", header = L.LOOTROLL_TITLE },
 		{ "Auction", header = L.AUCTION_TITLE },
 		{ "Restock", header = L.RESTOCK_TITLE },
 		{ "Services", header = L.SERVICES_TITLE },

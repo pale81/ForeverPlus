@@ -8,7 +8,7 @@ import subprocess
 import wave
 
 SAMPLE_RATE = 44100
-DURATION = 1.09
+DURATION = 1.44
 TARGET = Path(__file__).resolve().parent.parent / "Media/AuctionKaChing.mp3"
 
 
@@ -77,26 +77,28 @@ def synthesize():
 
     # Key travel followed by a quick metallic ratchet on the way to the strike.
     add_metallic_impulse(buf, 0.010, 0.030, 890.0, 1.1, 0.12, 0.0005, 0.008, rng)
+    add_damped_sine(buf, 0.010, 653.0, 0.055, 0.012)
     ratchet = [
-        (0.055, 3880.0, 0.14),
-        (0.076, 5340.0, 0.26),
-        (0.096, 4940.0, 0.55),
-        (0.117, 6580.0, 0.40),
-        (0.141, 4390.0, 0.46),
-        (0.165, 6140.0, 0.38),
+        (0.057, 3880.0, 0.14),
+        (0.078, 5340.0, 0.26),
+        (0.095, 5070.0, 0.57),
+        (0.112, 6980.0, 0.41),
+        (0.137, 4540.0, 0.46),
+        (0.158, 7450.0, 0.44),
+        (0.173, 5130.0, 0.36),
     ]
     for start, frequency, strength in ratchet:
-        add_metallic_impulse(buf, start, 0.043, frequency, 1.2, strength * 2.30, 0.0011, 0.017, rng)
+        add_metallic_impulse(buf, start, 0.033, frequency, 1.5, strength * 2.90, 0.001, 0.014, rng)
         add_damped_sine(buf, start, frequency * 0.47, strength * 0.30, 0.010)
 
     # The striker and the inharmonic partials of a small steel bell.
     strike = 0.192
-    add_metallic_impulse(buf, strike - 0.007, 0.037, 5900.0, 1.0, 0.68, 0.0004, 0.010, rng)
+    add_metallic_impulse(buf, strike - 0.007, 0.031, 5900.0, 1.0, 0.62, 0.0004, 0.009, rng)
     add_damped_sine(buf, strike, 680.0, 0.14, 0.026)
     bell_modes = [
-        (2098.0, 0.52, 0.214, 0.0),
-        (2104.0, 0.053, 0.183, 1.0),
-        (4808.0, 0.26, 0.191, 0.5),
+        (2099.0, 0.52, 0.315, 0.0),
+        (2104.0, 0.047, 0.242, 1.0),
+        (4806.0, 0.26, 0.267, 0.5),
         (7454.0, 0.205, 0.044, 1.2),
         (7726.0, 0.19, 0.092, 2.1),
         (9690.0, 0.060, 0.031, 0.8),
@@ -104,23 +106,9 @@ def synthesize():
     for frequency, amp, decay, phase in bell_modes:
         add_damped_sine(buf, strike, frequency, amp, decay, attack=0.004, phase=phase)
 
-    # Two drawer stops and a couple of smaller contacts as the mechanism settles.
-    stops = [
-        (0.474, 1070.0, 1.13),
-        (0.545, 780.0, 1.05),
-        (0.677, 620.0, 0.59),
-        (0.815, 470.0, 0.23),
-        (0.950, 350.0, 0.12),
-    ]
-    for start, frequency, strength in stops:
-        add_metallic_impulse(buf, start, 0.079, frequency, 0.9, strength * 1.78, 0.0005, 0.023, rng)
-        add_metallic_impulse(buf, start, 0.043, 4530.0, 1.3, strength * 1.68, 0.0003, 0.011, rng)
-        add_damped_sine(buf, start, frequency, strength * 0.32, 0.022)
-        add_damped_sine(buf, start, 1.46 * frequency, strength * 0.23, 0.017, phase=0.4)
-
-    fade_out = int(0.045 * SAMPLE_RATE)
+    fade_out = int(0.18 * SAMPLE_RATE)
     for i in range(fade_out):
-        buf[-1 - i] *= i / fade_out
+        buf[-1 - i] *= 0.5 - 0.5 * cos(pi * i / fade_out)
     gain = 0.78 / max(abs(sample) for sample in buf)
     return [sample * gain for sample in buf]
 

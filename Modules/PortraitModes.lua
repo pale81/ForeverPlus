@@ -1,5 +1,5 @@
 -- Shift-wheel mode switcher on the player portrait with left-click toggle
--- and a right-click menu supporting drag-and-drop reassignment between modes.
+-- and a right-click WoW-style window supporting drag-and-drop between modes.
 local _, ns = ...
 local L = ns.L
 
@@ -7,7 +7,12 @@ local PortraitModes = {}
 ns.PortraitModes = PortraitModes
 
 local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
-local ROUND_MASK = [[Interface\CharacterFrame\TempPortraitAlphaMask]]
+local ROW_HIGHLIGHT = [[Interface\QuestFrame\UI-QuestTitleHighlight]]
+local PLUS_UP = [[Interface\Buttons\UI-PlusButton-Up]]
+local PLUS_DOWN = [[Interface\Buttons\UI-PlusButton-Down]]
+local MINUS_UP = [[Interface\Buttons\UI-MinusButton-Up]]
+local MINUS_DOWN = [[Interface\Buttons\UI-MinusButton-Down]]
+local PLUS_HIGHLIGHT = [[Interface\Buttons\UI-PlusButton-Hilight]]
 
 -- Slot 1 is always the standard Blizzard portrait; slots 2..5 are clickable mode emblems.
 local MODES = {
@@ -323,22 +328,33 @@ PortraitModes.MoveFeature = MoveFeature
 PortraitModes.ResetAssignments = ResetAssignments
 
 ---------------------------------------------------------------------------
--- Right-click mode menu with drag-and-drop between mode tabs
+-- WoW-style PortraitFrameTemplate window with PanelTopTabButtonTemplate tabs
+-- and drag-and-drop reassignment between modes.
 ---------------------------------------------------------------------------
-local MENU_WIDTH = 368
-local TAB_HEIGHT = 48
-local TAB_GAP = 6
-local FEATURE_ROW_HEIGHT = 24
-local SUB_ROW_HEIGHT = 20
-local ACTION_ROW_HEIGHT = 24
-local MAX_LIST_HEIGHT = 290
-local PAD = ns.PANEL_PADDING or 10
+local MENU_WIDTH = 404
+local INSET_TOP = 86
+local INSET_BOTTOM = 40
+local HEADER_HEIGHT = 36
+local FEATURE_ROW_HEIGHT = 26
+local SUB_ROW_HEIGHT = 22
+local ACTION_ROW_HEIGHT = 26
+local MAX_LIST_HEIGHT = 276
 
 local menu, dragGhost
 local selectedMenuMode = "wanderlust"
 local expandedFeatures = {}
 local draggingFeature, hoveredDropTab
 local listScrollOffset = 0
+
+local function AtlasIcon(atlas, size)
+	if CreateAtlasMarkup then
+		local markup = CreateAtlasMarkup(atlas, size, size)
+		if type(markup) == "string" and markup ~= "" then
+			return markup
+		end
+	end
+	return ""
+end
 
 local function StatusText(modeKey)
 	local activeCount, selectedCount, totalCount = ModeCounts(modeKey)
@@ -363,66 +379,43 @@ local function IsExpanded(feature, modeFeatureCount)
 	return modeFeatureCount == 1 or #feature.subOptions <= 2
 end
 
-local function StyleCheckBox(box, checked, disabled)
-	if checked then
-		box.Mark:SetAtlas("common-icon-checkmark")
-		if disabled then
-			box.Mark:SetVertexColor(0.55, 0.55, 0.55)
-		else
-			box.Mark:SetVertexColor(0.45, 0.95, 0.45)
-		end
-		box.Mark:Show()
+local function SelectWoWTab(tab, selected)
+	if selected then
+		PanelTemplates_SelectTab(tab)
 	else
-		box.Mark:Hide()
+		PanelTemplates_DeselectTab(tab)
 	end
-	if disabled then
-		box.Border:ShowColor(0.45, 0.45, 0.45, 0.6)
-	else
-		box.Border:ShowColor(ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3], 0.9)
-	end
-end
-
-local function CreateCheckBox(parent, size)
-	local box = CreateFrame("Frame", nil, parent)
-	box:SetSize(size, size)
-	box.Bg = box:CreateTexture(nil, "BACKGROUND")
-	box.Bg:SetAllPoints()
-	box.Bg:SetColorTexture(0.05, 0.06, 0.09, 0.9)
-	box.Border = ns.CreatePixelBorder(box, box, 1, "OVERLAY", 5)
-	box.Mark = box:CreateTexture(nil, "OVERLAY", nil, 6)
-	box.Mark:SetPoint("TOPLEFT", 1, -1)
-	box.Mark:SetPoint("BOTTOMRIGHT", -1, 1)
-	box.Mark:Hide()
-	return box
 end
 
 local function UpdateTabStyles()
 	if not menu then return end
 	local sourceMode = draggingFeature and FeatureMode(draggingFeature) or nil
+	local checkMark = AtlasIcon("common-icon-checkmark", 11)
 	for _, tab in ipairs(menu.tabs) do
-		local modeKey = tab.modeKey
-		local active = IsModeActive(modeKey)
-		local selected = modeKey == selectedMenuMode
-		local isDropTarget = draggingFeature ~= nil and modeKey ~= sourceMode
+		local mode = MODE_BY_KEY[tab.modeKey]
+		local active = IsModeActive(tab.modeKey)
+		local selected = tab.modeKey == selectedMenuMode
+		local isDropTarget = draggingFeature ~= nil and tab.modeKey ~= sourceMode
 		local isDropHover = isDropTarget and tab == hoveredDropTab
-		tab.Icon:SetDesaturated(not active)
-		tab.Icon:SetAlpha(active and 1 or 0.65)
-		tab.Dot:SetColorTexture(active and 0.35 or 0.45, active and 0.90 or 0.45, active and 0.35 or 0.45, active and 1 or 0.65)
-		if isDropHover then
-			tab.Bg:SetColorTexture(0.32, 0.42, 0.18, 0.85)
-			tab.Border:ShowColor(0.65, 1, 0.45, 1)
-		elseif isDropTarget then
-			tab.Bg:SetColorTexture(0.24, 0.22, 0.14, 0.65)
-			tab.Border:ShowColor(1, 0.82, 0.3, 0.75)
-		elseif selected then
-			tab.Bg:SetColorTexture(0.24, 0.27, 0.36, 0.92)
-			tab.Border:ShowColor(1, 0.82, 0.3, 1)
-		else
-			tab.Bg:SetColorTexture(0.09, 0.10, 0.15, 0.75)
-			tab.Border:ShowColor(ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3], 0.45)
+		local label = active and checkMark ~= "" and (checkMark .. " " .. mode.short) or mode.short
+		tab:SetText(label)
+		if PanelTemplates_TabResize then
+			PanelTemplates_TabResize(tab, 0)
 		end
-		local _, _, count = ModeCounts(modeKey)
-		tab.Count:SetText(tostring(count))
+		SelectWoWTab(tab, selected)
+		if tab.DropGlow then
+			if isDropHover then
+				tab.DropGlow:SetVertexColor(1, 0.90, 0.35)
+				tab.DropGlow:SetAlpha(0.95)
+				tab.DropGlow:Show()
+			elseif isDropTarget then
+				tab.DropGlow:SetVertexColor(1, 0.80, 0.25)
+				tab.DropGlow:SetAlpha(0.45)
+				tab.DropGlow:Show()
+			else
+				tab.DropGlow:Hide()
+			end
+		end
 	end
 end
 
@@ -453,17 +446,9 @@ local function EnsureDragGhost()
 	if dragGhost then return dragGhost end
 	local ghost = CreateFrame("Frame", nil, UIParent, "TooltipBackdropTemplate")
 	ghost:SetFrameStrata("TOOLTIP")
-	ghost:SetHeight(24)
+	ghost:SetHeight(26)
 	ghost:EnableMouse(false)
-	if ghost.NineSlice then
-		if ghost.NineSlice.SetBorderColor then
-			ghost.NineSlice:SetBorderColor(1, 0.82, 0.3, 1)
-		end
-		if ghost.NineSlice.SetCenterColor then
-			ghost.NineSlice:SetCenterColor(0.14, 0.16, 0.22, 0.96)
-		end
-	end
-	ghost.Text = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	ghost.Text = ghost:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	ghost.Text:SetPoint("CENTER")
 	ghost:Hide()
 	dragGhost = ghost
@@ -478,7 +463,7 @@ local function StartDrag(featureKey)
 	hoveredDropTab = TabUnderCursor()
 	local ghost = EnsureDragGhost()
 	ghost.Text:SetText(feature.name)
-	ghost:SetWidth(math.max(110, ns.Number(ghost.Text:GetStringWidth(), 100) + 22))
+	ghost:SetWidth(math.max(120, ns.Number(ghost.Text:GetStringWidth(), 100) + 24))
 	ghost:Show()
 	UpdateDragGhost()
 	ns.SetUpdate(ghost, "PortraitModes: drag ghost", UpdateDragGhost)
@@ -502,43 +487,55 @@ StopDrag = function(commit)
 	end
 end
 
+local function SetExpandVisual(button, expanded)
+	button:SetNormalTexture(expanded and MINUS_UP or PLUS_UP)
+	button:SetPushedTexture(expanded and MINUS_DOWN or PLUS_DOWN)
+end
+
 local function AcquireRow(index)
 	local row = menu.rows[index]
 	if row then return row end
 	row = CreateFrame("Button", nil, menu.List)
 	row:RegisterForClicks("LeftButtonUp")
 	row:RegisterForDrag("LeftButton")
-	local hl = row:CreateTexture()
-	hl:SetAllPoints()
-	hl:SetColorTexture(1, 1, 1, 0.08)
-	row:SetHighlightTexture(hl)
-	-- Three thin grip bars on the left to indicate drag-and-drop capability.
-	row.Grip = CreateFrame("Frame", nil, row)
-	row.Grip:SetSize(8, 12)
-	row.Grip:SetPoint("LEFT", 4, 0)
-	for g = 1, 3 do
-		local bar = row.Grip:CreateTexture(nil, "ARTWORK")
-		bar:SetSize(6, 1)
-		bar:SetPoint("TOPLEFT", 1, -(g - 1) * 4 - 1)
-		bar:SetColorTexture(ns.PANEL_BORDER[1], ns.PANEL_BORDER[2], ns.PANEL_BORDER[3], 0.75)
-	end
-	row.Check = CreateCheckBox(row, 14)
-	row.Check:SetPoint("LEFT", 16, 0)
+	row:SetHighlightTexture(ROW_HIGHLIGHT, "ADD")
+
+	local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+	check:SetSize(24, 24)
+	check:SetPoint("LEFT", 4, 0)
+	check:EnableMouse(false)
+	row.Check = check
+
 	row.Text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	row.Text:SetJustifyH("LEFT")
 	row.Text:SetWordWrap(false)
-	row.Expand = CreateFrame("Button", nil, row)
-	row.Expand:SetSize(20, 20)
-	row.Expand:SetPoint("RIGHT", -2, 0)
-	row.Expand.Label = row.Expand:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	row.Expand.Label:SetPoint("CENTER")
-	row.Expand:SetScript("OnClick", ns.Measured("PortraitModes: toggle details", function()
+
+	local expand = CreateFrame("Button", nil, row)
+	expand:SetSize(16, 16)
+	expand:SetPoint("RIGHT", -6, 0)
+	expand:SetHighlightTexture(PLUS_HIGHLIGHT, "ADD")
+	expand:SetScript("OnClick", ns.Measured("PortraitModes: toggle details", function()
 		local entry = row.entry
 		if entry and entry.feature then
 			expandedFeatures[entry.feature.key] = not entry.expanded
 			RefreshMenu()
 		end
 	end))
+	row.Expand = expand
+
+	local actionButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+	actionButton:SetSize(196, 21)
+	actionButton:SetPoint("LEFT", 32, 0)
+	actionButton:SetScript("OnClick", ns.Measured("PortraitModes: action button", function()
+		local entry = row.entry
+		if entry and entry.action and entry.action.onClick then
+			menu:Hide()
+			entry.action.onClick()
+		end
+	end))
+	actionButton:Hide()
+	row.ActionButton = actionButton
+
 	row:SetScript("OnClick", ns.Measured("PortraitModes: menu row click", function(self)
 		local entry = self.entry
 		if not entry then return end
@@ -548,9 +545,6 @@ local function AcquireRow(index)
 			local sub = entry.sub
 			SetModuleOn(sub.module, sub.key, not ModuleOn(sub.module, sub.key))
 			RefreshMenu()
-		elseif entry.kind == "action" and entry.action and entry.action.onClick then
-			menu:Hide()
-			entry.action.onClick()
 		end
 	end))
 	row:SetScript("OnDragStart", ns.Measured("PortraitModes: drag start", function(self)
@@ -566,8 +560,8 @@ local function AcquireRow(index)
 		if draggingFeature then return end
 		local entry = self.entry
 		if not entry then return end
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		if entry.kind == "feature" then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip_SetTitle(GameTooltip, entry.feature.name)
 			if entry.feature.desc then
 				GameTooltip_AddNormalLine(GameTooltip, entry.feature.desc)
@@ -575,6 +569,7 @@ local function AcquireRow(index)
 			GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODES_DRAG_TOOLTIP)
 			GameTooltip:Show()
 		elseif entry.kind == "sub" and entry.sub.desc then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip_SetTitle(GameTooltip, entry.sub.name)
 			GameTooltip_AddNormalLine(GameTooltip, entry.sub.desc)
 			GameTooltip:Show()
@@ -607,9 +602,16 @@ RefreshMenu = function()
 	if not (menu and menu:IsShown()) then return end
 	local mode = MODE_BY_KEY[selectedMenuMode] or MODES[2]
 	selectedMenuMode = mode.key
-	menu.Title:SetText(L.PORTRAIT_MODES_MENU_TITLE)
-	UpdateTabStyles()
+	menu:SetTitle(L.PORTRAIT_MODES_MENU_TITLE)
+	if menu.SetPortraitToAsset and mode.icon then
+		menu:SetPortraitToAsset(mode.icon)
+	end
 	local active = IsModeActive(mode.key)
+	local portrait = menu.GetPortrait and menu:GetPortrait()
+	if portrait and portrait.SetDesaturated then
+		portrait:SetDesaturated(not active)
+	end
+	UpdateTabStyles()
 	menu.ModeStatus:SetText(("%s: %s"):format(mode.name, StatusText(mode.key)))
 	menu.ToggleButton:SetText(active and L.PORTRAIT_MODE_DISABLE or L.PORTRAIT_MODE_ENABLE)
 	local _, selectedCount = ModeCounts(mode.key)
@@ -620,7 +622,7 @@ RefreshMenu = function()
 	for _, entry in ipairs(entries) do
 		totalHeight = totalHeight + entry.height
 	end
-	local listHeight = math.max(32, math.min(MAX_LIST_HEIGHT, totalHeight))
+	local listHeight = math.max(56, math.min(MAX_LIST_HEIGHT, totalHeight))
 	local maxScroll = math.max(0, totalHeight - listHeight)
 	listScrollOffset = math.max(0, math.min(listScrollOffset, maxScroll))
 	menu.List:SetHeight(listHeight)
@@ -643,49 +645,53 @@ RefreshMenu = function()
 			if entry.kind == "feature" then
 				local feature = entry.feature
 				local checked = IsFeatureSelected(feature.key)
-				row.Grip:Show()
-				row.Check:SetSize(14, 14)
+				row:EnableMouse(true)
+				row.ActionButton:Hide()
+				row.Check:SetSize(24, 24)
 				row.Check:ClearAllPoints()
-				row.Check:SetPoint("LEFT", 16, 0)
+				row.Check:SetPoint("LEFT", 4, 0)
+				row.Check:SetChecked(checked)
+				row.Check:SetEnabled(true)
 				row.Check:Show()
-				StyleCheckBox(row.Check, checked, false)
 				row.Text:SetFontObject(checked and "GameFontHighlight" or "GameFontDisable")
 				row.Text:SetText(feature.name)
 				row.Text:ClearAllPoints()
-				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 7, 0)
+				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 2, 0)
+				row.Text:Show()
 				local hasSubs = feature.subOptions and #feature.subOptions > 0
 				row.Expand:SetShown(hasSubs)
 				if hasSubs then
-					row.Expand.Label:SetText(entry.expanded and "−" or "+")
-					row.Text:SetPoint("RIGHT", row.Expand, "LEFT", -4, 0)
+					SetExpandVisual(row.Expand, entry.expanded)
+					row.Text:SetPoint("RIGHT", row.Expand, "LEFT", -6, 0)
 				else
-					row.Text:SetPoint("RIGHT", -6, 0)
+					row.Text:SetPoint("RIGHT", -8, 0)
 				end
 			elseif entry.kind == "sub" then
 				local sub = entry.sub
 				local checked = ModuleOn(sub.module, sub.key)
 				local parentSelected = IsFeatureSelected(entry.feature.key)
-				row.Grip:Hide()
+				row:EnableMouse(true)
+				row.ActionButton:Hide()
 				row.Expand:Hide()
-				row.Check:SetSize(12, 12)
+				row.Check:SetSize(20, 20)
 				row.Check:ClearAllPoints()
-				row.Check:SetPoint("LEFT", 32, 0)
+				row.Check:SetPoint("LEFT", 26, 0)
+				row.Check:SetChecked(checked)
+				row.Check:SetEnabled(parentSelected)
 				row.Check:Show()
-				StyleCheckBox(row.Check, checked, not parentSelected)
 				row.Text:SetFontObject(parentSelected and "GameFontHighlightSmall" or "GameFontDisableSmall")
 				row.Text:SetText(sub.name)
 				row.Text:ClearAllPoints()
-				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 6, 0)
-				row.Text:SetPoint("RIGHT", -6, 0)
+				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 2, 0)
+				row.Text:SetPoint("RIGHT", -8, 0)
+				row.Text:Show()
 			else
-				row.Grip:Hide()
-				row.Expand:Hide()
+				row:EnableMouse(false)
 				row.Check:Hide()
-				row.Text:SetFontObject("GameFontNormalSmall")
-				row.Text:SetText("• " .. entry.action.text)
-				row.Text:ClearAllPoints()
-				row.Text:SetPoint("LEFT", 32, 0)
-				row.Text:SetPoint("RIGHT", -6, 0)
+				row.Expand:Hide()
+				row.Text:Hide()
+				row.ActionButton:SetText(entry.action.text)
+				row.ActionButton:Show()
 			end
 			row:Show()
 		end
@@ -695,45 +701,50 @@ RefreshMenu = function()
 		menu.rows[i]:Hide()
 	end
 	menu.ResetButton:SetEnabled(HasCustomAssignments())
-	-- Top padding + title (22) + tabs (48 + 8) + status bar (28 + 6) + list + footer (30) + bottom padding
-	menu:SetHeight(PAD + 22 + TAB_HEIGHT + 8 + 28 + 6 + listHeight + 34 + PAD)
+	menu:SetHeight(INSET_TOP + HEADER_HEIGHT + listHeight + 16 + INSET_BOTTOM)
 end
 
 local function CreateModeMenu()
 	if menu then return menu end
-	local panel = ns.CreatePanel("ForeverPlusPortraitModeMenu", { strata = "FULLSCREEN_DIALOG", close = true })
-	panel:SetWidth(MENU_WIDTH)
+	local panel = CreateFrame("Frame", "ForeverPlusPortraitModeMenu", UIParent, "PortraitFrameTemplate")
+	panel:Hide()
+	panel:SetSize(MENU_WIDTH, 320)
+	panel:SetFrameStrata("DIALOG")
+	panel:SetToplevel(true)
+	panel:SetClampedToScreen(true)
+	panel:EnableMouse(true)
+	panel:SetMovable(true)
+	panel:RegisterForDrag("LeftButton")
+	panel:SetScript("OnDragStart", ns.Measured("PortraitModes: move menu", panel.StartMoving))
+	panel:SetScript("OnDragStop", ns.Measured("PortraitModes: stop moving menu", panel.StopMovingOrSizing))
+	panel.tabPadding = 12
+	panel.CloseButton:SetScript("OnClick", ns.Measured("PortraitModes: close menu", function() panel:Hide() end))
+	tinsert(UISpecialFrames, "ForeverPlusPortraitModeMenu")
+	ns.FadeIn(panel)
 	panel.tabs = {}
 	panel.rows = {}
 
-	local tabWidth = math.floor((MENU_WIDTH - PAD * 2 - TAB_GAP * (#SELECTABLE_MODES - 1)) / #SELECTABLE_MODES)
+	local inset = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
+	inset:SetPoint("TOPLEFT", 11, -INSET_TOP)
+	inset:SetPoint("BOTTOMRIGHT", -11, INSET_BOTTOM)
+	panel.Inset = inset
+
+	local previousTab
 	for i, mode in ipairs(SELECTABLE_MODES) do
-		local tab = CreateFrame("Button", nil, panel)
+		local tab = CreateFrame("Button", nil, panel, "PanelTopTabButtonTemplate")
 		tab.modeKey = mode.key
-		tab:SetSize(tabWidth, TAB_HEIGHT)
-		tab:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD + (i - 1) * (tabWidth + TAB_GAP), -(PAD + 24))
-		tab.Bg = tab:CreateTexture(nil, "BACKGROUND")
-		tab.Bg:SetAllPoints()
-		tab.Border = ns.CreatePixelBorder(tab, tab, 1, "OVERLAY", 5)
-		tab.Icon = tab:CreateTexture(nil, "ARTWORK")
-		tab.Icon:SetSize(24, 24)
-		tab.Icon:SetPoint("TOP", 0, -5)
-		tab.Icon:SetTexture(mode.icon)
-		tab.Mask = tab:CreateMaskTexture()
-		tab.Mask:SetAllPoints(tab.Icon)
-		tab.Mask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-		tab.Icon:AddMaskTexture(tab.Mask)
-		tab.Dot = tab:CreateTexture(nil, "OVERLAY", nil, 6)
-		tab.Dot:SetSize(6, 6)
-		tab.Dot:SetPoint("TOPRIGHT", -4, -4)
-		tab.Count = tab:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		tab.Count:SetPoint("TOPLEFT", 5, -4)
-		tab.Label = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		tab.Label:SetPoint("BOTTOMLEFT", 2, 4)
-		tab.Label:SetPoint("BOTTOMRIGHT", -2, 4)
-		tab.Label:SetJustifyH("CENTER")
-		tab.Label:SetWordWrap(false)
-		tab.Label:SetText(mode.short)
+		tab:SetText(mode.short)
+		if previousTab then
+			tab:SetPoint("LEFT", previousTab, "RIGHT", 4, 0)
+		else
+			tab:SetPoint("BOTTOMLEFT", inset, "TOPLEFT", 6, -2)
+		end
+		previousTab = tab
+		tab.DropGlow = tab:CreateTexture(nil, "OVERLAY")
+		tab.DropGlow:SetAllPoints()
+		tab.DropGlow:SetTexture(ROW_HIGHLIGHT)
+		tab.DropGlow:SetBlendMode("ADD")
+		tab.DropGlow:Hide()
 		tab:SetScript("OnClick", ns.Measured("PortraitModes: select menu tab", function(self)
 			if selectedMenuMode ~= self.modeKey then
 				selectedMenuMode = self.modeKey
@@ -752,54 +763,56 @@ local function CreateModeMenu()
 		panel.tabs[i] = tab
 	end
 
-	local statusBar = CreateFrame("Frame", nil, panel)
-	statusBar:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -(PAD + 24 + TAB_HEIGHT + 8))
-	statusBar:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PAD, -(PAD + 24 + TAB_HEIGHT + 8))
-	statusBar:SetHeight(26)
-	local statusBg = statusBar:CreateTexture(nil, "BACKGROUND")
-	statusBg:SetAllPoints()
-	statusBg:SetColorTexture(0, 0, 0, 0.28)
-	panel.ModeStatus = statusBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	panel.ModeStatus:SetPoint("LEFT", 6, 0)
+	local header = CreateFrame("Frame", nil, inset)
+	header:SetPoint("TOPLEFT", 8, -6)
+	header:SetPoint("TOPRIGHT", -8, -6)
+	header:SetHeight(HEADER_HEIGHT - 6)
+	panel.ModeStatus = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	panel.ModeStatus:SetPoint("LEFT", 4, 0)
 	panel.ModeStatus:SetJustifyH("LEFT")
 
-	local toggleButton = CreateFrame("Button", nil, statusBar, "UIPanelButtonTemplate")
-	toggleButton:SetSize(102, 20)
-	toggleButton:SetPoint("RIGHT", -4, 0)
+	local toggleButton = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+	toggleButton:SetSize(108, 22)
+	toggleButton:SetPoint("RIGHT", -2, 0)
 	toggleButton:SetScript("OnClick", ns.Measured("PortraitModes: menu toggle mode", function()
 		ToggleMode(selectedMenuMode)
 	end))
 	panel.ToggleButton = toggleButton
 
-	local list = CreateFrame("Frame", nil, panel)
-	list:SetPoint("TOPLEFT", statusBar, "BOTTOMLEFT", 0, -6)
-	list:SetPoint("TOPRIGHT", statusBar, "BOTTOMRIGHT", 0, -6)
+	local divider = inset:CreateTexture(nil, "ARTWORK")
+	divider:SetHeight(1)
+	divider:SetPoint("TOPLEFT", 8, -(HEADER_HEIGHT + 2))
+	divider:SetPoint("TOPRIGHT", -8, -(HEADER_HEIGHT + 2))
+	divider:SetColorTexture(0.62, 0.48, 0.28, 0.55)
+
+	local list = CreateFrame("Frame", nil, inset)
+	list:SetPoint("TOPLEFT", 6, -(HEADER_HEIGHT + 8))
+	list:SetPoint("TOPRIGHT", -6, -(HEADER_HEIGHT + 8))
 	list:SetClipsChildren(true)
 	list:EnableMouseWheel(true)
 	list:SetScript("OnMouseWheel", ns.Measured("PortraitModes: menu scroll", function(_, delta)
 		listScrollOffset = listScrollOffset - delta * 24
 		RefreshMenu()
 	end))
-	ns.AddPanelInset(panel, list)
 	panel.List = list
 
 	panel.Empty = list:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	panel.Empty:SetPoint("LEFT", 8, 0)
-	panel.Empty:SetPoint("RIGHT", -8, 0)
+	panel.Empty:SetPoint("LEFT", 10, 0)
+	panel.Empty:SetPoint("RIGHT", -10, 0)
 	panel.Empty:SetJustifyH("CENTER")
 	panel.Empty:SetText(L.PORTRAIT_MODES_EMPTY)
 	panel.Empty:Hide()
 
-	panel.Hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	panel.Hint:SetPoint("BOTTOMLEFT", PAD, PAD + 4)
-	panel.Hint:SetPoint("RIGHT", panel, "BOTTOMRIGHT", -(PAD + 92), PAD + 4)
+	panel.Hint = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	panel.Hint:SetPoint("BOTTOMLEFT", 14, 15)
+	panel.Hint:SetPoint("RIGHT", panel, "BOTTOMRIGHT", -116, 15)
 	panel.Hint:SetJustifyH("LEFT")
 	panel.Hint:SetWordWrap(false)
 	panel.Hint:SetText(L.PORTRAIT_MODES_DRAG_HINT)
 
 	local resetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-	resetButton:SetSize(84, 20)
-	resetButton:SetPoint("BOTTOMRIGHT", -PAD, PAD)
+	resetButton:SetSize(96, 22)
+	resetButton:SetPoint("BOTTOMRIGHT", -12, 10)
 	resetButton:SetText(L.PORTRAIT_MODES_RESET)
 	resetButton:SetScript("OnClick", ns.Measured("PortraitModes: reset assignments", ResetAssignments))
 	panel.ResetButton = resetButton
@@ -881,8 +894,10 @@ local function ShowPortraitTooltip()
 	if not (portraitWheel and mode and mode.key ~= "normal" and CanCyclePortrait()) then
 		return
 	end
+	local checkMark = AtlasIcon("common-icon-checkmark", 12)
+	local crossMark = AtlasIcon("common-icon-redx", 11)
 	GameTooltip:SetOwner(portraitWheel, "ANCHOR_RIGHT")
-	GameTooltip_SetTitle(GameTooltip, ("%s — %s"):format(mode.name, StatusText(mode.key)))
+	GameTooltip_SetTitle(GameTooltip, ("%s (%s)"):format(mode.name, StatusText(mode.key)))
 	local features = ModeFeatures(mode.key)
 	if #features == 0 then
 		GameTooltip_AddColoredLine(GameTooltip, L.PORTRAIT_MODES_EMPTY_SHORT, GRAY_FONT_COLOR)
@@ -891,7 +906,14 @@ local function ShowPortraitTooltip()
 			local selected = IsFeatureSelected(feature.key)
 			local on = feature.isOn()
 			local color = not selected and GRAY_FONT_COLOR or (on and GREEN_FONT_COLOR or HIGHLIGHT_FONT_COLOR)
-			local prefix = not selected and "− " or (on and "✓ " or "○ ")
+			local prefix
+			if not selected then
+				prefix = "- "
+			elseif on then
+				prefix = checkMark ~= "" and (checkMark .. " ") or "+ "
+			else
+				prefix = crossMark ~= "" and (crossMark .. " ") or "- "
+			end
 			GameTooltip_AddColoredLine(GameTooltip, prefix .. feature.name, color)
 		end
 	end

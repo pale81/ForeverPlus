@@ -10805,9 +10805,18 @@ end)()
 	pm.SetFeatureSelected("combatText", true)
 	assert(pm.IsFeatureSelected("combatText") and not combatText.db.enabled)
 
-	-- Right-click opens the drag-and-drop mode menu on the current mode tab.
+	-- Right-click opens the WoW-style PortraitFrameTemplate mode menu on the current mode tab.
 	click(wheel, "RightButton")
 	assert(menuFrame and menuFrame:IsShown(), "right-click opens the portrait mode menu")
+	-- Tooltip uses WoW atlas markup instead of unsupported Unicode glyphs.
+	local tooltipLines = {}
+	local oldAddColored = GameTooltip_AddColoredLine
+	GameTooltip_AddColoredLine = function(_, text) tooltipLines[#tooltipLines + 1] = text end
+	wheel:GetScript("OnEnter")(wheel)
+	GameTooltip_AddColoredLine = oldAddColored
+	for _, line in ipairs(tooltipLines) do
+		assert(not line:find("\226\156\147") and not line:find("\226\151\139"), "tooltip avoids missing glyph symbols")
+	end
 	local landingRow
 	for _, row in ipairs(menuFrame.rows) do
 		if row:IsShown() and row.entry and row.entry.kind == "feature" and row.entry.feature.key == "landing" then

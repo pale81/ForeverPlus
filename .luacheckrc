@@ -355,7 +355,7 @@ read_globals = {
 	"UnitOnTaxi",
 	"IsFlying",
 	"WorldMapFrame",
-	"PanelTemplates_SelectTab", "PanelTemplates_DeselectTab",
+	"PanelTemplates_SelectTab", "PanelTemplates_DeselectTab", "PanelTemplates_TabResize",
 	"LFGBrowseFrame", "LFGListingFrame",
 	"date",
 	"GetQuestProgressBarPercent",

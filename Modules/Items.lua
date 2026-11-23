@@ -422,6 +422,184 @@ local function ScoreSpecValues()
 	return values
 end
 
+-- Passive stat conversions and percentage stat multipliers from Forever's talent tables
+-- (build 1.60.1.71037: SpellEffect, TraitDefinitionEffectPoints, CurvePoint).
+-- Multipliers scale total stats before conversions run:
+--   w(S) = mult(S) * (v0(S) + conv(S)), where v0(S) = max(0, w_ref(S) / mult_ref(S) - conv_ref(S)).
+-- Warrior and Rogue have no passive stat-conversion or percentage stat-multiplier talents.
+do
+	local TALENT_MODS = {
+		PALADIN = {
+			{ spell = 20262, stat = "STR", step = 0.02, max = 5, ref = { 0, 0, 5 } }, -- Divine Strength
+			{ spell = 20257, stat = "INT", step = 0.02, max = 5, ref = { 5, 0, 5 } }, -- Divine Intellect
+			{ spell = 20143, stat = "ARMOR", step = 0.02, max = 5, ref = { 5, 3, 0 } }, -- Toughness
+			{ spell = 20150, stat = "BVAL", step = 0.15, max = 2, ref = { 0, 2, 0 } }, -- Shield Specialization
+			{ spell = 1311084, stat = "INT", target = "SP_DMG", step = 0.12, max = 5, ref = { 0, 0, 5 } }, -- Champion of the Light
+		},
+		HUNTER = {
+			{ spell = 1223984, stat = "INT", target = "AP_RAP", step = 0.20, max = 5, ref = { 5, 5, 5 } }, -- Careful Aim
+			{ spell = 19168, stat = "AGI", step = 0.03, max = 5, ref = { 0, 0, 5 } }, -- Lightning Reflexes
+			{ spell = 19255, stat = "STA", step = 0.02, max = 5, ref = { 0, 0, 0 } }, -- Survivalist
+		},
+		PRIEST = {
+			{ spell = 18551, stat = "INT", step = 0.02, max = 5, ref = { 5, 5, 3 } }, -- Mental Strength
+			{ spell = 14901, stat = "SPI", target = "SP_DMG", curve = { 0.01, 0.03, 0.05, 0.06, 0.08 }, max = 5, ref = { 0, 5, 0 } }, -- Spiritual Guidance (damage)
+			{ spell = 14901, stat = "SPI", target = "HEAL", step = 0.05, max = 5, ref = { 0, 5, 0 } }, -- Spiritual Guidance (healing)
+		},
+		SHAMAN = {
+			{ spell = 17485, stat = "INT", step = 0.02, max = 5, ref = { 5, 3, 5 } }, -- Ancestral Knowledge
+			{ spell = 415140, stat = "INT", target = "AP", curve = { 0.33, 0.66, 1.00 }, max = 3, ref = { 0, 3, 0 } }, -- Mental Dexterity
+			{ spell = 30812, stat = "INT", target = "SP_BOTH", step = 0.15, max = 2, ref = { 0, 2, 0 } }, -- Mental Quickness
+			{ spell = 16252, stat = "STA", step = 0.02, max = 5, ref = { 0, 0, 0 } }, -- Toughness
+			{ spell = 16184, stat = "STA", step = 0.02, max = 2, ref = { 0, 0, 0 } }, -- Improved Reincarnation
+		},
+		MAGE = {
+			{ spell = 11232, stat = "INT", step = 0.02, max = 5, ref = { 5, 0, 0 } }, -- Arcane Mind
+			{ spell = 28574, stat = "INT", target = "ARMOR", step = 0.25, max = 3, ref = { 0, 0, 3 } }, -- Arcane Resilience
+		},
+		WARLOCK = {
+			{ spell = 18697, stat = "STA", step = 0.03, max = 5, ref = { 5, 0, 0 } }, -- Demonic Embrace
+		},
+		DRUID = {
+			{ spell = 17003, stat = "INT", step = 0.02, max = 5, ref = { 0, 5, 5, 5 } }, -- Heart of the Wild
+			{ spell = 17003, stat = "STR", step = 0.02, max = 5, ref = { 0, 5, 5, 5 }, profiles = { [2] = true } }, -- Heart of the Wild (Cat)
+			{ spell = 17003, stat = "STA", step = 0.04, max = 5, ref = { 0, 5, 5, 5 }, profiles = { [4] = true } }, -- Heart of the Wild (Bear)
+			{ spell = 1309631, stat = "SPI", step = 0.05, max = 3, ref = { 0, 0, 3, 0 } }, -- Living Spirit
+			{ spell = 1223242, stat = "INT", target = "HEAL", curve = { 0.12, 0.25 }, max = 2, ref = { 0, 2, 0, 2 } }, -- Natural Instinct
+			{ spell = 16929, stat = "DEF", target = "ARMOR", curve = { 0.67, 1.33, 2.00 }, max = 3, ref = { 0, 0, 0, 3 }, profiles = { [1] = true, [2] = true, [4] = true } }, -- Thick Hide
+		},
+	}
+	local TALENT_SPELLS = {}
+	for class, list in pairs(TALENT_MODS) do
+		local set = {}
+		for _, entry in ipairs(list) do
+			set[entry.spell] = true
+		end
+		TALENT_SPELLS[class] = set
+	end
+
+	local function Rate(entry, rank)
+		rank = math.max(0, math.min(entry.max, rank or 0))
+		if rank == 0 then
+			return 0
+		end
+		return entry.curve and entry.curve[rank] or entry.step * rank
+	end
+
+	local function TargetWeight(base, target)
+		if target == "SP_DMG" then
+			return (base.HEAL or 0) > 0 and 0 or (base.SP or 0)
+		elseif target == "HEAL" then
+			return base.HEAL or 0
+		elseif target == "SP_BOTH" then
+			return base.HEAL or base.SP or 0
+		elseif target == "AP_RAP" then
+			return (base.AP or 0) + (base.RAP or 0)
+		end
+		return base[target] or 0
+	end
+
+	-- Adjusts a reference weight table for the player's actual learned talent ranks (`ranks[spellID]`).
+	function Items.AdjustWeights(base, class, profile, ranks)
+		local rules = TALENT_MODS[class]
+		if not (base and rules and ranks) then
+			return base
+		end
+		local touched, refMult, curMult, refConv, curConv = {}, {}, {}, {}, {}
+		local anyChanged = false
+		for _, entry in ipairs(rules) do
+			if not entry.profiles or entry.profiles[profile] then
+				local stat = entry.stat
+				local refRank = entry.ref[profile] or 0
+				local curRank = ranks[entry.spell] or 0
+				if refRank ~= curRank then
+					touched[stat] = true
+					anyChanged = true
+				end
+				if entry.target then
+					local tw = TargetWeight(base, entry.target)
+					if tw > 0 then
+						refConv[stat] = (refConv[stat] or 0) + Rate(entry, refRank) * tw
+						curConv[stat] = (curConv[stat] or 0) + Rate(entry, curRank) * tw
+					end
+				else
+					refMult[stat] = (refMult[stat] or 1) * (1 + Rate(entry, refRank))
+					curMult[stat] = (curMult[stat] or 1) * (1 + Rate(entry, curRank))
+				end
+			end
+		end
+		if not anyChanged then
+			return base
+		end
+		local adjusted
+		for stat in pairs(touched) do
+			local rm, cm = refMult[stat] or 1, curMult[stat] or 1
+			local rc, cc = refConv[stat] or 0, curConv[stat] or 0
+			local oldValue = base[stat] or 0
+			local unscaled = oldValue / rm
+			local intrinsic, scale = unscaled - rc, 1
+			if rc > 0 and intrinsic < 0.25 then
+				-- Keep a mana/crit floor when a rounded profile's weight is below the raw conversion sum
+				-- (e.g. Enhancement Shaman INT = 1.15) and scale conversions proportionally to preserve identity.
+				intrinsic = math.min(unscaled, 0.25)
+				scale = (unscaled - intrinsic) / rc
+			elseif intrinsic < 0 then
+				intrinsic = 0
+			end
+			local newValue = cm * (intrinsic + cc * scale)
+			if math.abs(newValue - oldValue) > 1e-6 and (newValue > 0 or base[stat] ~= nil) then
+				adjusted = adjusted or CopyTable(base)
+				adjusted[stat] = newValue
+			end
+		end
+		return adjusted or base
+	end
+
+	local function ReadTalentRanks(configID, wanted)
+		if not (configID and wanted and type(C_Traits.GetConfigInfo) == "function"
+			and type(C_Traits.GetTreeNodes) == "function" and type(C_Traits.GetNodeInfo) == "function"
+			and type(C_Traits.GetEntryInfo) == "function" and type(C_Traits.GetDefinitionInfo) == "function") then
+			return nil
+		end
+		local config = C_Traits.GetConfigInfo(configID)
+		local treeIDs = config and config.treeIDs
+		if type(treeIDs) ~= "table" or #treeIDs == 0 then
+			return nil
+		end
+		local ranks, seenNodes = {}, false
+		for _, treeID in ipairs(treeIDs) do
+			for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+				seenNodes = true
+				local node = C_Traits.GetNodeInfo(configID, nodeID)
+				local active = node and node.activeEntry
+				local rank = node and ns.Number(node.activeRank, 0) or 0
+				if active and rank > 0 and not ns.Secret(active.entryID) then
+					local entry = C_Traits.GetEntryInfo(configID, active.entryID)
+					local definitionID = entry and entry.definitionID
+					local definition = definitionID and not ns.Secret(definitionID) and C_Traits.GetDefinitionInfo(definitionID)
+					local spellID = definition and ns.Number(definition.spellID)
+					if spellID and wanted[spellID] then
+						ranks[spellID] = rank
+					end
+				end
+			end
+		end
+		return seenNodes and ranks or nil
+	end
+
+	function Items.ApplyTalentWeights(base, class, profile, configID)
+		local wanted = TALENT_SPELLS[class]
+		if not wanted then
+			return base
+		end
+		local ok, ranks = pcall(ReadTalentRanks, configID, wanted)
+		if not ok or not ranks then
+			return base
+		end
+		return Items.AdjustWeights(base, class, profile, ranks)
+	end
+end
+
 -- Hybrids hit with their weapon while levelling in every talent tree: below
 -- level 20 weapon DPS counts fully for their caster and healer trees, fading
 -- out until level 40.
@@ -433,25 +611,29 @@ local function GetWeights()
 		return weights, weightsName, weightsTree, weightsPreset
 	end
 	local classWeights = WEIGHTS[playerClass] or WEIGHTS.WARRIOR
-	local index, _, trees = TalentTree()
+	local configID = C_ClassTalents and C_ClassTalents.GetActiveConfigID and ns.Number(C_ClassTalents.GetActiveConfigID())
+	local index, _, trees = TalentTree(configID)
 	local profile = Items.PickTree(Items.cdb and Items.cdb.scoreSpec, index or DEFAULT_SPEC[playerClass] or 1,
 		playerClass == "DRUID" and BEAR_PROFILE or #classWeights)
 	weightsPreset = profile
+	local base
 	if profile == BEAR_PROFILE then
-		weights, weightsName, weightsTree = FERAL_BEAR, L.ITEMS_SCORE_SPEC_BEAR, FERAL_TREE
-		return weights, weightsName, weightsTree, weightsPreset
+		base, weightsName, weightsTree = FERAL_BEAR, L.ITEMS_SCORE_SPEC_BEAR, FERAL_TREE
+	else
+		base, weightsName, weightsTree = classWeights[profile], ScoreTreeName(profile, trees), profile
 	end
-	weightsName, weightsTree = ScoreTreeName(profile, trees), profile
-	classWeights = classWeights[profile]
-	if LEVELLING_MELEE[playerClass] and not classWeights.DPS then
+	local adjusted = Items.ApplyTalentWeights(base, playerClass, profile, configID)
+	if LEVELLING_MELEE[playerClass] and not adjusted.DPS then
 		local level = UnitLevel("player")
 		local share = math.min(1, math.max(0, (LEVELLING_NONE - level) / (LEVELLING_NONE - LEVELLING_FULL)))
 		if share > 0 then
-			classWeights = CopyTable(classWeights)
-			classWeights.DPS = WEIGHTS.WARRIOR[1].DPS * share
+			if adjusted == base then
+				adjusted = CopyTable(base)
+			end
+			adjusted.DPS = WEIGHTS.WARRIOR[1].DPS * share
 		end
 	end
-	weights = classWeights
+	weights = adjusted
 	return weights, weightsName, weightsTree, weightsPreset
 end
 ns.StatWeights = GetWeights -- for the ranking of the attributes in the character window
@@ -3275,7 +3457,7 @@ function Items:OnLogin()
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	-- The character window also uses these weights, even with all item ratings switched off.
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
-		"LEARNED_SPELL_IN_SKILL_LINE" }) do
+		"TRAIT_TREE_CURRENCY_INFO_UPDATED", "LEARNED_SPELL_IN_SKILL_LINE" }) do
 		self:RegisterEvent(event, QueueWeighRefresh)
 	end
 	self:Refresh()

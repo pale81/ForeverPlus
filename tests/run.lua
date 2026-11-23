@@ -12804,5 +12804,139 @@ end)()
 
 	print("performance spike fixes OK")
 end)()
+;(function()
+	-- Item rating: passive stat conversions and percentage stat multipliers scale with the character's learned talent ranks.
+	local items = ns:GetModule("Items")
+	local getW = ns.StatWeights
+	local weightsTable = upvalue(getW, "WEIGHTS")
+	local bearBase = upvalue(getW, "FERAL_BEAR")
+	local function near(a, b) return math.abs((a or 0) - (b or 0)) < 1e-4 end
+
+	-- Warrior and Rogue have no passive stat-conversion or percentage stat-multiplier talents.
+	for _, cls in ipairs({ "WARRIOR", "ROGUE" }) do
+		for p = 1, 3 do
+			assert(items.AdjustWeights(weightsTable[cls][p], cls, p, {}) == weightsTable[cls][p], cls .. " unchanged")
+		end
+	end
+
+	-- Shaman: Mental Dexterity (415140), Mental Quickness (30812), Ancestral Knowledge (17485), Toughness (16252), Improved Reincarnation (16184).
+	local enh = weightsTable.SHAMAN[2]
+	assert(items.AdjustWeights(enh, "SHAMAN", 2, { [17485] = 3, [415140] = 3, [30812] = 2 }) == enh, "Enhancement reference identity")
+	local enh0 = items.AdjustWeights(enh, "SHAMAN", 2, {})
+	local enh1 = items.AdjustWeights(enh, "SHAMAN", 2, { [415140] = 1 })
+	local enh2 = items.AdjustWeights(enh, "SHAMAN", 2, { [415140] = 2 })
+	local enh3 = items.AdjustWeights(enh, "SHAMAN", 2, { [415140] = 3 })
+	local enh3mq = items.AdjustWeights(enh, "SHAMAN", 2, { [415140] = 3, [30812] = 2 })
+	local enhMax = items.AdjustWeights(enh, "SHAMAN", 2, { [17485] = 5, [415140] = 3, [30812] = 2, [16252] = 5, [16184] = 2 })
+	assert(near(enh0.INT, 0.25) and enh0.INT < enh1.INT and enh1.INT < enh2.INT and enh2.INT < enh3.INT
+		and enh3.INT < enh3mq.INT and enh3mq.INT < enh.INT and enh.INT < enhMax.INT, "Enhancement INT scales cleanly per rank")
+	assert(near(enhMax.STA, enh.STA * 1.10 * 1.04), "Shaman Toughness and Improved Reincarnation stack on STA")
+	local restoMQ = items.AdjustWeights(weightsTable.SHAMAN[3], "SHAMAN", 3, { [17485] = 5, [30812] = 2, [415140] = 3 })
+	assert(near(restoMQ.INT, weightsTable.SHAMAN[3].INT + 1.10 * 0.30 * weightsTable.SHAMAN[3].HEAL),
+		"Restoration Shaman gains Mental Quickness healing conversion, ignores Mental Dexterity AP")
+
+	-- Paladin: Champion of the Light (1311084), Divine Intellect (20257), Divine Strength (20262), Toughness (20143), Shield Specialization (20150).
+	local ret = weightsTable.PALADIN[3]
+	assert(items.AdjustWeights(ret, "PALADIN", 3, { [20262] = 5, [20257] = 5, [1311084] = 5 }) == ret, "Retribution reference identity")
+	local ret0 = items.AdjustWeights(ret, "PALADIN", 3, {})
+	assert(near(ret0.STR, ret.STR / 1.10) and near(ret0.INT, ret.INT / 1.10 - 0.60 * ret.SP), "Retribution at 0 ranks")
+	local prot = weightsTable.PALADIN[2]
+	local prot0 = items.AdjustWeights(prot, "PALADIN", 2, {})
+	assert(near(prot0.BVAL, prot.BVAL / 1.30) and near(prot0.ARMOR, prot.ARMOR / 1.06), "Protection Paladin BVAL and ARMOR at 0 ranks")
+	local protCotL = items.AdjustWeights(prot, "PALADIN", 2, { [20143] = 3, [20150] = 2, [1311084] = 5 })
+	assert(near(protCotL.INT, prot.INT + 0.60 * prot.SP), "Protection Paladin benefits from Champion of the Light")
+	local holyCotL = items.AdjustWeights(weightsTable.PALADIN[1], "PALADIN", 1, { [20257] = 5, [20143] = 5, [1311084] = 5 })
+	assert(holyCotL == weightsTable.PALADIN[1], "Holy Paladin ignores damage-only Champion of the Light")
+
+	-- Hunter: Careful Aim (1223984), Lightning Reflexes (19168), Survivalist (19255).
+	local bm0 = items.AdjustWeights(weightsTable.HUNTER[1], "HUNTER", 1, {})
+	assert(near(bm0.INT, weightsTable.HUNTER[1].INT - (weightsTable.HUNTER[1].AP + weightsTable.HUNTER[1].RAP)), "BM Hunter without Careful Aim")
+	local sv0 = items.AdjustWeights(weightsTable.HUNTER[3], "HUNTER", 3, {})
+	assert(near(sv0.AGI, weightsTable.HUNTER[3].AGI / 1.15) and near(sv0.INT, weightsTable.HUNTER[3].INT - 0.7), "Survival Hunter at 0 ranks")
+	local bmSurv = items.AdjustWeights(weightsTable.HUNTER[1], "HUNTER", 1, { [1223984] = 5, [19255] = 5 })
+	assert(near(bmSurv.STA, weightsTable.HUNTER[1].STA * 1.10), "Hunter Survivalist scales STA")
+
+	-- Priest: Mental Strength (18551), Spiritual Guidance (14901).
+	local holy0 = items.AdjustWeights(weightsTable.PRIEST[2], "PRIEST", 2, {})
+	assert(near(holy0.SPI, weightsTable.PRIEST[2].SPI - 0.25) and near(holy0.INT, weightsTable.PRIEST[2].INT / 1.10), "Holy Priest at 0 ranks")
+	local discSG = items.AdjustWeights(weightsTable.PRIEST[1], "PRIEST", 1, { [18551] = 5, [14901] = 5 })
+	assert(near(discSG.SPI, weightsTable.PRIEST[1].SPI + 0.25), "Discipline Priest with Spiritual Guidance")
+	local shadowSG = items.AdjustWeights(weightsTable.PRIEST[3], "PRIEST", 3, { [18551] = 3, [14901] = 5 })
+	assert(near(shadowSG.SPI, weightsTable.PRIEST[3].SPI + 0.08), "Shadow Priest gets spell-damage portion of Spiritual Guidance")
+
+	-- Mage: Arcane Mind (11232), Arcane Resilience (28574).
+	local arcane0 = items.AdjustWeights(weightsTable.MAGE[1], "MAGE", 1, {})
+	assert(near(arcane0.INT, weightsTable.MAGE[1].INT / 1.10), "Arcane Mage without Arcane Mind")
+	local frost0 = items.AdjustWeights(weightsTable.MAGE[3], "MAGE", 3, {})
+	assert(near(frost0.INT, weightsTable.MAGE[3].INT - 0.75 * weightsTable.MAGE[3].ARMOR), "Frost Mage without Arcane Resilience")
+
+	-- Warlock: Demonic Embrace (18697).
+	local aff0 = items.AdjustWeights(weightsTable.WARLOCK[1], "WARLOCK", 1, {})
+	assert(near(aff0.STA, weightsTable.WARLOCK[1].STA / 1.15), "Affliction Warlock without Demonic Embrace")
+	local demoDE = items.AdjustWeights(weightsTable.WARLOCK[2], "WARLOCK", 2, { [18697] = 5 })
+	assert(near(demoDE.STA, weightsTable.WARLOCK[2].STA * 1.15), "Demonology Warlock with Demonic Embrace")
+
+	-- Druid: Heart of the Wild (17003), Living Spirit (1309631), Natural Instinct (1223242), Thick Hide (16929).
+	local cat0 = items.AdjustWeights(weightsTable.DRUID[2], "DRUID", 2, {})
+	assert(near(cat0.STR, weightsTable.DRUID[2].STR / 1.10) and cat0.STA == weightsTable.DRUID[2].STA, "Cat Druid HotW scales STR only")
+	local bear0 = items.AdjustWeights(bearBase, "DRUID", 4, {})
+	assert(near(bear0.STA, bearBase.STA / 1.20) and near(bear0.DEF, bearBase.DEF - 2.0 * bearBase.ARMOR)
+		and bear0.STR == bearBase.STR, "Bear Druid HotW STA and Thick Hide DEF->ARMOR")
+	local restoDruid = items.AdjustWeights(weightsTable.DRUID[3], "DRUID", 3, { [17003] = 5, [1309631] = 3, [1223242] = 2, [16929] = 3 })
+	assert(near(restoDruid.INT, weightsTable.DRUID[3].INT + 1.10 * 0.25 * weightsTable.DRUID[3].HEAL)
+		and restoDruid.DEF == nil, "Resto Druid gains Natural Instinct HEAL, ignores form-only Thick Hide")
+
+	-- End-to-end C_Traits integration in ns.StatWeights() (including Bear profile and fallback on missing/secret data).
+	local saved = {
+		class = upvalue(getW, "playerClass"), weights = upvalue(getW, "weights"),
+		tree = upvalue(getW, "weightsTree"), name = upvalue(getW, "weightsName"), preset = upvalue(getW, "weightsPreset"),
+		traits = C_Traits, ct = C_ClassTalents, level = UnitLevel, spec = items.cdb.scoreSpec,
+	}
+	local activeRanks = {}
+	local nodeMap = { [1] = 415140, [2] = 30812, [3] = 17485, [4] = 17003, [5] = 16929 }
+	C_ClassTalents = { GetActiveConfigID = function() return 42 end }
+	C_Traits = {
+		GetConfigInfo = function(id) return id == 42 and { treeIDs = { 99 } } or nil end,
+		GetGroupDisplayInfoByTreeID = function()
+			return {
+				{ groupID = 1, orderIndex = 0, displayName = "Tree1" },
+				{ groupID = 2, orderIndex = 1, displayName = "Tree2" },
+				{ groupID = 3, orderIndex = 2, displayName = "Tree3" },
+			}
+		end,
+		GetGroupCurrencyInfo = function() return { { traitNodeGroupID = 2, currencyInfos = { { spent = 10 } } } } end,
+		GetTreeNodes = function(tid) return tid == 99 and { 1, 2, 3, 4, 5 } or {} end,
+		GetNodeInfo = function(_, nid)
+			local r = activeRanks[nodeMap[nid]] or 0
+			return { activeRank = r, activeEntry = r > 0 and { entryID = nid } or nil }
+		end,
+		GetEntryInfo = function(_, eid) return { definitionID = eid } end,
+		GetDefinitionInfo = function(did) return { spellID = nodeMap[did] } end,
+	}
+	UnitLevel = function() return 60 end
+	setuv(getW, "playerClass", "SHAMAN")
+	items.cdb.scoreSpec = 2
+	setuv(getW, "weights", nil)
+	local w0 = ns.StatWeights()
+	assert(near(w0.INT, 0.25), "live StatWeights lowers Enhancement INT when Mental Dexterity is 0/3")
+	activeRanks[415140], activeRanks[30812], activeRanks[17485] = 3, 2, 3
+	setuv(getW, "weights", nil)
+	local wRef = ns.StatWeights()
+	assert(wRef == weightsTable.SHAMAN[2], "live StatWeights matches reference table at reference ranks")
+	setuv(getW, "playerClass", "DRUID")
+	items.cdb.scoreSpec = 4
+	activeRanks = { [17003] = 0, [16929] = 0 }
+	setuv(getW, "weights", nil)
+	local wBear0 = ns.StatWeights()
+	assert(near(wBear0.STA, bearBase.STA / 1.20) and near(wBear0.DEF, bearBase.DEF - 2.0 * bearBase.ARMOR),
+		"live StatWeights adjusts Bear profile via C_Traits")
+	setuv(getW, "playerClass", saved.class)
+	setuv(getW, "weights", saved.weights)
+	setuv(getW, "weightsTree", saved.tree)
+	setuv(getW, "weightsName", saved.name)
+	setuv(getW, "weightsPreset", saved.preset)
+	C_Traits, C_ClassTalents, UnitLevel, items.cdb.scoreSpec = saved.traits, saved.ct, saved.level, saved.spec
+	print("talent stat weights OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

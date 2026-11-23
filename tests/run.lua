@@ -10652,15 +10652,24 @@ end)()
 end)()
 ;(function()
 	local visuals = ns:GetModule("Visuals")
-	local setup = uv(visuals.OnLogin, "SetupPlayerPortrait")
-	local refresh = uv(setup, "RefreshPlayerPortrait")
-	local draw = uv(refresh, "UpdatePlayerPortrait")
+	local pm = ns.PortraitModes
+	local wanderlust = ns:GetModule("Wanderlust")
+	local helpers = ns:GetModule("Helpers")
+	local roleplay = ns:GetModule("Roleplay")
+	local dialog = ns:GetModule("Dialog")
+	local speech = ns:GetModule("SpeechBubbles")
+	local emotes = ns:GetModule("ChatEmotes")
+	local camera = ns:GetModule("Camera")
+	local solo = ns:GetModule("SoloParty")
+	local landing = ns:GetModule("Landing")
+	local combatText = ns:GetModule("CombatText")
 	local oldCreate, oldPlayer, oldHook = CreateFrame, PlayerFrame, hooksecurefunc
-	local oldShift, oldEdit, oldRegistry = IsShiftKeyDown, EditModeManagerFrame, EventRegistry
-	local oldClass, oldRace, oldFaction, oldAtlas = UnitClass, UnitRace, UnitFactionGroup, C_Texture.GetAtlasInfo
-	local shift, edit, faction, race, modelReady, atlasAvailable = false, false, "Alliance", "Dwarf", true, true
+	local oldShift, oldMod, oldEdit, oldRegistry = IsShiftKeyDown, IsModifierKeyDown, EditModeManagerFrame, EventRegistry
+	local oldCursor, oldTicker = GetCursorPosition, C_Timer.NewTicker
+	C_Timer.NewTicker = function() return { Cancel = function() end } end
+	local shift, modDown, edit = false, false, false
 	local callbacks, textures = {}, {}
-	local unitChanged, wheel, model
+	local unitChanged, wheel, menuFrame, ghostFrame
 	local frame, container, original, mask = NewFrame("Button"), NewFrame("Frame"), NewFrame("Texture"), NewFrame("Mask")
 	frame.unit, frame.PlayerFrameContainer = "player", container
 	container.PlayerPortrait, container.PlayerPortraitMask = original, mask
@@ -10668,80 +10677,173 @@ end)()
 		local texture = NewFrame("Texture")
 		texture.SetAllPoints = function(self, region) self.bounds = region end
 		texture.AddMaskTexture = function(self, region) self.mask = region end
-		texture.SetAtlas = function(self, atlas) self.asset = atlas end
-		texture.SetTexture = function(self, fileID) self.asset = fileID return true end
+		texture.SetTexture = function(self, file) self.asset = file return true end
+		texture.SetDesaturated = function(self, flag) self.desaturated = flag and true or false end
 		textures[#textures + 1] = texture
 		return texture
 	end
 	PlayerFrame = frame
-	hooksecurefunc = function(name, fn) assert(name == "UnitFrame_SetUnit") unitChanged = fn end
+	hooksecurefunc = function(name, fn)
+		if name == "UnitFrame_SetUnit" then unitChanged = fn end
+	end
 	EventRegistry = { RegisterCallback = function(_, event, fn, owner) callbacks[event] = function() fn(owner) end end }
 	IsShiftKeyDown = function() return shift end
+	IsModifierKeyDown = function() return modDown end
 	EditModeManagerFrame = { IsEditModeActive = function() return edit end }
-	UnitClass = function(unit) assert(unit == "player") return "Mage", "MAGE" end
-	UnitRace = function(unit) assert(unit == "player") return race, race end
-	UnitFactionGroup = function(unit) assert(unit == "player") return faction end
-	C_Texture.GetAtlasInfo = function() return atlasAvailable and { width = 64, height = 64 } or nil end
-	CreateFrame = function(kind, name, parent)
-		assert(parent == container, "the added frames belong to the player portrait container")
-		local region = NewFrame(kind)
+	GetCursorPosition = function() return 200, 300 end
+	CreateFrame = function(kind, name, parent, template)
+		local region = oldCreate(kind, name, parent, template)
 		region.EnableMouseWheel = function(self, enabled) self.wheelEnabled = enabled end
 		region.SetAllPoints = function(self, bounds) self.bounds = bounds end
 		region.SetMouseClickEnabled = function(self, enabled) self.clickEnabled = enabled end
 		region.SetMouseMotionEnabled = function(self, enabled) self.motionEnabled = enabled end
 		region.GetParent = function() return parent end
 		if name == "ForeverPlusPlayerPortraitWheel" then
+			assert(parent == container, "the portrait wheel belongs to the player portrait container")
 			wheel = region
-		elseif kind == "PlayerModel" then
-			model = region
-			model.SetUnit = function(self, unit)
-				assert(unit == "player")
-				self.loads = (rawget(self, "loads") or 0) + 1
-				return modelReady
-			end
-			model.SetPortraitZoom = function(self, zoom) self.zoom = zoom end
+		elseif name == "ForeverPlusPortraitModeMenu" then
+			menuFrame = region
+		elseif template == "TooltipBackdropTemplate" and not name then
+			ghostFrame = region
 		end
 		return region
 	end
 
+	-- Save module states so the test restores everything cleanly.
+	local saved = {
+		mode = visuals.cdb.playerPortraitMode,
+		wl = wanderlust.db.enabled, wlBags = wanderlust.db.showBags,
+		fish = helpers.db.fishing,
+		rp = roleplay.db.enabled, dlg = dialog.db.enabled, sb = speech.db.enabled,
+		em = emotes.db.enabled, cam = camera.db.enabled,
+		spOn = solo.db.enabled, spCrit = solo.db.criticals, spBloody = solo.db.bloody,
+		land = landing.db.enabled, ct = combatText.db.enabled,
+	}
+	ns.SetOption("Wanderlust", "enabled", false)
+	ns.SetOption("Helpers", "fishing", false)
+	ns.SetOption("SoloParty", "enabled", false)
+	ns.SetOption("SoloParty", "bloody", false)
+	ns.SetOption("Landing", "enabled", true)
+	ns.SetOption("CombatText", "enabled", false)
+
 	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
-	local oldMode = visuals.cdb.playerPortraitMode
-	assert(visuals.db.playerPortraitWheel and oldMode == 1, "new characters start with their standard portrait")
-	setup()
-	local background, icon = unpack(textures)
+	assert(visuals.db.playerPortraitWheel and saved.mode == 1, "new characters start with their standard portrait")
+	pm.Setup()
+	local background, icon, shine = unpack(textures)
 	assert(wheel.bounds == original and wheel.clickEnabled == false and wheel.motionEnabled == false)
-	assert(background.bounds == original and background.mask == mask and icon.mask == mask)
-	assert(original:IsShown() and not background:IsShown() and not icon:IsShown() and not model)
+	assert(background.bounds == original and background.mask == mask and icon.mask == mask and shine.mask == mask)
+	assert(original:IsShown() and not background:IsShown() and not icon:IsShown())
+
 	local scroll = wheel:GetScript("OnMouseWheel")
+	local click = wheel:GetScript("OnClick")
 	assert(not wheel.wheelEnabled)
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 1 and not model, "plain scrolling does not choose a portrait")
+	assert(visuals.cdb.playerPortraitMode == 1 and not icon:IsShown(), "plain scrolling does not switch modes")
+
 	shift = true
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	assert(wheel.wheelEnabled)
+	-- Slot 2: Wanderlust
 	scroll(wheel, 1)
-	assert(model:IsShown() and model.zoom == 1 and model.loads == 1 and background:IsShown() and not icon:IsShown())
-	onEvent(nil, "UNIT_MODEL_CHANGED", "target")
-	assert(model.loads == 1)
-	onEvent(nil, "UNIT_MODEL_CHANGED", "player")
-	assert(model.loads == 2)
+	assert(visuals.cdb.playerPortraitMode == 2 and icon:IsShown() and background:IsShown())
+	assert(icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeWanderlust")
+	assert(icon.desaturated == true and wheel.clickEnabled == true and wheel.motionEnabled == true)
+	-- Left-click enables Wanderlust and lights up the emblem.
+	shift = false
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+	click(wheel, "LeftButton")
+	assert(wanderlust.db.enabled == true and pm.IsModeActive("wanderlust") and icon.desaturated == false)
+	click(wheel, "LeftButton")
+	assert(wanderlust.db.enabled == false and not pm.IsModeActive("wanderlust") and icon.desaturated == true)
+
+	-- External option change updates the portrait live.
+	ns.SetOption("Wanderlust", "enabled", true)
+	assert(icon.desaturated == false, "external option change refreshes portrait icon")
+	ns.SetOption("Wanderlust", "enabled", false)
+	assert(icon.desaturated == true)
+
+	-- Slot 3: Angler
+	shift = true
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
-	assert(icon:IsShown() and icon.asset == "UI-HUD-UnitFrame-Player-Portrait-ClassIcon-mage-2x" and not model:IsShown())
+	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeAngler")
+	shift = false
+	click(wheel, "LeftButton")
+	assert(helpers.db.fishing == true and icon.desaturated == false)
+	click(wheel, "LeftButton")
+	assert(helpers.db.fishing == false and icon.desaturated == true)
+
+	-- Slot 4: RP mode
+	shift = true
 	scroll(wheel, 1)
-	assert(icon:IsShown() and icon.asset == 255128)
-	race = "Skyborne"
-	onEvent(nil, "PLAYER_ENTERING_WORLD")
-	assert(icon.asset == "skyborne-zephras-isles-c60")
+	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeRP")
+	shift = false
+	click(wheel, "LeftButton")
+	assert(roleplay.db.enabled and dialog.db.enabled and speech.db.enabled and emotes.db.enabled and camera.db.enabled)
+	assert(pm.IsModeActive("rp") and icon.desaturated == false)
+	click(wheel, "LeftButton")
+	assert(not roleplay.db.enabled and not dialog.db.enabled and not speech.db.enabled and not emotes.db.enabled and not camera.db.enabled)
+	assert(not pm.IsModeActive("rp") and icon.desaturated == true)
+
+	-- Slot 5: Berserker mode (Bloody crits + Landing jump sounds + CombatText)
+	shift = true
 	scroll(wheel, 1)
-	assert(icon.asset == "charactercreate-icon-alliance")
-	faction = "Horde"
-	onEvent(nil, "UNIT_FACTION", "player")
-	assert(icon.asset == "charactercreate-icon-horde")
+	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
+	assert(not pm.IsModeActive("berserker"), "partial default state shows Berserker as inactive")
+	shift = false
+	click(wheel, "LeftButton")
+	assert(solo.db.enabled and solo.db.criticals and solo.db.bloody and landing.db.enabled and combatText.db.enabled)
+	assert(pm.IsModeActive("berserker") and icon.desaturated == false)
+	-- Unchecking one feature while mode is active turns that feature off immediately while keeping the mode active.
+	pm.SetFeatureSelected("combatText", false)
+	assert(not combatText.db.enabled and solo.db.bloody and landing.db.enabled and pm.IsModeActive("berserker"))
+	-- Turning the mode off turns off remaining checked features while preserving the saved checkmarks.
+	click(wheel, "LeftButton")
+	assert(not solo.db.bloody and not solo.db.enabled and not landing.db.enabled and not pm.IsModeActive("berserker"))
+	assert(pm.IsFeatureSelected("bloody") and pm.IsFeatureSelected("landing") and not pm.IsFeatureSelected("combatText"))
+	-- Re-checking while mode is off only saves the choice without enabling it yet.
+	pm.SetFeatureSelected("combatText", true)
+	assert(pm.IsFeatureSelected("combatText") and not combatText.db.enabled)
+
+	-- Right-click opens the drag-and-drop mode menu on the current mode tab.
+	click(wheel, "RightButton")
+	assert(menuFrame and menuFrame:IsShown(), "right-click opens the portrait mode menu")
+	local landingRow
+	for _, row in ipairs(menuFrame.rows) do
+		if row:IsShown() and row.entry and row.entry.kind == "feature" and row.entry.feature.key == "landing" then
+			landingRow = row
+			break
+		end
+	end
+	assert(landingRow, "Berserker menu lists the landing sound feature")
+	-- Drag 'landing' from Berserker onto the Wanderlust tab (tabs[1]).
+	local wanderlustTab = menuFrame.tabs[1]
+	wanderlustTab.IsMouseOver = function() return true end
+	landingRow:GetScript("OnDragStart")(landingRow)
+	assert(ghostFrame and ghostFrame:IsShown(), "dragging shows the floating ghost label")
+	landingRow:GetScript("OnDragStop")(landingRow)
+	assert(not ghostFrame:IsShown())
+	assert(pm.FeatureMode("landing") == "wanderlust", "dropping on a mode tab reassigns the feature")
+	-- Turning Wanderlust on now toggles both Wanderlust and Landing together.
+	pm.ToggleMode("wanderlust")
+	assert(wanderlust.db.enabled and landing.db.enabled and pm.IsModeActive("wanderlust"))
+	pm.ToggleMode("wanderlust")
+	assert(not wanderlust.db.enabled and not landing.db.enabled)
+	-- Reset restores default assignments and checkmarks.
+	pm.ResetAssignments()
+	assert(pm.FeatureMode("landing") == "berserker" and pm.IsFeatureSelected("combatText"))
+	menuFrame:Hide()
+
+	-- Wrap forward to normal and backward to slot 5.
+	shift = true
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
 	assert(visuals.cdb.playerPortraitMode == 1 and not icon:IsShown() and not background:IsShown())
+	assert(wheel.clickEnabled == false and wheel.motionEnabled == false, "normal portrait passes clicks through")
 	scroll(wheel, -1)
 	assert(visuals.cdb.playerPortraitMode == 5 and icon:IsShown(), "reverse scrolling also wraps")
 
+	-- Vehicle, Edit Mode and disabling the option hide the overlay cleanly.
 	frame.unit = "vehicle"
 	unitChanged(frame)
 	scroll(wheel, -1)
@@ -10752,35 +10854,44 @@ end)()
 	edit = true
 	callbacks["EditMode.Enter"]()
 	scroll(wheel, -1)
-	assert(not wheel.wheelEnabled and visuals.cdb.playerPortraitMode == 5)
+	assert(not wheel.wheelEnabled and not wheel.clickEnabled and visuals.cdb.playerPortraitMode == 5)
 	edit = false
 	callbacks["EditMode.Exit"]()
-	assert(wheel.wheelEnabled)
+	assert(wheel.wheelEnabled and wheel.clickEnabled)
 	shift = false
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
 	assert(not wheel.wheelEnabled)
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
 	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
 	ns.SetOption("Visuals", "playerPortraitWheel", true)
-	assert(icon:IsShown() and icon.asset == "charactercreate-icon-horde")
+	assert(icon:IsShown() and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
 
-	atlasAvailable = false
-	onEvent(nil, "PLAYER_ENTERING_WORLD")
-	assert(not icon:IsShown() and not background:IsShown(), "a missing emblem leaves the standard portrait visible")
-	visuals.cdb.playerPortraitMode, modelReady = 2, false
-	onEvent(nil, "PLAYER_ENTERING_WORLD")
-	assert(not model:IsShown() and not background:IsShown(), "a failed model also leaves the standard portrait visible")
-
+	-- Restore state cleanly.
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
-	visuals.db.playerPortraitWheel, visuals.cdb.playerPortraitMode = true, oldMode
-	setuv(setup, "portraitWheel", nil)
-	setuv(draw, "portraitBackground", nil)
-	setuv(draw, "portraitIcon", nil)
-	setuv(draw, "portraitModel", nil)
+	visuals.db.playerPortraitWheel, visuals.cdb.playerPortraitMode = true, saved.mode
+	pm.ResetAssignments()
+	ns.SetOption("Wanderlust", "enabled", saved.wl)
+	ns.SetOption("Wanderlust", "showBags", saved.wlBags)
+	ns.SetOption("Helpers", "fishing", saved.fish)
+	ns.SetOption("Roleplay", "enabled", saved.rp)
+	ns.SetOption("Dialog", "enabled", saved.dlg)
+	ns.SetOption("SpeechBubbles", "enabled", saved.sb)
+	ns.SetOption("ChatEmotes", "enabled", saved.em)
+	ns.SetOption("Camera", "enabled", saved.cam)
+	ns.SetOption("SoloParty", "enabled", saved.spOn)
+	ns.SetOption("SoloParty", "criticals", saved.spCrit)
+	ns.SetOption("SoloParty", "bloody", saved.spBloody)
+	ns.SetOption("Landing", "enabled", saved.land)
+	ns.SetOption("CombatText", "enabled", saved.ct)
+	setuv(pm.Setup, "portraitWheel", nil)
+	setuv(pm.Setup, "portraitBackground", nil)
+	setuv(pm.Setup, "portraitIcon", nil)
+	setuv(pm.Setup, "portraitShine", nil)
+	setuv(uv(pm.Setup, "OpenModeMenu"), "menu", nil)
 	CreateFrame, PlayerFrame, hooksecurefunc = oldCreate, oldPlayer, oldHook
-	IsShiftKeyDown, EditModeManagerFrame, EventRegistry = oldShift, oldEdit, oldRegistry
-	UnitClass, UnitRace, UnitFactionGroup, C_Texture.GetAtlasInfo = oldClass, oldRace, oldFaction, oldAtlas
-	print("player portrait wheel OK")
+	IsShiftKeyDown, IsModifierKeyDown, EditModeManagerFrame, EventRegistry = oldShift, oldMod, oldEdit, oldRegistry
+	GetCursorPosition, C_Timer.NewTicker = oldCursor, oldTicker
+	print("player portrait modes OK")
 end)()
 ;(function()
 	local rp = ns:GetModule("Roleplay")

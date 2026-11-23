@@ -176,6 +176,18 @@ end
 -- Sets an option from our own menus and buttons. Settings.SetValue would run the game's evaluation of all settings in
 -- our (tainted) path; it reaches protected functions of the game's own settings (ADDON_ACTION_FORBIDDEN:
 -- IsUserOAuthed()). The option is written to the module's table, which the settings page reads when it is drawn.
+local optionListeners = {}
+
+function ns.RegisterOptionListener(fn)
+	optionListeners[#optionListeners + 1] = fn
+end
+
+function ns.NotifyOptionChanged(moduleName, key, value)
+	for _, fn in ipairs(optionListeners) do
+		fn(moduleName, key, value)
+	end
+end
+
 function ns.SetOption(moduleName, key, value)
 	local module = ns:GetModule(moduleName)
 	if not (module and module.db) then
@@ -185,6 +197,7 @@ function ns.SetOption(moduleName, key, value)
 	if module.OnOptionChanged then
 		module:OnOptionChanged(key, value)
 	end
+	ns.NotifyOptionChanged(moduleName, key, value)
 end
 
 function ns.CreateOptionCheckbox(parent, text, moduleName, key, tooltip)

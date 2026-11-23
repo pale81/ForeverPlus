@@ -224,6 +224,7 @@ local function AddOption(module, category, layout, opt, initializers)
 		if module.OnOptionChanged then
 			module:OnOptionChanged(opt.key, value, opt)
 		end
+		ns.NotifyOptionChanged(module.name, opt.key, value)
 	end)
 
 	local init

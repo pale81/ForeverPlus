@@ -9801,6 +9801,49 @@ end)()
 	print("coordinates OK")
 end)()
 ;(function()
+	local minimap = ns:GetModule("Minimap")
+	local savedCluster, savedHasMail = rawget(_G, "MinimapCluster"), rawget(_G, "HasNewMail")
+	local frame, icon = CreateFrame("Frame"), CreateFrame("Frame")
+	local fallback, hasMail = nil, true
+	MinimapCluster = { IndicatorFrame = { MailFrame = frame } }
+	HasNewMail = function() return hasMail end
+	frame.MailIcon = icon
+	frame.NewMailAnim, frame.MailReminderAnim = false, false
+	icon.GetAtlas = function() return "ui-hud-minimap-mail-icon" end
+	frame.CreateTexture = function()
+		assert(not fallback, "one fallback texture is enough")
+		fallback = CreateFrame("Frame")
+		return fallback
+	end
+	frame:SetScript("OnHide", function() icon:Hide() end)
+	frame:SetScript("OnEvent", function()
+		frame:SetShown(hasMail)
+		icon:SetShown(hasMail)
+	end)
+
+	assert(minimap.db.restoreMailIcon == true, "restoring the icon is enabled by default")
+	minimap:OnOptionChanged("restoreMailIcon")
+	assert(not fallback, "the original icon is visible")
+	frame:GetScript("OnHide")(frame) -- parent was hidden; the mail frame is still marked shown
+	frame:GetScript("OnShow")(frame)
+	assert(fallback and fallback:IsShown() and not icon:IsShown(), "restore the envelope after showing the UI")
+
+	minimap.db.restoreMailIcon = false
+	minimap:OnOptionChanged("restoreMailIcon")
+	assert(not fallback:IsShown(), "disabling the option immediately hides the fallback")
+	minimap.db.restoreMailIcon = true
+	minimap:OnOptionChanged("restoreMailIcon")
+	assert(fallback:IsShown(), "reenabling restores the envelope again")
+
+	frame:GetScript("OnEvent")(frame, "UPDATE_PENDING_MAIL")
+	assert(icon:IsShown() and not fallback:IsShown(), "only the original icon shows after the mail update")
+	hasMail = false
+	frame:GetScript("OnEvent")(frame, "UPDATE_PENDING_MAIL")
+	assert(not frame:IsShown() and not fallback:IsShown(), "clearing new mail hides the envelope")
+	MinimapCluster, HasNewMail = savedCluster, savedHasMail
+	print("minimap mail icon OK")
+end)()
+;(function()
 	-- The text of a step: all of it up to the limit, the rest scrolls; slow text grows by whole words
 	local D = ns:GetModule("Dialog")
 	assert(D.ContentHeight(120.4) == 121, "short text whole")
@@ -11983,7 +12026,7 @@ end)()
 	Enum.ItemEnchantType = saved
 	print("weapon enchant time OK")
 end)()
--- Auction house: vintage cash register sound on live sales and unread sale mail with gold
+-- Auction house: cash register sound on live sales and unread sale mail with gold
 ;(function()
 	local A = ns:GetModule("Auction")
 	local saved = {

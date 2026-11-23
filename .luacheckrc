@@ -381,6 +381,7 @@ read_globals = {
 	"tinsert",
 	"wipe",
 	"GetInboxNumItems",
+	"HasNewMail",
 	"GetInboxHeaderInfo",
 	"GetInboxInvoiceInfo",
 	"ERR_AUCTION_SOLD_S",

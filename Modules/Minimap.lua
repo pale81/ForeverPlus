@@ -15,6 +15,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		symbolScale = 100,
 		zoomReset = true,
 		zoomDelay = 10,
+		restoreMailIcon = true,
 	},
 })
 
@@ -468,7 +469,45 @@ local function OnZoomChanged()
 	end
 end
 
+-- Hiding a parent runs Blizzard's mail OnHide, which hides the texture but
+-- leaves the mail frame shown. The frame has no OnShow to restore the texture.
+local mailFrame, mailFallback
+local RefreshMailIcon = ns.Measured("Minimap: restore mail icon", function()
+	local icon = mailFrame.MailIcon
+	local hasMail = MinimapCoords.db.restoreMailIcon and mailFrame:IsShown() and not icon:IsShown() and HasNewMail()
+	local show = not ns.Secret(hasMail) and hasMail == true
+	if show and not mailFallback then
+		local atlas = icon:GetAtlas()
+		if not atlas then
+			return
+		end
+		mailFallback = mailFrame:CreateTexture(nil, "ARTWORK")
+		mailFallback:SetAtlas(atlas)
+		mailFallback:SetAllPoints(icon)
+	end
+	if mailFallback then
+		mailFallback:SetShown(show)
+	end
+end)
+
+local function UpdateMailIcon()
+	if not mailFrame and MinimapCoords.db.restoreMailIcon and type(HasNewMail) == "function" then
+		local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
+		local frame = indicator and indicator.MailFrame
+		-- The animated mail indicator intentionally hides its icon while it plays.
+		if frame and frame.MailIcon and not frame.NewMailAnim and not frame.MailReminderAnim and not frame:IsForbidden() then
+			mailFrame = frame
+			frame:HookScript("OnShow", RefreshMailIcon)
+			frame:HookScript("OnEvent", RefreshMailIcon)
+		end
+	end
+	if mailFrame then
+		RefreshMailIcon()
+	end
+end
+
 function MinimapCoords:OnLogin()
+	ns.OnAddOnLoaded("Blizzard_Minimap", UpdateMailIcon)
 	ns.AddTrackingEntry(function(root)
 		local displays = root:CreateButton(L.MINIMAP_DISPLAYS)
 		ns.CreateOptionCheckbox(displays, L.INFO_PERF, "Info", "performance", L.INFO_PERF_DESC)
@@ -555,6 +594,8 @@ function MinimapCoords:OnOptionChanged(key)
 			zoomTimer = nil
 		end
 		zoomLast = Minimap:GetZoom()
+	elseif key == "restoreMailIcon" then
+		UpdateMailIcon()
 	else
 		self:UpdateWorldMapCoords()
 	end
@@ -565,6 +606,7 @@ MinimapCoords.options = {
 	{ key = "wholeCoords", type = "toggle", name = L.MINIMAP_WHOLE_COORDS, desc = L.MINIMAP_WHOLE_COORDS_DESC, new = true },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
+	{ key = "restoreMailIcon", type = "toggle", name = L.MINIMAP_RESTORE_MAIL_ICON, desc = L.MINIMAP_RESTORE_MAIL_ICON_DESC },
 	{ key = "zoomReset", type = "toggle", name = L.MINIMAP_ZOOM_RESET, desc = L.MINIMAP_ZOOM_RESET_DESC },
 	{ key = "zoomDelay", type = "slider", name = L.MINIMAP_ZOOM_DELAY, desc = L.MINIMAP_ZOOM_DELAY_DESC, parent = "zoomReset", min = 5, max = 60, step = 5,
 		format = function(value)

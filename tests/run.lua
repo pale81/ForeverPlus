@@ -733,6 +733,49 @@ info.db.characters.Forever.Alt = { total = 7200, class = "WARRIOR", level = 30 }
 local uv = function(fn, name) for i = 1, 200 do local n, v = debug.getupvalue(fn, i) if not n then return end if n == name then return v end end end
 local add = uv(info.OnLogin, "AddPlayedLines")
 add()
+;(function()
+	local savedName, savedClass, savedRealm, savedLevel, savedTime = UnitName, UnitClass, GetRealmName, UnitLevel, time
+	local realm = ""
+	UnitName = function() return "Kazgrim" end
+	UnitClass = function() return "Shaman", "SHAMAN" end
+	GetRealmName = function() return realm end
+	UnitLevel = function() return 19 end
+	time = function() return 2002 end
+	local clockInfo
+	local fixture = setmetatable({ After = function() end, OnAddOnLoaded = function() end }, { __index = ns })
+	function fixture:NewModule(_, module)
+		clockInfo = module
+		module.db = module.defaults
+		module.RegisterEvent = function() end
+		return module
+	end
+	assert(loadfile(root .. "/Modules/Info.lua"))("ForeverPlus", fixture)
+	clockInfo.UpdatePerformance = function() end
+	local characters = clockInfo.db.characters
+	local newest = { total = 106885, time = 2000, class = "SHAMAN", level = 19, levelStart = 106426, levelStartLevel = 19 }
+	characters[""] = { Kazgrim = newest }
+	characters.Forever = {
+		Kazgrim = { total = 77904, time = 1000, class = "SHAMAN", level = 16 },
+		Thoradin = { total = 140251, class = "PALADIN", level = 21 },
+	}
+	clockInfo:OnLogin()
+	assert(characters[""] == nil and characters.Forever.Kazgrim == newest and newest.levelStart == 106426,
+		"the legacy duplicate is repaired before the realm is available, preserving the newer level data")
+	local previousLines = lines
+	lines = {}
+	uv(clockInfo.OnLogin, "AddPlayedLines")()
+	assert(#lines == 4 and lines[2]:find("Thoradin", 1, true) and lines[3]:find("Kazgrim", 1, true)
+		and lines[4] == ns.L.INFO_PLAYED_TOTAL .. " | 247138s", "the clock counts exactly two characters and includes live time")
+	lines = previousLines
+	characters.Other = { Kazgrim = { total = 3600, class = "SHAMAN" } }
+	characters[""] = { Kazgrim = { total = 1800, class = "SHAMAN" } }
+	realm = "Forever"
+	clockInfo:TIME_PLAYED_MSG("TIME_PLAYED_MSG", 106900, 474)
+	assert(characters.Forever.Kazgrim.total == 106900 and characters.Other.Kazgrim.total == 3600
+		and characters[""].Kazgrim.total == 1800, "the server reply updates the current realm and leaves an ambiguous record intact")
+	UnitName, UnitClass, GetRealmName, UnitLevel, time = savedName, savedClass, savedRealm, savedLevel, savedTime
+	print("clock played-time realm recovery OK")
+end)()
 local show = uv(uv(uv(info.UpdatePerformance, "CreatePerfFrame"), "RefreshCpuTooltip"), "fn")
 show(UIParent)
 for _, l in ipairs(lines) do print("  " .. l) end

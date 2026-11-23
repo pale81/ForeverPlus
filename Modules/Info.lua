@@ -23,8 +23,7 @@ local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame on average (total line): green 
 local PEAK_ORANGE, PEAK_RED = 1.5, 5
 local SLOW_ORANGE, SLOW_RED = 3, 20
 
-local _, playerClass = UnitClass("player")
-local playerName, playerRealm = UnitName("player"), GetRealmName()
+local playerName, playerClass, playerRealm, playerEntry
 
 local function ClassColor(classFile)
 	return C_ClassColor.GetClassColor(classFile) or NORMAL_FONT_COLOR
@@ -43,13 +42,53 @@ local function UnmuteChat()
 	wipe(mutedFrames)
 end
 
+local function FindRecordedRealm(characters, name, class, realm)
+	for key, entries in pairs(characters) do
+		local entry = entries[name]
+		if key ~= "" and key ~= realm and entry and entry.class == class then
+			if realm then return nil end
+			realm = key
+		end
+	end
+	return realm
+end
+
+local function RecoverMissingRealms(characters)
+	local unfiled = characters[""]
+	if not unfiled then return end
+	for name, entry in pairs(unfiled) do
+		local knownRealm = name == playerName and entry.class == playerClass and playerRealm or nil
+		local realm = FindRecordedRealm(characters, name, entry.class, knownRealm)
+		if realm then
+			local entries = characters[realm] or {}
+			characters[realm] = entries
+			local saved = entries[name]
+			-- Each row is a cumulative snapshot. Keep the latest measurement and its level history.
+			if not saved or (entry.total and (not saved.total or (entry.time or 0) > (saved.time or 0))) then
+				entries[name] = entry
+			end
+			unfiled[name] = nil
+		end
+	end
+	if not next(unfiled) then characters[""] = nil end
+end
+
 local function CharacterEntry()
-	local realm = Info.db.characters[playerRealm] or {}
-	Info.db.characters[playerRealm] = realm
-	local entry = realm[playerName] or {}
-	realm[playerName] = entry
-	entry.class, entry.level = playerClass, UnitLevel("player")
-	return entry
+	if not playerRealm then
+		local realm = GetRealmName()
+		if type(realm) == "string" and not ns.Secret(realm) and realm ~= "" then
+			playerRealm = realm
+		end
+	end
+	local characters = Info.db.characters
+	RecoverMissingRealms(characters)
+	local realm = playerRealm or FindRecordedRealm(characters, playerName, playerClass) or ""
+	local entries = characters[realm] or {}
+	characters[realm] = entries
+	playerEntry = entries[playerName] or {}
+	entries[playerName] = playerEntry
+	playerEntry.class, playerEntry.level = playerClass, UnitLevel("player")
+	return playerEntry
 end
 
 ---------------------------------------------------------------------------
@@ -158,7 +197,7 @@ local function AddPlayedLines()
 	for _, realm in ipairs(realms) do
 		local list = {}
 		for name, entry in pairs(Info.db.characters[realm]) do
-			local total = CurrentTotal(entry, realm == playerRealm and name == playerName)
+			local total = CurrentTotal(entry, entry == playerEntry)
 			if total then
 				list[#list + 1] = { name = name, entry = entry, total = total }
 				sum = sum + total
@@ -167,7 +206,7 @@ local function AddPlayedLines()
 		table.sort(list, function(a, b)
 			return a.total > b.total
 		end)
-		if #realms > 1 and #list > 0 then
+		if realm ~= "" and #realms > 1 and #list > 0 then
 			GameTooltip:AddLine(realm, 0.6, 0.6, 0.6)
 		end
 		for _, char in ipairs(list) do
@@ -771,6 +810,9 @@ end
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Info:OnLogin()
+	playerName = UnitName("player")
+	local _, class = UnitClass("player")
+	playerClass = class
 	CharacterEntry()
 	self:RegisterEvent("TIME_PLAYED_MSG")
 	self:RegisterEvent("PLAYER_LEVEL_UP", function(_, _, level)

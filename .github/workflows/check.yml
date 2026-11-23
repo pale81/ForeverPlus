@@ -1,0 +1,25 @@
+name: Lua 5.1 tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1 and luacheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.1 liblua5.1-0-dev luarocks
+          sudo luarocks --lua-version=5.1 install luacheck
+      - name: Download test reference data
+        run: git clone --depth 1 https://github.com/Questie/QuestieDB.git "$RUNNER_TEMP/QuestieDB"
+      - name: Run all project checks
+        env:
+          QUESTIEDB: ${{ runner.temp }}/QuestieDB/
+        run: sh tools/check.sh

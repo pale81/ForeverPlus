@@ -17,6 +17,7 @@ local PEEK_INTERVAL = 0.1
 local BAG_KEY_PEEK_SECONDS = 3
 local peek, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
 local UpdateHiddenUI, CheckPeek, SyncPeek
+local peekDriverShown
 
 local function DialogModule()
 	return ns:GetModule("Dialog")
@@ -144,14 +145,19 @@ end
 local function AnyBagOpen()
 	if WindowShown(ContainerFrameCombinedBags) then return true end
 	local frames = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
-	for _, frame in ipairs(frames or {}) do
-		if WindowShown(frame) then return true end
+	if frames then
+		for _, frame in ipairs(frames) do
+			if WindowShown(frame) then return true end
+		end
 	end
 	return false
 end
 
+-- Reuse the frame set instead of allocating a new table every 100 ms.
+local desiredPeekFrames = {}
 local function DesiredPeekFrames()
-	local frames = {}
+	wipe(desiredPeekFrames)
+	local frames = desiredPeekFrames
 	if not (hidUI and Wanderlust.db.enabled) then return frames end
 	if bagKeyUntil and ns.Number(GetTime(), 0) >= bagKeyUntil then
 		bagKeyUntil = nil
@@ -173,8 +179,10 @@ local function DesiredPeekFrames()
 		AddPeekFrame(frames, ContainerFrameCombinedBags)
 		AddPeekFrame(frames, ContainerFrameContainer)
 		local list = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
-		for _, frame in ipairs(list or {}) do
-			if WindowShown(frame) then AddPeekFrame(frames, frame) end
+		if list then
+			for _, frame in ipairs(list) do
+				if WindowShown(frame) then AddPeekFrame(frames, frame) end
+			end
 		end
 		AddPeekFrame(frames, StackSplitFrame)
 		AddTooltipFrames(frames)
@@ -205,7 +213,11 @@ local function UpdatePeekDriver()
 			end
 		end)
 	end
-	if peekDriver then peekDriver:SetShown(active) end
+	-- Only call the native setter when the driver changes state.
+	if peekDriver and peekDriverShown ~= active then
+		peekDriver:SetShown(active)
+		peekDriverShown = active
+	end
 end
 
 SyncPeek = function()
@@ -397,8 +409,14 @@ CheckPeek = function()
 	bagJustClosed = nil
 	if InCombatLockdown() then return end -- the combat events bring the whole interface back
 	if peek then
-		RefreshActivity() -- e.g. Escape opened the game menu behind the see-through interface
-		if not peek then return end
+		-- RefreshActivity already synchronizes the preview. Calling it here
+		-- doubled the frame scan and reconciliation on every active mouseover tick.
+		-- A hard blocker must still restore the full interface immediately.
+		if HardBlocked() then
+			blocked = true
+			Stop()
+			return
+		end
 		if not UIParent:IsShown() then
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
 			EndPeek(false)

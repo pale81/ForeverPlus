@@ -244,8 +244,11 @@ local env = setmetatable({
 			return chatHost
 		end
 		assert(not parent and not peekDriver, "one parentless driver checks the cursor")
-		peekDriver = { shown = true }
-		function peekDriver:SetShown(shown) self.shown = shown end
+		peekDriver = { shown = true, shownCalls = 0 }
+		function peekDriver:SetShown(shown)
+			self.shown = shown
+			self.shownCalls = self.shownCalls + 1
+		end
 		return peekDriver
 	end,
 	SetUIVisibility = SetVisibility,
@@ -935,8 +938,18 @@ end)()
 	Over(true)
 	assert(Peeking() and visibilityCalls == before + 1, "entering the minimap opens the preview once")
 	cursorX, cursorY = 790, 520 -- inside MinimapCluster (784..896), outside Minimap (800..880)
+	local shownBefore = peekDriver.shownCalls
+	local originalIsForbidden = gameTooltip.IsForbidden
+	local peekFrameChecks = 0
+	gameTooltip.IsForbidden = function(self)
+		peekFrameChecks = peekFrameChecks + 1
+		return originalIsForbidden(self)
+	end
 	Tick()
+	gameTooltip.IsForbidden = originalIsForbidden
 	assert(Peeking() and visibilityCalls == before + 1, "hovering the minimap rim keeps the preview without thrashing")
+	assert(peekFrameChecks == 1, "an active mouseover tick evaluates the preview frames exactly once")
+	assert(peekDriver.shownCalls == shownBefore, "steady mouseover ticks do not reset the frame driver")
 	cursorX, cursorY = 700, 520 -- outside both
 	Tick()
 	assert(not Peeking() and not ui.shown and visibilityCalls == before + 2, "leaving the full cluster hides again")

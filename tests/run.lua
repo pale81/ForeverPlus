@@ -6366,23 +6366,20 @@ end)()
 	local reward = { [74702] = true, [50111] = true, [31757] = true }
 	local expense = { [43501] = true, [165976] = true, [43503] = true }
 	local impacts = {}
-	for variant = 1, 6 do
-		local file = ("Media/SoloPartyCrit%d.mp3"):format(variant)
-		assert(io.open(root .. "/" .. file, "rb")):close()
-		impacts["Interface\\AddOns\\ForeverPlus\\" .. file:gsub("/", "\\")] = true
+	for _, id in ipairs({ 1240622, 1324858, 1240623, 1324859, 1240624, 1324860 }) do
+		impacts[("Interface\\AddOns\\ForeverPlus\\Media\\LocalCrit\\%d.mp3"):format(id)] = id
 	end
 	local impactFiles = {}
-	local nativeImpacts = { [567880] = 1, [567621] = 2, [567881] = 3, [567620] = 4, [567883] = 5, [567632] = 6 }
-	local failedImpact
+	local rejectImpact, fallbackID
 	PlaySoundFile = function(file, channel)
 		assert(channel == "SFX", "critical sounds respect the effects channel")
-		if failedImpact and impacts[file] then
-			assert(failedImpact == true, "the fallback follows a single failed attempt")
-			failedImpact = tonumber(file:match("(%d)%.mp3$"))
+		if rejectImpact and impacts[file] then
+			assert(not fallbackID, "the fallback follows a single failed attempt")
+			fallbackID = impacts[file]
 			return false
 		end
-		if failedImpact then
-			assert(nativeImpacts[file] == failedImpact, "a rejected clip falls back to its native impact")
+		if rejectImpact then
+			assert(file == fallbackID, "the fallback plays the exact same sound by FileDataID")
 		else
 			assert(impacts[file], "successful clips do not play a fallback")
 		end
@@ -6791,10 +6788,10 @@ end)()
 		"the Bloody test immediately shows only its critical card, splashes and impact sound")
 	assert(not solo.db.enabled and not solo.db.bloody and #timers == timerCount,
 		"the Bloody test changes no settings and schedules no preview sequence")
-	failedImpact = true
+	rejectImpact = true
 	bloodyPreview()
-	assert(nativeImpacts[impactFiles[#impactFiles]] == failedImpact, "a failed clip still plays an impact in the preview")
-	failedImpact = nil
+	assert(fallbackID and impactFiles[#impactFiles] == fallbackID, "missing local audio still plays the original in the preview")
+	rejectImpact = false
 	preview()
 	local pendingPreview = timers[#timers]
 	bloodyPreview()

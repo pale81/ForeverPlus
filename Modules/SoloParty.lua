@@ -17,10 +17,8 @@ local SOUNDS = {
 	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
 	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
 		"UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER" },
-	crit = { MEDIA .. "SoloPartyCrit1.mp3", MEDIA .. "SoloPartyCrit2.mp3", MEDIA .. "SoloPartyCrit3.mp3",
-		MEDIA .. "SoloPartyCrit4.mp3", MEDIA .. "SoloPartyCrit5.mp3", MEDIA .. "SoloPartyCrit6.mp3" },
+	crit = { 1240622, 1324858, 1240623, 1324859, 1240624, 1324860 }, -- Original two-handed sword and axe impacts.
 }
-local CRIT_FALLBACKS = { 567880, 567621, 567881, 567620, 567883, 567632 } -- One-handed sword / axe impacts.
 local TEXT_SIZES = {
 	skill = 36,
 	loot = 44,
@@ -127,8 +125,9 @@ local function PlayBurstSound(kind)
 	local pool = SOUNDS[group]
 	local index = DrawVariant(soundVariants[group], #pool)
 	if group == "crit" then
-		if not PlaySoundFile(pool[index], "SFX") then
-			PlaySoundFile(CRIT_FALLBACKS[index], "SFX")
+		local fileID = pool[index]
+		if not PlaySoundFile(MEDIA .. "LocalCrit\\" .. fileID .. ".mp3", "SFX") then
+			PlaySoundFile(fileID, "SFX")
 		end
 		return
 	end

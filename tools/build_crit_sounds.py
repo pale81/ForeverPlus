@@ -1,53 +1,55 @@
 #!/usr/bin/env python3
-"""Synthesize six soft Solo Party impacts. Requires ffmpeg on PATH."""
+"""Make quieter local copies of the original Solo Party critical-hit sounds."""
 
-import math
+import argparse
 from pathlib import Path
-import random
-import struct
 import subprocess
-import wave
 from tempfile import TemporaryDirectory
+from urllib.parse import urlencode
 
 
-RATE = 44100
-DURATION = 0.24
-PEAK = 10 ** (-8 / 20)
-MEDIA = Path(__file__).resolve().parents[1] / "Media"
+FILE_IDS = (1240622, 1324858, 1240623, 1324859, 1240624, 1324860)
+MEDIA = Path(__file__).resolve().parents[1] / "Media" / "LocalCrit"
 
 
-def render(variant):
-    rng = random.Random(1900 + variant)
-    body_freq = (132, 112, 144, 105, 121, 116)[variant - 1]
-    samples = []
-    low_noise = 0
-    for i in range(int(RATE * DURATION)):
-        t = i / RATE
-        noise = rng.uniform(-1, 1)
-        low_noise += 0.14 * (noise - low_noise)
-        body = math.sin(math.tau * (body_freq * t - 130 * t * t)) * math.exp(-t / 0.055)
-        crack = (low_noise + 0.22 * noise) * math.exp(-t / 0.028)
-        edge = math.sin(math.tau * (580 + 32 * variant) * t) * math.exp(-t / 0.044)
-        envelope = min(1, t / 0.002, (DURATION - t) / 0.025)
-        samples.append((0.55 * body + 0.65 * crack + 0.36 * edge) * envelope)
-    gain = PEAK * 32767 / max(abs(sample) for sample in samples)
-    return b"".join(struct.pack("<h", round(gain * sample)) for sample in samples)
+def download_clip(file_id, build, path):
+    query = urlencode({"version": build})
+    subprocess.run(
+        [
+            "curl", "-fLsS", "--max-time", "30",
+            f"https://wago.tools/api/casc/{file_id}?download&{query}", "-o", str(path),
+        ],
+        check=True,
+    )
+    with path.open("rb") as audio:
+        header = audio.read(4)
+    if header != b"OggS":
+        raise ValueError(f"FileDataID {file_id} for build {build} did not return Ogg audio")
 
 
 def main():
-    with TemporaryDirectory() as temp:
-        source = Path(temp) / "impact.wav"
-        for variant in range(1, 7):
-            with wave.open(str(source), "wb") as audio:
-                audio.setparams((1, 2, RATE, 0, "NONE", "not compressed"))
-                audio.writeframes(render(variant))
+    parser = argparse.ArgumentParser(description=__doc__)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source", type=Path, help="Directory containing the original <FileDataID>.ogg files")
+    source.add_argument("--build", help="Forever client build to retrieve the originals for from wago.tools")
+    args = parser.parse_args()
+
+    with TemporaryDirectory(dir=MEDIA.parent) as temporary:
+        directory = Path(temporary)
+        for file_id in FILE_IDS:
+            source_file = (args.source or directory) / f"{file_id}.ogg"
+            if args.build:
+                download_clip(file_id, args.build, source_file)
             subprocess.run(
                 [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(source),
-                    "-c:a", "libmp3lame", "-q:a", "3", str(MEDIA / f"SoloPartyCrit{variant}.mp3"),
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(source_file),
+                    "-af", "volume=-3dB", "-c:a", "libmp3lame", "-q:a", "0", str(directory / f"{file_id}.mp3"),
                 ],
                 check=True,
             )
+        MEDIA.mkdir(exist_ok=True)
+        for file_id in FILE_IDS:
+            (directory / f"{file_id}.mp3").replace(MEDIA / f"{file_id}.mp3")
 
 
 if __name__ == "__main__":

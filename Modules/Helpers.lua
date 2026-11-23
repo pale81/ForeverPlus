@@ -11,6 +11,7 @@ local Helpers = ns:NewModule("Helpers", {
 		process = true,
 		feedPet = true,
 		openButton = true,
+		openButtonMute = true,
 		fishingMenu = true,
 		fishing = true,
 		fishingEquip = true,
@@ -239,7 +240,8 @@ end
 -- Button for lootable items and quests started by bag items.
 ---------------------------------------------------------------------------
 local openButton
-local openButtonPending, bagHasQuestItem
+local openButtonPending, openButtonMuteTimer, bagHasQuestItem
+local OPEN_BUTTON_MUTE_DURATION = 30 * 60
 
 function Helpers.QuestForItem(bag, slot)
 	if not C_Container.GetContainerItemQuestInfo then return end
@@ -286,8 +288,28 @@ local function UpdateOpenButton()
 		return
 	end
 	local button = openButton
+	local muteAction = Helpers.db.openButtonMute and "" or nil
+	if button:GetAttribute("*type3") ~= muteAction then
+		button:SetAttribute("*type3", muteAction)
+	end
+	local deadline = Helpers.cdb.openButtonMutedUntil
+	local remaining = Helpers.db.openButtonMute and deadline and deadline - GetServerTime() or 0
+	if remaining > 0 then
+		if not openButtonMuteTimer then
+			openButtonMuteTimer = ns.NewTimer("Helpers: open button mute", remaining, function()
+				openButtonMuteTimer = nil
+				UpdateOpenButton()
+			end)
+		end
+	else
+		Helpers.cdb.openButtonMutedUntil = nil
+		if openButtonMuteTimer then
+			openButtonMuteTimer:Cancel()
+			openButtonMuteTimer = nil
+		end
+	end
 	local bag, slot, info
-	if Helpers.db.openButton then
+	if Helpers.db.openButton and remaining <= 0 then
 		bag, slot, info = FindLootable()
 	else
 		bagHasQuestItem = false
@@ -337,14 +359,24 @@ local function CreateOpenButton()
 	button:SetSize(36, 36)
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:SetAttribute("type", "item")
-	button:SetScript("OnEnter", function(self)
+	button:HookScript("PostClick", ns.Measured("Helpers: open button middle click", function(self, mouseButton, down)
+		if mouseButton == "MiddleButton" and not down and self.bag and Helpers.db.openButtonMute and not InCombatLockdown() then
+			Helpers.cdb.openButtonMutedUntil = GetServerTime() + OPEN_BUTTON_MUTE_DURATION
+			GameTooltip:Hide()
+			UpdateOpenButton()
+		end
+	end))
+	button:SetScript("OnEnter", ns.Measured("Helpers: open button tooltip", function(self)
 		if self.bag then
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:SetBagItem(self.bag, self.slot)
 			GameTooltip_AddInstructionLine(GameTooltip, L.HELPERS_OPEN_HINT)
+			if Helpers.db.openButtonMute then
+				GameTooltip:AddLine(L.HELPERS_OPEN_MUTE_HINT, 0.7, 0.7, 0.7)
+			end
 			GameTooltip:Show()
 		end
-	end)
+	end))
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	button:Hide()
 	ns.FrameActionButton(button)
@@ -958,6 +990,9 @@ function Helpers:OnLogin()
 end
 
 function Helpers:OnOptionChanged(key)
+	if key == "openButtonMute" and not self.db.openButtonMute then
+		self.cdb.openButtonMutedUntil = nil
+	end
 	self:Update()
 	if key == "fishing" or key == "fishingRestore" then
 		RememberFishingWeapons()
@@ -968,6 +1003,7 @@ Helpers.options = {
 	{ key = "process", type = "toggle", name = L.HELPERS_PROCESS, desc = L.HELPERS_PROCESS_DESC },
 	{ key = "feedPet", type = "toggle", name = L.HELPERS_FEED_PET, desc = L.HELPERS_FEED_PET_DESC, parent = "process" },
 	{ key = "openButton", type = "toggle", name = L.HELPERS_OPEN_BUTTON, desc = L.HELPERS_OPEN_BUTTON_DESC },
+	{ key = "openButtonMute", type = "toggle", name = L.BUFFS_MUTE, desc = L.HELPERS_OPEN_MUTE_DESC, parent = "openButton" },
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },
 	{ type = "header", name = L.HELPERS_FISHING_MODE },
 	{ key = "fishingMenu", type = "toggle", name = L.HELPERS_FISHING_MENU, desc = L.HELPERS_FISHING_MENU_DESC, new = true },

@@ -12,6 +12,7 @@ local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
 local BURSTS = { MEDIA .. "SoloPartyBurst", MEDIA .. "SoloPartyCloud", MEDIA .. "SoloPartyBalloon" }
 local BLOODY_BURST = MEDIA .. "SoloPartyBloody"
 local BLOOD_SPLATS = MEDIA .. "SoloPartyBloodSplats"
+local MAX_POP_SCALE = 1.10
 local SOUNDS = {
 	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
 	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
@@ -189,7 +190,23 @@ local function RootSize()
 	return ns.Number(w, 1200), ns.Number(h, 800)
 end
 
-local function SplashBlood()
+local function CharacterZone(w, h)
+	-- The world model has no screen anchor available to the overlay. Use the usual third-person view.
+	return w * 0.50, h * 0.45, math.min(w, h) * 0.12
+end
+
+local function BloodyCardY(x, y, w, h, halfWidth, halfHeight)
+	local centerX, centerY, radius = CharacterZone(w, h)
+	local dx = math.max(0, math.abs(x - centerX) - halfWidth)
+	local dy = math.max(0, math.abs(y - centerY) - halfHeight)
+	if dx * dx + dy * dy < radius * radius then
+		local clearance = math.sqrt(radius * radius - dx * dx) + halfHeight
+		return centerY + (y < centerY and -clearance or clearance)
+	end
+	return y
+end
+
+local function SplashBlood(w, h)
 	if not bloodFrame then
 		bloodFrame = CreateFrame("Frame", nil, root)
 		bloodFrame:SetAllPoints(root)
@@ -202,19 +219,32 @@ local function SplashBlood()
 			bloodSplats[i] = { texture = texture, variant = (firstVariant + i - 1) % 4 }
 		end
 	end
-	local w, h = RootSize()
 	local scale = math.min(w / 1200, h / 800)
+	local centerX, centerY, radius = CharacterZone(w, h)
 	for i, splat in ipairs(bloodSplats) do
 		splat.variant = NextVariant(splat.variant, 4)
 		local column, row = (splat.variant - 1) % 2, math.floor((splat.variant - 1) / 2)
 		splat.texture:SetTexCoord(column * 0.5, (column + 1) * 0.5, row * 0.5, (row + 1) * 0.5)
-		-- Jitter stays inside eight screen regions and advances each time, so consecutive impacts move.
+		-- Advance the horizontal offset on every hit so consecutive impacts move.
 		splat.jitter = (splat.jitter and splat.jitter + math.random(25, 70) or math.random(0, 99)) % 100
-		local x = ((i - 1) % 4 + 0.20 + splat.jitter * 0.006) / 4
-		local y = (math.floor((i - 1) / 4) + 0.20 + math.random() * 0.60) / 2
-		local size = math.random(90, 190) * scale
+		local x, y, size
+		if i == 3 then
+			-- Keep a small splash near the character on every hit.
+			x = centerX + radius * (splat.jitter * 0.012 - 0.60)
+			y = centerY + radius * (math.random() - 0.50)
+			size = math.random(35, 60) * scale
+		else
+			x = ((i - 1) % 4 + 0.20 + splat.jitter * 0.006) * w / 4
+			y = (math.floor((i - 1) / 4) + 0.20 + math.random() * 0.60) * h / 2
+			size = math.random(90, 190) * scale
+			local dx, dy = x - centerX, y - centerY
+			local reach = radius + size / math.sqrt(2) -- Includes the corners after rotation.
+			if dx * dx + dy * dy < reach * reach then
+				size = 60 * scale
+			end
+		end
 		splat.texture:SetSize(size, size)
-		splat.texture:SetPoint("CENTER", bloodFrame, "BOTTOMLEFT", x * w, y * h)
+		splat.texture:SetPoint("CENTER", bloodFrame, "BOTTOMLEFT", x, y)
 		splat.texture:SetRotation(math.random() * math.pi * 2)
 		splat.texture:SetAlpha(0)
 		splat.opacity = math.random(65, 90) / 100
@@ -352,15 +382,20 @@ local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	local w, h = RootSize()
 	card.fit = math.min(1, w * 0.24 / width, h * 0.21 / height)
 	local point = POSITIONS[nextSlot]
-	local x, y = point[1] + math.random(-15, 15) / 1000, point[2] + math.random(-25, 25) / 1000
-	card.anchor:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
+	local x = (point[1] + math.random(-15, 15) / 1000) * w
+	local y = (point[2] + math.random(-25, 25) / 1000) * h
+	if card.bloody then
+		local maxScale = card.fit * MAX_POP_SCALE
+		y = BloodyCardY(x, y, w, h, width * maxScale / 2, height * maxScale / 2)
+	end
+	card.anchor:SetPoint("CENTER", root, "BOTTOMLEFT", x, y)
 	card.age = 0
 	card.art:SetScale(card.fit * 0.34)
 	card.art:SetAlpha(0)
 	card.art:Show()
 	root:Show()
 	if card.bloody then
-		SplashBlood()
+		SplashBlood(w, h)
 	end
 	PlayBurstSound(kind)
 end

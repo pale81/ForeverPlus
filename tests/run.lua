@@ -6211,7 +6211,7 @@ end)()
 		timers[#timers + 1] = timer
 		return timer
 	end
-	local lastArtWidth
+	local lastArtWidth, lastCardArt
 	CreateFrame = function(kind, name, parent)
 		local frame = NewFrame(kind, name)
 		if parent == UIParent then
@@ -6230,11 +6230,14 @@ end)()
 				self.w, self.h = w, h
 				lastArtWidth = w
 			end
+			frame.SetScale = function(self, scale) self.scale = scale end
 		end
 		frame.CreateTexture = function(_, _, drawLayer)
 			local texture = NewFrame("Texture")
 			if drawLayer == "BACKGROUND" then
-				texture.SetTexture = function(_, path) frames[#frames + 1] = path end
+				texture.SetTexture = function(_, path)
+					frames[#frames + 1], lastCardArt = path, frame
+				end
 			else
 				local function Record(self, path)
 					assert(not path:find("Skillbar_", 1, true), "the card does not draw profession-bar art")
@@ -6248,6 +6251,7 @@ end)()
 				texture.SetTexCoord = function(self, left, _, top) self.u, self.v = left, top end
 				texture.SetPoint = function(self, _, _, _, x, y) self.x, self.y = x, y end
 				texture.SetRotation = function(self, angle) self.rotation = angle end
+				texture.SetSize = function(self, w, h) self.w, self.h = w, h end
 				texture.AddMaskTexture = function(self, mask) self.mask = mask end
 			end
 			return texture
@@ -6575,6 +6579,35 @@ end)()
 	bloodyPreview()
 	assert(pendingPreview.cancelled and #timers == timerCount + 1,
 		"testing Bloody stops a pending general preview instead of mixing later preview steps into the test")
+	for _, viewport in ipairs({ { 1400, 800 }, { 2200, 800 }, { 650, 900 } }) do
+		local w, h = unpack(viewport)
+		layer.w, layer.h = w, h
+		local centerX, centerY, radius = w * 0.5, h * 0.45, math.min(w, h) * 0.12
+		local smallSplash = 60 * math.min(w / 1200, h / 800)
+		for _ = 1, 6 do
+			bloodyPreview()
+			layer:GetScript("OnUpdate")(layer, 0.124) -- Close to the maximum pop scale.
+			local x, y = unpack(positions[#positions])
+			local halfWidth = lastCardArt.w * lastCardArt.scale / 2
+			local halfHeight = lastCardArt.h * lastCardArt.scale / 2
+			local dx = math.max(0, math.abs(x - centerX) - halfWidth)
+			local dy = math.max(0, math.abs(y - centerY) - halfHeight)
+			assert(dx * dx + dy * dy >= radius * radius, "the whole Bloody card stays outside the circle at peak scale")
+			assert(x - halfWidth >= 0 and x + halfWidth <= w and y - halfHeight >= 0 and y + halfHeight <= h,
+				"the Bloody card remains on screen")
+			local hasSmallCenterSplash = false
+			for _, texture in ipairs(bloodTextures) do
+				local sx, sy = texture.x - centerX, texture.y - centerY
+				local distance = math.sqrt(sx * sx + sy * sy)
+				if texture.w > smallSplash then
+					assert(distance >= radius + texture.w / math.sqrt(2), "even rotated large splashes stay outside the circle")
+				elseif distance < radius then
+					hasSmallCenterSplash = true
+				end
+			end
+			assert(hasSmallCenterSplash, "a small blood splash remains inside the circle")
+		end
+	end
 	SetEnabled(false)
 	UnitCanAttack, UnitIsUnit, UnitThreatSituation, combat.db.enabled = unpack(savedCombat, 1, 4)
 	solo.db.sounds, solo.db.effects = true, true

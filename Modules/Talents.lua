@@ -2311,9 +2311,9 @@ function Talents:PrintStatus()
 	if bar then
 		point, relativeTo, relative, x, y = bar:GetPoint(1)
 	end
-	ns.PrintAlways(L.TALENTS_STATUS, frame and "ja" or "nein", frame and frame:IsVisible() and "ja" or "nein", bar and "ja" or "nein",
-		bar and bar:IsShown() and "ja" or "nein", bar and bar:GetParent() and bar:GetParent():GetName() or "?",
-		tostring(point), tostring(relativeTo and relativeTo:GetName() or relative), ns.Number(x, 0), ns.Number(y, 0), Talents.db.planner and "ja" or "nein")
+	ns.PrintAlways(L.TALENTS_STATUS, frame and YES or NO, frame and frame:IsVisible() and YES or NO, bar and YES or NO,
+		bar and bar:IsShown() and YES or NO, bar and bar:GetParent() and bar:GetParent():GetName() or "?",
+		tostring(point), tostring(relativeTo and relativeTo:GetName() or relative), ns.Number(x, 0), ns.Number(y, 0), Talents.db.planner and YES or NO)
 end
 
 function Talents:OnOptionChanged()

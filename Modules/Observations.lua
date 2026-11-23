@@ -180,7 +180,7 @@ function Observations.OnObjectiveUpdate(questID, source)
 		local fulfilled = Progress(questID, objective)
 		local raised = not first and fulfilled > (last[index] or 0)
 		Trace("%s %d/%d %s %s/%s%s", source or "?", questID, index, tostring(objective.type), tostring(fulfilled),
-			tostring(objective.numRequired), first and " Anfang" or raised and (mapID and " Punkt" or " ohne Ort") or "")
+			tostring(objective.numRequired), first and " Anfang" or raised and (mapID and " Punkt" or L.OBS_TRACE_NO_LOCATION) or "")
 		if mapID and raised then
 			local byQuest = ns.db.objectivePoints[questID]
 			if not byQuest and Observations.objectiveCount < MAX_ENTRIES then

@@ -132,7 +132,7 @@ The Shift mouseover block adds local observations to the shipped counts. Local r
 
 ## Place texts
 
-`Data/PlaceInfo.lua` holds short texts (German and English) about 55 towns and capitals of the Eastern Kingdoms and Kalimdor (names of regions, places and dungeons are filled in from the client at runtime, so they read in the client's language), shown when the place name is hovered on the world map. The texts were written for this addon from general knowledge of the game world, in its own words, and state facts only; nothing was copied from a wiki or from game text. They are not checked against a source. The Warcraft Wiki (CC BY-SA, share-alike) was considered and not used so that no share-alike duty attaches to the data.
+`Data/PlaceInfo.lua` holds short texts (German and English) about 55 towns and capitals of the Eastern Kingdoms and Kalimdor (names of regions, places and dungeons are filled in from the client at runtime, so they read in the client's language), shown when the place name is hovered on the world map. The texts were written for this addon from general knowledge of the game world. The German descriptions use German titles and faction names. Person names follow the Forever data. They are not checked against a source. The Warcraft Wiki (CC BY-SA, share-alike) was considered and not used so that no share-alike duty attaches to the data.
 
 ## Edit Mode layouts
 

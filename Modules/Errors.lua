@@ -207,10 +207,10 @@ end
 local function IssueUrl(entry)
 	local details = EntryDetails(entry):gsub("\nLocals:.*$", "")
 	local first = (details:match("[^\n]+") or "?"):sub(1, 90)
-	local title = "Lua error: " .. first
+	local title = L.ERRORS_ISSUE_SUBJECT .. first
 	local function Build(text)
 		local build = select(2, GetBuildInfo())
-		local body = ("**ForeverPlus** %s, client build %s, locale %s\n\n```\n%s\n```\n"):format(ns.version, tostring(build), GetLocale(), text)
+		local body = L.ERRORS_ISSUE_BODY:format(ns.version, tostring(build), GetLocale(), text)
 		return ("%s?title=%s&body=%s"):format(ISSUE_URL, UrlEncode(title), UrlEncode(body))
 	end
 	local url = Build(details)

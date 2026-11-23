@@ -2730,7 +2730,7 @@ local function WatchSort()
 		waited = waited + SORT_CHECK
 		local settled = LayoutSettled()
 		if settled or waited >= SORT_MAX then
-			Items.Trace("Sortieren beendet nach %.1f s (%s)", waited, waited >= SORT_MAX and "Zeitgrenze" or "Belegung ruhig")
+			Items.Trace(L.ITEMS_TRACE_SORT_END, waited, waited >= SORT_MAX and L.ITEMS_TRACE_SORT_TIMEOUT or L.ITEMS_TRACE_SORT_SETTLED)
 			sorting = false
 			lastSort = GetTime()
 			ticker:Cancel()
@@ -2748,7 +2748,7 @@ local function StartAutomaticSort(revision)
 		return
 	end
 	lastSort = GetTime()
-	Items.sortSource = "Addon beim Öffnen"
+	Items.sortSource = L.ITEMS_TRACE_SORT_AUTO
 	C_Container.SortBags()
 	Items.sortSource = nil
 	WatchSort()
@@ -2762,22 +2762,22 @@ local function SortOnOpen()
 	end
 	local now = GetTime()
 	if now - lastSort < SORT_PAUSE then
-		Items.Trace("Öffnen: nicht sortiert (Pause)")
+		Items.Trace(L.ITEMS_TRACE_SORT_PAUSE)
 		return
 	end
 	local compare = Items.db.sortSkip and sortedLayout
 	if compare and sortedRevision == bagRevision then
-		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
+		Items.Trace(L.ITEMS_TRACE_SORT_UNCHANGED)
 		return
 	end
 	local signature, locked = ReadBagLayout(compare, true)
 	if locked then
-		Items.Trace("Öffnen: nicht sortiert (Gegenstand gesperrt)")
+		Items.Trace(L.ITEMS_TRACE_SORT_LOCKED)
 		return
 	end
 	if signature and sortedLayout == signature then
 		sortedRevision = bagRevision
-		Items.Trace("Öffnen: nicht sortiert (Belegung unverändert)")
+		Items.Trace(L.ITEMS_TRACE_SORT_UNCHANGED)
 		return
 	end
 	local revision = bagRevision
@@ -2795,7 +2795,7 @@ end
 -- Called when a sort is over.
 function RecordLayout(signature)
 	if not sorting and not InCombatLockdown() then
-		Items.Trace("Stand gemerkt")
+		Items.Trace(L.ITEMS_TRACE_SORT_SAVED)
 		sortedLayout = signature or Items.LayoutSignature()
 		sortedRevision = bagRevision
 	end
@@ -2804,7 +2804,7 @@ end
 -- Marked junk is not moved after a sort any more: the game's cleanup puts each item back in its place, so the marked
 -- items jumped to and fro on every sort. They keep their coin and are sold with the greys.
 local function OnSortStarted()
-	Items.Trace("Sortieren gestartet von: %s", Items.sortSource or "Blizzard (Knopf, Taschenmenü) oder anderes")
+	Items.Trace(L.ITEMS_TRACE_SORT_START, Items.sortSource or L.ITEMS_TRACE_SORT_EXTERNAL)
 end
 
 -- The game's cleanup button: while nothing changed since the last finished sort it does nothing.
@@ -2839,7 +2839,7 @@ local function UpdateSortOverlay()
 				return
 			end
 			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
-			Items.sortSource = "Knopf (Aufräumen)"
+			Items.sortSource = L.ITEMS_TRACE_SORT_BUTTON
 			C_Container.SortBags()
 			Items.sortSource = nil
 		end)

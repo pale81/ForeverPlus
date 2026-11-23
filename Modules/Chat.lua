@@ -252,12 +252,12 @@ end
 function Chat:PrintStatus()
 	local editBox = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox
 	if not editBox or not editBox.header then
-		ns.PrintAlways("input line: -")
+		ns.PrintAlways(L.CHAT_STATUS_INPUT_EMPTY)
 		return
 	end
 	local header, suffix = editBox.header, editBox.headerSuffix
 	local left = editBox.GetTextInsets and editBox:GetTextInsets()
-	ns.PrintAlways(("input line: box %.0f, header %.0f (text %.0f), suffix %s %.0f, text inset %.0f, UpdateHeader %s, calls %d, fixed %d"):format(
+	ns.PrintAlways(L.CHAT_STATUS_INPUT:format(
 		ns.Number(editBox:GetWidth(), 0), ns.Number(header:GetWidth(), 0), ns.Number(header:GetStringWidth(), 0),
 		tostring(suffix and suffix:IsShown()), suffix and ns.Number(suffix:GetWidth(), 0) or 0, ns.Number(left, 0),
 		tostring(editBox.UpdateHeader ~= nil), headerCalls, headerFixes))

@@ -3,7 +3,7 @@
 -- Names of regions, places and dungeons are not typed in: {m1431} is the region with that map ID, {a42} the
 -- place with that area ID, {i36} the dungeon or raid with that instance ID. They are filled with the names of the
 -- client in its language (ns.PlaceText), so a renamed region reads right (Duskwood is Dämmerwald in German).
--- Names of persons and peoples are the English ones.
+-- Person names in these texts use the names in the Forever data.
 local _, ns = ...
 
 -- English names, for when the client gives none (and for the tests).
@@ -67,15 +67,15 @@ ns.PlaceInfo = {
 		en = "The village of young dwarves in the snowy mountains of the {m1426} region. From here the road leads to {a131} and on to {a1537}.",
 	},
 	[131] = {
-		de = "Zwergensiedlung am Eingang der Region {m1426}, an der Straße nach {a1537}. Berühmt für die Thunderbrew Distillery; in der Nähe leben Frostmane-Trolle.",
+		de = "Zwergensiedlung am Eingang der Region {m1426}, an der Straße nach {a1537}. Berühmt für die Donnerbräu-Brennerei; in der Nähe leben Frostmähnentrolle.",
 		en = "Dwarven settlement at the entrance of the {m1426} region on the road to {a1537}. Famous for the Thunderbrew Distillery; Frostmane trolls live nearby.",
 	},
 	[1537] = {
-		de = "Hauptstadt der Zwerge, in einen Berg gehauen. König Magni Bronzebeard regiert hier; die Great Forge, die Hall of Explorers und das Gnomenviertel Tinkertown liegen in der Stadt.",
+		de = "Hauptstadt der Zwerge, in einen Berg gehauen. König Magni Bronzebeard regiert hier; die Große Schmiede, die Halle der Forscher und das Tüftlerviertel liegen in der Stadt.",
 		en = "Capital of the dwarves, carved into a mountain. King Magni Bronzebeard rules here; the Great Forge, the Hall of Explorers and the gnomish Tinkertown lie inside.",
 	},
 	[1519] = {
-		de = "Hauptstadt des Königreichs Stormwind und wichtigster Sitz der Allianz. Die Stadt am Meer hat einen großen Hafen, ein Gefängnis ({i34}) und Viertel für Händler, Magier und Zwerge.",
+		de = "Hauptstadt des Königreichs Sturmwind und wichtigster Sitz der Allianz. Die Stadt am Meer hat einen großen Hafen, ein Gefängnis ({i34}) und Viertel für Händler, Magier und Zwerge.",
 		en = "Capital of the Kingdom of Stormwind and the main seat of the Alliance. The city by the sea has a large harbour, a prison ({i34}) and districts for traders, mages and dwarves.",
 	},
 	[24] = {
@@ -87,7 +87,7 @@ ns.PlaceInfo = {
 		en = "The main village of the {m1429} region on the road to {a1519}, with an inn where adventurers rest. Marshal Dughan and his guards keep the area safe.",
 	},
 	[42] = {
-		de = "Eine unruhige Stadt in der Region {m1431}. Die Night Watch verteidigt sie gegen Untote und andere Schrecken, die nachts aus dem dunklen Wald kommen.",
+		de = "Eine unruhige Stadt in der Region {m1431}. Die Nachtwache verteidigt sie gegen Untote und andere Schrecken, die nachts aus dem dunklen Wald kommen.",
 		en = "An uneasy town in the {m1431} region. The Night Watch defends it against the undead and other horrors that come out of the dark forest at night.",
 	},
 	[94] = {
@@ -95,15 +95,15 @@ ns.PlaceInfo = {
 		en = "A small settlement in the {m1431} region with a graveyard that attracts the undead. Visitors should not linger.",
 	},
 	[69] = {
-		de = "Stadt am See in der Region {m1433}. Sie wird immer wieder von Orcs der Blackrock-Clans und von Gnollen bedroht.",
+		de = "Stadt am See in der Region {m1433}. Sie wird immer wieder von Orcs des Schwarzfelsklans und von Gnollen bedroht.",
 		en = "Lakeside town in the {m1433} region. It is threatened again and again by orcs of the Blackrock clans and by gnolls.",
 	},
 	[108] = {
-		de = "Das größte Dorf der Region {m1436}. Gryan Stoutmantle ruft Abenteurer, um die Gegend gegen die Defias Brotherhood zu verteidigen.",
+		de = "Das größte Dorf der Region {m1436}. Gryan Stoutmantle ruft Abenteurer, um die Gegend gegen die Bruderschaft der Defias zu verteidigen.",
 		en = "The largest village of the {m1436} region. Gryan Stoutmantle calls on adventurers to defend the land against the Defias Brotherhood.",
 	},
 	[20] = {
-		de = "Verwüstetes Dorf in der Region {m1436} und ein Stützpunkt der Defias Brotherhood. Bei {a20} liegt der Eingang zu {i36}.",
+		de = "Verwüstetes Dorf in der Region {m1436} und ein Stützpunkt der Bruderschaft der Defias. Bei {a20} liegt der Eingang zu {i36}.",
 		en = "A devastated village in the {m1436} region and a stronghold of the Defias Brotherhood. The entrance to {i36} lies at {a20}.",
 	},
 	[150] = {
@@ -127,11 +127,11 @@ ns.PlaceInfo = {
 		en = "Horde outpost in the {m1417} region, opposite {a320}. Both places show the struggle of the factions over the highlands.",
 	},
 	[340] = {
-		de = "Horde-Außenposten in der Region {m1418}, benannt nach Kargath Bladefist, dem Anführer des Shattered-Hand-Clans.",
+		de = "Horde-Außenposten in der Region {m1418}, benannt nach Kargath Bladefist, dem Anführer des Klans der Zerschmetterten Hand.",
 		en = "Horde outpost in the {m1418} region, named after Kargath Bladefist, the leader of the Shattered Hand clan.",
 	},
 	[144] = {
-		de = "Die größte Zwergensiedlung der Region {m1432}, am See im Zentrum des Tals. Die Zwerge hier verteidigen es gegen Troggs und die Orcs der Blackrock-Clans.",
+		de = "Die größte Zwergensiedlung der Region {m1432}, am See im Zentrum des Tals. Die Zwerge hier verteidigen es gegen Troggs und die Orcs des Schwarzfelsklans.",
 		en = "The largest dwarven settlement of the {m1432} region, at the lake in the centre of the valley. The dwarves here defend it against troggs and the orcs of the Blackrock clans.",
 	},
 	[269] = {
@@ -143,7 +143,7 @@ ns.PlaceInfo = {
 		en = "Dwarven fortress in the {m1437} region, near the border of the {m1417} region.",
 	},
 	[1497] = {
-		de = "Hauptstadt der Verlassenen, unter den Ruinen der Hauptstadt von Lordaeron. Die Dark Lady, Sylvanas Windrunner, herrscht hier; die Verlassenen haben sich vom Lichkönig gelöst.",
+		de = "Hauptstadt der Verlassenen, unter den Ruinen der Hauptstadt von Lordaeron. Die Dunkle Fürstin, Sylvanas Windrunner, herrscht hier; die Verlassenen haben sich vom Lichkönig gelöst.",
 		en = "Capital of the Forsaken, beneath the ruins of the capital of Lordaeron. The Dark Lady, Sylvanas Windrunner, rules here; the Forsaken have broken free from the Lich King.",
 	},
 	[154] = {
@@ -159,7 +159,7 @@ ns.PlaceInfo = {
 		en = "A Forsaken stronghold in the {m1421} region, the forest that also holds {i33}.",
 	},
 	[35] = {
-		de = "Neutrale Hafenstadt der Goblins in der Region {m1434}, Mitglied des Steamwheedle Cartel. Baron Revilgaz regiert hier; die Piraten der Bloodsail Buccaneers sind seine Feinde.",
+		de = "Neutrale Hafenstadt der Goblins in der Region {m1434}, Mitglied des Dampfdruckkartell. Baron Revilgaz regiert hier; die Blutsegelbukaniere sind seine Feinde.",
 		en = "Neutral goblin harbour town in the {m1434} region, a member of the Steamwheedle Cartel. Baron Revilgaz rules here; the pirates of the Bloodsail Buccaneers are his enemies.",
 	},
 	[117] = {
@@ -181,11 +181,11 @@ ns.PlaceInfo = {
 
 	-- Kalimdor
 	[1637] = {
-		de = "Hauptstadt der Horde in der Region {m1411}, benannt nach Orgrim Doomhammer. Warchief Thrall führt die Horde von hier; in den Tiefen der Stadt liegt der Eingang zu {i389}.",
+		de = "Hauptstadt der Horde in der Region {m1411}, benannt nach Orgrim Doomhammer. Kriegshäuptling Thrall führt die Horde von hier; in den Tiefen der Stadt liegt der Eingang zu {i389}.",
 		en = "Capital of the Horde in the {m1411} region, named after Orgrim Doomhammer. Warchief Thrall leads the Horde from here; the entrance to {i389} lies in the depths of the city.",
 	},
 	[362] = {
-		de = "Dorf der Orcs und Trolle in der Region {m1411} an der Straße nach {a1637}. Von hier aus hält die Horde das Umland gegen die Razormane-Trolle und die Burning Blade.",
+		de = "Dorf der Orcs und Trolle in der Region {m1411} an der Straße nach {a1637}. Von hier aus hält die Horde das Umland gegen die Klingenmähnenstacheleber und den Klan der Brennenden Klinge.",
 		en = "Village of orcs and trolls in the {m1411} region on the road to {a1637}. From here the Horde holds the surrounding land against the Razormane trolls and the Burning Blade.",
 	},
 	[364] = {
@@ -193,11 +193,11 @@ ns.PlaceInfo = {
 		en = "The valley where young orcs and trolls earn their place in the Horde.",
 	},
 	[367] = {
-		de = "Dorf der Darkspear-Trolle, benannt nach ihrem gefallenen Anführer Sen'jin. Sein Sohn Vol'jin führt den Stamm.",
+		de = "Dorf der Dunkelspeertrolle, benannt nach ihrem gefallenen Anführer Sen'jin. Sein Sohn Vol'jin führt den Stamm.",
 		en = "Village of the Darkspear trolls, named after their fallen leader Sen'jin. His son Vol'jin leads the tribe.",
 	},
 	[222] = {
-		de = "Dorf des Bloodhoof-Stammes in der Region {m1412}. Cairne Bloodhoof, der Oberhäuptling der Tauren, stammt aus diesem Stamm.",
+		de = "Dorf des Bluthufstamms in der Region {m1412}. Cairne Bloodhoof, der Oberhäuptling der Tauren, stammt aus diesem Stamm.",
 		en = "Village of the Bloodhoof tribe in the {m1412} region. Cairne Bloodhoof, the high chieftain of the tauren, comes from this tribe.",
 	},
 	[1638] = {
@@ -217,7 +217,7 @@ ns.PlaceInfo = {
 		en = "Tauren camp in the {m1413} region, a resting place on the way to {m1412}.",
 	},
 	[392] = {
-		de = "Neutrale Hafenstadt der Goblins in der Region {m1413}, zugehörig zum Steamwheedle Cartel. Von hier fahren Schiffe nach {a35}.",
+		de = "Neutrale Hafenstadt der Goblins in der Region {m1413}, zugehörig zum Dampfdruckkartell. Von hier fahren Schiffe nach {a35}.",
 		en = "Neutral goblin harbour town in the {m1413} region, part of the Steamwheedle Cartel. Ships sail from here to {a35}.",
 	},
 	[186] = {
@@ -273,11 +273,11 @@ ns.PlaceInfo = {
 		en = "City on an island of the {m1445} region, founded by Jaina Proudmoore after the Third War.",
 	},
 	[976] = {
-		de = "Neutrale Handelsstadt der Goblins in der Wüste der Region {m1446} und Sitz des Steamwheedle Cartel.",
+		de = "Neutrale Handelsstadt der Goblins in der Wüste der Region {m1446} und Sitz des Dampfdruckkartell.",
 		en = "Neutral goblin trading town in the desert of the {m1446} region and seat of the Steamwheedle Cartel.",
 	},
 	[2255] = {
-		de = "Handelsstadt der Goblins in der Region {m1452}, zugehörig zum Steamwheedle Cartel. In der Nähe leben die Furbolgs des Winterfall-Stammes.",
+		de = "Handelsstadt der Goblins in der Region {m1452}, zugehörig zum Dampfdruckkartell. In der Nähe leben die Furbolgs des Winterfellstamms.",
 		en = "Goblin trading town in the {m1452} region, part of the Steamwheedle Cartel. The furbolgs of the Winterfall tribe live nearby.",
 	},
 	[3425] = {
@@ -290,15 +290,15 @@ ns.PlaceInfo = {
 -- the world map. Key: area ID (AreaTable of the client).
 ns.AreaInfo = {
 	[2268] = {
-		de = "Stützpunkt der Argent Dawn in der Region {m1423}, die von hier aus den Kampf gegen die Geißel führt.",
+		de = "Stützpunkt der Argentumdämmerung in der Region {m1423}, die von hier aus den Kampf gegen die Geißel führt.",
 		en = "Stronghold of the Argent Dawn in the {m1423} region, which fights the Scourge from here.",
 	},
 	[2298] = {
-		de = "Die Insel im Darrowmere Lake in der Region {m1422}. Unter dem Anwesen der Familie Barov liegt die Nekromantenschule {i289}.",
+		de = "Die Insel im Darromersee in der Region {m1422}. Unter dem Anwesen der Familie Barov liegt die Nekromantenschule {i289}.",
 		en = "The island in Darrowmere Lake in the {m1422} region. The school of necromancy {i289} lies below the manor of the Barov family.",
 	},
 	[190] = {
-		de = "Festung der Scarlet Crusade in der Region {m1422}.",
+		de = "Festung des Scharlachroten Kreuzzugs in der Region {m1422}.",
 		en = "Fortress of the Scarlet Crusade in the {m1422} region.",
 	},
 	[2562] = {
@@ -306,11 +306,11 @@ ns.AreaInfo = {
 		en = "The tower of the mage Medivh in the {m1430} region, the last Guardian of Tirisfal.",
 	},
 	[368] = {
-		de = "Inselgruppe vor der Küste der Region {m1411}, Heimat der Darkspear-Trolle.",
+		de = "Inselgruppe vor der Küste der Region {m1411}, Heimat der Dunkelspeertrolle.",
 		en = "Island group off the coast of the {m1411} region, home of the Darkspear trolls.",
 	},
 	[2361] = {
-		de = "Dorf am Lake Elune'ara in der Region {m1450}, Sitz des Cenarion-Kreises.",
+		de = "Dorf am Elune'ara-See in der Region {m1450}, Sitz des Cenarion-Kreises.",
 		en = "Village at Lake Elune'ara in the {m1450} region, seat of the Cenarion Circle.",
 	},
 	[2300] = {
@@ -326,19 +326,19 @@ ns.AreaInfo = {
 		en = "Camp of the big-game hunter Hemet Nesingwary in the {m1434} region.",
 	},
 	[354] = {
-		de = "Stadt der Vilebranch-Trolle in der Region {m1425}.",
+		de = "Stadt der Schattenzweigtrolle in der Region {m1425}.",
 		en = "City of the Vilebranch trolls in the {m1425} region.",
 	},
 	[1769] = {
-		de = "Die Heimat der Timbermaw-Furbolgs in der Region {m1448}.",
+		de = "Die Heimat der Holzschlundfurbolgs in der Region {m1448}.",
 		en = "The home of the Timbermaw furbolgs in the {m1448} region.",
 	},
 	[2418] = {
-		de = "Stützpunkt der Allianz in der Region {m1428}, nahe dem Blackrock Mountain.",
+		de = "Stützpunkt der Allianz in der Region {m1428}, nahe dem Schwarzfels.",
 		en = "Alliance base in the {m1428} region, near Blackrock Mountain.",
 	},
 	[1446] = {
-		de = "Stützpunkt der Thorium Brotherhood in der Region {m1427}.",
+		de = "Stützpunkt der Thoriumbruderschaft in der Region {m1427}.",
 		en = "Base of the Thorium Brotherhood in the {m1427} region.",
 	},
 	[19] = {
@@ -350,11 +350,11 @@ ns.AreaInfo = {
 		en = "The city in the {m1423} region where Arthas once had the population killed.",
 	},
 	[236] = {
-		de = "Die Festung von Archmage Arugal in der Region {m1421}; von hier aus verbreiteten sich seine Worgen.",
+		de = "Die Festung von Erzmagier Arugal in der Region {m1421}; von hier aus verbreiteten sich seine Worgen.",
 		en = "The fortress of Archmage Arugal in the {m1421} region; his worgen spread from here.",
 	},
 	[34] = {
-		de = "Mine im Tal von Northshire, in der Kobolde nach Erz graben.",
+		de = "Mine im Nordhaintal, in der Kobolde nach Erz graben.",
 		en = "Mine in the valley of Northshire where kobolds dig for ore.",
 	},
 	[88] = {
@@ -366,15 +366,15 @@ ns.AreaInfo = {
 -- The same for dungeon and raid entrances, key: the map ID of the instance (Data/Instances.lua).
 ns.InstanceInfo = {
 	[36] = {
-		de = "{i36} unter {a20} in der Region {m1436}: der Stützpunkt der Defias Brotherhood. Hier wartet Edwin VanCleef auf seinem Schiff.",
+		de = "{i36} unter {a20} in der Region {m1436}: der Stützpunkt der Bruderschaft der Defias. Hier wartet Edwin VanCleef auf seinem Schiff.",
 		en = "{i36} below {a20} in the {m1436} region: the stronghold of the Defias Brotherhood. Edwin VanCleef waits here on his ship.",
 	},
 	[34] = {
-		de = "Das Gefängnis von {a1519}. Hier sitzt unter anderem Bazil Thredd, ein Anführer der Defias Brotherhood.",
+		de = "Das Gefängnis von {a1519}. Hier sitzt unter anderem Bazil Thredd, ein Anführer der Bruderschaft der Defias.",
 		en = "The prison of {a1519}. Bazil Thredd, a leader of the Defias Brotherhood, is held here among others.",
 	},
 	[33] = {
-		de = "Die Festung von Archmage Arugal in der Region {m1421}; von hier aus verbreiteten sich seine Worgen.",
+		de = "Die Festung von Erzmagier Arugal in der Region {m1421}; von hier aus verbreiteten sich seine Worgen.",
 		en = "The fortress of Archmage Arugal in the {m1421} region; his worgen spread from here.",
 	},
 	[43] = {
@@ -382,7 +382,7 @@ ns.InstanceInfo = {
 		en = "{i43} in the {m1413} region: the druid Naralex wanted to heal the caves, and his dream turned into a nightmare.",
 	},
 	[48] = {
-		de = "Der überflutete Tempel {i48} in der Region {m1440}, heute vom Twilight's Hammer und Aku'mai heimgesucht.",
+		de = "Der überflutete Tempel {i48} in der Region {m1440}, heute vom Schattenhammerkult und Aku'mai heimgesucht.",
 		en = "The flooded temple {i48} in the {m1440} region, now haunted by the Twilight's Hammer and Aku'mai.",
 	},
 	[90] = {
@@ -394,7 +394,7 @@ ns.InstanceInfo = {
 		en = "Ancient titan ruins in the {m1418} region, guarded by Archaedas.",
 	},
 	[189] = {
-		de = "Das Kloster der Scarlet Crusade in der Region {m1420}, mit vier Flügeln: Graveyard, Library, Armory und Cathedral.",
+		de = "Das Kloster des Scharlachroten Kreuzzugs in der Region {m1420}, mit vier Flügeln: Friedhof, Bibliothek, Waffenkammer und Kathedrale.",
 		en = "The monastery of the Scarlet Crusade in the {m1420} region, with four wings: Graveyard, Library, Armory and Cathedral.",
 	},
 	[109] = {
@@ -406,15 +406,15 @@ ns.InstanceInfo = {
 		en = "A troll city in the {m1446} region.",
 	},
 	[229] = {
-		de = "Die Spitze des Blackrock Mountain, Sitz von Rend Blackhand und seinen Orcs.",
+		de = "Die Spitze des Schwarzfels, Sitz von Rend Blackhand und seinen Orcs.",
 		en = "The spire of Blackrock Mountain, seat of Rend Blackhand and his orcs.",
 	},
 	[230] = {
-		de = "Das Reich der Dark-Iron-Zwerge im Inneren des Blackrock Mountain, regiert von Imperator Dagran Thaurissan.",
+		de = "Das Reich der Dunkeleisenzwerge im Inneren des Schwarzfels, regiert von Imperator Dagran Thaurissan.",
 		en = "The realm of the Dark Iron dwarves inside Blackrock Mountain, ruled by Emperor Dagran Thaurissan.",
 	},
 	[289] = {
-		de = "Die Nekromantenschule unter Caer Darrow, geleitet von Darkmaster Gandling.",
+		de = "Die Nekromantenschule unter Caer Darrow, geleitet von Dunkelmeister Gandling.",
 		en = "The school of necromancy below Caer Darrow, run by Darkmaster Gandling.",
 	},
 	[329] = {
@@ -426,7 +426,7 @@ ns.InstanceInfo = {
 		en = "The caves of {i349} in the {m1443} region.",
 	},
 	[389] = {
-		de = "Die Höhle unter {a1637}, Heimat der Searing-Blade-Kultisten.",
+		de = "Die Höhle unter {a1637}, Heimat der Kultisten der Sengenden Klinge.",
 		en = "The cavern below {a1637}, home of the Searing Blade cultists.",
 	},
 	[429] = {
@@ -434,7 +434,7 @@ ns.InstanceInfo = {
 		en = "The elven ruins of {i429} in the {m1444} region.",
 	},
 	[409] = {
-		de = "Der Feuerkern unter dem Blackrock Mountain: hier herrscht Ragnaros.",
+		de = "Der Feuerkern unter dem Schwarzfels: hier herrscht Ragnaros.",
 		en = "The fire core below Blackrock Mountain: Ragnaros rules here.",
 	},
 	[469] = {

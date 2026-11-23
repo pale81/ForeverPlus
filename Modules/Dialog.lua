@@ -78,7 +78,7 @@ local function WindowState(window)
 		return "-"
 	end
 	local name = window:GetName()
-	return ("%s:%s/%.3f/%.1f"):format(type(name) == "string" and name or "?", window:IsShown() and "an" or "aus", ns.Number(window:GetScale(), 0), ns.Number(window:GetAlpha(), 0))
+	return ("%s:%s/%.3f/%.1f"):format(type(name) == "string" and name or "?", window:IsShown() and L.TRACE_ON or L.TRACE_OFF, ns.Number(window:GetScale(), 0), ns.Number(window:GetAlpha(), 0))
 end
 
 local function Readable(value)
@@ -197,7 +197,7 @@ local function FinishReveal()
 	if not reveal.active then
 		return
 	end
-	Trace("Lesen beendet")
+	Trace(L.DIALOG_TRACE_READING_END)
 	reveal.active = false
 	if reveal.fs then
 		reveal.fs:SetText(reveal.text)
@@ -235,7 +235,7 @@ local function StartReveal(view, fs, text, top)
 	if reveal.active and reveal.key == key then
 		reveal.fs, reveal.top = fs, top
 		fs:SetText(text:sub(1, reveal.cut or 0))
-		Trace("Lesen geht weiter")
+		Trace(L.DIALOG_TRACE_READING_RESUME)
 		return
 	end
 	FinishReveal()
@@ -245,7 +245,7 @@ local function StartReveal(view, fs, text, top)
 	reveal.active, reveal.key, reveal.fs, reveal.top, reveal.text, reveal.position, reveal.cut =
 		true, key, fs, top, text, 0, 0
 	fs:SetText("")
-	Trace("Lesen beginnt (%d Zeichen)", #text)
+	Trace(L.DIALOG_TRACE_READING_START, #text)
 	ns.SetUpdate(bubble, "Dialog: text reveal", RevealStep)
 end
 
@@ -568,7 +568,7 @@ local function CreateBubble()
 	frame:SetFrameStrata("HIGH")
 	frame:EnableMouse(true)
 	frame:SetScript("OnMouseDown", function()
-		Trace("Klick in die Blase")
+		Trace(L.DIALOG_TRACE_CLICK)
 		FinishReveal()
 	end)
 	frame:EnableMouseWheel(true)
@@ -1736,7 +1736,7 @@ function Dialog.ShowWhenSettled()
 			return
 		end
 		ns.SetUpdate(settler, "Dialog: opening", nil)
-		Trace("Öffnen +%.2f: Blase zeigt sich", now - started)
+		Trace(L.DIALOG_TRACE_OPEN, now - started)
 		if ns.db.fadeIn == false then
 			bubble:SetAlpha(1)
 		else
@@ -1748,11 +1748,11 @@ end
 -- One screen value for the trace: the number, or why there is none (pcall failed, missing, secret value).
 function Dialog.Measure(ok, value)
 	if not ok then
-		return "Fehler"
+		return L.TRACE_ERROR
 	elseif value == nil then
-		return "fehlt"
+		return L.TRACE_MISSING
 	elseif ns.Secret(value) then
-		return "geheim"
+		return L.TRACE_PROTECTED
 	elseif type(value) ~= "number" then
 		return type(value)
 	end
@@ -1764,7 +1764,7 @@ local function Where(frame)
 	local function Edge(method)
 		return Dialog.Measure(pcall(frame[method], frame))
 	end
-	return ("oben %s, unten %s, links %s, sichtbar %s"):format(Edge("GetTop"), Edge("GetBottom"), Edge("GetLeft"),
+	return L.DIALOG_TRACE_POSITION:format(Edge("GetTop"), Edge("GetBottom"), Edge("GetLeft"),
 		Dialog.Measure(pcall(function() return frame:IsVisible() and 1 or 0 end)))
 end
 
@@ -1783,17 +1783,17 @@ local function Place(nameplate)
 	if bubble.Tail then
 		bubble.Tail:SetShown(Dialog.db.style == "PLAYER" and bubble.hasArt)
 	end
-	Trace("Platz: Plakette des NPCs (NPC bekannt %s, %d Plaketten, im Bild halten %s)",
-		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}), clamped and tostring(Dialog.db.onScreen) or "Fehler")
+	Trace(L.DIALOG_TRACE_ANCHOR,
+		tostring(npcGuid ~= nil), #(C_NamePlate.GetNamePlates() or {}), clamped and tostring(Dialog.db.onScreen) or L.TRACE_ERROR)
 	-- Where the bubble really stands, once the game has laid it out (the last placing only).
 	Dialog.placeCount = (Dialog.placeCount or 0) + 1
 	local count = Dialog.placeCount
 	ns.After("Dialog: Place (timer)", 0.1, function()
 		if count == Dialog.placeCount and bubble:IsShown() then
-			Trace("Blase steht: %s", Where(bubble))
+			Trace(L.DIALOG_TRACE_PLACED, Where(bubble))
 		end
 	end)
-	Trace("Plakette: %s, Bildschirm %d", Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
+	Trace(L.DIALOG_TRACE_PLATE, Where(nameplate), ns.Number(UIParent:GetHeight(), 0))
 	-- The tail (27 points below the shape) ends at the lower edge of the plate, over the head.
 	bubble:SetPoint("BOTTOM", nameplate, "BOTTOM", 0, INSET + 24)
 	if Dialog.db.hidePlate then
@@ -1851,7 +1851,7 @@ local function KeepCollapsed(window)
 				return
 			end
 			if ns.Number(self:GetScale(), 0) > 0.01 or ns.Number(self:GetAlpha(), 0) > 0 then
-				Trace("Spiel gab Größe oder Deckkraft zurück: %s", WindowState(self))
+				Trace(L.DIALOG_TRACE_RESTORED, WindowState(self))
 				keepingCollapsed = true
 				self:SetScale(0.001)
 				self:SetAlpha(0)
@@ -1880,7 +1880,7 @@ local function HideWindowAtOnce(window, handled)
 	hookedWindows[window] = true
 	KeepCollapsed(window)
 	window:HookScript("OnShow", ns.Measured("Dialog: collapse on show", function(self)
-		Trace("Fenster zeigt sich: %s", WindowState(self))
+		Trace(L.DIALOG_TRACE_WINDOW_SHOW, WindowState(self))
 		if Dialog.db.enabled and handled() and not InCombatLockdown() then
 			Collapse(self, true)
 		end
@@ -1898,7 +1898,7 @@ local function HookWindows()
 end
 
 local function Hide()
-	Trace("Blase weg")
+	Trace(L.DIALOG_TRACE_HIDDEN)
 	RestorePlate()
 	if bubble then
 		Portrait.Stop(bubble.Portrait)
@@ -1925,7 +1925,7 @@ end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
 local function UseBlizzard()
-	Trace("Blizzards Fenster statt Blase")
+	Trace(L.DIALOG_TRACE_BLIZZARD)
 	showToken = showToken + 1
 	Hide()
 end
@@ -1948,7 +1948,7 @@ local function PlaceFallback()
 	bubble.Fade:Stop()
 	bubble:SetAlpha(1)
 	bubble:Show()
-	Trace("Keine NPC-Plakette: Blase in Bildschirmmitte")
+	Trace(L.DIALOG_TRACE_CENTERED)
 end
 
 -- Keep watching during the brief wait, even though the bubble itself is hidden.
@@ -1959,7 +1959,7 @@ function Dialog.WatchPlate()
 	local nameplate = NpcNameplate()
 	if nameplate then
 		if nameplate ~= Dialog.anchorPlate then
-			Trace("Plakette des NPCs hat gewechselt")
+			Trace(L.DIALOG_TRACE_PLATE_CHANGED)
 			Place(nameplate)
 			if not bubble:IsShown() then
 				bubble:SetAlpha(1)
@@ -1967,7 +1967,7 @@ function Dialog.WatchPlate()
 			end
 		end
 	elseif not plateLostAt then
-		Trace("Plakette des NPCs fehlt")
+		Trace(L.DIALOG_TRACE_PLATE_MISSING)
 		WaitForPlate()
 	elseif not floating and GetTime() - plateLostAt >= LOST_WAIT then
 		if Dialog.db.fallback then PlaceFallback() else UseBlizzard() end
@@ -2011,7 +2011,7 @@ local function PlaceCurrent()
 end
 
 RenderFailed = function(err)
-	Trace("Fehler beim Zeichnen: %s", tostring(err))
+	Trace(L.DIALOG_TRACE_DRAW_ERROR, tostring(err))
 	if not Dialog.reported then
 		Dialog.reported = true
 		ns.Print(L.DIALOG_ERROR:format(tostring(err)))
@@ -2143,7 +2143,7 @@ function Dialog.Pending()
 	pendingToken = pendingToken + 1
 	current.pending = true
 	local token = pendingToken
-	Trace("Wahl getroffen: alter Schritt ausgeblendet")
+	Trace(L.DIALOG_TRACE_CHOICE)
 	FinishReveal()
 	Portrait.Stop(bubble.Portrait)
 	Cinematic.ShowSubtitle(bubble, nil)
@@ -2234,7 +2234,7 @@ local function Show(view, fromBack)
 		view.speakerGUID = ns.NpcBubbleGUID(false, InteractionUnit(view.kind))
 		npcGuid = view.speakerGUID or npcGuid or ns.NpcBubbleGUID(not current)
 	end
-	Trace("Schritt %s, Blase sichtbar %s, %s, %s", view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
+	Trace(L.DIALOG_TRACE_STEP, view.kind or "?", tostring(bubble:IsShown()), WindowState(GossipFrame), WindowState(QuestFrame))
 	local sameSpeech = current and SameSpeech(current.view, view)
 	local alreadyRead = sameSpeech and current.readView == current.view
 	local sameReward = current and view.kind == "QUEST_COMPLETE" and current.view.kind == view.kind
@@ -2271,7 +2271,7 @@ local function Show(view, fromBack)
 		return -- drawing failed, Blizzard's window shows the step
 	end
 	local used = bubble.lastUsed
-	Trace("Gezeichnet: Höhe %d, %d Texte, %d Zeilen, %d Knöpfe", ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
+	Trace(L.DIALOG_TRACE_DRAWN, ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
 	PlaceCurrent()
 	CollapseAll(true)
 	-- Blizzard's own scripts may restore size and position after the event.
@@ -2299,7 +2299,7 @@ local function CloseConversation()
 	-- The window may be gone already (the player walked away; the game closed it without an event for us): then
 	-- nothing would ever close the bubble, so it closes itself.
 	local windowShown = ConversationWindowShown()
-	Trace("Verabschieden (Fenster des Spiels offen: %s)", tostring(windowShown))
+	Trace(L.DIALOG_TRACE_GOODBYE, tostring(windowShown))
 	if C_GossipInfo and C_GossipInfo.CloseGossip and GossipFrame and GossipFrame:IsShown() then
 		C_GossipInfo.CloseGossip()
 	elseif CloseQuest then
@@ -3191,7 +3191,7 @@ function Dialog:OnConversation(event, itemID)
 	if not self.db.enabled or InCombatLockdown() then
 		return
 	end
-	Trace("Ereignis %s", event)
+	Trace(L.DIALOG_TRACE_EVENT, event)
 	if event == "MERCHANT_SHOW" or event == "MERCHANT_UPDATE" then
 		-- Updates (stock, money, bags) only refresh the list that is on show.
 		if not self.db.merchant or (event == "MERCHANT_UPDATE" and not (current and current.view.kind == "MERCHANT_SHOW")) then
@@ -3325,24 +3325,24 @@ function Dialog.PrintStatus()
 		local ok
 		ok, point, relativeTo, relativePoint, x, y = pcall(bubble.GetPoint, bubble, 1)
 		if not ok then
-			point, relativeTo, relativePoint, x, y = "(Plakette, nicht messbar)", nil, nil, nil, nil
+			point, relativeTo, relativePoint, x, y = L.DIALOG_STATUS_RESTRICTED, nil, nil, nil, nil
 		end
 		local measured
 		ok, measured = pcall(bubble.GetHeight, bubble)
 		height = ok and ns.Number(measured, 0) or 0
 	end
-	ns.PrintAlways(L.DIALOG_STATUS, Dialog.db.enabled and "ja" or "nein", bubble and "ja" or "nein",
-		bubble and bubble:IsShown() and "ja" or "nein", height or 0,
+	ns.PrintAlways(L.DIALOG_STATUS, Dialog.db.enabled and YES or NO, bubble and YES or NO,
+		bubble and bubble:IsShown() and YES or NO, height or 0,
 		tostring(point), tostring(relativeTo and relativeTo.GetName and relativeTo:GetName() or relativeTo),
 		tostring(relativePoint), ns.Number(x, 0), ns.Number(y, 0), #options, #available, #active,
-		GossipFrame and GossipFrame:IsShown() and "ja" or "nein", GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)
+		GossipFrame and GossipFrame:IsShown() and YES or NO, GossipFrame and ns.Number(GossipFrame:GetScale(), 0) or 0)
 end
 
 function Dialog:OnLogin()
 	for _, window in ipairs({ GossipFrame, QuestFrame }) do
 		if window then
 			window:HookScript("OnHide", ns.Measured("Dialog: window hide", function(shown)
-				Trace("Fenster verschwindet: %s", WindowState(shown))
+				Trace(L.DIALOG_TRACE_WINDOW_HIDE, WindowState(shown))
 				Collapse(shown, false)
 				HideIfWindowsGone()
 			end))

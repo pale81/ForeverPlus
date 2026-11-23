@@ -69,15 +69,21 @@ local mobile = {} -- npcID -> true
 
 local function NpcName(npc)
 	local vendor = bundledVendors[npc]
-	return vendor and vendor.name or DB and DB.Npc.Get(npc, "name")
+	local name = DB and DB.Npc.Get(npc, "name")
+	if type(name) == "string" and name ~= "" then
+		return name
+	end
+	return vendor and vendor.name
 end
 
 local function NpcTitle(npc)
 	local vendor = bundledVendors[npc]
-	if vendor then
-		return vendor.title
+	local title = vendor and vendor.title or DB and DB.Npc.Get(npc, "subName")
+	if type(title) == "string" and title ~= "" then
+		-- Some source rows append alternate titles from later game versions.
+		title = strtrim(title:match("^(.-)> %[") or title)
+		return L.RADAR_VENDOR_TITLES[title] or title
 	end
-	return DB and DB.Npc.Get(npc, "subName")
 end
 
 -- "A", "H" or "N" (both), nil without a fixed place.

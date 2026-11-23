@@ -192,7 +192,7 @@ local function CapturePrints(fn)
 	end
 	local ok = pcall(fn)
 	ns.PrintAlways = original
-	return ok and table.concat(lines, "\n") or "(failed)"
+	return ok and table.concat(lines, "\n") or L.DIAG_FAILED
 end
 
 local function OptionsChanged()
@@ -210,13 +210,13 @@ local function OptionsChanged()
 			lines[#lines + 1] = ("%s: %s"):format(module.name, table.concat(keys, ", "))
 		end
 	end
-	return #lines > 0 and table.concat(lines, "\n") or "(all defaults)"
+	return #lines > 0 and table.concat(lines, "\n") or L.DIAG_DEFAULTS
 end
 
 local function ProfilerLine()
 	local profiler = C_AddOnProfiler
 	if not (profiler and profiler.IsEnabled and profiler.IsEnabled()) then
-		return "profiler off"
+		return L.DIAG_PROFILER_OFF
 	end
 	local metrics = Enum.AddOnProfilerMetric
 	local parts = {}
@@ -234,17 +234,17 @@ function Capture.DiagnoseText()
 		out[#out + 1] = ""
 	end
 	local version, build = GetBuildInfo()
-	local _, className = UnitClass("player")
-	Section("ForeverPlus", ("version %s, client %s (%s), locale %s, %s level %s, %s"):format(
+	local className = UnitClass("player")
+	Section("ForeverPlus", L.DIAG_VERSION:format(
 		tostring(ns.version), tostring(version), tostring(build), GetLocale(), tostring(className), tostring(UnitLevel("player")), date("%Y-%m-%d %H:%M")))
 	local errors = ns:GetModule("Errors")
 	local count, report = 0, ""
 	if errors and errors.Report then
 		count, report = errors.Report(5)
 	end
-	Section(("Errors (%d)"):format(count), report)
-	Section("Options that differ from the defaults", OptionsChanged())
-	Section("CPU of the addon (ms)", ProfilerLine())
+	Section(L.DIAG_ERRORS:format(count), report)
+	Section(L.DIAG_CHANGED_OPTIONS, OptionsChanged())
+	Section(L.DIAG_CPU, ProfilerLine())
 	local timings = {}
 	for _, item in ipairs(ns.TopTimings(12)) do
 		timings[#timings + 1] = ("%s: %.1f ms (%d / %d)"):format(item.name, item.entry.max, item.entry.slow, item.entry.count)
@@ -255,25 +255,25 @@ function Capture.DiagnoseText()
 			timings[#timings + 1] = L.TIMINGS_SPIKES:format(ns.spikes.name)
 		end
 	end
-	Section("Longest calls", table.concat(timings, "\n"))
+	Section(L.DIAG_LONGEST, table.concat(timings, "\n"))
 	local info = ns:GetModule("Info")
 	if info and info.SpikesText then
 		local spikesText = info.SpikesText(true)
 		if spikesText then
-			Section(("Moments over %d ms"):format(ns.SLOW_MS), spikesText)
+			Section(L.DIAG_SPIKES:format(ns.SLOW_MS), spikesText)
 		end
 	end
 	local status = {}
-	for _, entry in ipairs({ { "Chat", "Chat" }, { "Loot", "Loot" }, { "Talents", "Talents" }, { "RecipeRadar", "RecipeRadar" }, { "WorldMap", "WorldMap" } }) do
-		local module = ns:GetModule(entry[2])
+	for _, name in ipairs({ "Chat", "Loot", "Talents", "RecipeRadar", "WorldMap" }) do
+		local module = ns:GetModule(name)
 		if module and module.PrintStatus then
-			status[#status + 1] = ("%s: %s"):format(entry[1], CapturePrints(function()
+			status[#status + 1] = ("%s: %s"):format(module.title or name, CapturePrints(function()
 				module:PrintStatus()
 			end))
 		end
 	end
 	status[#status + 1] = CapturePrints(function() ns:GetModule("LootSources"):PrintStatus() end)
-	Section("Status", table.concat(status, "\n"))
+	Section(L.DIAG_STATUS, table.concat(status, "\n"))
 	local addons = {}
 	for i = 1, C_AddOns.GetNumAddOns() do
 		if C_AddOns.IsAddOnLoaded(i) then
@@ -283,7 +283,7 @@ function Capture.DiagnoseText()
 			end
 		end
 	end
-	Section("Other addons loaded", table.concat(addons, ", "))
+	Section(L.DIAG_ADDONS, table.concat(addons, ", "))
 	return table.concat(out, "\n")
 end
 

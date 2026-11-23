@@ -472,7 +472,7 @@ end
 
 local function QuestStartTooltip(tooltip, symbol)
 	local entry, lib = symbol.data, ns.QuestieDB.Get()
-	local title = ns.QuestieDB.QuestName(lib, entry.id) or entry.name or ("Quest %d"):format(entry.id)
+	local title = ns.QuestieDB.QuestName(lib, entry.id) or entry.name or L.JOURNAL_QUEST_ID:format(entry.id)
 	tooltip:AddLine(title, 1, 1, 1, true)
 	tooltip:AddLine(L.WORLDMAP_QUEST_START, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
 	tooltip:AddLine(L.WORLDMAP_QUEST_START_REQUIREMENTS, 0.8, 0.8, 0.8, true)
@@ -653,7 +653,7 @@ Symbols.AddSource(function(mapID, add)
 		end
 		if not pin.quests[id] then
 			pin.quests[id] = true
-			local title = Text(ready[id].title) or ns.QuestieDB.QuestName(bundled, id) or ("Quest %d"):format(id)
+			local title = Text(ready[id].title) or ns.QuestieDB.QuestName(bundled, id) or L.JOURNAL_QUEST_ID:format(id)
 			pin.titles[#pin.titles + 1] = title
 		end
 		return true

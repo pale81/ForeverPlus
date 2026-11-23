@@ -1038,13 +1038,13 @@ local function UpdateCompareArrows(manager)
 	compareTrace.link, compareTrace.shown, compareTrace.sources, compareTrace.result = nil, nil, nil, nil
 	local tooltip = manager.tooltip
 	if not tooltip or tooltip:IsForbidden() or type(tooltip.shoppingTooltips) ~= "table" then
-		compareTrace.result = "no tooltip"
+		compareTrace.result = L.TOOLTIP_COMPARE_NO_TOOLTIP
 		return
 	end
 	local link = ItemLinkOf(tooltip)
 	compareTrace.link = link
 	if not link then
-		compareTrace.result = "hovered item unreadable"
+		compareTrace.result = L.TOOLTIP_COMPARE_NO_ITEM
 		return
 	end
 	local worn, wornTips, unknown, sources = {}, {}, false, {}
@@ -1061,7 +1061,7 @@ local function UpdateCompareArrows(manager)
 	if unknown then
 		local bySlot = WornLinksFor(link)
 		if #bySlot ~= #worn then
-			compareTrace.result = "slots " .. #bySlot .. " <> tooltips " .. #worn
+			compareTrace.result = L.TOOLTIP_COMPARE_COUNTS:format(#bySlot, #worn)
 			return
 		end
 		for index, wornLink in ipairs(worn) do
@@ -1069,7 +1069,7 @@ local function UpdateCompareArrows(manager)
 		end
 	end
 	if #worn == 0 then
-		compareTrace.result = "no comparison tooltip shown"
+		compareTrace.result = L.TOOLTIP_COMPARE_NONE_SHOWN
 		return
 	end
 	local winner, value = ns.CompareWinner(link, worn)

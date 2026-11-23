@@ -338,7 +338,7 @@ local function CreateButton(index)
 	button:SetAttribute("useOnKeyDown", true)
 	button:HookScript("PreClick", function(self, mouseButton, down)
 		local unit = self:GetAttribute("unit")
-		Trace("Klick (%s, %s): Symbol %s, Zauber %s, auf %s (%s)", tostring(mouseButton), down and "unten" or "oben",
+		Trace(L.BUFFS_TRACE_CLICK, tostring(mouseButton), down and L.BUFFS_TRACE_PRESS or L.BUFFS_TRACE_RELEASE,
 			Plain(self.spellID and SpellName(self.spellID)), Plain(self:GetAttribute("spell")), tostring(unit),
 			Plain(unit and UnitName(unit)))
 	end)
@@ -693,15 +693,15 @@ local function EvaluateTarget(reminder, threshold)
 		local kind, renew, recheck = Buffs.ChooseBlessing(class, usesMana, known, onTarget, threshold, level, paladinTank)
 		local seen = {}
 		for name, aura in pairs(onTarget) do
-			seen[#seen + 1] = ("%s(%s, %d s)"):format(name, aura.mine and "eigen" or "fremd", aura.remaining)
+			seen[#seen + 1] = ("%s(%s, %d s)"):format(name, aura.mine and L.BUFFS_TRACE_OWN or L.BUFFS_TRACE_OTHER, aura.remaining)
 		end
 		local key = ("%s|%s|%d|%s|%s|%s"):format(Plain(UnitName("target")), tostring(class), level,
 			tostring(paladinTank), table.concat(seen, " "), tostring(kind))
 		if key ~= Buffs.lastBlessingTrace then
 			Buffs.lastBlessingTrace = key
-			Trace("Ziel %s (%s, Stufe %d, Mana %s, Paladin-Tank %s): Segen darauf %s; Wahl %s = %s",
+			Trace(L.BUFFS_TRACE_TARGET,
 				Plain(UnitName("target")), tostring(class), level, tostring(Buffs.HasMana(class, usesMana)),
-				tostring(paladinTank), #seen > 0 and table.concat(seen, " ") or "keine", tostring(kind),
+				tostring(paladinTank), #seen > 0 and table.concat(seen, " ") or L.BUFFS_TRACE_NO_BLESSING, tostring(kind),
 				Plain(kind and SpellName(BLESSING_KINDS[kind][1])))
 		end
 		if not kind then
@@ -978,7 +978,7 @@ local function CreateBar()
 	casts:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
 	casts:SetScript("OnEvent", ns.Measured("Buffs: cast trace", function(_, _, _, target, _, spellID)
 		if bar and bar:IsShown() and buttons[1] and buttons[1]:IsShown() then
-			Trace("Gewirkt: %s [%s] auf %s", Plain(spellID and SpellName(spellID)), Plain(spellID), Plain(target))
+			Trace(L.BUFFS_TRACE_CAST, Plain(spellID and SpellName(spellID)), Plain(spellID), Plain(target))
 		end
 	end))
 end

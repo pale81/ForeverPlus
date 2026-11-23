@@ -249,6 +249,28 @@ for line in io.lines(root .. "/ForeverPlus.toc") do
 		chunk("ForeverPlus", ns)
 	end
 end
+;(function()
+	local savedLocale = GetLocale
+	local english, german = {}, {}
+	assert(loadfile(root .. "/Locales/enUS.lua"))("ForeverPlus", english)
+	german.L = {}
+	GetLocale = function() return "deDE" end
+	assert(loadfile(root .. "/Locales/deDE.lua"))("ForeverPlus", german)
+	GetLocale = savedLocale
+	for key, value in pairs(english.L) do
+		assert(type(german.L[key]) == type(value), "missing or mismatched German locale key: " .. key)
+	end
+	for key in pairs(german.L) do
+		assert(rawget(english.L, key) ~= nil, "missing English locale key: " .. key)
+	end
+	for id, vendor in pairs(ns.RadarData.vendors) do
+		if vendor[2] then
+			local title = strtrim(vendor[2]:match("^(.-)> %[") or vendor[2])
+			assert(german.L.RADAR_VENDOR_TITLES[title], "missing German title for recipe vendor " .. id .. ": " .. title)
+		end
+	end
+	print("locale coverage OK")
+end)()
 -- ADDON_LOADED + PLAYER_LOGIN
 local loader
 for k, v in pairs(_G) do end
@@ -988,7 +1010,7 @@ end)()
 
 	-- Diagnose includes >5 ms moments when present.
 	local diag = ns:GetModule("DataCapture").DiagnoseText()
-	assert(diag:find("== Moments over 5 ms ==", 1, true) and diag:find("Items: repeat", 1, true),
+	assert(diag:find("== " .. ns.L.DIAG_SPIKES:format(ns.SLOW_MS) .. " ==", 1, true) and diag:find("Items: repeat", 1, true),
 		"diagnose report includes collected >5 ms moments")
 
 	-- Left-click on perfFrame opens the copyable window; slash commands also open it; Reset clears everything.
@@ -1020,7 +1042,7 @@ end)()
 	openedExtras[1].onClick()
 	assert(info.SpikesText(true) == nil and openedText == ns.L.INFO_SPIKES_EMPTY:format(ns.SLOW_MS),
 		"reset button clears collected moments and refreshes window")
-	assert(not ns:GetModule("DataCapture").DiagnoseText():find("== Moments over 5 ms ==", 1, true),
+	assert(not ns:GetModule("DataCapture").DiagnoseText():find("== " .. ns.L.DIAG_SPIKES:format(ns.SLOW_MS) .. " ==", 1, true),
 		"diagnose omits moments section after reset")
 
 	GameTooltip.AddLine, GameTooltip.AddDoubleLine, GameTooltip_AddNormalLine = savedAddLine, savedAddDouble, savedAddNormal
@@ -5528,7 +5550,7 @@ end)()
 	dialog.db.enabled, dialog.db.merchant, dialog.reported = true, true, nil
 	dialog:OnConversation("MERCHANT_SHOW")
 	for line = math.max(1, #ns.db.bubbleTrace - 15), #ns.db.bubbleTrace do
-		assert(not ns.db.bubbleTrace[line]:find("Fehler beim Zeichnen"), ns.db.bubbleTrace[line])
+		assert(not ns.db.bubbleTrace[line]:find(ns.L.DIALOG_TRACE_DRAW_ERROR:format(""), 1, true), ns.db.bubbleTrace[line])
 	end
 	local bubble = uv(dialog.Rerender, "bubble")
 	local drawn = bubble.pools.row
@@ -5625,9 +5647,10 @@ end)()
 	dialog:OnConversation("MERCHANT_SHOW")
 	dialog.db.enabled, dialog.db.merchant = wasOn, wasMerchant
 	local drawn
+	local drawPattern = ns.L.DIALOG_TRACE_DRAWN:format(-1, -1, 40, -1):gsub("%-1", "%%d+")
 	for line = math.max(1, #ns.db.bubbleTrace - 15), #ns.db.bubbleTrace do
-		assert(not ns.db.bubbleTrace[line]:find("Fehler beim Zeichnen"), ns.db.bubbleTrace[line])
-		drawn = drawn or ns.db.bubbleTrace[line]:find("Gezeichnet: Höhe %d+, %d+ Texte, 40 Zeilen")
+		assert(not ns.db.bubbleTrace[line]:find(ns.L.DIALOG_TRACE_DRAW_ERROR:format(""), 1, true), ns.db.bubbleTrace[line])
+		drawn = drawn or ns.db.bubbleTrace[line]:find(drawPattern)
 	end
 	assert(drawn and not dialog.reported, "the long list draws: " .. table.concat(ns.db.bubbleTrace, "\n", math.max(1, #ns.db.bubbleTrace - 15)))
 	GetMerchantNumItems = many
@@ -7407,6 +7430,24 @@ end)()
 	for _, symbol in ipairs(active()) do if symbol.kind == "radar" then radarSymbol = symbol end end
 	print("  radar symbols on map", vendorMap, S.Count(vendorMap).radar)
 	assert(radarSymbol and radarSymbol.round and radarSymbol.click and radarSymbol.mapID == vendorMap, "radar symbol")
+	local fillTooltip = uv(radarSymbol.tooltip, "FillVendorTooltip")
+	local npcTitle = uv(fillTooltip, "NpcTitle")
+	local npcName = uv(fillTooltip, "NpcName")
+	local savedDB = uv(npcTitle, "DB")
+	setuv(npcTitle, "DB", nil)
+	assert(npcName(5494) == "Catherine Leland", "bundled name without QuestieDB")
+	local isGerman = GetLocale() == "deDE"
+	local fishingTitle = isGerman and "Angelbedarf" or "Fishing Supplier"
+	assert(npcTitle(5494) == fishingTitle, "local fishing supplier title")
+	assert(npcTitle(4223) == (isGerman and "Kochbedarf" or "Cooking Supplies"), "later era title excluded")
+	setuv(npcTitle, "DB", { Npc = { Get = function(id, field)
+		if id == 5494 and field == "name" then return "Localised vendor name" end
+		if id == -1 and field == "subName" then return "Fishing Supplier" end
+	end } })
+	assert(npcName(5494) == "Localised vendor name", "prefer QuestieDB's localised name")
+	assert(npcName(4223) == "Fyldan", "use the bundled name when QuestieDB has none")
+	assert(npcTitle(-1) == fishingTitle, "QuestieDB's English title can also be translated")
+	setuv(npcTitle, "DB", savedDB)
 	C_Item.GetItemCount = itemCount
 	radar.db.worldMap = false
 	print("world map symbols OK")
@@ -7985,8 +8026,8 @@ end)()
 	local measure = ns:GetModule("Dialog").Measure
 	local savedSecret = issecretvalue
 	issecretvalue = function(value) return value == "secret" end
-	assert(measure(true, 412.6) == "412" and measure(true, nil) == "fehlt" and measure(false, "boom") == "Fehler"
-		and measure(true, "secret") == "geheim", "measured values")
+	assert(measure(true, 412.6) == "412" and measure(true, nil) == ns.L.TRACE_MISSING and measure(false, "boom") == ns.L.TRACE_ERROR
+		and measure(true, "secret") == ns.L.TRACE_PROTECTED, "measured values")
 	issecretvalue = savedSecret
 	items.trace, ns.ShowEditWindow = savedTrace, saved
 	print("trace window OK")
@@ -9266,8 +9307,10 @@ end)()
 ;(function()
 	local dc = ns:GetModule("DataCapture")
 	local text = dc.DiagnoseText()
-	assert(text:find("== ForeverPlus ==", 1, true) and text:find("== Errors (", 1, true) and text:find("== Status ==", 1, true), "report sections")
-	assert(text:find("== Options that differ from the defaults ==", 1, true), "options section")
+	local errors = ns.L.DIAG_ERRORS:match("^(.-)%%d")
+	assert(text:find("== ForeverPlus ==", 1, true) and text:find("== " .. errors, 1, true)
+		and text:find("== " .. ns.L.DIAG_STATUS .. " ==", 1, true), "report sections")
+	assert(text:find("== " .. ns.L.DIAG_CHANGED_OPTIONS .. " ==", 1, true), "options section")
 	print("diagnose OK")
 end)()
 -- Loot sources
@@ -9641,7 +9684,7 @@ end)()
 	assert(#texts == 0, "option off: no entries")
 	WM.db.filterMenu = true
 	WM.AddFilterMenu(node(0))
-	assert(texts[1] == "# ForeverPlus", "own section under the addon name")
+	assert(texts[1] == "# " .. ns.L.MENU_EXTRAS, "localized heading for the extra map filters")
 	assert(setters[ns.L.WORLDMAP_FLIGHTS] and setters[ns.L.WORLDMAP_INNS] and setters[ns.L.LIBRARY_SYMBOLS]
 		and setters[ns.L.TRANSPORTS_DOCKS] and setters[ns.L.RADAR_TITLE], "symbols, books, docks and radar present")
 	local discoveries, books = setters[ns.L.WORLDMAP_DISCOVERIES], setters[ns.L.LIBRARY_SYMBOLS]
@@ -9752,7 +9795,10 @@ end)()
 	assert(scale == 0.001 and window.alpha == 0, "Blizzard's window collapsed while the book shows")
 	assert(not R.CanTurn(false) and R.CanTurn(true), "only forward from the first spread")
 	local traced = table.concat(ns.db.readableTrace or {}, "\n")
-	assert(traced:find("Seite 1 %(BOOK, Parchment%): Text, 7 Zeichen") and traced:find("Seite 2 %(BOOK"), "pages in the trace: " .. traced)
+	for page = 1, 2 do
+		local label = strtrim(ns.L.READABLE_TRACE_STYLE:format(page, "BOOK", "Parchment", "Text", 7, "", "", ""))
+		assert(traced:find(label, 1, true), "pages in the trace: " .. traced)
+	end
 	R.Turn(true)
 	assert(R.spread.left.page == 3 and R.spread.right.page == 4, "forward: pages 3 and 4")
 	R.Turn(true)

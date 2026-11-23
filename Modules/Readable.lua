@@ -389,16 +389,16 @@ end
 local function Value(fn)
 	local ok, value = pcall(fn)
 	if not ok then
-		return "Fehler"
+		return L.TRACE_ERROR
 	end
 	value = ns.Number(value, nil)
-	return value and ("%d"):format(value) or "fehlt"
+	return value and ("%d"):format(value) or L.TRACE_MISSING
 end
 
 local function WatchPage(holder, label)
 	for _, delay in ipairs({ 0.1, 0.5, 2 }) do
 		ns.After("Readable: WatchPage (timer)", delay, function()
-			Trace("%s +%.1f: sichtbar %s, Deckkraft %s (eigene %s, Buch %s, Text %s), Höhe %s, Inhalt %s", label, delay,
+			Trace(L.READABLE_TRACE_SAMPLE, label, delay,
 				tostring(holder:IsVisible()), Value(function() return holder:GetEffectiveAlpha() * 100 end),
 				Value(function() return holder:GetAlpha() * 100 end), Value(function() return view:GetAlpha() * 100 end),
 				Value(function() return holder.Text:GetAlpha() * 100 end),
@@ -431,7 +431,7 @@ local function SetPageText(holder, text, width, height)
 				-- A SimpleHTML lays its text out when the text is set, not when its size changes: set again.
 				holder.Text:SetHeight(wanted)
 				holder.Text:SetText(text)
-				Trace("Seite länger als Platz: Höhe %d statt %d", wanted, height)
+				Trace(L.READABLE_TRACE_RESIZE, wanted, height)
 			end
 		end
 	end)
@@ -494,10 +494,10 @@ local function Draw(look, material, pages, quest)
 			if font then
 				file, size, flags = font:GetFont()
 			end
-			Trace("Seite %d (%s, %s): %s, %d Zeichen, Schrift %s %s %s", page.page, look, tostring(material),
+			Trace(L.READABLE_TRACE_STYLE, page.page, look, tostring(material),
 				(page.text or ""):find("^%s*<[Hh][Tt][Mm][Ll]") and "HTML" or "Text", #(page.text or ""),
 				tostring(file), Value(function() return size end), tostring(flags))
-			WatchPage(holder, ("Seite %d"):format(page.page))
+			WatchPage(holder, L.READABLE_TRACE_PAGE:format(page.page))
 			SetPageText(holder, quest and page.text or WithCreator(page.text), geometry.width - area[1] - area[3],
 				math.max(1, geometry.height - top - area[4]))
 			local several = not quest and (look == "BOOK" or page.hasNext or page.page > 1)

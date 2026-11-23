@@ -533,13 +533,14 @@ local function HookActionButtons()
 	if not (ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.frames) then
 		return
 	end
+	local colorButton = ns.Measured("Visuals: action usable", ColorButton)
 	for _, button in pairs(ActionBarButtonEventsFrame.frames) do
 		if not actionButtons[button] and button.UpdateUsable then
 			actionButtons[button] = true
-			hooksecurefunc(button, "UpdateUsable", ColorButton)
+			hooksecurefunc(button, "UpdateUsable", colorButton)
 		end
 	end
-	hooksecurefunc("ActionButton_UpdateRangeIndicator", OnRangeUpdate)
+	hooksecurefunc("ActionButton_UpdateRangeIndicator", ns.Measured("Visuals: action range", OnRangeUpdate))
 end
 
 local function RecolorAll()

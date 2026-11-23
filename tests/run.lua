@@ -13265,5 +13265,64 @@ end)()
 	C_Item.GetItemInfoInstant, ns.RewardComparisonState = saved[13], saved[14]
 	print("compact loot roll frames OK")
 end)()
+;(function()
+	-- MapSymbols slicing, RecipeRadar targeted invalidation + scan budget, Camera state reuse,
+	-- MeasuredReturn chat filters and frame-level GC tagging.
+	local camera = ns:GetModule("Camera")
+	local s1, s2 = camera.State(), camera.State()
+	assert(s1 == s2, "Camera.State reuses its table instead of allocating every tick")
+
+	-- MeasuredReturn preserves multiple return values (including nils) and records timings.
+	local savedClock, savedTime = debugprofilestop, GetTime
+	local clock, now = 0, 2100
+	debugprofilestop = function() return clock end
+	GetTime = function() return now end
+	ns.SetMeasuring(true)
+	now = 2101
+	local wrapped = ns.MeasuredReturn("Test: multi return", function(a, b)
+		clock = clock + 1.2
+		return false, a, nil, b
+	end)
+	local r1, r2, r3, r4 = wrapped("msg", "sender")
+	assert(r1 == false and r2 == "msg" and r3 == nil and r4 == "sender",
+		"MeasuredReturn preserves all return values including false and nil")
+	assert(ns.timings["Test: multi return"] and ns.timings["Test: multi return"].max == 1.2,
+		"MeasuredReturn records call duration")
+	ns.SetMeasuring(false)
+	debugprofilestop, GetTime = savedClock, savedTime
+
+	-- RecipeRadar OnItemInfo keeps cached entries for other recipes and ignores unrelated items.
+	local radar = ns:GetModule("RecipeRadar")
+	local refresh = uv(radar.RequestRefresh, "Refresh")
+	local onItemInfo = uv(refresh, "OnItemInfo")
+	local statusCache = uv(onItemInfo, "statusCache")
+	local recipes = uv(onItemInfo, "recipes")
+	local anyID = next(recipes)
+	assert(anyID, "radar has recipe entries")
+	local savedRefreshReq = radar.RequestRefresh
+	local reqCount = 0
+	radar.RequestRefresh = function() reqCount = reqCount + 1 end
+	statusCache[anyID] = "ok"
+	statusCache[999999] = "ok"
+	onItemInfo(radar, "GET_ITEM_INFO_RECEIVED", 888888, true)
+	assert(reqCount == 0 and statusCache[anyID] == "ok" and statusCache[999999] == "ok",
+		"non-recipe GET_ITEM_INFO_RECEIVED does not wipe statusCache or schedule refresh")
+	onItemInfo(radar, "GET_ITEM_INFO_RECEIVED", anyID, true)
+	assert(reqCount == 1 and statusCache[anyID] == nil and statusCache[999999] == "ok",
+		"recipe GET_ITEM_INFO_RECEIVED invalidates only the affected recipe")
+	statusCache[999999] = nil
+	radar.RequestRefresh = savedRefreshReq
+
+	-- Unattributed >5 ms moment with frame-level GC drop gets the (GC) tag.
+	local info = ns:GetModule("Info")
+	local record = uv(uv(info.UpdatePerformance, "SetupProfilerSampler"), "SampleAddonMetrics")
+	record = uv(record, "RecordSpikeMoment")
+	record(2102, { name = ns.name, title = ns.name, own = true }, 9.5, nil, nil, nil, nil, nil, true)
+	local text = info.SpikesText()
+	assert(text:find(ns.L.INFO_SPIKES_UNATTRIBUTED_GC, 1, true), "unattributed GC spike is labelled with (GC)")
+	uv(info.ShowSpikes, "ResetSession")()
+	assert(info.SpikesText(true) == nil, "ResetSession clears the recorded GC moment")
+	print("map/radar/gc optimization OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

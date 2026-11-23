@@ -303,7 +303,7 @@ local function FormatCallList(calls, limit)
 	return table.concat(parts, ", ")
 end
 
-local function RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime)
+local function RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime, frameGC)
 	local clock
 	if type(date) == "function" then
 		clock = date("%H:%M:%S")
@@ -316,6 +316,7 @@ local function RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, f
 		own = entry.own,
 		ms = elapsed,
 		combat = InCombatLockdown() and true or false,
+		gc = entry.own and frameGC or false,
 		calls = entry.own and SnapshotFrameCalls(frameCalls, frameCounts, frameMax, peakCall, peakCallTime) or nil,
 	}
 	if #spikeMoments > MAX_SPIKE_MOMENTS then
@@ -362,7 +363,7 @@ local function OnProfilerEvent(_, event, arg1, arg2)
 	end
 end
 
-local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, frameCalls, frameCounts, frameMax)
+local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, frameCalls, frameCounts, frameMax, frameGC)
 	if resetAt and (not previousFrameAt or previousFrameAt <= resetAt) then
 		return
 	end
@@ -401,7 +402,7 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, 
 				entry.slowAt, entry.slowFrame = now, elapsed
 				entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
 			end
-			RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime)
+			RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime, frameGC)
 		end
 	end
 	return ownElapsed
@@ -508,6 +509,10 @@ local function MomentStamp(moment, now)
 	return age ~= "" and age or "<1 s"
 end
 
+local function UnattributedLabel(moment)
+	return moment.gc and L.INFO_SPIKES_UNATTRIBUTED_GC or L.INFO_SPIKES_UNATTRIBUTED
+end
+
 local function AddSpikeMomentLines(now)
 	if #spikeMoments == 0 then
 		return
@@ -528,7 +533,7 @@ local function AddSpikeMomentLines(now)
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			RED_FONT_COLOR.r, RED_FONT_COLOR.g, RED_FONT_COLOR.b)
 		if own then
-			local detail = FormatCallList(moment.calls, 2) or L.INFO_SPIKES_UNATTRIBUTED
+			local detail = FormatCallList(moment.calls, 2) or UnattributedLabel(moment)
 			GameTooltip:AddLine("  " .. detail, 0.62, 0.62, 0.62, true)
 		else
 			sawExternal = true
@@ -653,11 +658,12 @@ function Info.SpikesText(nilIfEmpty)
 	for _, moment in ipairs(spikeMoments) do
 		if moment.own then
 			local main = moment.calls and moment.calls[1]
-			local key = main and main.name or ""
+			local fallbackName = UnattributedLabel(moment)
+			local key = main and main.name or ("\0" .. fallbackName)
 			local item = ownByCall[key]
 			if not item then
 				item = {
-					name = main and main.name or L.INFO_SPIKES_UNATTRIBUTED,
+					name = main and main.name or fallbackName,
 					unattributed = not main,
 					count = 0,
 					maxCall = 0,
@@ -719,7 +725,7 @@ function Info.SpikesText(nilIfEmpty)
 			parts[#parts + 1] = L.INFO_SPIKES_COMBAT
 		end
 		if moment.own then
-			parts[#parts + 1] = FormatCallList(moment.calls) or L.INFO_SPIKES_UNATTRIBUTED
+			parts[#parts + 1] = FormatCallList(moment.calls) or UnattributedLabel(moment)
 		end
 		out[#out + 1] = table.concat(parts, " | ")
 	end

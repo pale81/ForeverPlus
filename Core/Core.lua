@@ -111,12 +111,22 @@ function ns.GuidParts(guid)
 end
 
 -- Chat filters: Blizzard moved the functions into ChatFrameUtil.
+local chatFilterWrappers = {}
+
 function ns.AddChatFilter(event, filter)
-	(ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter)(event, filter)
+	local wrapped = chatFilterWrappers[filter]
+	if not wrapped then
+		wrapped = ns.MeasuredReturn("ChatFilter: " .. tostring(event), filter)
+		chatFilterWrappers[filter] = wrapped
+	end
+	local add = ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter or ChatFrame_AddMessageEventFilter
+	add(event, wrapped)
 end
 
 function ns.RemoveChatFilter(event, filter)
-	(ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter)(event, filter)
+	local wrapped = chatFilterWrappers[filter] or filter
+	local remove = ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter or ChatFrame_RemoveMessageEventFilter
+	remove(event, wrapped)
 end
 
 -- A typed command in lower case; string.lower leaves the German capitals with umlaut as they are.
@@ -309,9 +319,9 @@ local frameTop, frameTopTime, frameTopAt
 local lastTop, lastTopTime, lastTopAt
 local frameCalls, frameCounts, frameMax, frameHasCalls = {}, {}, {}, false
 local lastCalls, lastCounts, lastMax, lastHasCalls = {}, {}, {}, false
-local previousFrameAt
+local previousFrameAt, previousFrameMem
 local sessionSampler
-local SESSION_CALL_MIN = 0.25
+local SESSION_CALL_MIN = 0.05
 local measureStartedAt
 
 local function ActiveMeasurement()
@@ -401,9 +411,11 @@ spikeFrame:SetScript("OnUpdate", function()
 		end
 	end
 	local total
+	local currentMem = collectgarbage("count")
+	local frameGC = previousFrameMem ~= nil and currentMem < previousFrameMem
 	if sessionSampler then
 		local start = debugprofilestop()
-		total = sessionSampler(now, name, elapsed, previousFrameAt, calls, counts, maxes)
+		total = sessionSampler(now, name, elapsed, previousFrameAt, calls, counts, maxes, frameGC)
 		local duration = debugprofilestop() - start
 		if duration >= SESSION_CALL_MIN then
 			RecordFrameCall("Info: CPU sampler", duration)
@@ -424,13 +436,13 @@ spikeFrame:SetScript("OnUpdate", function()
 			end
 		end
 	end
-	previousFrameAt = now
+	previousFrameAt, previousFrameMem = now, collectgarbage("count")
 end)
 
 function ns.SetSessionProfiler(sample)
 	sessionSampler = sample
 	if not (sample or ns.measuring) then
-		previousFrameAt = nil
+		previousFrameAt, previousFrameMem = nil, nil
 	end
 	spikeFrame:SetShown(ns.measuring or sample ~= nil)
 end
@@ -536,6 +548,30 @@ function ns.Measured(name, fn)
 		elseif elapsed >= SESSION_CALL_MIN then
 			RecordFrameCall(SpikeName(name, elapsed, memory), elapsed)
 		end
+	end
+end
+
+local function FinishMeasured(name, start, memBefore, measurement, ...)
+	local elapsed = debugprofilestop() - start
+	local label = SpikeName(name, elapsed, memBefore)
+	if measurement and measurement == ns.spikes and ns.measuring then
+		ns.RecordTiming(label, elapsed)
+	elseif elapsed >= SESSION_CALL_MIN then
+		RecordFrameCall(label, elapsed)
+	end
+	return ...
+end
+
+-- Wraps a callback while preserving all return values (e.g. chat filters).
+function ns.MeasuredReturn(name, fn)
+	return function(...)
+		if not (ns.measuring or sessionSampler) then
+			return fn(...)
+		end
+		local measurement = ActiveMeasurement()
+		local memBefore = collectgarbage("count")
+		local start = debugprofilestop()
+		return FinishMeasured(name, start, memBefore, measurement, fn(...))
 	end
 end
 

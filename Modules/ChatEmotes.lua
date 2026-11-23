@@ -856,14 +856,15 @@ function Emotes:OnLogin()
 	if _G.FCF_SelectDockFrame then
 		hooksecurefunc("FCF_SelectDockFrame", Close)
 	end
+	local syncTab = ns.Measured("ChatEmotes: sync tab", SyncTabAppearance)
 	for _, name in ipairs({ "FCF_FadeInChatFrame", "FCF_FadeOutChatFrame", "FCFTab_UpdateAlpha" }) do
 		if _G[name] then
-			hooksecurefunc(name, SyncTabAppearance)
+			hooksecurefunc(name, syncTab)
 		end
 	end
 	local chat = ns:GetModule("Chat")
 	if chat and chat.UpdateTabFade then
-		hooksecurefunc(chat, "UpdateTabFade", SyncTabAppearance)
+		hooksecurefunc(chat, "UpdateTabFade", syncTab)
 	end
 	self:RegisterEvent("UPDATE_CHAT_WINDOWS", Place)
 	Place()

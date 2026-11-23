@@ -480,22 +480,25 @@ end
 local function HookBars()
 	for _, container in ipairs(StatusTrackingBarManager and StatusTrackingBarManager.barContainers or {}) do
 		HookContainer(container)
+		local updateText = ns.Measured("XPBar: UpdateText", UpdateText)
+		local updateOverlay = ns.Measured("XPBar: UpdateOverlay", UpdateOverlay)
+		local updateRepText = ns.Measured("XPBar: UpdateRepText", UpdateRepText)
 		local bar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Experience]
 		if bar and not expBars[bar] then
 			expBars[bar] = true
-			hooksecurefunc(bar, "UpdateCurrentText", UpdateText)
-			hooksecurefunc(bar, "Update", UpdateOverlay)
+			hooksecurefunc(bar, "UpdateCurrentText", updateText)
+			hooksecurefunc(bar, "Update", updateOverlay)
 			bar:HookScript("OnEnter", ShimmerOn)
 			bar:HookScript("OnLeave", ShimmerOff)
 			if bar.UpdateStatusBarTextures then
-				hooksecurefunc(bar, "UpdateStatusBarTextures", UpdateOverlay)
+				hooksecurefunc(bar, "UpdateStatusBarTextures", updateOverlay)
 			end
 		end
 		local repBar = container.bars and container.bars[StatusTrackingBarInfo.BarsEnum.Reputation]
 		if repBar and not repBars[repBar] then
 			repBars[repBar] = true
-			hooksecurefunc(repBar, "Update", UpdateRepText)
-			hooksecurefunc(repBar, "UpdateCurrentText", UpdateRepText)
+			hooksecurefunc(repBar, "Update", updateRepText)
+			hooksecurefunc(repBar, "UpdateCurrentText", updateRepText)
 		end
 	end
 	UpdateBars()

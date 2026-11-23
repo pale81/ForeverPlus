@@ -254,13 +254,22 @@ local function UpdateSkills()
 end
 
 local failedItems = {} -- items the client could not load (not in this client's data): never wait for them
+local SCAN_BUDGET = 1.5 -- ms per refresh pass for uncached recipe tooltip checks
+local scanDeadline, scanDeferred
 
 -- Item data arrives later: scan again then.
 local function OnItemInfo(_, _, itemID, success)
+	if itemID and not recipes[itemID] then
+		return
+	end
 	if success == false and itemID then
 		failedItems[itemID] = true
 	end
-	wipe(statusCache)
+	if itemID then
+		statusCache[itemID] = nil
+	else
+		wipe(statusCache)
+	end
 	Radar:RequestRefresh()
 end
 
@@ -276,6 +285,10 @@ local function ScanRecipe(itemID)
 	if not C_Item.IsItemDataCachedByID(itemID) then
 		C_Item.RequestLoadItemDataByID(itemID)
 		waitingForItems = true
+		return nil
+	end
+	if scanDeadline and debugprofilestop() >= scanDeadline then
+		scanDeferred = true
 		return nil
 	end
 	local status = "ok"
@@ -648,15 +661,23 @@ local refreshPending = false
 local function Refresh()
 	refreshPending = false
 	waitingForItems = false
+	scanDeferred = false
+	scanDeadline = debugprofilestop() + SCAN_BUDGET
 	local checked = {}
-	RefreshMinimap(checked)
-	worldSourceChecks = checked
-	local ok, err = pcall(ns.MapSymbols.Refresh)
+	local ok, err = pcall(function()
+		RefreshMinimap(checked)
+		worldSourceChecks = checked
+		ns.MapSymbols.Refresh()
+	end)
 	worldSourceChecks = nil
+	scanDeadline = nil
 	if not ok then
 		error(err, 0)
 	end
 	Radar:ToggleEvent("GET_ITEM_INFO_RECEIVED", waitingForItems, OnItemInfo)
+	if scanDeferred then
+		Radar:RequestRefresh()
+	end
 end
 
 function Radar:RequestRefresh()

@@ -569,7 +569,7 @@ function QoL:OnLogin()
 		self:UpdateMouseover()
 		self:RegisterEvent("QUEST_LOG_UPDATE", UpdateQuestHeader)
 		if QuestObjectiveTracker then
-			hooksecurefunc(QuestObjectiveTracker, "Update", UpdateQuestHeader)
+			hooksecurefunc(QuestObjectiveTracker, "Update", ns.Measured("QoL: quest header", UpdateQuestHeader))
 		end
 		UpdateQuestHeader()
 	end)

@@ -429,41 +429,58 @@ local function CompletedOrActive(questID)
 	return C_QuestLog.IsQuestFlaggedCompleted(questID) or C_QuestLog.GetLogIndexForQuestID(questID) ~= nil
 end
 
-local function QuestStartAvailable(entry, lib)
+local function PlayerQuestCriteria(lib)
+	local level = UnitLevel("player")
+	local _, _, classID = UnitClass("player")
+	local _, _, raceID = UnitRace("player")
+	local enum = type(lib) == "table" and lib.Enum
+	local raceMask = type(enum) == "table" and type(enum.raceMaskById) == "table" and enum.raceMaskById[raceID]
+	if not raceMask and raceID then raceMask = 2 ^ (raceID - 1) end
+	local classMask = classID and 2 ^ (classID - 1)
+	return level, raceMask, classMask
+end
+
+local function QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask)
 	local quest = entry.data or entry
 	if CompletedOrActive(quest.id) then
 		return false
 	end
+	if playerLevel == nil then
+		playerLevel, playerRaceMask, playerClassMask = PlayerQuestCriteria(lib)
+	end
 	local gate = type(quest.gate) == "number" and quest.gate or 0
 	local requiredLevel = math.floor(gate / 100000000000)
-	if requiredLevel > 0 and UnitLevel("player") < requiredLevel then
+	if requiredLevel > 0 and playerLevel < requiredLevel then
 		return false
 	end
 	local raceMask = math.floor((gate % 100000000) / 10000)
 	local classMask = gate % 10000
-	local _, _, classID = UnitClass("player")
-	local _, _, raceID = UnitRace("player")
-	local enum = lib.Enum
-	local playerRaceMask = type(enum) == "table" and type(enum.raceMaskById) == "table" and enum.raceMaskById[raceID]
-	if not playerRaceMask and raceID then playerRaceMask = 2 ^ (raceID - 1) end
-	local playerClassMask = classID and 2 ^ (classID - 1)
 	if raceMask ~= 0 and playerRaceMask and not HasMaskBit(raceMask, playerRaceMask) then
 		return false
 	end
 	if classMask ~= 0 and playerClassMask and not HasMaskBit(classMask, playerClassMask) then
 		return false
 	end
-	local anyFound, anyCompleted = false, false
-	for _, id in ipairs(quest.any or {}) do
-		anyFound = true
-		if C_QuestLog.IsQuestFlaggedCompleted(id) then anyCompleted = true end
+	if quest.any then
+		local anyFound, anyCompleted = false, false
+		for _, id in ipairs(quest.any) do
+			anyFound = true
+			if C_QuestLog.IsQuestFlaggedCompleted(id) then
+				anyCompleted = true
+				break
+			end
+		end
+		if anyFound and not anyCompleted then return false end
 	end
-	if anyFound and not anyCompleted then return false end
-	for _, id in ipairs(quest.all or {}) do
-		if not C_QuestLog.IsQuestFlaggedCompleted(id) then return false end
+	if quest.all then
+		for _, id in ipairs(quest.all) do
+			if not C_QuestLog.IsQuestFlaggedCompleted(id) then return false end
+		end
 	end
-	for _, id in ipairs(quest.excluded or {}) do
-		if CompletedOrActive(id) then return false end
+	if quest.excluded then
+		for _, id in ipairs(quest.excluded) do
+			if CompletedOrActive(id) then return false end
+		end
 	end
 	if quest.blockedBy and CompletedOrActive(quest.blockedBy) then return false end
 	if quest.parent and not C_QuestLog.GetLogIndexForQuestID(quest.parent) then return false end
@@ -485,6 +502,7 @@ Symbols.AddSource(function(mapID, add)
 	end
 	local lib = ns.QuestieDB.Get()
 	if not lib then return end
+	local playerLevel, playerRaceMask, playerClassMask = PlayerQuestCriteria(lib)
 	local availability = {}
 	-- The discovery marker already shows these quest starts on the zone map.
 	local discoveries = db.discoveries and ns.MapDiscoveries[mapID]
@@ -503,7 +521,7 @@ Symbols.AddSource(function(mapID, add)
 			local id = entry.data.id
 			local isAvailable = availability[id]
 			if isAvailable == nil then
-				isAvailable = QuestStartAvailable(entry, lib)
+				isAvailable = QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask)
 				availability[id] = isAvailable
 			end
 			if isAvailable then
@@ -691,6 +709,8 @@ Symbols.AddSource(function(mapID, add)
 	end
 end)
 
+local cityFlightsCache, cityFlightsNpcs = {}, nil
+
 Symbols.AddSource(function(mapID, add)
 	if not (Options().flightPoints and npcs) then
 		return
@@ -704,25 +724,38 @@ Symbols.AddSource(function(mapID, add)
 	end)
 	-- The flight masters of the capitals sit on the city maps; the zone map around a city shows them too.
 	if not IsContinent(mapID) then
-		for flightMap, list in pairs(npcs.flights) do
-			local info = flightMap ~= mapID and C_Map.GetMapInfo(flightMap)
-			if info and info.mapType == Enum.UIMapType.City then
-				for _, flight in ipairs(list) do
-					local continent, world = C_Map.GetWorldPosFromMapPos(flightMap, CreateVector2D(flight.x / 100, flight.y / 100))
-					local worldX, worldY
-					if world then
-						worldX, worldY = world:GetXY()
-					end
-					worldX, worldY = ns.Number(worldX), ns.Number(worldY)
-					if worldX and worldY and ns.Number(continent) then
-						local _, x, y = WorldToMap(continent, worldX, worldY, mapID)
-						if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-							add(x, y, { kind = "flight", atlas = FLIGHT_ATLAS[flight.faction] or FLIGHT_ATLAS.AH, size = FLIGHT_SIZE, data = flight,
-								fallback = L.WORLDMAP_FLIGHT, tooltip = NpcTooltip })
+		if cityFlightsNpcs ~= npcs then
+			wipe(cityFlightsCache)
+			cityFlightsNpcs = npcs
+		end
+		local extra = cityFlightsCache[mapID]
+		if not extra then
+			extra = {}
+			for flightMap, list in pairs(npcs.flights) do
+				local info = flightMap ~= mapID and C_Map.GetMapInfo(flightMap)
+				if info and info.mapType == Enum.UIMapType.City then
+					for _, flight in ipairs(list) do
+						local continent, world = C_Map.GetWorldPosFromMapPos(flightMap, CreateVector2D(flight.x / 100, flight.y / 100))
+						local worldX, worldY
+						if world then
+							worldX, worldY = world:GetXY()
+						end
+						worldX, worldY = ns.Number(worldX), ns.Number(worldY)
+						if worldX and worldY and ns.Number(continent) then
+							local _, x, y = WorldToMap(continent, worldX, worldY, mapID)
+							if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+								extra[#extra + 1] = { x = x, y = y, flight = flight }
+							end
 						end
 					end
 				end
 			end
+			cityFlightsCache[mapID] = extra
+		end
+		for _, item in ipairs(extra) do
+			local flight = item.flight
+			add(item.x, item.y, { kind = "flight", atlas = FLIGHT_ATLAS[flight.faction] or FLIGHT_ATLAS.AH, size = FLIGHT_SIZE, data = flight,
+				fallback = L.WORLDMAP_FLIGHT, tooltip = NpcTooltip })
 		end
 	end
 end)
@@ -962,15 +995,23 @@ local function Setup(frame, symbol)
 	frame.Label:Hide()
 	frame.Icon:Show()
 	if symbol.atlas then
-		frame.Icon:SetAtlas(symbol.atlas)
-	else
+		if frame.fpAtlas ~= symbol.atlas then
+			frame.fpAtlas, frame.fpTexture = symbol.atlas, nil
+			frame.Icon:SetAtlas(symbol.atlas)
+		end
+	elseif frame.fpTexture ~= symbol.texture then
+		frame.fpAtlas, frame.fpTexture = nil, symbol.texture
 		frame.Icon:SetTexture(symbol.texture)
 		frame.Icon:SetTexCoord(0, 1, 0, 1)
 	end
-	if symbol.round then
-		frame.Icon:AddMaskTexture(frame.Mask)
-	else
-		frame.Icon:RemoveMaskTexture(frame.Mask)
+	local round = symbol.round and true or false
+	if frame.fpRound ~= round then
+		frame.fpRound = round
+		if round then
+			frame.Icon:AddMaskTexture(frame.Mask)
+		else
+			frame.Icon:RemoveMaskTexture(frame.Mask)
+		end
 	end
 	local size = symbol.size * (Options().symbolScale or 100) / 100
 	frame:SetFrameLevel(layer:GetFrameLevel() + 2)
@@ -983,10 +1024,11 @@ end
 
 -- Position in the canvas; the symbols keep their size while zooming. Names can be moved by the player
 -- (offset in parts of the canvas, so it stays with the name while zooming).
-function PositionOne(frame, canvas, scale)
+function PositionOne(frame, canvas, scale, width, height)
 	canvas = canvas or WorldMapFrame:GetCanvas()
 	scale = scale or 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
-	local width, height = canvas:GetWidth(), canvas:GetHeight()
+	width = width or canvas:GetWidth()
+	height = height or canvas:GetHeight()
 	frame:SetScale(scale)
 	frame:ClearAllPoints()
 	frame:SetPoint("CENTER", canvas, "TOPLEFT", width * (frame.x + ns.Number(frame.ox, 0)) / scale, -height * (frame.y + ns.Number(frame.oy, 0)) / scale)
@@ -998,8 +1040,9 @@ local function Position()
 	end
 	local canvas = WorldMapFrame:GetCanvas()
 	local scale = 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
+	local width, height = canvas:GetWidth(), canvas:GetHeight()
 	for i = 1, used do
-		PositionOne(frames[i], canvas, scale)
+		PositionOne(frames[i], canvas, scale, width, height)
 	end
 end
 
@@ -1017,7 +1060,25 @@ local function Collect(mapID)
 	return items
 end
 
+local drawTicker
+local DRAW_SYNC_LIMIT, DRAW_BUDGET = 25, 0.8
+
+local function CancelDraw()
+	if drawTicker then
+		drawTicker:Cancel()
+		drawTicker = nil
+	end
+end
+
+local function PlaceSymbol(symbol, canvas, scale, width, height)
+	local frame = Acquire()
+	frame.x, frame.y = symbol.x, symbol.y
+	Setup(frame, symbol)
+	PositionOne(frame, canvas, scale, width, height)
+end
+
 local function Draw()
+	CancelDraw()
 	for i = 1, used do
 		frames[i]:Hide()
 	end
@@ -1027,12 +1088,33 @@ local function Draw()
 		return
 	end
 	currentMap = mapID
-	for _, symbol in ipairs(Collect(mapID)) do
-		local frame = Acquire()
-		frame.x, frame.y = symbol.x, symbol.y
-		Setup(frame, symbol)
+	local items = Collect(mapID)
+	local count = #items
+	if count == 0 then
+		return
 	end
-	Position()
+	local canvas = WorldMapFrame:GetCanvas()
+	local scale = 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
+	local width, height = canvas:GetWidth(), canvas:GetHeight()
+	local immediate = math.min(count, DRAW_SYNC_LIMIT)
+	for i = 1, immediate do
+		PlaceSymbol(items[i], canvas, scale, width, height)
+	end
+	if count <= immediate then
+		return
+	end
+	local generation = mapID
+	drawTicker = ns.RunSliced("Map symbols: draw", count - immediate, function(offset)
+		if currentMap ~= generation or not (layer and WorldMapFrame:IsShown()) then
+			CancelDraw()
+			return
+		end
+		local liveCanvas = WorldMapFrame:GetCanvas()
+		local liveScale = 1 / ns.Number(WorldMapFrame:GetCanvasScale(), 1)
+		PlaceSymbol(items[immediate + offset], liveCanvas, liveScale, liveCanvas:GetWidth(), liveCanvas:GetHeight())
+	end, function()
+		drawTicker = nil
+	end, DRAW_BUDGET)
 end
 
 -- Data on first use (the map open with an option on); the NPCs arrive a few
@@ -1119,10 +1201,11 @@ function Symbols.Setup()
 	if level then
 		layer:SetFrameLevel(level)
 	end
+	local position = ns.Measured("Map symbols: position", Position)
 	local hooks = {
 		OnMapChanged = ns.Measured("Map symbols", Symbols.Refresh),
-		OnCanvasScaleChanged = Position,
-		OnCanvasSizeChanged = Position,
+		OnCanvasScaleChanged = position,
+		OnCanvasSizeChanged = position,
 	}
 	for method, fn in pairs(hooks) do
 		if type(WorldMapFrame[method]) == "function" then
@@ -1130,7 +1213,7 @@ function Symbols.Setup()
 		end
 	end
 	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: show", Symbols.Refresh))
-	WorldMapFrame:HookScript("OnShow", HookAreaLabel)
+	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: area label", HookAreaLabel))
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")

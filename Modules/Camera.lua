@@ -363,18 +363,19 @@ local function CastingTeleport()
 	return Camera.IsTeleport(ns.Number(spellID, nil))
 end
 
+local stateCache = { close = true }
+
 function Camera.State()
-	return {
-		taxi = Flag(UnitOnTaxi("player")),
-		teleport = CastingTeleport(),
-		talk = Flag(UnitExists("npc")),
-		combat = Flag(InCombatLockdown()),
-		mounted = Flag(IsMounted()),
-		indoors = Flag(IsIndoors()),
-		resting = Flag(IsResting()),
-		close = true,
-		moving = ns.Number((GetUnitSpeed("player")), 0) > 0,
-	}
+	stateCache.taxi = Flag(UnitOnTaxi("player"))
+	stateCache.teleport = CastingTeleport()
+	stateCache.talk = Flag(UnitExists("npc"))
+	stateCache.combat = Flag(InCombatLockdown())
+	stateCache.mounted = Flag(IsMounted())
+	stateCache.indoors = Flag(IsIndoors())
+	stateCache.resting = Flag(IsResting())
+	stateCache.close = true
+	stateCache.moving = ns.Number((GetUnitSpeed("player")), 0) > 0
+	return stateCache
 end
 
 function Camera.Update()

@@ -1165,7 +1165,7 @@ local function MarkTracker()
 			else
 				if not hookedBlocks[block] and block.UpdateHighlight then
 					hookedBlocks[block] = true
-					hooksecurefunc(block, "UpdateHighlight", RecolorBlock)
+					hooksecurefunc(block, "UpdateHighlight", ns.Measured("Quests: block highlight", RecolorBlock))
 				end
 				RecolorBlock(block)
 			end

@@ -506,7 +506,7 @@ local function HookLog(chatFrame)
 		return
 	end
 	logHooked[chatFrame] = true
-	hooksecurefunc(chatFrame, "AddMessage", LogLine)
+	hooksecurefunc(chatFrame, "AddMessage", ns.Measured("Chat: LogLine", LogLine))
 end
 
 local function StyleFont(chatFrame)

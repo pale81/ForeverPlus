@@ -12,6 +12,7 @@ local ProfessionPlan = ns:NewModule("ProfessionPlan", {
 		upcoming = false, -- the unlearned section in the profession window (switched in its filter menu)
 		preview = true,   -- recipes: Ctrl + click tries the product on, comparison arrow and rating for equipment
 		efficientSkillUps = false,
+		withMaterials = false,
 		extraTabs = true,
 	},
 	charDefaults = {
@@ -26,7 +27,7 @@ local function Plain(value)
 end
 
 ---------------------------------------------------------------------------
--- Skill-up filter
+-- Recipe filters
 ---------------------------------------------------------------------------
 local SKILL_UP_GROUP = -1
 local SKILL_UP_LIMIT = 3
@@ -34,6 +35,56 @@ local SKILL_UP_LIMIT = 3
 local function SkillUpFilterOn()
 	return C_TradeSkillUI and C_TradeSkillUI.GetOnlyShowSkillUpRecipes
 		and C_TradeSkillUI.GetOnlyShowSkillUpRecipes() and Professions.InLocalCraftingMode()
+end
+
+local function MaterialsFilterAvailable()
+	return Professions and Professions.InLocalCraftingMode and Professions.InLocalCraftingMode()
+		and not C_TradeSkillUI.GetOnlyShowMakeableRecipes()
+end
+
+local function LearnedRecipes(provider)
+	local indices, recipes = {}, {}
+	for _, node in provider:EnumerateEntireRange() do
+		local recipe = node:GetData().recipeInfo
+		if recipe and recipe.learned then
+			local id = recipe.recipeID
+			local index = indices[id]
+			if not index then
+				index = #recipes + 1
+				indices[id] = index
+				recipes[index] = recipe
+			elseif recipes[index].favoritesInstance and not recipe.favoritesInstance then
+				recipes[index] = recipe
+			end
+		end
+	end
+	return recipes
+end
+
+local function HighestLearnedRecipe(recipe)
+	if recipe.nextRecipeID or recipe.previousRecipeID then
+		return Professions.GetHighestLearnedRecipe(recipe)
+	end
+	return recipe
+end
+
+local function HasRequiredReagent(schematic, available)
+	for _, slot in ipairs(schematic.reagentSlotSchematics) do
+		if slot.required and slot.quantityRequired > 0 then
+			for _, reagent in ipairs(slot.reagents) do
+				local itemID = reagent.itemID
+				if itemID then
+					if available[itemID] == nil then
+						available[itemID] = ns.Number(ItemUtil.GetCraftingReagentCount(itemID, false), 0) > 0
+					end
+					if available[itemID] then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
 end
 
 local function ReagentCosts(schematic, priceFor)
@@ -72,11 +123,11 @@ local function BetterSkillUp(a, b)
 	return a.recipeInfo.recipeID < b.recipeInfo.recipeID
 end
 
-local function SkillUpScan(provider, remaining)
+local function SkillUpScan(recipes, remaining, available)
 	-- Blizzard exposes difficulty bands. Use approximate odds for yellow and green.
 	local difficulty = Enum.TradeskillRelativeDifficulty
 	local odds = { [difficulty.Optimal] = 1, [difficulty.Medium] = 0.75, [difficulty.Easy] = 0.25 }
-	local seen, recipes, prices, rows = {}, {}, {}, {}
+	local prices, rows = {}, {}
 	local auction = ns:GetModule("Auction")
 	local function PriceFor(itemID)
 		if prices[itemID] == nil then
@@ -84,24 +135,23 @@ local function SkillUpScan(provider, remaining)
 		end
 		return prices[itemID]
 	end
-	for _, node in provider:EnumerateEntireRange() do
-		local base = node:GetData().recipeInfo
-		if base and base.learned and not base.favoritesInstance and not seen[base.recipeID] then
-			seen[base.recipeID] = true
-			recipes[#recipes + 1] = base
-		end
-	end
 	local function Scan(index)
 		local base = recipes[index]
-		local ranked = base.nextRecipeID or base.previousRecipeID
-		local recipe = ranked and Professions.GetHighestLearnedRecipe(base) or base
+		if base.favoritesInstance then
+			return
+		end
+		local recipe = HighestLearnedRecipe(base)
+		if not recipe then
+			return
+		end
 		local chance = odds[recipe.relativeDifficulty]
 		if not chance or not recipe.canSkillUp or recipe.craftable == false or recipe.disabled
 			or recipe.isRecraft or recipe.isGatheringRecipe then
 			return
 		end
 		local schematic = C_TradeSkillUI.GetRecipeSchematic(recipe.recipeID, false)
-		if not (schematic and schematic.reagentSlotSchematics) then
+		if not (schematic and schematic.reagentSlotSchematics)
+			or (available and not HasRequiredReagent(schematic, available)) then
 			return
 		end
 		local units, cost = ReagentCosts(schematic, PriceFor)
@@ -122,7 +172,7 @@ local function SkillUpScan(provider, remaining)
 			rows[SKILL_UP_LIMIT + 1] = nil
 		end
 	end
-	return #recipes, Scan, rows
+	return Scan, rows
 end
 
 local function AddSkillUpRows(provider, remaining, rows)
@@ -141,6 +191,49 @@ local function AddSkillUpRows(provider, remaining, rows)
 		end
 	end
 	return top, originals
+end
+
+local function MaterialScan(recipes, available)
+	local matches = {}
+	local function Scan(index)
+		local base = recipes[index]
+		local recipe = HighestLearnedRecipe(base)
+		if recipe and not (recipe.isRecraft or recipe.isGatheringRecipe) then
+			local schematic = C_TradeSkillUI.GetRecipeSchematic(recipe.recipeID, false)
+			if schematic and schematic.reagentSlotSchematics and HasRequiredReagent(schematic, available) then
+				matches[base.recipeID] = true
+			end
+		end
+	end
+	return Scan, matches
+end
+
+local function FilterMaterialRows(provider, matches)
+	local keep, removed = {}, {}
+	for _, node in provider:EnumerateEntireRange() do
+		local recipe = node:GetData().recipeInfo
+		if recipe and recipe.learned and matches[recipe.recipeID] then
+			while node and not keep[node] do
+				keep[node] = true
+				node = node:GetParent()
+			end
+		end
+	end
+	local function Prune(parent)
+		local children = parent:GetNodes()
+		for index = #children, 1, -1 do
+			local node = children[index]
+			local data = node:GetData()
+			if keep[node] then
+				Prune(node)
+			elseif not (keep[parent] and (data.topPadding or data.bottomPadding)) then
+				parent:Remove(node, true)
+				removed[#removed + 1] = { parent = parent, node = node, index = index }
+			end
+		end
+	end
+	Prune(provider:GetRootNode())
+	return removed
 end
 
 ---------------------------------------------------------------------------
@@ -567,7 +660,7 @@ local function FindSelectedRecipe(provider, selection)
 	return selection:GetFirstSelectedElementData()
 end
 
-local function UpdateList(recipeList, provider, replacesRecipes, change, fallbackRecipe)
+local function UpdateList(recipeList, provider, replacesRecipes, change, selectFallback)
 	local selection = replacesRecipes and recipeList.selectionBehavior
 	local selected = selection and FindSelectedRecipe(provider, selection)
 	local selectedRecipe = selected and selected:GetData().recipeInfo
@@ -582,31 +675,51 @@ local function UpdateList(recipeList, provider, replacesRecipes, change, fallbac
 	if selectedRecipe and recipeList:SelectRecipe(selectedRecipe, false) then
 		return
 	end
-	if fallbackRecipe and selection then
+	if selectFallback and selection then
 		local current = injected
 		-- Selecting a different recipe can rebuild the schematic. Give the list its own frame.
-		ns.After("ProfessionPlan: select recommended recipe", 0, function()
+		ns.After("ProfessionPlan: select first recipe", 0, function()
 			if injected == current and box:GetDataProvider() == provider and (not box.IsVisible or box:IsVisible())
 				and not FindSelectedRecipe(provider, selection) then
-				recipeList:SelectRecipe(fallbackRecipe, false)
+			local first = provider:FindElementDataByPredicate(function(node)
+				return node:GetData().recipeInfo ~= nil
+			end, true)
+			if first then
+				recipeList:SelectRecipe(first:GetData().recipeInfo, false)
+				end
 			end
 		end)
 	end
 end
 
+local function RemoveInjectedRows(provider, previous)
+	for _, node in ipairs(previous.upcoming or {}) do
+		provider:Remove(node)
+	end
+	if previous.skillUps then
+		provider:Remove(previous.skillUps)
+		local root = provider:GetRootNode()
+		for _, node in ipairs(previous.originals) do
+			root:InsertNode(node)
+		end
+	end
+	local removed = previous.materials
+	if removed then
+		for index = #removed, 1, -1 do
+			local entry = removed[index]
+			entry.parent:InsertNode(entry.node, entry.index)
+		end
+	end
+end
+
 local function RestoreList(recipeList, provider)
-	UpdateList(recipeList, provider, injected.skillUps, function()
-		for _, node in ipairs(injected.upcoming or {}) do
-			provider:Remove(node)
-		end
-		if injected.skillUps then
-			provider:Remove(injected.skillUps)
-			local root = provider:GetRootNode()
-			for _, node in ipairs(injected.originals) do
-				root:InsertNode(node)
-			end
-		end
-	end)
+	local previous = injected
+	injected = { provider = provider }
+	if previous.skillUps or previous.materials or previous.upcoming then
+		UpdateList(recipeList, provider, previous.skillUps or previous.materials, function()
+			RemoveInjectedRows(provider, previous)
+		end, previous.materials)
+	end
 end
 
 local function TrainerRecipeNames(profession)
@@ -634,54 +747,67 @@ local function Inject()
 	local recipeList, page = CraftingList()
 	local box = recipeList and recipeList.ScrollBox
 	local provider = box and box.GetDataProvider and box:GetDataProvider()
-	if provider and injected.provider == provider and (injected.skillUps or injected.upcoming) then
-		RestoreList(recipeList, provider)
+	if provider ~= injected.provider then
+		injected = { provider = provider }
 	end
-	injected = { provider = provider }
 	if not provider then
 		return
 	end
+	local materials = ProfessionPlan.db.withMaterials and MaterialsFilterAvailable()
 	local search = recipeList.SearchBox
-	local upcoming = ProfessionPlan.db.upcoming and not (search and search.HasText and search:HasText())
+	local upcoming = ProfessionPlan.db.upcoming and not materials and not (search and search.HasText and search:HasText())
 	local filterOn = ProfessionPlan.db.efficientSkillUps and SkillUpFilterOn()
-	if not (upcoming or filterOn) then
+	if not (upcoming or filterOn or materials) then
+		RestoreList(recipeList, provider)
 		return
 	end
 	if box.IsVisible and not box:IsVisible() then
 		refreshOnShow = true
 		return
 	end
-	local info = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
-	if not info then
-		return
-	end
-	local profession = upcoming and Plain(info.professionName)
-	local skill = ns.Number(info.skillLevel)
-	local maxSkill = filterOn and ns.Number(info.maxSkillLevel)
+	local info = (upcoming or filterOn) and C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+	local profession = upcoming and info and Plain(info.professionName)
+	local skill = info and ns.Number(info.skillLevel)
+	local maxSkill = filterOn and info and ns.Number(info.maxSkillLevel)
 	local remaining = skill and maxSkill and maxSkill > 0 and maxSkill - skill
-	if not (profession or remaining) then
+	if not (profession or remaining or materials) then
+		RestoreList(recipeList, provider)
 		return
 	end
 	local names = profession and TrainerRecipeNames(profession)
 	local ids = names and next(names) and C_TradeSkillUI.GetAllRecipeIDs and C_TradeSkillUI.GetAllRecipeIDs() or {}
 	local known, rows = {}, {}
-	local recipeCount, scanRecipe = 0, nil
-	if remaining and remaining > 0 then
-		recipeCount, scanRecipe, rows = SkillUpScan(provider, remaining)
+	local recipes, scanRecipe, matches
+	local available = materials and {}
+	local previous = injected
+	if (remaining and remaining > 0) or (materials and not remaining) then
+		recipes = previous.recipes or LearnedRecipes(provider)
+		if remaining then
+			scanRecipe, rows = SkillUpScan(recipes, remaining, available)
+		else
+			scanRecipe, matches = MaterialScan(recipes, available)
+		end
 	end
+	local recipeCount = recipes and #recipes or 0
 	local function ApplyRows()
 		pendingScan = nil
 		if box:GetDataProvider() ~= provider then
 			return
 		end
-		UpdateList(recipeList, provider, remaining, function()
+		-- Keep the previous list visible until all matching recipes have been checked.
+		injected = { provider = provider, recipes = recipes or previous.recipes }
+		UpdateList(recipeList, provider, remaining or materials or previous.skillUps or previous.materials, function()
+			RemoveInjectedRows(provider, previous)
 			if remaining then
 				injected.skillUps, injected.originals = AddSkillUpRows(provider, remaining, rows)
+			end
+			if matches then
+				injected.materials = FilterMaterialRows(provider, matches)
 			end
 			if profession then
 				injected.upcoming = AddUpcomingRows(provider, profession, skill or 0, known, page.GetCollapses and page:GetCollapses())
 			end
-		end, rows[1] and rows[1].recipeInfo)
+		end, #rows > 0 or matches or previous.materials)
 	end
 	if recipeCount + #ids == 0 then
 		ApplyRows()
@@ -700,6 +826,18 @@ local function Inject()
 	end, ns.Measured("ProfessionPlan: apply rows", ApplyRows))
 end
 ProfessionPlan.Inject = Inject
+
+local RefreshMaterials = ns.Measured("ProfessionPlan: refresh material filter", function()
+	if MaterialsFilterAvailable() then
+		Inject()
+	end
+end)
+
+local function UpdateMaterialEvents()
+	local enabled = ProfessionPlan.db.withMaterials
+	ProfessionPlan:ToggleEvent("BAG_UPDATE_DELAYED", enabled, RefreshMaterials)
+	ProfessionPlan:ToggleEvent("PLAYERBANKSLOTS_CHANGED", enabled, RefreshMaterials)
+end
 
 local function OnAcquired(_, frame, node)
 	local data = node and node.GetData and node:GetData()
@@ -919,15 +1057,19 @@ function ProfessionPlan:OnLogin()
 	self:RegisterEvent("TRAINER_SHOW", function()
 		ns.After("ProfessionPlan: ScanTrainer", 0.3, ScanTrainer)
 	end)
+	UpdateMaterialEvents()
 	-- The switch in the filter menu of the profession window (as the retail filter for unlearned recipes).
 	if Menu and Menu.ModifyMenu then
-		Menu.ModifyMenu("MENU_PROFESSIONS_FILTER", function(_, rootDescription)
+		Menu.ModifyMenu("MENU_PROFESSIONS_FILTER", ns.Measured("ProfessionPlan: filter menu", function(_, rootDescription)
 			rootDescription:CreateDivider()
+			local materials = ns.CreateOptionCheckbox(rootDescription, L.PROFPLAN_MATERIALS, "ProfessionPlan", "withMaterials",
+				L.PROFPLAN_MATERIALS_DESC)
+			materials:SetEnabled(MaterialsFilterAvailable)
 			local skillUps = ns.CreateOptionCheckbox(rootDescription, L.PROFPLAN_EFFICIENT, "ProfessionPlan", "efficientSkillUps",
 				L.PROFPLAN_EFFICIENT_DESC)
 			skillUps:SetEnabled(SkillUpFilterOn)
 			ns.CreateOptionCheckbox(rootDescription, L.PROFPLAN_FILTER, "ProfessionPlan", "upcoming", L.PROFPLAN_FILTER_DESC)
-		end)
+		end))
 	end
 	ns.OnAddOnLoaded("Blizzard_Professions", function()
 		ProfessionPlan.HookRecipeRows()
@@ -951,6 +1093,9 @@ function ProfessionPlan:OnOptionChanged(key)
 			RefreshProfessionTabs()
 		end
 	else
+		if key == "withMaterials" then
+			UpdateMaterialEvents()
+		end
 		Inject()
 	end
 end
@@ -958,6 +1103,7 @@ end
 ProfessionPlan.options = {
 	{ key = "extraTabs", type = "toggle", name = L.PROFPLAN_TABS, desc = L.PROFPLAN_TABS_DESC, new = true },
 	{ key = "upcoming", type = "toggle", name = L.PROFPLAN_FILTER, desc = L.PROFPLAN_FILTER_DESC, new = true },
+	{ key = "withMaterials", type = "toggle", name = L.PROFPLAN_MATERIALS, desc = L.PROFPLAN_MATERIALS_DESC, new = true },
 	{ key = "efficientSkillUps", type = "toggle", name = L.PROFPLAN_EFFICIENT, desc = L.PROFPLAN_EFFICIENT_DESC, new = true },
 	{ key = "preview", type = "toggle", name = L.PROFPLAN_PREVIEW, desc = L.PROFPLAN_PREVIEW_DESC, new = true },
 }

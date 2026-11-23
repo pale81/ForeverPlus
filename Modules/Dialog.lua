@@ -1897,6 +1897,53 @@ local function HookWindows()
 	HideWindowAtOnce(ClassTrainerFrame, function() return Dialog.db.trainer end)
 end
 
+local function NotifyWanderlust()
+	local wanderlust = ns:GetModule("Wanderlust")
+	if wanderlust and wanderlust.OnDialogChanged then
+		wanderlust.OnDialogChanged()
+	end
+end
+
+local DIALOG_EVENTS = {
+	GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true,
+	QUEST_PROGRESS = true, QUEST_COMPLETE = true,
+}
+
+function Dialog.IsBubbleActive()
+	return current ~= nil and bubble ~= nil
+end
+
+function Dialog.GetBubbleFrame()
+	return bubble
+end
+
+function Dialog.OwnsWindow(frame)
+	return current ~= nil and frame ~= nil and collapsed[frame] ~= nil
+end
+
+function Dialog.HandlesEvent(event, interactionType)
+	if not Dialog.db or not Dialog.db.enabled or InCombatLockdown() then
+		return false
+	end
+	if DIALOG_EVENTS[event] then
+		return true
+	end
+	if event == "MERCHANT_SHOW" then
+		return Dialog.db.merchant and true or false
+	end
+	if event == "TRAINER_SHOW" then
+		return Dialog.db.trainer and true or false
+	end
+	if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+		local kinds = Enum and Enum.PlayerInteractionType
+		if not kinds or ns.Secret(interactionType) then return false end
+		if interactionType == kinds.Gossip or interactionType == kinds.QuestGiver then return true end
+		if interactionType == kinds.Merchant then return Dialog.db.merchant and true or false end
+		if interactionType == kinds.Trainer then return Dialog.db.trainer and true or false end
+	end
+	return false
+end
+
 local function Hide()
 	Trace(L.DIALOG_TRACE_HIDDEN)
 	RestorePlate()
@@ -1921,6 +1968,7 @@ local function Hide()
 	wipe(history)
 	CollapseAll(false)
 	ns.ShowFriendlyPlates(false, "dialog")
+	NotifyWanderlust()
 end
 
 -- Blizzard's window shows instead of the bubble (confirmation needed).
@@ -2272,8 +2320,9 @@ local function Show(view, fromBack)
 	end
 	local used = bubble.lastUsed
 	Trace(L.DIALOG_TRACE_DRAWN, ns.Number(bubble:GetHeight(), 0), used.text, used.row, used.button)
-	PlaceCurrent()
 	CollapseAll(true)
+	NotifyWanderlust()
+	PlaceCurrent()
 	-- Blizzard's own scripts may restore size and position after the event.
 	local token = showToken
 	ns.After("Dialog: Show (timer)", 0, function()

@@ -37,21 +37,75 @@ globals.ChatFrame2 = ChatFrame(ui, false)
 globals.ChatFrame3Tab = floatingTab
 globals.ChatFrame4 = ChatFrame(ui, true, true)
 globals.FCF_MinimizeFrame = function() globals.ChatFrame3Minimized = ChatFrame(ui, true) end
+local bagToggleCalls = 0
+local function BlizzardToggleBags()
+	bagToggleCalls = bagToggleCalls + 1
+	if not ui.shown then return end
+	bagsOpen = not bagsOpen
+	if events[bagsOpen and "BAG_OPEN" or "BAG_CLOSED"] then
+		events[bagsOpen and "BAG_OPEN" or "BAG_CLOSED"](ns.module, bagsOpen and "BAG_OPEN" or "BAG_CLOSED", 0)
+	end
+end
+globals.ToggleAllBags = BlizzardToggleBags
+globals.ToggleBackpack = BlizzardToggleBags
+globals.ToggleBag = BlizzardToggleBags
 
 -- The cluster stays in the interface; only its parent-alpha flag changes.
-local cluster = { ignore = false }
-function cluster:IsForbidden() return false end
-function cluster:IsIgnoringParentAlpha() return self.ignore end
-function cluster:SetIgnoreParentAlpha(ignore)
-	assert(not combat, "the minimap's parent-alpha flag only changes outside combat")
-	self.ignore = ignore
+local function PeekableFrame(rect)
+	local frame = { ignore = false, shown = false }
+	function frame:IsForbidden() return false end
+	function frame:IsShown() return self.shown end
+	function frame:IsIgnoringParentAlpha() return self.ignore end
+	function frame:SetIgnoreParentAlpha(ignore)
+		assert(not combat, "parent-alpha flags only change outside combat")
+		self.ignore = ignore
+	end
+	function frame:SetParent() error("peekable frames must stay in the interface") end
+	if rect then
+		function frame:GetRect() return rect[1], rect[2], rect[3], rect[4] end
+		function frame:GetEffectiveScale() return 0.8 end
+	end
+	return frame
 end
-function cluster:SetParent() error("the minimap must stay in the interface") end
+local cluster = PeekableFrame()
 -- 100 x 100 at (1000, 600) with a UI scale of 0.8: (800, 480) to (880, 560) in cursor coordinates.
 local map = {}
 function map:GetRect() return 1000, 600, 100, 100 end
 function map:GetEffectiveScale() return 0.8 end
+-- 150 x 40 at (1000, 100) with a UI scale of 0.8: (800, 80) to (920, 112) in cursor coordinates.
+local bagsBar = PeekableFrame({ 1000, 100, 150, 40 })
+local combinedBags = PeekableFrame()
+local bagFrame1 = PeekableFrame()
+local bagFrame2 = PeekableFrame()
+function bagFrame2:IsShown() return bagsOpen end
+local bagContainer = PeekableFrame()
+bagContainer.ContainerFrames = { bagFrame1, bagFrame2 }
+local gameTooltip = PeekableFrame()
+local shopping1 = PeekableFrame()
+local shopping2 = PeekableFrame()
+local stackSplit = PeekableFrame()
+local dialogBubble = PeekableFrame()
+local dialogState = { enabled = false, merchant = false, trainer = false, active = false, owned = {} }
+local dialogModule = {
+	IsBubbleActive = function() return dialogState.active end,
+	GetBubbleFrame = function() return dialogBubble end,
+	OwnsWindow = function(frame) return dialogState.active and frame ~= nil and dialogState.owned[frame] == true end,
+	HandlesEvent = function(event, interactionType)
+		if not dialogState.enabled or combat then return false end
+		if event == "GOSSIP_SHOW" or event == "QUEST_GREETING" or event == "QUEST_DETAIL"
+			or event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" then return true end
+		if event == "MERCHANT_SHOW" then return dialogState.merchant end
+		if event == "TRAINER_SHOW" then return dialogState.trainer end
+		if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+			if interactionType == 3 or interactionType == 4 then return true end
+			if interactionType == 5 then return dialogState.merchant end
+			if interactionType == 7 then return dialogState.trainer end
+		end
+		return false
+	end,
+}
 local function Peeking() return ui.shown and ui.alpha == 0 and cluster.ignore end
+local function PeekingFrame(frame) return ui.shown and ui.alpha == 0 and frame.ignore end
 -- BankFrame_Open sets the portrait, then shows the frame. Its OnShow buys a free first tab (protected); it only
 -- stays Blizzard's own if the interface is already visible at Show, not revealed later by Wanderlust.
 local bank = { shown = false, closeSound = true }
@@ -81,13 +135,17 @@ local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "descripti
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
 	WANDERLUST_CHAT = "Chat", WANDERLUST_CHAT_DESC = "description",
+	WANDERLUST_BAGS = "Bags", WANDERLUST_BAGS_DESC = "description",
+	WANDERLUST_BUBBLES = "Dialog bubble", WANDERLUST_BUBBLES_DESC = "description",
 	WANDERLUST_TELEPORTS = "Teleports", WANDERLUST_TELEPORTS_DESC = "description",
+	WANDERLUST_TARGET = "Target", WANDERLUST_TARGET_DESC = "description",
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
 local hoverDetached = false
 local tooltip = { SetWanderlustHover = function(active) hoverDetached = active end }
 function ns:GetModule(name)
 	if name == "Chat" then return self.chat end
 	if name == "Teleports" then return self.teleports end
+	if name == "Dialog" then return dialogModule end
 	assert(name == "Tooltip")
 	return tooltip
 end
@@ -102,8 +160,10 @@ function ns:NewModule(name, spec)
 	end
 	assert(name == "Wanderlust")
 	self.module = spec
-	spec.db = { enabled = spec.defaults.enabled, showProfessions = spec.defaults.showProfessions,
-		minimapMouseover = spec.defaults.minimapMouseover, hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat,
+	spec.db = { enabled = spec.defaults.enabled, showOnTarget = spec.defaults.showOnTarget,
+		showProfessions = spec.defaults.showProfessions, minimapMouseover = spec.defaults.minimapMouseover,
+		hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat,
+		showBags = spec.defaults.showBags, showBubbles = spec.defaults.showBubbles,
 		hideTeleports = spec.defaults.hideTeleports }
 	function spec:ToggleEvent(event, enabled, fn) events[event] = enabled and fn or nil end
 	return spec
@@ -166,6 +226,12 @@ local env = setmetatable({
 	end,
 	MinimapCluster = cluster,
 	Minimap = map,
+	BagsBar = bagsBar,
+	GameTooltip = gameTooltip,
+	ShoppingTooltip1 = shopping1,
+	ShoppingTooltip2 = shopping2,
+	StackSplitFrame = stackSplit,
+	GetTime = function() return now end,
 	GetCursorPosition = function() return cursorX, cursorY end,
 	CreateFrame = function(_, _, parent)
 		if parent == world then
@@ -188,11 +254,8 @@ local env = setmetatable({
 	-- Blizzard's IsAnyBagOpen builds its bag frame list on first use; called from addon code, that list stays
 	-- tainted and every later bag check, also the bank's OnShow, runs tainted (blocked bank tab purchase).
 	IsAnyBagOpen = function() error("Wanderlust must read the bag frames itself, not call IsAnyBagOpen") end,
-	ContainerFrameCombinedBags = { IsShown = function() return false end },
-	ContainerFrameContainer = { ContainerFrames = {
-		{ IsShown = function() return false end },
-		{ IsShown = function() return bagsOpen end },
-	} },
+	ContainerFrameCombinedBags = combinedBags,
+	ContainerFrameContainer = bagContainer,
 	ChatEdit_GetActiveWindow = function() return chatActive end,
 	UIPanelWindows = panelWindows,
 	UISpecialFrames = specialFrames,
@@ -272,9 +335,12 @@ module:OnLogin()
 assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 0,
 	"disabled by default, with no timer, hook or events")
 assert(module.db.showProfessions == false, "profession abilities are excluded by default")
+assert(module.db.showOnTarget == false, "target selection does not interrupt Wanderlust by default")
 assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
 assert(module.db.hoverText == true and not hoverDetached, "the default keeps mouseover text only during an automatic hide")
 assert(module.db.showChat == true and chatFrame.parent == ui, "chat is kept by default only during an automatic hide")
+assert(module.db.showBags == true, "bags stay visible during Wanderlust by default")
+assert(module.db.showBubbles == true, "dialog bubbles stay visible during Wanderlust by default")
 assert(module.db.hideTeleports == true, "Wanderlust hides during longer teleports by default")
 Enable(true)
 assert(hooks == 1 and Pending() == 1, "enabling starts a single timer")
@@ -578,13 +644,42 @@ assert(not next(events) and Pending() == 0, "disabling unregisters all ability a
 	castDurationMS = nil
 end)()
 
+;(function()
+	-- Default: targeting or focusing does not interrupt Wanderlust; combat and non-teleport casts still restore it.
+	Enable(true)
+	assert(not events.PLAYER_TARGET_CHANGED and not events.PLAYER_FOCUS_CHANGED,
+		"target and focus events stay unregistered when showOnTarget is off")
+	target = true
+	Advance(60)
+	assert(not ui.shown, "selecting a target does not block automatic hiding by default")
+	focus = true
+	Advance(5)
+	assert(not ui.shown, "a focus target also keeps Wanderlust hidden by default")
+	castDurationMS = 10000
+	Fire("UNIT_SPELLCAST_START", "player", "target-hearth", 8690)
+	assert(not ui.shown, "teleports keep Wanderlust hidden even with a target")
+	Fire("UNIT_SPELLCAST_START", "player", "target-cast", 1001)
+	assert(ui.shown and Pending() == 1, "starting a non-teleport cast still restores the interface with a target")
+	Advance(60)
+	assert(not ui.shown, "hiding resumes with the target still selected")
+	combat = true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(ui.shown and Pending() == 0, "entering combat still restores the interface with a target")
+	combat = false
+	Fire("PLAYER_REGEN_ENABLED")
+	target, focus, castDurationMS = false, false, nil
+	closeSounds = 0
+	Enable(false)
+end)()
+
+module.db.showOnTarget = true
 Enable(true)
 Advance(60)
 target = true
 Fire("PLAYER_TARGET_CHANGED")
-assert(ui.shown and Pending() == 0, "selecting a target immediately restores automatic hiding")
+assert(ui.shown and Pending() == 0, "selecting a target immediately restores automatic hiding when enabled")
 Advance(120)
-assert(ui.shown, "the interface never hides with a selected target")
+assert(ui.shown, "the interface never hides with a selected target when enabled")
 target = false
 Fire("PLAYER_TARGET_CHANGED")
 Advance(59)
@@ -606,6 +701,7 @@ target = false
 Fire("PLAYER_TARGET_CHANGED")
 Advance(60)
 Enable(false)
+module.db.showOnTarget = false
 
 local function Window(name, registry)
 	local frame = { shown = false, closeSound = true }
@@ -661,12 +757,13 @@ Enable(false)
 CheckWindow(latePanel)
 CheckWindow(addonWindow)
 
+module.db.showBags = false
 Enable(true)
 Advance(60)
 bagsOpen = true
 Fire("BAG_OPEN", 0)
 Advance(120)
-assert(ui.shown and Pending() == 0, "open bags keep the interface visible")
+assert(ui.shown and ui.alpha == 0.9 and Pending() == 0, "open bags restore the full interface when showBags is off")
 Fire("BAG_CLOSED", 1)
 Advance(120)
 assert(ui.shown and Pending() == 0, "closing one bag cannot restart hiding while another is open")
@@ -677,6 +774,7 @@ assert(ui.shown, "closing the last bag starts a new minute")
 Advance(1)
 assert(not ui.shown, "the interface hides after the last bag closes")
 Enable(false)
+module.db.showBags = true
 
 Enable(true)
 Advance(59)
@@ -737,10 +835,11 @@ for _, ticker in ipairs(tickers) do assert(ticker.cancelled, "disabling stops th
 
 panelWindows.TestForbiddenPanel = nil
 module.db.minimapMouseover = false
+module.db.showBags = false
 Enable(true)
 Advance(60)
 Over(true)
-assert(not ui.shown and not peekDriver.shown, "turning minimap mouseover off hides the entire interface, minimap included")
+assert(not ui.shown and not peekDriver.shown, "turning minimap and bag previews off hides the entire interface and stops polling")
 module.db.minimapMouseover = true
 module:OnOptionChanged("minimapMouseover", true)
 Over(true)
@@ -767,6 +866,7 @@ module:OnOptionChanged("minimapMouseover", false)
 assert(not ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"turning off minimap mouseover hides the see-through interface again and restores everything")
 Enable(false)
+module.db.showBags = true
 assert(ui.shown and ui.alpha == 0.9, "disabling restores the interface")
 assert(not hoverDetached, "disabling Wanderlust restores normal mouseover text")
 assert(chatFrame.parent == ui and globals.ChatFrame3Minimized.parent == ui and floatingTab.parent == chatDock,
@@ -843,4 +943,163 @@ end)()
 	Enable(false)
 	cluster.GetRect, cluster.GetEffectiveScale = nil, nil
 end)()
-print("Wanderlust timing, teleports, chat, mouseover, abilities, targets, windows and lifecycle OK")
+;(function()
+	-- Bags and bag bar during Wanderlust (default on): mouseover bag bar, bag key peek, open bags alone.
+	Enable(true)
+	Advance(60)
+	assert(not ui.shown and peekDriver.shown, "hidden Wanderlust watches the bag bar area")
+	cursorX, cursorY = 850, 95 -- inside BagsBar (800..920, 80..112)
+	Tick()
+	assert(PeekingFrame(bagsBar) and PeekingFrame(gameTooltip) and not cluster.ignore,
+		"hovering the bag bar shows only the bag bar and tooltip")
+	cursorX, cursorY = 500, 500
+	Tick()
+	assert(not ui.shown and not bagsBar.ignore and not gameTooltip.ignore,
+		"leaving the bag bar hides the interface again and restores parent-alpha flags")
+
+	-- Pressing the bag key while UIParent is hidden reveals the bag bar without calling Blizzard's toggle from addon code.
+	local callsBefore = bagToggleCalls
+	globals.ToggleAllBags()
+	assert(bagToggleCalls == callsBefore + 1 and not bagsOpen and PeekingFrame(bagsBar),
+		"first bag key press opens a see-through bag-bar preview without re-invoking Blizzard's toggle")
+	Advance(4)
+	Tick()
+	assert(not ui.shown and not bagsBar.ignore, "an unused bag-key preview expires back to hidden")
+
+	globals.ToggleAllBags()
+	assert(PeekingFrame(bagsBar), "bag key again prepares the untainted Blizzard toggle")
+	globals.ToggleAllBags()
+	assert(bagsOpen and PeekingFrame(combinedBags) and PeekingFrame(bagContainer) and PeekingFrame(bagFrame2)
+		and PeekingFrame(bagsBar) and PeekingFrame(gameTooltip) and PeekingFrame(shopping1)
+		and PeekingFrame(shopping2) and PeekingFrame(stackSplit) and not cluster.ignore,
+		"second press opens the bags alone with tooltips and stack split while the rest stays hidden")
+	Advance(120)
+	assert(PeekingFrame(bagContainer), "open bags remain visible without restoring the rest of the interface")
+
+	-- Casting a hearthstone from the bag stays in Wanderlust; a regular spell restores the full interface.
+	castDurationMS = 10000
+	Fire("UNIT_SPELLCAST_START", "player", "bag-hearth", 8690)
+	assert(PeekingFrame(bagContainer), "casting a teleport from an open Wanderlust bag keeps the rest hidden")
+	Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "bag-hearth", 8690)
+	assert(ui.shown and ui.alpha == 0.9 and not bagContainer.ignore and Pending() == 0,
+		"interrupting the teleport restores the interface and pauses the minute while bags stay open")
+	bagsOpen = false
+	Fire("BAG_CLOSED", 0)
+	Advance(60)
+	assert(not ui.shown, "hiding resumes one minute after closing the bag")
+
+	-- Opening via mouseover + click, then closing returns silently to hidden.
+	cursorX, cursorY = 850, 95
+	Tick()
+	globals.ToggleBackpack()
+	assert(bagsOpen and PeekingFrame(bagContainer), "clicking/toggling during bag-bar hover opens the bags alone")
+	cursorX, cursorY = 500, 500
+	Tick()
+	assert(PeekingFrame(bagContainer), "moving the cursor off the bag bar keeps open bags visible")
+	globals.ToggleBackpack()
+	Tick()
+	assert(not bagsOpen and not ui.shown and not bagContainer.ignore and not bagsBar.ignore,
+		"closing the last bag returns directly to hidden Wanderlust")
+
+	-- Combat during open Wanderlust bags restores the full interface and defers flag cleanup until combat ends.
+	globals.ToggleAllBags()
+	globals.ToggleAllBags()
+	assert(bagsOpen and PeekingFrame(bagContainer))
+	combat = true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(ui.shown and ui.alpha == 0.9 and not peekDriver.shown, "combat restores the full interface from open Wanderlust bags")
+	combat = false
+	Fire("PLAYER_REGEN_ENABLED")
+	assert(not bagContainer.ignore and not bagsBar.ignore, "bag parent-alpha flags are restored after combat")
+	bagsOpen, castDurationMS = false, nil
+	Enable(false)
+end)()
+;(function()
+	-- Dialog bubble during Wanderlust (default on): keeps NPC conversations alone, falls back to full UI when needed.
+	local gossipFrame = Window("GossipFrame", "panel")
+	local merchantFrame = Window("MerchantFrame", "panel")
+	local trainerFrame = Window("ClassTrainerFrame", "panel")
+	dialogState.enabled, dialogState.merchant, dialogState.trainer = true, true, true
+
+	Enable(true)
+	Advance(60)
+	assert(not ui.shown, "hidden before talking to an NPC")
+	gossipFrame.shown = true
+	dialogState.active, dialogState.owned[gossipFrame] = true, true
+	Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+	Fire("GOSSIP_SHOW")
+	module.OnDialogChanged()
+	assert(PeekingFrame(dialogBubble) and PeekingFrame(gameTooltip) and PeekingFrame(shopping1)
+		and not cluster.ignore and not bagsBar.ignore,
+		"a conversation handled by the dialog bubble appears alone without revealing the rest of the UI")
+
+	-- Opening bags alongside a merchant bubble shows both without revealing the rest of the interface.
+	gossipFrame.shown, dialogState.owned[gossipFrame] = false, nil
+	merchantFrame.shown, dialogState.owned[merchantFrame] = true, true
+	Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 5)
+	Fire("MERCHANT_SHOW")
+	module.OnDialogChanged()
+	globals.ToggleAllBags()
+	assert(bagsOpen and PeekingFrame(dialogBubble) and PeekingFrame(bagContainer),
+		"bags open on the first press while a dialog bubble peek is active and share the preview")
+	globals.ToggleAllBags()
+	assert(not bagsOpen and PeekingFrame(dialogBubble) and not bagContainer.ignore,
+		"closing the bags leaves the dialog bubble alone")
+
+	-- Falling back to Blizzard's original window immediately restores the whole interface.
+	dialogState.active, dialogState.owned[merchantFrame] = false, nil
+	module.OnDialogChanged()
+	assert(ui.shown and ui.alpha == 0.9 and not dialogBubble.ignore and Pending() == 0,
+		"falling back from the bubble to Blizzard's window immediately restores the whole interface")
+	merchantFrame.shown = false
+	Fire("MERCHANT_CLOSED")
+	Advance(60)
+	assert(not ui.shown, "hiding resumes one minute after closing the original window")
+
+	-- Closing a bubble conversation returns directly to hidden Wanderlust.
+	trainerFrame.shown, dialogState.active, dialogState.owned[trainerFrame] = true, true, true
+	Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 7)
+	Fire("TRAINER_SHOW")
+	module.OnDialogChanged()
+	assert(PeekingFrame(dialogBubble), "trainer bubble stays alone during Wanderlust")
+	trainerFrame.shown, dialogState.active, dialogState.owned[trainerFrame] = false, false, nil
+	Fire("TRAINER_CLOSED")
+	module.OnDialogChanged()
+	assert(not ui.shown and not dialogBubble.ignore, "closing the bubble returns directly to hidden Wanderlust")
+
+	-- Starting a spell while a bubble is open restores the full interface.
+	gossipFrame.shown, dialogState.active, dialogState.owned[gossipFrame] = true, true, true
+	Fire("GOSSIP_SHOW")
+	module.OnDialogChanged()
+	assert(PeekingFrame(dialogBubble))
+	Fire("UNIT_SPELLCAST_START", "player", "bubble-cast", 1001)
+	assert(ui.shown and ui.alpha == 0.9 and Pending() == 0,
+		"a cast restores the full interface and pauses the minute while the conversation remains open")
+	gossipFrame.shown, dialogState.active, dialogState.owned[gossipFrame] = false, false, nil
+	Fire("GOSSIP_CLOSED")
+	module.OnDialogChanged()
+	Advance(59)
+	assert(ui.shown, "closing the bubble on a visible interface restarts a full minute")
+	Advance(1)
+	assert(not ui.shown, "the interface hides again one minute after the bubble closes")
+
+	-- Disabling merchant in Dialog or disabling showBubbles restores the full interface immediately.
+	dialogState.merchant = false
+	merchantFrame.shown = true
+	Fire("MERCHANT_SHOW")
+	assert(ui.shown and ui.alpha == 0.9, "an unhandled merchant window restores the full interface immediately")
+	merchantFrame.shown = false
+	Fire("MERCHANT_CLOSED")
+	Advance(60)
+	module.db.showBubbles = false
+	module:OnOptionChanged("showBubbles", false)
+	gossipFrame.shown, dialogState.active, dialogState.owned[gossipFrame] = true, true, true
+	Fire("GOSSIP_SHOW")
+	assert(ui.shown and ui.alpha == 0.9, "disabling showBubbles restores the full interface for conversations")
+	gossipFrame.shown, dialogState.active, dialogState.owned[gossipFrame] = false, false, nil
+	Fire("GOSSIP_CLOSED")
+	module.db.showBubbles = true
+	dialogState.enabled, dialogState.merchant, dialogState.trainer = false, false, false
+	Enable(false)
+end)()
+print("Wanderlust timing, teleports, chat, bags, dialog bubbles, mouseover, abilities, targets, windows and lifecycle OK")

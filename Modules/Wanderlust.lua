@@ -4,8 +4,8 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showProfessions = false, minimapMouseover = true, hoverText = true, showChat = true,
-		hideTeleports = true },
+	defaults = { enabled = false, showOnTarget = false, showProfessions = false, minimapMouseover = true,
+		hoverText = true, showChat = true, showBags = true, showBubbles = true, hideTeleports = true },
 })
 
 local QUIET_SECONDS = 60
@@ -14,16 +14,38 @@ local teleport
 local MIN_TELEPORT_CAST_MS = 2000
 local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
-local peek, peekArea, peekKeepArea, peekDriver, UpdateHiddenUI
+local BAG_KEY_PEEK_SECONDS = 3
+local peek, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
+local UpdateHiddenUI, CheckPeek, SyncPeek
+
+local function DialogModule()
+	return ns:GetModule("Dialog")
+end
+
+local function DialogActive()
+	local dialog = Wanderlust.db.showBubbles and DialogModule()
+	return dialog and dialog.IsBubbleActive and dialog.IsBubbleActive() or false
+end
+
+local function DialogOwnsWindow(frame)
+	local dialog = Wanderlust.db.showBubbles and DialogModule()
+	return dialog and dialog.OwnsWindow and dialog.OwnsWindow(frame) or false
+end
+
+local function DialogHandlesEvent(event, interactionType)
+	local dialog = Wanderlust.db.showBubbles and DialogModule()
+	return dialog and dialog.HandlesEvent and dialog.HandlesEvent(event, interactionType) or false
+end
 
 local function UpdateHiddenChat()
 	local visible = hidUI and Wanderlust.db.enabled and Wanderlust.db.showChat or false
 	ns:GetModule("Chat").SetWanderlustVisible(visible, visible and (peek and peek.alpha or UIParent:GetAlpha()))
 end
 
--- Minimap on mouseover while Wanderlust hides the interface. SetUIVisibility(false) stops drawing the map itself and
--- the game's blips ignore alpha, so a detached or faded minimap cannot work. Instead the interface comes back
--- see-through (UIParent alpha 0) while the mouse is over the minimap; only the minimap ignores that alpha.
+-- Minimap, bag bar, open bags and the dialog bubble while Wanderlust hides the interface.
+-- SetUIVisibility(false) stops drawing the minimap and hides nameplates/tooltips, and blocks Blizzard's
+-- bag toggles. Instead the interface comes back see-through (UIParent alpha 0) while any of those are active;
+-- only the active frames ignore that alpha.
 local function FrameCursorRect(frame)
 	if not (frame and frame.GetRect and frame.GetEffectiveScale) then return nil end
 	local left, bottom, width, height = frame:GetRect()
@@ -48,6 +70,7 @@ local function SavePeekArea()
 	else
 		peekKeepArea = peekArea
 	end
+	bagsBarArea = FrameCursorRect(BagsBar)
 end
 
 local function CursorInArea(area)
@@ -57,26 +80,51 @@ local function CursorInArea(area)
 end
 
 local function CursorOverMinimap()
-	return CursorInArea(peek and peekKeepArea or peekArea)
+	return Wanderlust.db.minimapMouseover
+		and MinimapCluster and not MinimapCluster:IsForbidden()
+		and CursorInArea(peek and peekKeepArea or peekArea) or false
 end
 
-local function StartPeek()
-	peek = { alpha = UIParent:GetAlpha(), ignore = MinimapCluster:IsIgnoringParentAlpha() }
-	MinimapCluster:SetIgnoreParentAlpha(true)
-	UIParent:SetAlpha(0)
-	SetUIVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+local function CursorOverBagsBar()
+	return Wanderlust.db.showBags
+		and BagsBar and not BagsBar:IsForbidden()
+		and CursorInArea(bagsBarArea) or false
+end
+
+local function CanIgnoreParentAlpha(frame)
+	return frame and (not frame.IsForbidden or not frame:IsForbidden())
+		and frame.IsIgnoringParentAlpha and frame.SetIgnoreParentAlpha
+end
+
+local function AddPeekFrame(list, frame)
+	if CanIgnoreParentAlpha(frame) then list[frame] = true end
+end
+
+local function AddTooltipFrames(list)
+	AddPeekFrame(list, GameTooltip)
+	AddPeekFrame(list, ShoppingTooltip1)
+	AddPeekFrame(list, ShoppingTooltip2)
+end
+
+local function RestoreIgnored(ignored)
+	ns.RunOutOfCombat(function()
+		for frame, orig in pairs(ignored) do
+			if not (peek and peek.ignored[frame]) and CanIgnoreParentAlpha(frame) then
+				frame:SetIgnoreParentAlpha(orig)
+			end
+		end
+	end)
 end
 
 local function EndPeek(hide)
+	bagKeyUntil = nil
 	if not peek then return end
 	local saved = peek
 	peek = nil
 	-- Hide first, then restore the alpha: nothing flashes.
 	if hide and UIParent:IsShown() then SetUIVisibility(false) end
 	UIParent:SetAlpha(saved.alpha)
-	ns.RunOutOfCombat(function()
-		if not peek then MinimapCluster:SetIgnoreParentAlpha(saved.ignore) end
-	end)
+	RestoreIgnored(saved.ignored)
 end
 
 local WINDOW_NAMES = {
@@ -102,26 +150,145 @@ local function AnyBagOpen()
 	return false
 end
 
+local function DesiredPeekFrames()
+	local frames = {}
+	if not (hidUI and Wanderlust.db.enabled) then return frames end
+	if bagKeyUntil and ns.Number(GetTime(), 0) >= bagKeyUntil then
+		bagKeyUntil = nil
+	end
+	local overMinimap = CursorOverMinimap()
+	local bagsOpen = Wanderlust.db.showBags and AnyBagOpen() or false
+	if bagsOpen then bagKeyUntil = nil end
+	local showBagsBar = Wanderlust.db.showBags and (bagsOpen or CursorOverBagsBar() or bagKeyUntil ~= nil) or false
+	local bubbleActive = DialogActive()
+	if overMinimap then
+		AddPeekFrame(frames, MinimapCluster)
+		AddPeekFrame(frames, GameTooltip)
+	end
+	if showBagsBar then
+		AddPeekFrame(frames, BagsBar)
+		AddPeekFrame(frames, GameTooltip)
+	end
+	if bagsOpen then
+		AddPeekFrame(frames, ContainerFrameCombinedBags)
+		AddPeekFrame(frames, ContainerFrameContainer)
+		local list = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
+		for _, frame in ipairs(list or {}) do
+			if WindowShown(frame) then AddPeekFrame(frames, frame) end
+		end
+		AddPeekFrame(frames, StackSplitFrame)
+		AddTooltipFrames(frames)
+	end
+	if bubbleActive then
+		local dialog = DialogModule()
+		AddPeekFrame(frames, dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame())
+		AddTooltipFrames(frames)
+	end
+	return frames
+end
+
+local function UpdatePeekDriver()
+	local hidden = hidUI and Wanderlust.db.enabled or false
+	local watchMinimap = hidden and Wanderlust.db.minimapMouseover
+		and MinimapCluster and not MinimapCluster:IsForbidden() or false
+	local watchBags = hidden and Wanderlust.db.showBags
+		and BagsBar and not BagsBar:IsForbidden() or false
+	local active = watchMinimap or watchBags or (hidden and peek ~= nil) or false
+	if active and not peekDriver then
+		peekDriver = CreateFrame("Frame")
+		local elapsedSinceCheck = 0
+		ns.SetUpdate(peekDriver, "Wanderlust: minimap mouseover", function(_, elapsed)
+			elapsedSinceCheck = elapsedSinceCheck + elapsed
+			if elapsedSinceCheck >= PEEK_INTERVAL then
+				elapsedSinceCheck = 0
+				CheckPeek()
+			end
+		end)
+	end
+	if peekDriver then peekDriver:SetShown(active) end
+end
+
+SyncPeek = function()
+	if InCombatLockdown() then
+		UpdatePeekDriver()
+		return
+	end
+	if not (hidUI and Wanderlust.db.enabled) then
+		EndPeek(true)
+		UpdatePeekDriver()
+		return
+	end
+	local desired = DesiredPeekFrames()
+	if next(desired) then
+		if not peek then
+			if UIParent:IsShown() then return end
+			peek = { alpha = UIParent:GetAlpha(), ignored = {} }
+			for frame in pairs(desired) do
+				peek.ignored[frame] = frame:IsIgnoringParentAlpha()
+				frame:SetIgnoreParentAlpha(true)
+			end
+			UIParent:SetAlpha(0)
+			SetUIVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+		else
+			local removed
+			for frame, orig in pairs(peek.ignored) do
+				if not desired[frame] then
+					removed = removed or {}
+					removed[frame] = orig
+					peek.ignored[frame] = nil
+				end
+			end
+			if removed then RestoreIgnored(removed) end
+			for frame in pairs(desired) do
+				if peek.ignored[frame] == nil then
+					peek.ignored[frame] = frame:IsIgnoringParentAlpha()
+					frame:SetIgnoreParentAlpha(true)
+				end
+			end
+		end
+	elseif peek then
+		EndPeek(true)
+	end
+	UpdatePeekDriver()
+end
+
 local function InteractionOpen()
-	if AnyBagOpen() or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then return true end
+	if (not Wanderlust.db.showBags and AnyBagOpen())
+		or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then
+		return true
+	end
 	for _, name in ipairs(WINDOW_NAMES) do
-		if WindowShown(_G[name]) then return true end
+		local frame = _G[name]
+		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
 	end
 	-- Include panels loaded later and addon windows registered for Escape.
 	for name in pairs(UIPanelWindows) do
-		if WindowShown(_G[name]) then return true end
+		local frame = _G[name]
+		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
 	end
 	for _, name in ipairs(UISpecialFrames) do
-		if WindowShown(_G[name]) then return true end
+		local frame = _G[name]
+		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
 	end
 	return false
 end
 
+local function HardBlocked()
+	if Wanderlust.db.showOnTarget then
+		local target = UnitExists("target")
+		if ns.Secret(target) or target then return true end
+		local focus = UnitExists("focus")
+		if ns.Secret(focus) or focus then return true end
+	end
+	return InteractionOpen()
+end
+
+local function SoftBlocked()
+	return (Wanderlust.db.showBags and AnyBagOpen()) or DialogActive()
+end
+
 local function ActivityBlocked()
-	local target = UnitExists("target")
-	if ns.Secret(target) or target then return true end
-	local focus = UnitExists("focus")
-	return ns.Secret(focus) or focus or InteractionOpen()
+	return HardBlocked() or SoftBlocked()
 end
 
 local function CancelTimer()
@@ -208,16 +375,26 @@ end
 
 local function RefreshActivity()
 	if not Wanderlust.db.enabled or InCombatLockdown() then return end
-	if ActivityBlocked() then
+	if HardBlocked() then
 		blocked = true
 		if hidUI then Stop() else CancelTimer() end
+	elseif SoftBlocked() then
+		if hidUI then
+			SyncPeek()
+		else
+			blocked = true
+			CancelTimer()
+		end
+	elseif hidUI then
+		if peek then SyncPeek() end
 	elseif blocked then
 		blocked = false
 		StartTimer()
 	end
 end
 
-local function CheckPeek()
+CheckPeek = function()
+	bagJustClosed = nil
 	if InCombatLockdown() then return end -- the combat events bring the whole interface back
 	if peek then
 		RefreshActivity() -- e.g. Escape opened the game menu behind the see-through interface
@@ -228,38 +405,70 @@ local function CheckPeek()
 			ClearTeleport()
 			hidUI = nil
 			UpdateHiddenUI()
-		elseif not CursorOverMinimap() then
-			EndPeek(true)
+			return
 		end
-	elseif not UIParent:IsShown() and CursorOverMinimap() then
-		StartPeek()
 	end
+	SyncPeek()
 end
 
 UpdateHiddenUI = function()
 	local hidden = hidUI and Wanderlust.db.enabled
 	UpdateHiddenChat()
 	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
-	local active = hidden and Wanderlust.db.minimapMouseover
-		and MinimapCluster and not MinimapCluster:IsForbidden() or false
-	if not active then EndPeek(true) end
-	if active and not peekDriver then
-		peekDriver = CreateFrame("Frame")
-		local elapsedSinceCheck = 0
-		ns.SetUpdate(peekDriver, "Wanderlust: minimap mouseover", function(_, elapsed)
-			elapsedSinceCheck = elapsedSinceCheck + elapsed
-			if elapsedSinceCheck >= PEEK_INTERVAL then
-				elapsedSinceCheck = 0
-				CheckPeek()
-			end
-		end)
+	if not hidden or peek then
+		SyncPeek()
+	else
+		UpdatePeekDriver()
 	end
-	if peekDriver then peekDriver:SetShown(active) end
 end
 
 local function InteractionOpened()
 	blocked = true
 	Stop()
+end
+
+local function BagOpened()
+	bagJustClosed = nil
+	if Wanderlust.db.showBags then
+		bagKeyUntil = nil
+		if hidUI then
+			SyncPeek()
+		else
+			blocked = true
+			CancelTimer()
+		end
+	else
+		InteractionOpened()
+	end
+end
+
+local function BagKeyPressed()
+	if bagJustClosed then
+		bagJustClosed = nil
+		return
+	end
+	if hidUI and Wanderlust.db.enabled and Wanderlust.db.showBags
+		and not peek and not UIParent:IsShown() and not InCombatLockdown() then
+		bagKeyUntil = ns.Number(GetTime(), 0) + BAG_KEY_PEEK_SECONDS
+		SyncPeek()
+	end
+end
+
+local function DialogOpened(_, event, interactionType)
+	if Wanderlust.db.showBubbles and DialogHandlesEvent(event, interactionType) then
+		if not hidUI then
+			blocked = true
+			CancelTimer()
+		end
+		ns.After("Wanderlust: dialog opened", 0, RefreshActivity)
+	else
+		InteractionOpened()
+	end
+end
+
+function Wanderlust.OnDialogChanged()
+	if not Wanderlust.db.enabled or InCombatLockdown() then return end
+	RefreshActivity()
 end
 
 local function ChatInputOpened()
@@ -407,10 +616,19 @@ local function EnteringWorld()
 	StartTimer()
 end
 
-local function InteractionClosed()
+local function InteractionClosed(_, event)
+	if event == "BAG_CLOSED" and hidUI and peek and Wanderlust.db.showBags then
+		bagJustClosed = true
+	end
 	-- The closing event can precede the native frame's OnHide. Check next frame,
 	-- also allowing a gossip-to-quest transition to open its replacement window.
-	ns.After("Wanderlust: interaction closed", 0, StartTimer)
+	ns.After("Wanderlust: interaction closed", 0, function()
+		if hidUI or blocked then
+			RefreshActivity()
+		else
+			StartTimer()
+		end
+	end)
 end
 
 function Wanderlust:Apply()
@@ -425,14 +643,19 @@ function Wanderlust:Apply()
 		if BankFrame and BankFrame.SetPortraitToUnit then
 			hooksecurefunc(BankFrame, "SetPortraitToUnit", ns.Measured("Wanderlust: bank opening", BankOpening))
 		end
+		local onBagKey = ns.Measured("Wanderlust: bag key", BagKeyPressed)
+		for _, name in ipairs({ "ToggleAllBags", "ToggleBackpack", "ToggleBag" }) do
+			if _G[name] then hooksecurefunc(name, onBagKey) end
+		end
 	end
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", enabled, Stop)
 	self:ToggleEvent("PLAYER_REGEN_ENABLED", enabled, StartTimer)
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", enabled, EnteringWorld)
 	self:ToggleEvent("PLAYER_LEAVING_WORLD", enabled, Stop)
 	self:ToggleEvent("PLAYER_LOGOUT", enabled, Stop)
-	self:ToggleEvent("PLAYER_TARGET_CHANGED", enabled, RefreshActivity)
-	self:ToggleEvent("PLAYER_FOCUS_CHANGED", enabled, RefreshActivity)
+	local watchTarget = enabled and self.db.showOnTarget
+	self:ToggleEvent("PLAYER_TARGET_CHANGED", watchTarget, RefreshActivity)
+	self:ToggleEvent("PLAYER_FOCUS_CHANGED", watchTarget, RefreshActivity)
 	for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_SUCCEEDED" }) do
 		self:ToggleEvent(event, enabled, OnSpellCast)
 	end
@@ -444,8 +667,12 @@ function Wanderlust:Apply()
 		self:ToggleEvent(event, enabled and not self.db.showProfessions, InvalidateProfessions)
 	end
 	for _, event in ipairs({ "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
-		"MERCHANT_SHOW", "TRAINER_SHOW", "BAG_OPEN", "AUCTION_HOUSE_SHOW", "BANKFRAME_OPENED", "GUILDBANKFRAME_OPENED",
-		"MAIL_SHOW", "TRADE_SHOW", "LOOT_OPENED", "TAXIMAP_OPENED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" }) do
+		"MERCHANT_SHOW", "TRAINER_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" }) do
+		self:ToggleEvent(event, enabled, DialogOpened)
+	end
+	self:ToggleEvent("BAG_OPEN", enabled, BagOpened)
+	for _, event in ipairs({ "AUCTION_HOUSE_SHOW", "BANKFRAME_OPENED", "GUILDBANKFRAME_OPENED",
+		"MAIL_SHOW", "TRADE_SHOW", "LOOT_OPENED", "TAXIMAP_OPENED" }) do
 		self:ToggleEvent(event, enabled, InteractionOpened)
 	end
 	for _, event in ipairs({ "GOSSIP_CLOSED", "QUEST_FINISHED", "MERCHANT_CLOSED", "TRAINER_CLOSED", "BAG_CLOSED",
@@ -488,6 +715,9 @@ Wanderlust.options = {
 	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
 	{ key = "hoverText", type = "toggle", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC, parent = "enabled" },
 	{ key = "showChat", type = "toggle", name = L.WANDERLUST_CHAT, desc = L.WANDERLUST_CHAT_DESC, parent = "enabled" },
+	{ key = "showBags", type = "toggle", name = L.WANDERLUST_BAGS, desc = L.WANDERLUST_BAGS_DESC, parent = "enabled", new = true },
+	{ key = "showBubbles", type = "toggle", name = L.WANDERLUST_BUBBLES, desc = L.WANDERLUST_BUBBLES_DESC, parent = "enabled", new = true },
 	{ key = "hideTeleports", type = "toggle", name = L.WANDERLUST_TELEPORTS, desc = L.WANDERLUST_TELEPORTS_DESC, parent = "enabled" },
+	{ key = "showOnTarget", type = "toggle", name = L.WANDERLUST_TARGET, desc = L.WANDERLUST_TARGET_DESC, parent = "enabled", new = true },
 	{ key = "showProfessions", type = "toggle", name = L.WANDERLUST_PROFESSIONS, desc = L.WANDERLUST_PROFESSIONS_DESC, parent = "enabled" },
 }

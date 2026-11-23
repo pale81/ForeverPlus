@@ -394,5 +394,5 @@ read_globals = {
 	"C_FriendList", "ERR_IGNORE_ADDED_S", "ERR_IGNORE_ALREADY_S", "ERR_IGNORE_NOT_FOUND", "ERR_IGNORE_SELF",
 	"GameEvent", "GetActiveLootRollIDs", "GetLootRollItemInfo", "GetLootRollTimeLeft", "RollOnLoot",
 	"C_Loot", "ColorManager", "NEED", "GREED", "PASS", "ROLL_DISENCHANT", "TRANSMOGRIFICATION",
-	"ShowInspectCursor", "ResetCursor", "CursorOnUpdate",
+	"ShowInspectCursor", "ResetCursor", "CursorOnUpdate", "StackSplitFrame",
 }

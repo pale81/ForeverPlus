@@ -13024,5 +13024,80 @@ end)()
 	C_Traits, C_ClassTalents, UnitLevel, items.cdb.scoreSpec = saved.traits, saved.ct, saved.level, saved.spec
 	print("talent stat weights OK")
 end)()
+;(function()
+	-- ProfessionPlan ScanTrainer: skip tooltip builds for known/cached recipes and respect per-visit tooltip budget.
+	local plan = ns:GetModule("ProfessionPlan")
+	local scan = uv(plan.OnLogin, "ScanTrainer")
+	local saved = {
+		C_Trainer, Enum.TrainerType, GetTrainerServiceTypeFilter, SetTrainerServiceTypeFilter,
+		GetNumTrainerServices, GetTrainerServiceInfo, GetTrainerServiceSkillReq, GetTrainerServiceSkillLine,
+		GetTrainerServiceLevelReq, GetTrainerServiceCost, GetTrainerServiceItemLink, C_TooltipInfo,
+		C_Spell, C_TradeSkillUI, debugprofilestop, plan.cdb.trainers,
+	}
+	local clock, tooltipReads = 0, 0
+	local services = {
+		{ name = "Known Recipe", kind = "used", skill = "Schmiedekunst", rank = 10 },
+		{ name = "Cached Recipe", kind = "available", skill = "Schmiedekunst", rank = 25 },
+		{ name = "Direct Link", kind = "available", skill = "Schmiedekunst", rank = 40, link = "|Hitem:1234|h[Sword]|h" },
+		{ name = "Uncached One", kind = "available", skill = "Schmiedekunst", rank = 50, tipID = 5001 },
+		{ name = "Over Budget", kind = "available", skill = "Schmiedekunst", rank = 60, tipID = 5002 },
+	}
+	Enum.TrainerType = { Tradeskills = 1 }
+	C_Trainer = { GetTrainerType = function() return 1 end }
+	GetTrainerServiceTypeFilter = function() return true end
+	SetTrainerServiceTypeFilter = function() end
+	GetNumTrainerServices = function() return #services end
+	GetTrainerServiceInfo = function(i) return services[i].name, services[i].kind, 134400 end
+	GetTrainerServiceSkillReq = function(i) return services[i].skill, services[i].rank end
+	GetTrainerServiceSkillLine = function(i) return services[i].skill end
+	GetTrainerServiceLevelReq = function() return 1 end
+	GetTrainerServiceCost = function() return 100 end
+	GetTrainerServiceItemLink = function(i) return services[i].link end
+	C_Spell = { GetSpellIDForSpellIdentifier = function() return nil end }
+	C_TradeSkillUI = { GetProfessionInfoByRecipeID = function() return nil end }
+	C_TooltipInfo = { GetTrainerService = function(i)
+		tooltipReads = tooltipReads + 1
+		clock = clock + 2.0 -- first uncached tooltip exhausts the 1.5 ms budget
+		return { id = services[i].tipID, type = Enum.TooltipDataType.Spell }
+	end }
+	debugprofilestop = function() return clock end
+	plan.cdb.trainers = { ["Schmiedekunst"] = { { name = "Cached Recipe", recipeID = 4242 } } }
+	scan()
+	local savedList = plan.cdb.trainers["Schmiedekunst"]
+	assert(tooltipReads == 1, "ScanTrainer skips known/cached/linked entries and stops after tooltip budget: " .. tooltipReads)
+	assert(savedList[2].recipeID == 4242 and savedList[3].link == "|Hitem:1234|h[Sword]|h"
+		and savedList[4].recipeID == 5001 and savedList[5].recipeID == nil,
+		"ScanTrainer preserves cached IDs, direct links and budgeted tooltip IDs")
+	-- Second visit reuses newly saved IDs without rebuilding tooltips for them.
+	tooltipReads, clock = 0, 0
+	scan()
+	assert(tooltipReads == 1 and plan.cdb.trainers["Schmiedekunst"][5].recipeID == 5002,
+		"next trainer visit fills only the remaining uncached entry")
+	C_Trainer, Enum.TrainerType, GetTrainerServiceTypeFilter, SetTrainerServiceTypeFilter = unpack(saved, 1, 4)
+	GetNumTrainerServices, GetTrainerServiceInfo, GetTrainerServiceSkillReq, GetTrainerServiceSkillLine = unpack(saved, 5, 8)
+	GetTrainerServiceLevelReq, GetTrainerServiceCost, GetTrainerServiceItemLink, C_TooltipInfo = unpack(saved, 9, 12)
+	C_Spell, C_TradeSkillUI, debugprofilestop, plan.cdb.trainers = unpack(saved, 13, 16)
+
+	-- Instrumentation: ns.OnAddOnLoaded and /fp slash commands record timings into session/measuring stats.
+	local savedEventUtil, savedClock2, savedTime = EventUtil, debugprofilestop, GetTime
+	local tClock, tNow = 0, 2000
+	GetTime = function() return tNow end
+	debugprofilestop = function() return tClock end
+	EventUtil = { ContinueOnAddOnLoaded = function(_, fn) fn() end }
+	ns.SetMeasuring(true)
+	tNow = 2001
+	ns.OnAddOnLoaded("Blizzard_TestLoad", function() tClock = tClock + 6.0 end)
+	assert(ns.timings["OnAddOnLoaded: Blizzard_TestLoad"] and ns.timings["OnAddOnLoaded: Blizzard_TestLoad"].max == 6.0,
+		"ns.OnAddOnLoaded callbacks are measured")
+	local savedPrint = ns.PrintAlways
+	ns.PrintAlways = function() tClock = tClock + 7.5 end
+	SlashCmdList.FOREVERPLUS("hilfe")
+	ns.PrintAlways = savedPrint
+	assert(ns.timings["Slash: /fp hilfe"] and ns.timings["Slash: /fp hilfe"].max == 7.5,
+		"slash commands are measured")
+	ns.SetMeasuring(false)
+	EventUtil, debugprofilestop, GetTime = savedEventUtil, savedClock2, savedTime
+	print("trainer scan and instrumentation OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

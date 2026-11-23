@@ -3441,19 +3441,20 @@ function Items:OnLogin()
 			UpdateLootUpgrades()
 		end
 	end)
-	hooksecurefunc("StaticPopup_Show", FillDeleteText)
+	hooksecurefunc("StaticPopup_Show", ns.Measured("Items: delete popup", FillDeleteText))
 	HookRollFrames()
 	if C_Container.SortBags then
-		hooksecurefunc(C_Container, "SortBags", OnSortStarted)
+		hooksecurefunc(C_Container, "SortBags", ns.Measured("Items: sort started", OnSortStarted))
 	end
 	UpdateSortOverlay()
-	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", QueueSort, self)
-	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", QueueSort, self)
+	local queueSort = ns.Measured("Items: open bag sort", QueueSort)
+	EventRegistry:RegisterCallback("ContainerFrame.OpenBag", queueSort, self)
+	EventRegistry:RegisterCallback("ContainerFrame.OpenAllBags", queueSort, self)
 	self:RegisterEvent("BAG_UPDATE", OnBagLayoutChanged)
 	self:RegisterEvent("ITEM_LOCK_CHANGED", InvalidateBagLayout)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateBagLayout)
-	hooksecurefunc("QuestInfo_Display", MarkBestReward)
-	hooksecurefunc("QuestInfo_Display", MarkRewardUpgrades)
+	hooksecurefunc("QuestInfo_Display", ns.Measured("Items: best reward", MarkBestReward))
+	hooksecurefunc("QuestInfo_Display", ns.Measured("Items: reward upgrades", MarkRewardUpgrades))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	-- The character window also uses these weights, even with all item ratings switched off.
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",

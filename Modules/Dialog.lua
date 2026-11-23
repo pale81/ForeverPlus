@@ -1879,15 +1879,15 @@ local function HideWindowAtOnce(window, handled)
 	end
 	hookedWindows[window] = true
 	KeepCollapsed(window)
-	window:HookScript("OnShow", function(self)
+	window:HookScript("OnShow", ns.Measured("Dialog: collapse on show", function(self)
 		Trace("Fenster zeigt sich: %s", WindowState(self))
 		if Dialog.db.enabled and handled() and not InCombatLockdown() then
 			Collapse(self, true)
 		end
-	end)
-	window:HookScript("OnHide", function(self)
+	end))
+	window:HookScript("OnHide", ns.Measured("Dialog: restore on hide", function(self)
 		Collapse(self, false)
-	end)
+	end))
 end
 
 local function HookWindows()
@@ -3341,16 +3341,16 @@ end
 function Dialog:OnLogin()
 	for _, window in ipairs({ GossipFrame, QuestFrame }) do
 		if window then
-			window:HookScript("OnHide", function(shown)
+			window:HookScript("OnHide", ns.Measured("Dialog: window hide", function(shown)
 				Trace("Fenster verschwindet: %s", WindowState(shown))
 				Collapse(shown, false)
 				HideIfWindowsGone()
-			end)
-			window:HookScript("OnShow", function(shown)
+			end))
+			window:HookScript("OnShow", ns.Measured("Dialog: window show", function(shown)
 				if Dialog.db.enabled and current and bubble and bubble:IsShown() then
 					Collapse(shown, true)
 				end
-			end)
+			end))
 		end
 	end
 	HookWindows()

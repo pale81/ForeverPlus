@@ -94,10 +94,11 @@ local function CreateTrainButton()
 	trainButton:SetScript("OnClick", TrainAll)
 	trainButton.Cost = trainButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	trainButton.Cost:SetPoint("BOTTOMRIGHT", trainButton, "TOPRIGHT", 0, 3)
+	local updateButton = ns.Measured("Services: train button", UpdateTrainButton)
 	if ClassTrainerFrame_Update then
-		hooksecurefunc("ClassTrainerFrame_Update", UpdateTrainButton)
+		hooksecurefunc("ClassTrainerFrame_Update", updateButton)
 	end
-	frame:HookScript("OnShow", UpdateTrainButton)
+	frame:HookScript("OnShow", updateButton)
 	UpdateTrainButton()
 end
 

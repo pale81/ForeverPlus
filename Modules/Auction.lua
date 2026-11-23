@@ -1563,7 +1563,7 @@ function Auction:OnLogin()
 				bar:HookScript("OnShow", UpdateClearButton)
 			end
 			HookSellFrames()
-			hooksecurefunc(AuctionHouseFrame, "OnShow", ApplyStartTab)
+			hooksecurefunc(AuctionHouseFrame, "OnShow", ns.Measured("Auction: start tab", ApplyStartTab))
 		end
 	end)
 end

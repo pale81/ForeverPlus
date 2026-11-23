@@ -807,7 +807,7 @@ local tooltipHooked = {}
 local function HookPlanTooltip(button)
 	if not tooltipHooked[button] and button.SetTooltipInternal then
 		tooltipHooked[button] = true
-		hooksecurefunc(button, "SetTooltipInternal", AddPlanTooltip)
+		hooksecurefunc(button, "SetTooltipInternal", ns.Measured("Talents: plan tooltip", AddPlanTooltip))
 	end
 end
 

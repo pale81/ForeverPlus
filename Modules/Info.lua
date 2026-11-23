@@ -830,7 +830,7 @@ function Info:OnLogin()
 	ns.After("Info: RequestPlayedSilently", 3, RequestPlayedSilently)
 	ns.OnAddOnLoaded("Blizzard_TimeManager", function()
 		if TimeManagerClockButton_UpdateTooltip then
-			hooksecurefunc("TimeManagerClockButton_UpdateTooltip", AddPlayedLines)
+			hooksecurefunc("TimeManagerClockButton_UpdateTooltip", ns.Measured("Info: played time", AddPlayedLines))
 			-- Blizzard fills the tooltip only on its next once-per-second update;
 			-- build it right away so the list is there immediately.
 			TimeManagerClockButton:HookScript("OnEnter", function()

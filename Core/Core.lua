@@ -78,7 +78,7 @@ end
 
 -- Calls fn(…) once the given Blizzard addon is loaded (immediately if already).
 function ns.OnAddOnLoaded(name, fn)
-	EventUtil.ContinueOnAddOnLoaded(name, fn)
+	EventUtil.ContinueOnAddOnLoaded(name, ns.Measured("OnAddOnLoaded: " .. tostring(name), fn))
 end
 
 -- A plain number, or the fallback when the client hands out a protected value.
@@ -867,8 +867,7 @@ end
 ---------------------------------------------------------------------------
 SLASH_FOREVERPLUS1 = "/fp"
 SLASH_FOREVERPLUS2 = "/foreverplus"
-SlashCmdList.FOREVERPLUS = function(msg)
-	msg = ns.LowerCommand(strtrim(msg or ""))
+local function RunSlashCommand(msg)
 	if msg == "errors" or msg == "fehler" then
 		local errors = ns:GetModule("Errors")
 		if errors then
@@ -962,6 +961,24 @@ SlashCmdList.FOREVERPLUS = function(msg)
 		ns:GetModule("Innkeepers").Command(msg)
 	else
 		ns:OpenSettings()
+	end
+end
+
+SlashCmdList.FOREVERPLUS = function(msg)
+	msg = ns.LowerCommand(strtrim(msg or ""))
+	if not (ns.measuring or sessionSampler) then
+		RunSlashCommand(msg)
+		return
+	end
+	local measurement = ActiveMeasurement()
+	local label = "Slash: /fp" .. (msg ~= "" and (" " .. msg) or "")
+	local start = debugprofilestop()
+	RunSlashCommand(msg)
+	local elapsed = debugprofilestop() - start
+	if measurement and measurement == ns.spikes and ns.measuring then
+		ns.RecordTiming(label, elapsed)
+	elseif elapsed >= SESSION_CALL_MIN then
+		RecordFrameCall(label, elapsed)
 	end
 end
 

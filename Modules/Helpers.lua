@@ -948,7 +948,7 @@ function Helpers:OnLogin()
 		end
 	end
 	if MerchantFrame_UpdateMerchantInfo then
-		hooksecurefunc("MerchantFrame_UpdateMerchantInfo", MarkMerchant)
+		hooksecurefunc("MerchantFrame_UpdateMerchantInfo", ns.Measured("Helpers: merchant recipes", MarkMerchant))
 	end
 	self:Update()
 	RememberFishingWeapons()

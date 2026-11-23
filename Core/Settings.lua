@@ -169,14 +169,14 @@ local function ButtonInitializer(name, buttonText, onClick, tooltip)
 	local initializer = Settings.CreateElementInitializer("ForeverPlusSettingsButtonTemplate", {
 		name = name,
 		buttonText = buttonText,
-		buttonClick = onClick,
+		buttonClick = ns.Measured("Settings: " .. tostring(name), onClick),
 		tooltip = tooltip,
 	})
 	AddSearchTags(initializer, name, buttonText, tooltip, "ForeverPlus")
-	hooksecurefunc(initializer, "InitFrame", function(_, frame)
+	hooksecurefunc(initializer, "InitFrame", ns.Measured("Settings: InitFrame", function(_, frame)
 		frame.Button:ClearAllPoints()
 		frame.Button:SetPoint("LEFT", frame, "CENTER", -80, 0)
-	end)
+	end))
 	return initializer
 end
 
@@ -536,7 +536,7 @@ local function HookBadges()
 	local scrollBox = list and (list.ScrollBox or list.scrollBox)
 	if scrollBox and scrollBox.RegisterCallback then
 		local event = ScrollBoxListMixin and ScrollBoxListMixin.Event and ScrollBoxListMixin.Event.OnDataRangeChanged or "OnDataRangeChanged"
-		pcall(scrollBox.RegisterCallback, scrollBox, event, RefreshBadges, ns)
+		pcall(scrollBox.RegisterCallback, scrollBox, event, ns.Measured("Settings: RefreshBadges", RefreshBadges), ns)
 	end
 	if GameMenuFrame and type(GameMenuFrame.HookScript) == "function" then
 		GameMenuFrame:HookScript("OnShow", function()

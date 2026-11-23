@@ -212,7 +212,7 @@ local function HookWindow(frame)
 		return
 	end
 	hooked[frame] = true
-	frame:HookScript("OnShow", Apply)
+	frame:HookScript("OnShow", ns.Measured("Mover: Apply", Apply))
 end
 
 local function Save(frame, key)
@@ -663,7 +663,7 @@ local function FreeWindow(name)
 	if not tContains(UISpecialFrames, name) then
 		tinsert(UISpecialFrames, name)
 	end
-	frame:HookScript("OnShow", PlaceFreeWindow)
+	frame:HookScript("OnShow", ns.Measured("Mover: PlaceFreeWindow", PlaceFreeWindow))
 end
 
 local function FreeWindows()
@@ -678,15 +678,17 @@ function Mover:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_EditMode", SetupEditModeDialog)
 	-- The panel manager's delegate frame is local and forbidden; its public entry
 	-- points position the panels synchronously, so re-apply right after them.
+	local applyAll = ns.Measured("Mover: ApplyAllShown", ApplyAllShown)
 	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions", "UpdateContainerFrameAnchors" }) do
 		if type(_G[func]) == "function" then
-			hooksecurefunc(func, ApplyAllShown)
+			hooksecurefunc(func, applyAll)
 		end
 	end
 	-- A managed panel opening or closing moves the freed windows beside it.
+	local layoutFree = ns.Measured("Mover: LayoutFreeWindows", LayoutFreeWindows)
 	for _, func in ipairs({ "ShowUIPanel", "HideUIPanel", "UpdateUIPanelPositions" }) do
 		if type(_G[func]) == "function" then
-			hooksecurefunc(func, LayoutFreeWindows)
+			hooksecurefunc(func, layoutFree)
 		end
 	end
 	for name in pairs(saved) do
@@ -1079,9 +1081,9 @@ SetupEditModeDialog = function()
 	editModeCenter = button
 end
 
-EventRegistry:RegisterCallback("EditMode.Enter", function()
+EventRegistry:RegisterCallback("EditMode.Enter", ns.Measured("Mover: EditMode enter", function()
 	SetEditMode(true)
-end, Mover)
-EventRegistry:RegisterCallback("EditMode.Exit", function()
+end), Mover)
+EventRegistry:RegisterCallback("EditMode.Exit", ns.Measured("Mover: EditMode exit", function()
 	SetEditMode(false)
-end, Mover)
+end), Mover)

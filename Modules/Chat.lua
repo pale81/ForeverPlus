@@ -1589,8 +1589,9 @@ function Chat:OnLogin()
 		StyleFont(chatFrame or FCF_GetCurrentChatFrame())
 	end)
 	-- Whisper/temporary windows are created on demand.
-	hooksecurefunc("FCF_OpenTemporaryWindow", StyleAll)
-	hooksecurefunc("FCF_OpenNewWindow", StyleAll)
+	local styleAll = ns.Measured("Chat: StyleAll", StyleAll)
+	hooksecurefunc("FCF_OpenTemporaryWindow", styleAll)
+	hooksecurefunc("FCF_OpenNewWindow", styleAll)
 
 	-- Chat window settings arrive from the server after login and may overwrite
 	-- the first application, so apply once more when they do.

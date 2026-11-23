@@ -256,6 +256,22 @@ local function QueueRecipeArrow(frame, label)
 end
 
 -- Reads the whole list of a profession trainer (all filters on for the moment), per profession.
+local TRAINER_TOOLTIP_BUDGET = 1.5 -- ms; uncached recipes without a direct link/ID resolve lazily on hover
+
+local function SavedTrainerLookup()
+	local byProfession = {}
+	for profession, list in pairs(ProfessionPlan.cdb.trainers or {}) do
+		local map = {}
+		for _, entry in ipairs(list) do
+			if entry.name and (entry.recipeID or entry.link) then
+				map[entry.name] = entry
+			end
+		end
+		byProfession[profession] = map
+	end
+	return byProfession
+end
+
 local function ScanTrainer()
 	local trainerType = C_Trainer and C_Trainer.GetTrainerType and C_Trainer.GetTrainerType()
 	if trainerType ~= Enum.TrainerType.Tradeskills then
@@ -268,6 +284,8 @@ local function ScanTrainer()
 			SetTrainerServiceTypeFilter(filter, true)
 		end
 	end
+	local cachedByProfession = SavedTrainerLookup()
+	local tooltipBudgetStart = debugprofilestop()
 	local found = {}
 	for index = 1, GetNumTrainerServices() do
 		local name, serviceType, icon = GetTrainerServiceInfo(index)
@@ -276,19 +294,32 @@ local function ScanTrainer()
 			local line = GetTrainerServiceSkillLine and Plain(GetTrainerServiceSkillLine(index))
 			local profession = line or Plain(skillName)
 			if profession then
-				local tooltip = C_TooltipInfo.GetTrainerService and C_TooltipInfo.GetTrainerService(index)
-				local serviceID = tooltip and ns.Number(tooltip.id)
-				local recipeID, link = serviceID, GetTrainerServiceItemLink and ns.RecipeLink(GetTrainerServiceItemLink(index))
-				if serviceID and Plain(tooltip.type) == Enum.TooltipDataType.Item then
-					recipeID, link = nil, link or ("item:" .. serviceID)
+				local known = serviceType == "used" or nil
+				local cached = cachedByProfession[profession] and cachedByProfession[profession][name]
+				local recipeID, link = cached and cached.recipeID or nil, cached and cached.link or nil
+				if not known and not (recipeID or link) then
+					link = GetTrainerServiceItemLink and ns.RecipeLink(GetTrainerServiceItemLink(index))
+					recipeID = RecipeID({ name = name }, profession)
+					if not (recipeID or link) and C_TooltipInfo.GetTrainerService
+						and debugprofilestop() - tooltipBudgetStart < TRAINER_TOOLTIP_BUDGET then
+						local tooltip = C_TooltipInfo.GetTrainerService(index)
+						local serviceID = tooltip and ns.Number(tooltip.id)
+						if serviceID then
+							if Plain(tooltip.type) == Enum.TooltipDataType.Item then
+								link = "item:" .. serviceID
+							else
+								recipeID = serviceID
+							end
+						end
+					end
 				end
 				found[profession] = found[profession] or {}
 				table.insert(found[profession], {
 					name = name, icon = icon, skill = Plain(skillRank) or 0,
 					level = GetTrainerServiceLevelReq and Plain(GetTrainerServiceLevelReq(index)) or 0,
 					cost = GetTrainerServiceCost and Plain((GetTrainerServiceCost(index))) or 0,
-					known = serviceType == "used" or nil,
-						recipeID = recipeID, link = link,
+					known = known,
+					recipeID = recipeID, link = link,
 				})
 			end
 		end
@@ -686,17 +717,17 @@ function ProfessionPlan.HookList()
 	ProfessionPlan.listHooked = true
 	-- Blizzard builds a new list on every change (learned recipe, filter, skill): ours is added to each.
 	hooksecurefunc(box, "SetDataProvider", ns.Measured("ProfessionPlan: list", Inject))
-	ScrollUtil.AddAcquiredFrameCallback(box, OnAcquired, ProfessionPlan)
+	ScrollUtil.AddAcquiredFrameCallback(box, ns.Measured("ProfessionPlan: acquired row", OnAcquired), ProfessionPlan)
 	box:HookScript("OnHide", function()
 		if CancelScan() then
 			refreshOnShow = true
 		end
 	end)
-	box:HookScript("OnShow", function()
+	box:HookScript("OnShow", ns.Measured("ProfessionPlan: list show", function()
 		if refreshOnShow then
 			Inject()
 		end
-	end)
+	end))
 	Inject()
 end
 

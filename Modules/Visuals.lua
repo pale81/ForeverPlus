@@ -278,11 +278,11 @@ end
 
 local function HookQuestItems()
 	if QuestInfo_Display then
-		hooksecurefunc("QuestInfo_Display", FrameQuestRewards)
+		hooksecurefunc("QuestInfo_Display", ns.Measured("Visuals: quest rewards", FrameQuestRewards))
 	end
 	ns.OnAddOnLoaded("Blizzard_ObjectiveTracker", function()
 		if QuestObjectiveItemButtonMixin and QuestObjectiveItemButtonMixin.SetUp then
-			hooksecurefunc(QuestObjectiveItemButtonMixin, "SetUp", FrameQuestItem)
+			hooksecurefunc(QuestObjectiveItemButtonMixin, "SetUp", ns.Measured("Visuals: quest item button", FrameQuestItem))
 		end
 	end)
 end
@@ -1699,17 +1699,17 @@ local function HookParchmentWindows()
 		local function Strip()
 			StripDarkOutlines(book)
 		end
-		book:HookScript("OnShow", Strip)
+		book:HookScript("OnShow", ns.Measured("Visuals: spellbook outlines", Strip))
 		-- Entries made from here on carry the hook (the mixin is copied into each).
 		if SpellBookItemMixin and SpellBookItemMixin.UpdateVisuals then
-			hooksecurefunc(SpellBookItemMixin, "UpdateVisuals", StripSpellBookItem)
+			hooksecurefunc(SpellBookItemMixin, "UpdateVisuals", ns.Measured("Visuals: spellbook item", StripSpellBookItem))
 		end
 	end)
 	ns.OnAddOnLoaded("Blizzard_ProfessionsBook", function()
 		if ProfessionsBookFrame then
-			ProfessionsBookFrame:HookScript("OnShow", function(frame)
+			ProfessionsBookFrame:HookScript("OnShow", ns.Measured("Visuals: professions book outlines", function(frame)
 				StripDarkOutlines(frame)
-			end)
+			end))
 		end
 	end)
 end
@@ -2147,14 +2147,14 @@ function Visuals:OnInitialize()
 		self.db.bagFrameOff = true
 		self.db.bagActionFrame = false
 	end
-	hooksecurefunc("SetItemButtonQuality", UpdateGlow)
+	hooksecurefunc("SetItemButtonQuality", ns.Measured("Visuals: item quality glow", UpdateGlow))
 	OutlineFonts()
 	self:RegisterEvent("ADDON_LOADED", OutlineFonts)
 end
 
 function Visuals:OnLogin()
 	if PaperDollItemSlotButton_Update then
-		hooksecurefunc("PaperDollItemSlotButton_Update", FrameCharacterSlot)
+		hooksecurefunc("PaperDollItemSlotButton_Update", ns.Measured("Visuals: character slot", FrameCharacterSlot))
 	end
 	FrameCharacterSlots()
 	OutlineFonts()

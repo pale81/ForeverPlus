@@ -1337,8 +1337,8 @@ end
 
 function Tooltip:OnInitialize()
 	SetupHealthBar()
-	hooksecurefunc(GameTooltip, "Show", ReserveHealthBarSpace)
-	GameTooltip:HookScript("OnTooltipCleared", function(tooltip)
+	hooksecurefunc(GameTooltip, "Show", ns.Measured("Tooltip: Show", ReserveHealthBarSpace))
+	GameTooltip:HookScript("OnTooltipCleared", ns.Measured("Tooltip: cleared", function(tooltip)
 		ClearSpacer(tooltip)
 		if hover and hover.object and not wanderlustHover then
 			hover:Hide()
@@ -1347,7 +1347,7 @@ function Tooltip:OnInitialize()
 		HideChatItemArrow()
 		HideCompareArrows()
 		HideCompareTips()
-	end)
+	end))
 	GameTooltip:HookScript("OnHide", ns.Measured("Tooltip: hide", function()
 		chatItemOwner, chatItemLink, chatQuestLevelShown = nil, nil, false
 		HideChatItemArrow()

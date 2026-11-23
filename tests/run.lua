@@ -10746,7 +10746,7 @@ end)()
 	-- Slot 2: Wanderlust
 	scroll(wheel, 1)
 	assert(visuals.cdb.playerPortraitMode == 2 and icon:IsShown() and background:IsShown())
-	assert(icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeWanderlust")
+	assert(icon.asset == 134269)
 	assert(icon.desaturated == true and wheel.clickEnabled == true and wheel.motionEnabled == true)
 	-- Left-click enables Wanderlust and lights up the emblem.
 	shift = false
@@ -10766,7 +10766,7 @@ end)()
 	shift = true
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeAngler")
+	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == 136245)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(helpers.db.fishing == true and icon.desaturated == false)
@@ -10776,7 +10776,7 @@ end)()
 	-- Slot 4: RP mode
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeRP")
+	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == 133741)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(roleplay.db.enabled and dialog.db.enabled and speech.db.enabled and emotes.db.enabled and camera.db.enabled)
@@ -10788,7 +10788,7 @@ end)()
 	-- Slot 5: Berserker mode (Bloody crits + Landing jump sounds + CombatText)
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
+	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == 136009)
 	assert(not pm.IsModeActive("berserker"), "partial default state shows Berserker as inactive")
 	shift = false
 	click(wheel, "LeftButton")
@@ -10894,7 +10894,7 @@ end)()
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
 	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
 	ns.SetOption("Visuals", "playerPortraitWheel", true)
-	assert(icon:IsShown() and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
+	assert(icon:IsShown() and icon.asset == 136009)
 
 	-- Restore state cleanly.
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
@@ -10917,6 +10917,7 @@ end)()
 	setuv(pm.Setup, "portraitBackground", nil)
 	setuv(pm.Setup, "portraitIcon", nil)
 	setuv(pm.Setup, "portraitShine", nil)
+	setuv(pm.Setup, "portraitIconMask", nil)
 	setuv(uv(pm.Setup, "OpenModeMenu"), "menu", nil)
 	CreateFrame, PlayerFrame, hooksecurefunc = oldCreate, oldPlayer, oldHook
 	IsShiftKeyDown, IsModifierKeyDown, EditModeManagerFrame, EventRegistry = oldShift, oldMod, oldEdit, oldRegistry

@@ -6,7 +6,7 @@ local L = ns.L
 local PortraitModes = {}
 ns.PortraitModes = PortraitModes
 
-local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
+local ROUND_MASK = [[Interface\CharacterFrame\TempPortraitAlphaMask]]
 local ROW_HIGHLIGHT = [[Interface\QuestFrame\UI-QuestTitleHighlight]]
 local PLUS_UP = [[Interface\Buttons\UI-PlusButton-Up]]
 local PLUS_DOWN = [[Interface\Buttons\UI-PlusButton-Down]]
@@ -14,13 +14,19 @@ local MINUS_UP = [[Interface\Buttons\UI-MinusButton-Up]]
 local MINUS_DOWN = [[Interface\Buttons\UI-MinusButton-Down]]
 local PLUS_HIGHLIGHT = [[Interface\Buttons\UI-PlusButton-Hilight]]
 
--- Slot 1 is always the standard Blizzard portrait; slots 2..5 are clickable mode emblems.
+-- Place the round 44x44 mode emblem slightly up-right inside the 60x60 portrait
+-- so the player level badge at the bottom-left never clips the motif.
+local EMBLEM_SIZE = 44
+local EMBLEM_OFFSET_X = 5
+local EMBLEM_OFFSET_Y = 4
+
+-- Slot 1 is always the standard Blizzard portrait; slots 2..5 use classic WoW icons.
 local MODES = {
 	{ key = "normal" },
-	{ key = "wanderlust", name = L.WANDERLUST_TITLE, short = L.WANDERLUST_TITLE, icon = MEDIA .. "PortraitModeWanderlust" },
-	{ key = "angler", name = L.HELPERS_FISHING_MODE, short = L.PORTRAIT_MODE_ANGLER_SHORT, icon = MEDIA .. "PortraitModeAngler" },
-	{ key = "rp", name = L.PORTRAIT_MODE_RP, short = L.PORTRAIT_MODE_RP_SHORT, icon = MEDIA .. "PortraitModeRP" },
-	{ key = "berserker", name = L.PORTRAIT_MODE_BERSERKER, short = L.PORTRAIT_MODE_BERSERKER_SHORT, icon = MEDIA .. "PortraitModeBerserker" },
+	{ key = "wanderlust", name = L.WANDERLUST_TITLE, short = L.WANDERLUST_TITLE, icon = 134269, bg = { 0.08, 0.13, 0.18 } },
+	{ key = "angler", name = L.HELPERS_FISHING_MODE, short = L.PORTRAIT_MODE_ANGLER_SHORT, icon = 136245, bg = { 0.06, 0.15, 0.20 } },
+	{ key = "rp", name = L.PORTRAIT_MODE_RP, short = L.PORTRAIT_MODE_RP_SHORT, icon = 133741, bg = { 0.17, 0.08, 0.09 } },
+	{ key = "berserker", name = L.PORTRAIT_MODE_BERSERKER, short = L.PORTRAIT_MODE_BERSERKER_SHORT, icon = 136009, bg = { 0.20, 0.06, 0.05 } },
 }
 local MODE_BY_KEY = {}
 for index, mode in ipairs(MODES) do
@@ -919,7 +925,7 @@ end
 ---------------------------------------------------------------------------
 -- Portrait wheel & clickable mode emblem on PlayerFrame
 ---------------------------------------------------------------------------
-local portraitWheel, portraitBackground, portraitIcon, portraitShine
+local portraitWheel, portraitBackground, portraitIcon, portraitShine, portraitIconMask
 local optionListenerRegistered
 
 local function ShowsOwnPortrait()
@@ -995,13 +1001,15 @@ UpdatePlayerPortrait = function()
 	local iconShown = false
 	if mode and mode.key ~= "normal" and mode.icon then
 		local active = IsModeActive(mode.key)
-		portraitIcon:SetAllPoints(portraitBackground)
 		iconShown = portraitIcon:SetTexture(mode.icon) ~= false
 		portraitIcon:SetDesaturated(not active)
 		if active then
+			local bg = mode.bg
+			portraitBackground:SetColorTexture(bg[1], bg[2], bg[3], 1)
 			portraitIcon:SetVertexColor(1, 1, 1)
 			portraitIcon:SetAlpha(1)
 		else
+			portraitBackground:SetColorTexture(0.08, 0.08, 0.09, 1)
 			portraitIcon:SetVertexColor(0.76, 0.76, 0.76)
 			portraitIcon:SetAlpha(0.84)
 		end
@@ -1103,21 +1111,30 @@ function PortraitModes.Setup()
 		if menu and menu:IsShown() then menu:Hide() end
 	end))
 
-	-- Use the portrait's own mask and draw below the dragon and status flash.
+	-- Use the portrait's own mask for the backdrop, and a smaller round emblem mask
+	-- offset up-right so the level badge at the bottom-left never overlaps the icon.
 	portraitBackground = container:CreateTexture(nil, "ARTWORK", nil, 0)
 	portraitBackground:SetAllPoints(portrait)
 	portraitBackground:AddMaskTexture(mask)
-	portraitBackground:SetColorTexture(0.06, 0.05, 0.04, 1)
+	portraitBackground:SetColorTexture(0.08, 0.08, 0.09, 1)
 
 	portraitIcon = container:CreateTexture(nil, "ARTWORK", nil, 1)
-	portraitIcon:SetAllPoints(portrait)
+	portraitIcon:SetSize(EMBLEM_SIZE, EMBLEM_SIZE)
+	portraitIcon:SetPoint("CENTER", portrait, "CENTER", EMBLEM_OFFSET_X, EMBLEM_OFFSET_Y)
+	portraitIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	portraitIconMask = container:CreateMaskTexture()
+	portraitIconMask:SetAllPoints(portraitIcon)
+	portraitIconMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	portraitIcon:AddMaskTexture(portraitIconMask)
 	portraitIcon:AddMaskTexture(mask)
 
 	portraitShine = container:CreateTexture(nil, "ARTWORK", nil, 2)
-	portraitShine:SetAllPoints(portrait)
+	portraitShine:SetAllPoints(portraitIcon)
+	portraitShine:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	portraitShine:AddMaskTexture(portraitIconMask)
 	portraitShine:AddMaskTexture(mask)
 	portraitShine:SetBlendMode("ADD")
-	portraitShine:SetAlpha(0.22)
+	portraitShine:SetAlpha(0.24)
 	portraitShine:Hide()
 
 	hooksecurefunc("UnitFrame_SetUnit", ns.Measured("PortraitModes: unit changed", function(frame)

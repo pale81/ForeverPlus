@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the short auction payout sound in Media/AuctionKaChing.mp3."""
+"""Synthesize the auction cash register sound in Media/AuctionKaChing.mp3."""
 from math import cos, exp, pi, sin
 from pathlib import Path
 import random
@@ -8,7 +8,7 @@ import subprocess
 import wave
 
 SAMPLE_RATE = 44100
-DURATION = 0.32
+DURATION = 1.09
 TARGET = Path(__file__).resolve().parent.parent / "Media/AuctionKaChing.mp3"
 
 
@@ -75,29 +75,53 @@ def synthesize():
     rng = random.Random(16005)
     buf = [0.0] * int(SAMPLE_RATE * DURATION)
 
-    # One handful of coins landing. Irregular spacing and short resonances
-    # keep the individual impacts audible without forming a tune.
-    impacts = [
-        (0.010, 2370.0, 0.69),
-        (0.032, 3010.0, 0.48),
-        (0.056, 1920.0, 1.00),
-        (0.081, 3170.0, 0.64),
-        (0.105, 2100.0, 0.54),
-        (0.139, 2840.0, 0.36),
-        (0.177, 2420.0, 0.24),
+    # Key travel followed by a quick metallic ratchet on the way to the strike.
+    add_metallic_impulse(buf, 0.010, 0.030, 890.0, 1.1, 0.12, 0.0005, 0.008, rng)
+    ratchet = [
+        (0.055, 3880.0, 0.14),
+        (0.076, 5340.0, 0.26),
+        (0.096, 4940.0, 0.55),
+        (0.117, 6580.0, 0.40),
+        (0.141, 4390.0, 0.46),
+        (0.165, 6140.0, 0.38),
     ]
-    for start, frequency, strength in impacts:
-        add_metallic_impulse(buf, start, 0.040, 1300.0, 0.9, strength * 0.70, 0.0004, 0.007, rng)
-        add_metallic_impulse(buf, start, 0.024, frequency * 1.48, 1.3, strength * 0.58, 0.0003, 0.004, rng)
-        add_damped_sine(buf, start, frequency * 0.44, strength * 0.14, 0.013)
-        add_damped_sine(buf, start, frequency, strength * 0.31, 0.019)
-        add_damped_sine(buf, start, frequency * 1.57, strength * 0.20, 0.011, phase=0.7)
-        add_damped_sine(buf, start, frequency * 2.38, strength * 0.12, 0.007, phase=1.1)
+    for start, frequency, strength in ratchet:
+        add_metallic_impulse(buf, start, 0.043, frequency, 1.2, strength * 2.30, 0.0011, 0.017, rng)
+        add_damped_sine(buf, start, frequency * 0.47, strength * 0.30, 0.010)
 
-    fade_out = int(0.025 * SAMPLE_RATE)
+    # The striker and the inharmonic partials of a small steel bell.
+    strike = 0.192
+    add_metallic_impulse(buf, strike - 0.007, 0.037, 5900.0, 1.0, 0.68, 0.0004, 0.010, rng)
+    add_damped_sine(buf, strike, 680.0, 0.14, 0.026)
+    bell_modes = [
+        (2098.0, 0.52, 0.214, 0.0),
+        (2104.0, 0.053, 0.183, 1.0),
+        (4808.0, 0.26, 0.191, 0.5),
+        (7454.0, 0.205, 0.044, 1.2),
+        (7726.0, 0.19, 0.092, 2.1),
+        (9690.0, 0.060, 0.031, 0.8),
+    ]
+    for frequency, amp, decay, phase in bell_modes:
+        add_damped_sine(buf, strike, frequency, amp, decay, attack=0.004, phase=phase)
+
+    # Two drawer stops and a couple of smaller contacts as the mechanism settles.
+    stops = [
+        (0.474, 1070.0, 1.13),
+        (0.545, 780.0, 1.05),
+        (0.677, 620.0, 0.59),
+        (0.815, 470.0, 0.23),
+        (0.950, 350.0, 0.12),
+    ]
+    for start, frequency, strength in stops:
+        add_metallic_impulse(buf, start, 0.079, frequency, 0.9, strength * 1.78, 0.0005, 0.023, rng)
+        add_metallic_impulse(buf, start, 0.043, 4530.0, 1.3, strength * 1.68, 0.0003, 0.011, rng)
+        add_damped_sine(buf, start, frequency, strength * 0.32, 0.022)
+        add_damped_sine(buf, start, 1.46 * frequency, strength * 0.23, 0.017, phase=0.4)
+
+    fade_out = int(0.045 * SAMPLE_RATE)
     for i in range(fade_out):
         buf[-1 - i] *= i / fade_out
-    gain = 0.55 / max(abs(sample) for sample in buf)
+    gain = 0.78 / max(abs(sample) for sample in buf)
     return [sample * gain for sample in buf]
 
 

@@ -23,7 +23,7 @@ local Auction = ns:NewModule("Auction", {
 		duration24 = true,
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
-		saleSound = true, -- coin sound on auction sales and unread auction sale mail with gold
+		saleSound = true, -- cash register sound on auction sales and unread auction sale mail with gold
 	},
 	charDefaults = {
 		crafted = {}, -- itemID -> true: made by a recipe this character knows (read when a profession is opened)
@@ -1338,8 +1338,7 @@ local function OnCraftTooltip(tooltip, data)
 end
 
 ---------------------------------------------------------------------------
--- Sale sound: short coin sound on live sales and unread
--- auction house sale mail carrying proceeds.
+-- Cash register sound on live sales and unread auction house sale mail.
 ---------------------------------------------------------------------------
 local ApplySaleSound
 do

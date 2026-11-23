@@ -178,12 +178,26 @@ local FEATURES = {
 	},
 }
 
-local FEATURE_BY_KEY = {}
+local ITEM_BY_KEY = {}
+local SUB_ITEMS = {}
 local WATCHED_MODULES = {}
 for _, feature in ipairs(FEATURES) do
-	FEATURE_BY_KEY[feature.key] = feature
+	ITEM_BY_KEY[feature.key] = feature
 	for modName in pairs(feature.modules) do
 		WATCHED_MODULES[modName] = true
+	end
+	if feature.subOptions then
+		for _, sub in ipairs(feature.subOptions) do
+			local modName, optKey = sub.module, sub.key
+			sub.id = modName .. ":" .. optKey
+			sub.parentKey = feature.key
+			sub.isSub = true
+			sub.isOn = function() return ModuleOn(modName, optKey) end
+			sub.setOn = function(on) SetModuleOn(modName, optKey, on) end
+			SUB_ITEMS[#SUB_ITEMS + 1] = sub
+			ITEM_BY_KEY[sub.id] = sub
+			WATCHED_MODULES[modName] = true
+		end
 	end
 end
 
@@ -201,15 +215,33 @@ local function VisualsDB()
 	return visuals.db, visuals.cdb
 end
 
-local function FeatureMode(featureKey)
-	local feature = FEATURE_BY_KEY[featureKey]
-	if not feature then return nil end
+local function FeatureMode(itemKey)
+	local item = ITEM_BY_KEY[itemKey]
+	if not item then return nil end
 	local db = VisualsDB()
-	local custom = db and db.portraitModeAssignments[featureKey]
+	local custom = db and db.portraitModeAssignments[itemKey]
 	if custom and MODE_BY_KEY[custom] and custom ~= "normal" then
 		return custom
 	end
-	return feature.defaultMode
+	if item.isSub then
+		return FeatureMode(item.parentKey)
+	end
+	return item.defaultMode
+end
+
+local function IsDetachedSub(sub)
+	return FeatureMode(sub.id) ~= FeatureMode(sub.parentKey)
+end
+
+local function FeatureSubOptions(feature, modeKey)
+	if not feature.subOptions then return nil end
+	local list = {}
+	for _, sub in ipairs(feature.subOptions) do
+		if FeatureMode(sub.id) == modeKey then
+			list[#list + 1] = sub
+		end
+	end
+	return list
 end
 
 local function ModeFeatures(modeKey)
@@ -219,19 +251,28 @@ local function ModeFeatures(modeKey)
 			list[#list + 1] = feature
 		end
 	end
+	for _, sub in ipairs(SUB_ITEMS) do
+		if IsDetachedSub(sub) and FeatureMode(sub.id) == modeKey then
+			list[#list + 1] = sub
+		end
+	end
 	return list
 end
 
-local function IsFeatureSelected(featureKey)
+local function ItemKey(item)
+	return item.isSub and item.id or item.key
+end
+
+local function IsFeatureSelected(itemKey)
 	local db = VisualsDB()
-	return not (db and db.portraitModeDisabled[featureKey])
+	return not (db and db.portraitModeDisabled[itemKey])
 end
 
 local function ModeCounts(modeKey)
 	local features = ModeFeatures(modeKey)
 	local activeCount, selectedCount = 0, 0
 	for _, feature in ipairs(features) do
-		if IsFeatureSelected(feature.key) then
+		if IsFeatureSelected(ItemKey(feature)) then
 			selectedCount = selectedCount + 1
 			if feature.isOn() then
 				activeCount = activeCount + 1
@@ -252,7 +293,7 @@ local function ToggleMode(modeKey)
 	if not MODE_BY_KEY[modeKey] or modeKey == "normal" then return end
 	local target = not IsModeActive(modeKey)
 	for _, feature in ipairs(ModeFeatures(modeKey)) do
-		if IsFeatureSelected(feature.key) then
+		if IsFeatureSelected(ItemKey(feature)) then
 			feature.setOn(target)
 		end
 	end
@@ -260,38 +301,49 @@ local function ToggleMode(modeKey)
 	RefreshMenu()
 end
 
-local function SetFeatureSelected(featureKey, selected)
-	local feature = FEATURE_BY_KEY[featureKey]
+local function SetFeatureSelected(itemKey, selected)
+	local item = ITEM_BY_KEY[itemKey]
 	local db = VisualsDB()
-	if not (feature and db) then return end
-	local modeKey = FeatureMode(featureKey)
+	if not (item and db) then return end
+	local modeKey = FeatureMode(itemKey)
 	local wasActive = IsModeActive(modeKey)
-	db.portraitModeDisabled[featureKey] = (not selected) or nil
+	db.portraitModeDisabled[itemKey] = (not selected) or nil
 	if wasActive then
-		feature.setOn(selected and true or false)
+		item.setOn(selected and true or false)
 	end
 	UpdatePlayerPortrait()
 	RefreshMenu()
 end
 
-local function MoveFeature(featureKey, targetModeKey)
-	local feature = FEATURE_BY_KEY[featureKey]
+local function MoveFeature(itemKey, targetModeKey)
+	local item = ITEM_BY_KEY[itemKey]
 	local db = VisualsDB()
-	if not (feature and db and MODE_BY_KEY[targetModeKey] and targetModeKey ~= "normal") then
+	if not (item and db and MODE_BY_KEY[targetModeKey] and targetModeKey ~= "normal") then
 		return false
 	end
-	local sourceModeKey = FeatureMode(featureKey)
+	local sourceModeKey = FeatureMode(itemKey)
 	if sourceModeKey == targetModeKey then
 		return false
 	end
 	local sourceWasActive = IsModeActive(sourceModeKey)
 	local targetWasActive = IsModeActive(targetModeKey)
-	db.portraitModeAssignments[featureKey] = (targetModeKey ~= feature.defaultMode) and targetModeKey or nil
-	if IsFeatureSelected(featureKey) then
-		if targetWasActive and not sourceWasActive then
-			feature.setOn(true)
-		elseif sourceWasActive and not targetWasActive then
-			feature.setOn(false)
+	local wasDetachedSub = item.isSub and IsDetachedSub(item)
+	if item.isSub then
+		local parentMode = FeatureMode(item.parentKey)
+		if targetModeKey == parentMode then
+			db.portraitModeAssignments[itemKey] = nil
+			db.portraitModeDisabled[itemKey] = nil
+		else
+			db.portraitModeAssignments[itemKey] = targetModeKey
+		end
+	else
+		db.portraitModeAssignments[itemKey] = (targetModeKey ~= item.defaultMode) and targetModeKey or nil
+	end
+	if IsFeatureSelected(itemKey) then
+		if targetWasActive and not sourceWasActive and (not item.isSub or IsDetachedSub(item)) then
+			item.setOn(true)
+		elseif sourceWasActive and not targetWasActive and (not item.isSub or wasDetachedSub) then
+			item.setOn(false)
 		end
 	end
 	UpdatePlayerPortrait()
@@ -368,15 +420,15 @@ local function StatusText(modeKey)
 	return GRAY_FONT_COLOR:WrapTextInColorCode(L.PORTRAIT_MODE_OFF)
 end
 
-local function IsExpanded(feature, modeFeatureCount)
-	if not (feature.subOptions and #feature.subOptions > 0) then
+local function IsExpanded(feature, modeFeatureCount, subList)
+	if not (subList and #subList > 0) then
 		return false
 	end
 	local saved = expandedFeatures[feature.key]
 	if saved ~= nil then
 		return saved
 	end
-	return modeFeatureCount == 1 or #feature.subOptions <= 2
+	return modeFeatureCount == 1 or #subList <= 2
 end
 
 local function SelectWoWTab(tab, selected)
@@ -455,14 +507,14 @@ local function EnsureDragGhost()
 	return ghost
 end
 
-local function StartDrag(featureKey)
-	local feature = FEATURE_BY_KEY[featureKey]
-	if not feature then return end
+local function StartDrag(itemKey)
+	local item = ITEM_BY_KEY[itemKey]
+	if not item then return end
 	GameTooltip_Hide()
-	draggingFeature = featureKey
+	draggingFeature = itemKey
 	hoveredDropTab = TabUnderCursor()
 	local ghost = EnsureDragGhost()
-	ghost.Text:SetText(feature.name)
+	ghost.Text:SetText(item.name)
 	ghost:SetWidth(math.max(120, ns.Number(ghost.Text:GetStringWidth(), 100) + 24))
 	ghost:Show()
 	UpdateDragGhost()
@@ -540,7 +592,8 @@ local function AcquireRow(index)
 		local entry = self.entry
 		if not entry then return end
 		if entry.kind == "feature" then
-			SetFeatureSelected(entry.feature.key, not IsFeatureSelected(entry.feature.key))
+			local key = ItemKey(entry.feature)
+			SetFeatureSelected(key, not IsFeatureSelected(key))
 		elseif entry.kind == "sub" then
 			local sub = entry.sub
 			SetModuleOn(sub.module, sub.key, not ModuleOn(sub.module, sub.key))
@@ -549,8 +602,11 @@ local function AcquireRow(index)
 	end))
 	row:SetScript("OnDragStart", ns.Measured("PortraitModes: drag start", function(self)
 		local entry = self.entry
-		if entry and entry.kind == "feature" then
-			StartDrag(entry.feature.key)
+		if not entry then return end
+		if entry.kind == "feature" then
+			StartDrag(ItemKey(entry.feature))
+		elseif entry.kind == "sub" then
+			StartDrag(entry.sub.id)
 		end
 	end))
 	row:SetScript("OnDragStop", ns.Measured("PortraitModes: drag stop", function()
@@ -568,10 +624,13 @@ local function AcquireRow(index)
 			end
 			GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODES_DRAG_TOOLTIP)
 			GameTooltip:Show()
-		elseif entry.kind == "sub" and entry.sub.desc then
+		elseif entry.kind == "sub" then
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip_SetTitle(GameTooltip, entry.sub.name)
-			GameTooltip_AddNormalLine(GameTooltip, entry.sub.desc)
+			if entry.sub.desc then
+				GameTooltip_AddNormalLine(GameTooltip, entry.sub.desc)
+			end
+			GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODES_DRAG_TOOLTIP)
 			GameTooltip:Show()
 		end
 	end))
@@ -584,14 +643,22 @@ local function BuildMenuEntries(modeKey)
 	local entries = {}
 	local features = ModeFeatures(modeKey)
 	for _, feature in ipairs(features) do
-		local expanded = IsExpanded(feature, #features)
-		entries[#entries + 1] = { kind = "feature", feature = feature, expanded = expanded, height = FEATURE_ROW_HEIGHT }
-		if expanded and feature.subOptions then
-			for _, sub in ipairs(feature.subOptions) do
+		local subList = not feature.isSub and FeatureSubOptions(feature, modeKey) or nil
+		local hasSubs = subList and #subList > 0 or false
+		local expanded = hasSubs and IsExpanded(feature, #features, subList) or false
+		entries[#entries + 1] = {
+			kind = "feature",
+			feature = feature,
+			hasSubs = hasSubs,
+			expanded = expanded,
+			height = FEATURE_ROW_HEIGHT,
+		}
+		if expanded then
+			for _, sub in ipairs(subList) do
 				entries[#entries + 1] = { kind = "sub", feature = feature, sub = sub, height = SUB_ROW_HEIGHT }
 			end
 		end
-		if feature.action then
+		if not feature.isSub and feature.action then
 			entries[#entries + 1] = { kind = "action", feature = feature, action = feature.action, height = ACTION_ROW_HEIGHT }
 		end
 	end
@@ -644,7 +711,7 @@ RefreshMenu = function()
 			row:SetHeight(entry.height)
 			if entry.kind == "feature" then
 				local feature = entry.feature
-				local checked = IsFeatureSelected(feature.key)
+				local checked = IsFeatureSelected(ItemKey(feature))
 				row:EnableMouse(true)
 				row.ActionButton:Hide()
 				row.Check:SetSize(24, 24)
@@ -658,9 +725,8 @@ RefreshMenu = function()
 				row.Text:ClearAllPoints()
 				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 2, 0)
 				row.Text:Show()
-				local hasSubs = feature.subOptions and #feature.subOptions > 0
-				row.Expand:SetShown(hasSubs)
-				if hasSubs then
+				row.Expand:SetShown(entry.hasSubs)
+				if entry.hasSubs then
 					SetExpandVisual(row.Expand, entry.expanded)
 					row.Text:SetPoint("RIGHT", row.Expand, "LEFT", -6, 0)
 				else
@@ -903,7 +969,7 @@ local function ShowPortraitTooltip()
 		GameTooltip_AddColoredLine(GameTooltip, L.PORTRAIT_MODES_EMPTY_SHORT, GRAY_FONT_COLOR)
 	else
 		for _, feature in ipairs(features) do
-			local selected = IsFeatureSelected(feature.key)
+			local selected = IsFeatureSelected(ItemKey(feature))
 			local on = feature.isOn()
 			local color = not selected and GRAY_FONT_COLOR or (on and GREEN_FONT_COLOR or HIGHLIGHT_FONT_COLOR)
 			local prefix

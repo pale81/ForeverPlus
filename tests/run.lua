@@ -10833,11 +10833,32 @@ end)()
 	landingRow:GetScript("OnDragStop")(landingRow)
 	assert(not ghostFrame:IsShown())
 	assert(pm.FeatureMode("landing") == "wanderlust", "dropping on a mode tab reassigns the feature")
-	-- Turning Wanderlust on now toggles both Wanderlust and Landing together.
+	-- Drag a sub-option ('SoloParty:sounds') from Berserker onto Wanderlust.
+	local soundRow
+	for _, row in ipairs(menuFrame.rows) do
+		if row:IsShown() and row.entry and row.entry.kind == "sub" and row.entry.sub.id == "SoloParty:sounds" then
+			soundRow = row
+			break
+		end
+	end
+	assert(soundRow, "Berserker menu displays the SoloParty sounds sub-option")
+	local oldSounds = solo.db.sounds
+	ns.SetOption("SoloParty", "sounds", false)
+	wanderlustTab.IsMouseOver = function() return true end
+	soundRow:GetScript("OnDragStart")(soundRow)
+	assert(ghostFrame and ghostFrame:IsShown(), "dragging a sub-option shows the floating ghost")
+	soundRow:GetScript("OnDragStop")(soundRow)
+	assert(not ghostFrame:IsShown())
+	assert(pm.FeatureMode("SoloParty:sounds") == "wanderlust", "dropping a sub-option on a tab moves it there")
+	-- Turning Wanderlust on now toggles Wanderlust, Landing and the moved SoloParty:sounds together.
 	pm.ToggleMode("wanderlust")
-	assert(wanderlust.db.enabled and landing.db.enabled and pm.IsModeActive("wanderlust"))
+	assert(wanderlust.db.enabled and landing.db.enabled and solo.db.sounds and pm.IsModeActive("wanderlust"))
 	pm.ToggleMode("wanderlust")
-	assert(not wanderlust.db.enabled and not landing.db.enabled)
+	assert(not wanderlust.db.enabled and not landing.db.enabled and not solo.db.sounds)
+	-- Moving the sub-option back onto its parent's mode re-attaches it as a sub-option.
+	assert(pm.MoveFeature("SoloParty:sounds", "berserker"))
+	assert(pm.FeatureMode("SoloParty:sounds") == "berserker")
+	ns.SetOption("SoloParty", "sounds", oldSounds)
 	-- Reset restores default assignments and checkmarks.
 	pm.ResetAssignments()
 	assert(pm.FeatureMode("landing") == "berserker" and pm.IsFeatureSelected("combatText"))

@@ -14,6 +14,7 @@ local Waypoint = ns:NewModule("Waypoint", {
 		chatLinks = true, -- coordinates in the chat can be clicked
 		message = true,
 		arrow = true, -- the arrow on the screen
+		corpseArrow = true,
 		clearOnArrival = true, -- the waypoint goes when the player is there
 	},
 })
@@ -155,20 +156,60 @@ function Waypoint.Target()
 	return target
 end
 
+local function BearingOnMap(mapID, x, y)
+	local position = C_Map.GetPlayerMapPosition(mapID, "player")
+	if ns.Secret(position) or not position then
+		return nil
+	end
+	local width, height = C_Map.GetMapWorldSize(mapID)
+	if ns.Number(width, 0) <= 0 or ns.Number(height, 0) <= 0 then
+		return nil
+	end
+	local px, py = position:GetXY()
+	if not ns.Number(px) or not ns.Number(py) then
+		return nil
+	end
+	return Waypoint.Bearing(px, py, x, y, width, height, ns.Number(GetPlayerFacing(), 0))
+end
+
 -- Distance and direction to the waypoint, or nil when the player is not on its map (another zone, an instance).
 function Waypoint.Where()
 	local goal = Waypoint.Target()
 	if not goal then
 		return nil
 	end
-	local position = C_Map.GetPlayerMapPosition(goal.mapID, "player")
-	local width, height = C_Map.GetMapWorldSize(goal.mapID)
-	if not position or not width or width <= 0 or not height or height <= 0 then
-		return nil, goal
-	end
-	local px, py = position:GetXY()
-	local distance, angle = Waypoint.Bearing(px, py, goal.x, goal.y, width, height, GetPlayerFacing())
+	local distance, angle = BearingOnMap(goal.mapID, goal.x, goal.y)
 	return distance, goal, angle
+end
+
+local function CorpseRun()
+	if not (Waypoint.db.enabled and Waypoint.db.corpseArrow and C_DeathInfo and C_DeathInfo.GetCorpseMapPosition) then
+		return false
+	end
+	local ghost = UnitIsGhost("player")
+	return not ns.Secret(ghost) and ghost == true
+end
+
+local function CorpseBearing()
+	local mapID = ns.Number(C_Map.GetBestMapForUnit("player"))
+	while mapID and mapID > 0 do
+		local position = C_DeathInfo.GetCorpseMapPosition(mapID)
+		if not ns.Secret(position) and position then
+			local x, y = position:GetXY()
+			if ns.Number(x) and ns.Number(y) then
+				local distance, angle = BearingOnMap(mapID, x, y)
+				if distance then
+					return distance, angle
+				end
+			end
+		end
+		-- A graveyard and its corpse can be in different zones. Try their shared map.
+		local info = C_Map.GetMapInfo(mapID)
+		if not info or info.mapType == Enum.UIMapType.Continent then
+			break
+		end
+		mapID = info.parentMapID
+	end
 end
 
 local arrow
@@ -180,6 +221,23 @@ local function UpdateArrow(self, elapsed)
 		return
 	end
 	self.wait = 0.05
+	if CorpseRun() then
+		local distance, angle = CorpseBearing()
+		self.Name:SetText(L.WAYPOINT_CORPSE_NAME)
+		self.Arrow:SetShown(distance ~= nil and distance > 0)
+		if distance then
+			self.Arrow:SetRotation(angle)
+			self.Text:SetFormattedText(L.WAYPOINT_DISTANCE, distance)
+		else
+			self.Text:SetText(L.WAYPOINT_CORPSE_UNKNOWN)
+			self.wait = 0.25
+		end
+		return
+	end
+	if not Waypoint.db.arrow then
+		self:Hide()
+		return
+	end
 	local distance, goal, angle = Waypoint.Where()
 	if not goal then
 		self:Hide()
@@ -217,19 +275,20 @@ local function CreateArrow()
 	arrow.Name:SetPoint("TOP", arrow.Arrow, "BOTTOM", 0, -2)
 	arrow.Text = arrow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	arrow.Text:SetPoint("TOP", arrow.Name, "BOTTOM", 0, -1)
-	arrow:SetScript("OnEnter", function(self)
+	arrow:SetScript("OnEnter", ns.Measured("Waypoint: arrow tooltip", function(self)
+		local corpse = CorpseRun()
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-		GameTooltip_SetTitle(GameTooltip, L.WAYPOINT_ARROW)
-		GameTooltip_AddInstructionLine(GameTooltip, L.WAYPOINT_ARROW_HINT)
+		GameTooltip_SetTitle(GameTooltip, corpse and L.WAYPOINT_CORPSE or L.WAYPOINT_ARROW)
+		GameTooltip_AddInstructionLine(GameTooltip, corpse and L.WAYPOINT_CORPSE_HINT or L.WAYPOINT_ARROW_HINT)
 		GameTooltip:Show()
-	end)
+	end))
 	arrow:SetScript("OnLeave", GameTooltip_Hide)
-	arrow:SetScript("OnMouseUp", function(_, button)
-		if button == "MiddleButton" then
+	arrow:SetScript("OnMouseUp", ns.Measured("Waypoint: arrow click", function(_, button)
+		if button == "MiddleButton" and not CorpseRun() then
 			Waypoint.Clear()
 			ns.Print(L.WAYPOINT_CLEARED)
 		end
-	end)
+	end))
 	ns.SetUpdate(arrow, "Waypoint: arrow", UpdateArrow)
 	ns:RegisterDisplay(arrow, "WaypointArrow", function(self)
 		self:SetPoint("TOP", UIParent, "TOP", 0, -110)
@@ -237,16 +296,10 @@ local function CreateArrow()
 	arrow:Hide()
 end
 
--- Shows the arrow while there is a waypoint (it hides itself when there is none any more).
+-- The corpse temporarily takes priority over any existing waypoint.
 function Refresh()
 	local db = Waypoint.db
-	if not (db.enabled and db.arrow) then
-		if arrow then
-			arrow:Hide()
-		end
-		return
-	end
-	if Waypoint.Target() then
+	if CorpseRun() or (db.enabled and db.arrow and Waypoint.Target()) then
 		if not arrow then
 			CreateArrow()
 		end
@@ -292,6 +345,8 @@ function Waypoint:OnLogin()
 	end
 	self:RegisterEvent("USER_WAYPOINT_UPDATED", Refresh)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", Refresh)
+	self:RegisterEvent("PLAYER_ALIVE", Refresh)
+	self:RegisterEvent("PLAYER_UNGHOST", Refresh)
 	self:Apply()
 end
 
@@ -305,5 +360,6 @@ Waypoint.options = {
 	{ key = "chatLinks", type = "toggle", name = L.WAYPOINT_CHAT, desc = L.WAYPOINT_CHAT_DESC, parent = "enabled", new = true },
 	{ key = "message", type = "toggle", name = L.WAYPOINT_MESSAGE, desc = L.MESSAGE_DESC, parent = "enabled" },
 	{ key = "arrow", type = "toggle", name = L.WAYPOINT_ARROW, desc = L.WAYPOINT_ARROW_DESC, parent = "enabled", new = true },
+	{ key = "corpseArrow", type = "toggle", name = L.WAYPOINT_CORPSE, desc = L.WAYPOINT_CORPSE_DESC, parent = "enabled" },
 	{ key = "clearOnArrival", type = "toggle", name = L.WAYPOINT_ARRIVAL, desc = L.WAYPOINT_ARRIVAL_DESC, parent = "enabled", new = true },
 }

@@ -12366,5 +12366,175 @@ end)()
 	visuals.db.totemTimers = saved.option
 	visuals:OnOptionChanged("totemTimers")
 end)()
+;(function()
+	-- Persistent account-wide ignore list in Chat: save, restore after restart, explicit removal, chat filter and editor
+	local chat = ns:GetModule("Chat")
+	local saved = {
+		C_FriendList = C_FriendList,
+		GetNormalizedRealmName = GetNormalizedRealmName,
+		GetRealmName = GetRealmName,
+		RegionalUniqueNamesEnabled = RegionalUniqueNamesEnabled,
+		UnitFullName = UnitFullName,
+		GetTime = GetTime,
+		hooksecurefunc = hooksecurefunc,
+		issecretvalue = issecretvalue,
+		ShowEditWindow = ns.ShowEditWindow,
+		ERR_IGNORE_ADDED_S = ERR_IGNORE_ADDED_S,
+		ERR_IGNORE_ALREADY_S = ERR_IGNORE_ALREADY_S,
+		ERR_IGNORE_NOT_FOUND = ERR_IGNORE_NOT_FOUND,
+		ERR_IGNORE_SELF = ERR_IGNORE_SELF,
+		keepIgnore = chat.db.keepIgnore,
+		ignoredPlayers = ns.db.ignoredPlayers,
+	}
+
+	local now = 100
+	GetTime = function() return now end
+	GetNormalizedRealmName = function() return "Everlook" end
+	GetRealmName = function() return "Everlook" end
+	local regional = false
+	RegionalUniqueNamesEnabled = function() return regional end
+	UnitFullName = function() return "OwnHero", "Everlook" end
+	local secretVal = {}
+	issecretvalue = function(v) return v == secretVal end
+	ERR_IGNORE_ADDED_S = "%s is now being ignored."
+	ERR_IGNORE_ALREADY_S = "%s is already being ignored."
+	ERR_IGNORE_NOT_FOUND = "Player not found."
+	ERR_IGNORE_SELF = "You can't ignore yourself."
+
+	hooksecurefunc = function(object, method, hook)
+		local original = object[method]
+		object[method] = function(...)
+			local r1, r2 = original(...)
+			hook(...)
+			return r1, r2
+		end
+	end
+
+	-- Name normalisation: own realm stripped, foreign realm kept, Forever internal realm stripped.
+	assert(chat.IgnoreCanonical("Spammer-Everlook") == "Spammer", "own realm stripped")
+	assert(chat.IgnoreCanonical("Troll-OtherRealm") == "Troll-OtherRealm", "foreign realm kept")
+	assert(chat.IgnoreCanonical(secretVal) == nil, "secret value ignored")
+	regional = true
+	assert(chat.IgnoreCanonical("Bob Smith-CAMWOWEU5Realm10RP") == "Bob Smith", "Forever regional name keeps surname and strips internal realm")
+	regional = false
+
+	local serverList = { "Spammer-Everlook", "Troll-OtherRealm" }
+	local addedCalls, deletedCalls = {}, {}
+	C_FriendList = {
+		GetNumIgnores = function() return #serverList end,
+		GetIgnoreName = function(i) return serverList[i] end,
+		AddIgnore = function(name)
+			addedCalls[#addedCalls + 1] = name
+			return true
+		end,
+		DelIgnore = function(name)
+			deletedCalls[#deletedCalls + 1] = name
+			return true
+		end,
+		DelIgnoreByIndex = function(index)
+			local name = serverList[index]
+			if name then
+				deletedCalls[#deletedCalls + 1] = name
+			end
+			return true
+		end,
+		AddOrDelIgnore = function() return true end,
+	}
+
+	ns.db.ignoredPlayers = {}
+	chat.db.keepIgnore = true
+	chat.ResetIgnoreSession()
+	chat:UpdateIgnoreList(true)
+	assert(ns.db.ignoredPlayers["spammer"] == "Spammer", "server ignore saved")
+	assert(ns.db.ignoredPlayers["troll-otherrealm"] == "Troll-OtherRealm", "cross-realm server ignore saved")
+	assert(#addedCalls == 0, "already present entries not re-added")
+
+	-- Simulate restart: server returns empty list, saved entries (except own character) are restored once.
+	ns.db.ignoredPlayers["ownhero"] = "OwnHero"
+	ns.db.ignoredPlayers["offlineguy"] = "OfflineGuy"
+	serverList = {}
+	addedCalls = {}
+	chat.ResetIgnoreSession()
+	chat.SyncIgnoreList(true)
+	assert(#addedCalls == 3, "three missing entries restored (own character skipped)")
+	assert(addedCalls[1] == "OfflineGuy" and addedCalls[2] == "Spammer" and addedCalls[3] == "Troll-OtherRealm", "restored in deterministic order")
+
+	-- Restore system messages suppressed during window, normal system messages allowed, after window allowed again.
+	assert(chat.IgnoreSystemFilter(nil, "CHAT_MSG_SYSTEM", "Spammer is now being ignored.") == true, "restore added message suppressed")
+	assert(chat.IgnoreSystemFilter(nil, "CHAT_MSG_SYSTEM", "Player not found.") == true, "restore not-found message suppressed")
+	assert(chat.IgnoreSystemFilter(nil, "CHAT_MSG_SYSTEM", "You have gained a level.") == false, "unrelated system message kept")
+	now = 105
+	assert(chat.IgnoreSystemFilter(nil, "CHAT_MSG_SYSTEM", "Spammer is now being ignored.") == false, "system messages allowed after window")
+
+	-- Second sync in same session does not loop AddIgnore for names still missing on server.
+	addedCalls = {}
+	chat.SyncIgnoreList(true)
+	assert(#addedCalls == 0, "no repeated AddIgnore attempts in the same session")
+
+	-- Chat filter blocks saved names (even while missing on server) and tolerates secret senders.
+	assert(chat.IgnoreChatFilter(nil, "CHAT_MSG_WHISPER", "hi", "OfflineGuy-Everlook") == true, "chat filter blocks saved name")
+	assert(chat.IgnoreChatFilter(nil, "CHAT_MSG_SAY", "hi", "Friendly-Everlook") == false, "chat filter allows non-ignored sender")
+	assert(chat.IgnoreChatFilter(nil, "CHAT_MSG_SAY", "hi", secretVal) == false, "chat filter skips secret sender")
+
+	-- Explicit removals via DelIgnore, DelIgnoreByIndex and AddOrDelIgnore remove from backup too.
+	serverList = { "Spammer", "Troll-OtherRealm", "OfflineGuy" }
+	chat.SyncIgnoreList(false)
+	C_FriendList.DelIgnore("Spammer")
+	assert(ns.db.ignoredPlayers["spammer"] == nil, "DelIgnore removes entry from backup")
+	-- Stale IGNORELIST_UPDATE right after removal must not re-add the removed name.
+	chat.SyncIgnoreList(false)
+	assert(ns.db.ignoredPlayers["spammer"] == nil, "stale update within grace window does not re-add removed name")
+	-- Explicit re-add clears the removal guard so the next server sync records it again.
+	C_FriendList.AddIgnore("Spammer")
+	chat.SyncIgnoreList(false)
+	assert(ns.db.ignoredPlayers["spammer"] == "Spammer", "explicit re-add clears guard and saves again")
+
+	C_FriendList.DelIgnoreByIndex(2)
+	assert(ns.db.ignoredPlayers["troll-otherrealm"] == nil, "DelIgnoreByIndex removes indexed entry from backup")
+	C_FriendList.AddOrDelIgnore("OfflineGuy")
+	assert(ns.db.ignoredPlayers["offlineguy"] == nil, "AddOrDelIgnore on ignored player removes entry from backup")
+
+	-- Editor window: shows sorted list, removes deleted names from server+backup and adds new ones.
+	serverList = { "Spammer" }
+	chat.SyncIgnoreList(false)
+	deletedCalls, addedCalls = {}, {}
+	local editInitial, editAccept
+	ns.ShowEditWindow = function(_, _, initial, _, accept)
+		editInitial, editAccept = initial, accept
+	end
+	chat:EditIgnoreList()
+	assert(editInitial:find("Spammer", 1, true), "editor prefilled with saved names")
+	editAccept("NewBaddie\nOtherBaddie-RealmTwo")
+	assert(ns.db.ignoredPlayers["spammer"] == nil and ns.db.ignoredPlayers["newbaddie"] == "NewBaddie"
+		and ns.db.ignoredPlayers["otherbaddie-realmtwo"] == "OtherBaddie-RealmTwo", "editor updates saved list")
+	assert(deletedCalls[1] == "Spammer", "editor removes deleted server ignore")
+	assert(#addedCalls == 2, "editor adds newly typed ignores to server")
+
+	-- Turning option off disables chat filter without wiping saved names.
+	chat.db.keepIgnore = false
+	chat:OnOptionChanged("keepIgnore", false)
+	assert(chat.IgnoreChatFilter(nil, "CHAT_MSG_SAY", "hi", "NewBaddie") == false, "chat filter inactive when option is off")
+	assert(ns.db.ignoredPlayers["newbaddie"] == "NewBaddie", "saved list kept when option is toggled off")
+
+	-- Restore environment.
+	chat.ResetIgnoreSession()
+	C_FriendList = saved.C_FriendList
+	GetNormalizedRealmName = saved.GetNormalizedRealmName
+	GetRealmName = saved.GetRealmName
+	RegionalUniqueNamesEnabled = saved.RegionalUniqueNamesEnabled
+	UnitFullName = saved.UnitFullName
+	GetTime = saved.GetTime
+	hooksecurefunc = saved.hooksecurefunc
+	issecretvalue = saved.issecretvalue
+	ns.ShowEditWindow = saved.ShowEditWindow
+	ERR_IGNORE_ADDED_S = saved.ERR_IGNORE_ADDED_S
+	ERR_IGNORE_ALREADY_S = saved.ERR_IGNORE_ALREADY_S
+	ERR_IGNORE_NOT_FOUND = saved.ERR_IGNORE_NOT_FOUND
+	ERR_IGNORE_SELF = saved.ERR_IGNORE_SELF
+	chat.db.keepIgnore = saved.keepIgnore
+	ns.db.ignoredPlayers = saved.ignoredPlayers
+	chat:UpdateIgnoreList(false)
+	print("chat ignore list OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

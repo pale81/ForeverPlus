@@ -7,7 +7,7 @@ Verbessert das originale Forever-Interface (Blizzard-Code „Camelot“) und ble
 
 Jeder Punkt ist einzeln abschaltbar; die vollständige Liste mit allen Optionen steht unter „Funktionen“.
 
-- **Chat:** schlanke Reiter und Eingabe, Verlauf mit Pfeiltasten, Kopieren, kurze Kanalnamen, Zusammenfassen von Beute, Ruf und Fertigkeiten, Schlagwort-Alarm.
+- **Chat:** schlanke Reiter und Eingabe, Verlauf mit Pfeiltasten, Kopieren, dauerhafte Ignorieren-Liste, kurze Kanalnamen, Zusammenfassen von Beute, Ruf und Fertigkeiten, Schlagwort-Alarm.
 - **Tooltip:** Herkunft von Gegenständen und Beutechancen, Stückpreis, Auktionspreis mit Alter, Anzahl bei allen Charakteren, Spielernotizen.
 - **Gegenstände:** Schrott verkaufen und reparieren, Upgrade-Pfeile nach Klasse und Talentbaum, „Verbesserungen je Platz“ (`/fp besser`), Bank unterwegs, Aufstockliste.
 - **Quests:** Tracker-Sortierung und -Filter, Questsymbole an Plaketten, Gesprächsblase statt Questfenster, Glitzern an Questgegenständen.
@@ -47,6 +47,7 @@ Fenster und ForeverPlus-Anzeigen wie Koordinaten oder FPS/MS sind anfangs gesper
 | | Kopierknopf oben rechts im Chat (bei Mouseover): letzte 50 Zeilen als markierter Text (Strg+C), Links als Klartext | ja |
 | | Chat im Bearbeitungsmodus bis in die Ecken und an die Ränder (links, rechts, unten) verschiebbar; oben bleibt Platz für die Reiter, am oberen Rand steht das Eingabefeld unter dem Chat; nach dem Laden schob Blizzards Randbegrenzung (mit der Knopfspalte) einen Chat am linken Rand nach rechts, jetzt kommt er danach wieder auf seinen Platz aus dem Bearbeitungsmodus (im Spiel ungeprüft) | ja |
 | | Chat der letzten Sitzung behalten (je Fenster einstellbare Zeilenzahl, geschützte Nachrichten ausgenommen) | ja |
+| | Ignorieren-Liste über Neustarts behalten (Standard an, accountweit): speichert alle Einträge deiner Ignorieren-Liste dauerhaft, stellt fehlende Namen nach dem Einloggen über `C_FriendList.AddIgnore` wieder her (Wiederherstellungs-Systemmeldungen werden dabei kurz ausgeblendet, jeder fehlende Name pro Sitzung höchstens einmal angefragt) und blendet Nachrichten gespeicherter Namen zusätzlich über einen Chat-Filter aus; bewusstes Entfernen (`/unignore`, Soziales-Fenster oder über den Knopf „Ignorieren-Liste → Bearbeiten“ in den Chat-Einstellungen) entfernt den Namen auch aus der Sicherung; im Spiel ungeprüft | ja |
 | | Kanalnamen abgekürzt: [2. Handel - Stadt] → [2. H], LokaleVerteidigung → LV | ja |
 | | Zeitstempel in eigener Farbe | ja |
 | | Umbrüche eingerückt (Standard aus; Kopf „Chat eingerückt“; der Zeitstempel des Chatfensters wird mitgerechnet, auch wenn er erst beim Zeichnen vor die Zeile gesetzt wird, die Folgezeilen rücken um seine gemessene Breite ein; auch im Chat-Tab-Menü unter „Zusätze“): lange Zeilen werden selbst umbrochen (Breite des Fensters, Schrift des Chatfensters gemessen), die Folgezeilen beginnen mit Leerzeichen in der Breite des Zeitstempels (ohne Zeitstempel zwei Leerzeichen); wirkt über `TransformMessages` des Chatfensters nach dem Hinzufügen, Blizzards Funktionen bleiben unberührt; Links werden nicht getrennt; nach einer Größenänderung des Fensters neu berechnet (Kampflog ausgenommen; Aussehen im Spiel ungeprüft) | ja |

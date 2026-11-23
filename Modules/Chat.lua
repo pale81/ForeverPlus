@@ -23,6 +23,7 @@ local Chat = ns:NewModule("Chat", {
 		inputHistory = true,
 		chatLog = true,
 		chatLogLines = 200,
+		keepIgnore = true,
 		copyButton = true,
 		repeatSummary = true,
 		repeatDelay = 30,
@@ -1147,6 +1148,384 @@ local function RegisterKeywordAlertMenuItem()
 	end
 end
 
+---------------------------------------------------------------------------
+-- Persistent account-wide ignore list: keeps ignored player names across
+-- restarts, restores missing entries into Blizzard's list after login and
+-- filters chat from saved names as a fallback.
+---------------------------------------------------------------------------
+do
+	local IGNORE_CHAT_EVENTS = {
+		"CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
+		"CHAT_MSG_WHISPER", "CHAT_MSG_CHANNEL",
+		"CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+		"CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
+		"CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+	}
+
+	local ignoreHooked
+	local lastServerIgnores = {} -- index -> canonical display name
+	local lastServerSet = {}     -- folded key -> canonical display name
+	local ignoreAttempted = {}   -- folded key -> true (attempted restore in this session)
+	local recentlyRemoved = {}   -- folded key -> expiry time (guards against stale IGNORELIST_UPDATE)
+	local restoringIgnore = false
+	local suppressSystemUntil = 0
+	local systemFilterActive = false
+	local restoreTimerArmed = false
+
+	local function FoldCase(text)
+		return C_Intl and type(C_Intl.FoldCase) == "function" and C_Intl.FoldCase(text) or text:lower()
+	end
+
+	local function OwnNormalizedRealm()
+		local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+		if type(realm) == "string" and not ns.Secret(realm) and realm ~= "" then
+			return realm
+		end
+		realm = GetRealmName and GetRealmName()
+		if type(realm) == "string" and not ns.Secret(realm) and realm ~= "" then
+			return (realm:gsub("[%s'%-]", ""))
+		end
+		return ""
+	end
+
+	local function IsRegionalNames()
+		return RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled() == true
+	end
+
+	-- Strips the own realm (or Forever's internal realm suffix) while keeping foreign realms intact.
+	local function IgnoreCanonical(name)
+		if type(name) ~= "string" or ns.Secret(name) then
+			return nil
+		end
+		name = strtrim(name)
+		if name == "" then
+			return nil
+		end
+		local base, realm = name:match("^([^%-]+)%-(.+)$")
+		if base then
+			base, realm = strtrim(base), strtrim(realm)
+			if base == "" then
+				return nil
+			end
+			if IsRegionalNames() then
+				return base
+			end
+			local own = OwnNormalizedRealm()
+			local normRealm = realm:gsub("[%s'%-]", "")
+			if own ~= "" and FoldCase(normRealm) == FoldCase(own) then
+				return base
+			end
+			return realm ~= "" and (base .. "-" .. realm) or base
+		end
+		return name
+	end
+
+	local function IgnoreKey(name)
+		local canonical = IgnoreCanonical(name)
+		return canonical and FoldCase(canonical) or nil
+	end
+
+	local function OwnPlayerKey()
+		local name, realm
+		if UnitFullName then
+			name, realm = UnitFullName("player")
+		elseif UnitName then
+			name, realm = UnitName("player")
+		end
+		if type(name) ~= "string" or ns.Secret(name) or name == "" then
+			return nil
+		end
+		if IsRegionalNames() and type(realm) == "string" and not ns.Secret(realm) and realm ~= ""
+			and not name:find(" ", 1, true) then
+			name = name .. " " .. realm
+		end
+		return IgnoreKey(name)
+	end
+
+	local function IgnoreStore()
+		if type(ns.db.ignoredPlayers) ~= "table" then
+			ns.db.ignoredPlayers = {}
+		end
+		return ns.db.ignoredPlayers
+	end
+
+	local function IgnoreSystemPatterns()
+		local patterns = {}
+		for _, text in ipairs({ ERR_IGNORE_ADDED_S, ERR_IGNORE_ALREADY_S, ERR_IGNORE_NOT_FOUND, ERR_IGNORE_SELF }) do
+			if type(text) == "string" and text ~= "" then
+				patterns[#patterns + 1] = ns.FormatToPattern(text, true).pattern
+			end
+		end
+		return patterns
+	end
+
+	local function IgnoreSystemFilter(_, _, text)
+		if GetTime() > suppressSystemUntil then
+			if systemFilterActive then
+				systemFilterActive = false
+				RemoveFilter("CHAT_MSG_SYSTEM", IgnoreSystemFilter)
+			end
+			return false
+		end
+		if type(text) ~= "string" or ns.Secret(text) then
+			return false
+		end
+		for _, pattern in ipairs(IgnoreSystemPatterns()) do
+			if text:match(pattern) then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function SuppressRestoreMessages()
+		suppressSystemUntil = GetTime() + 3
+		if not systemFilterActive then
+			systemFilterActive = true
+			AddFilter("CHAT_MSG_SYSTEM", IgnoreSystemFilter)
+		end
+		ns.After("Chat: ignore system filter", 3.5, function()
+			if systemFilterActive and GetTime() > suppressSystemUntil then
+				systemFilterActive = false
+				RemoveFilter("CHAT_MSG_SYSTEM", IgnoreSystemFilter)
+			end
+		end)
+	end
+
+	local function IgnoreChatFilter(_, _, _, sender)
+		if not Chat.db.keepIgnore or type(sender) ~= "string" or ns.Secret(sender) then
+			return false
+		end
+		local key = IgnoreKey(sender)
+		return key ~= nil and IgnoreStore()[key] ~= nil
+	end
+
+	local function UpdateIgnoreFilter()
+		local active = Chat.db.keepIgnore and next(IgnoreStore()) ~= nil
+		SetFilter(IGNORE_CHAT_EVENTS, active, IgnoreChatFilter)
+	end
+
+	local function ForgetName(name)
+		local key = IgnoreKey(name)
+		if not key then
+			return
+		end
+		IgnoreStore()[key] = nil
+		ignoreAttempted[key] = nil
+		recentlyRemoved[key] = GetTime() + 5
+		UpdateIgnoreFilter()
+	end
+
+	local function HookIgnoreApi()
+		if type(C_FriendList) ~= "table" or ignoreHooked == C_FriendList then
+			return
+		end
+		ignoreHooked = C_FriendList
+		if type(C_FriendList.AddIgnore) == "function" then
+			hooksecurefunc(C_FriendList, "AddIgnore", ns.Measured("Chat: AddIgnore", function(name)
+				if Chat.db.keepIgnore and not restoringIgnore then
+					local key = IgnoreKey(name)
+					if key then
+						recentlyRemoved[key] = nil
+					end
+				end
+			end))
+		end
+		if type(C_FriendList.DelIgnore) == "function" then
+			hooksecurefunc(C_FriendList, "DelIgnore", ns.Measured("Chat: DelIgnore", function(name)
+				if Chat.db.keepIgnore and not restoringIgnore then
+					ForgetName(name)
+				end
+			end))
+		end
+		if type(C_FriendList.DelIgnoreByIndex) == "function" then
+			hooksecurefunc(C_FriendList, "DelIgnoreByIndex", ns.Measured("Chat: DelIgnoreByIndex", function(index)
+				if not (Chat.db.keepIgnore and not restoringIgnore) then
+					return
+				end
+				index = ns.Number(index)
+				if not index then
+					return
+				end
+				local name = lastServerIgnores[index]
+				if not name and type(C_FriendList.GetIgnoreName) == "function" then
+					name = C_FriendList.GetIgnoreName(index)
+				end
+				if name then
+					ForgetName(name)
+				end
+			end))
+		end
+		if type(C_FriendList.AddOrDelIgnore) == "function" then
+			hooksecurefunc(C_FriendList, "AddOrDelIgnore", ns.Measured("Chat: AddOrDelIgnore", function(name)
+				if not (Chat.db.keepIgnore and not restoringIgnore) then
+					return
+				end
+				local key = IgnoreKey(name)
+				if key and lastServerSet[key] then
+					ForgetName(name)
+				elseif key then
+					recentlyRemoved[key] = nil
+				end
+			end))
+		end
+	end
+
+	local function SyncIgnoreList(restoreMissing)
+		if not Chat.db.keepIgnore then
+			return
+		end
+		if type(C_FriendList) ~= "table" or type(C_FriendList.GetNumIgnores) ~= "function"
+			or type(C_FriendList.GetIgnoreName) ~= "function" then
+			UpdateIgnoreFilter()
+			return
+		end
+		local store = IgnoreStore()
+		local now = GetTime()
+		for key, expires in pairs(recentlyRemoved) do
+			if now >= expires then
+				recentlyRemoved[key] = nil
+			end
+		end
+		local serverList, serverSet = {}, {}
+		local num = ns.Number(C_FriendList.GetNumIgnores(), 0)
+		for index = 1, num do
+			local canonical = IgnoreCanonical(C_FriendList.GetIgnoreName(index))
+			local key = canonical and FoldCase(canonical)
+			if key then
+				serverList[index] = canonical
+				serverSet[key] = canonical
+				if not recentlyRemoved[key] then
+					store[key] = canonical
+				end
+			end
+		end
+		lastServerIgnores = serverList
+		lastServerSet = serverSet
+
+		if restoreMissing and type(C_FriendList.AddIgnore) == "function" then
+			local ownKey = OwnPlayerKey()
+			local missing = {}
+			for key, display in pairs(store) do
+				if type(display) == "string" and display ~= "" and not serverSet[key]
+					and not ignoreAttempted[key] and key ~= ownKey then
+					missing[#missing + 1] = { key = key, name = display }
+				end
+			end
+			if #missing > 0 then
+				table.sort(missing, function(a, b) return a.key < b.key end)
+				SuppressRestoreMessages()
+				restoringIgnore = true
+				for _, entry in ipairs(missing) do
+					ignoreAttempted[entry.key] = true
+					pcall(C_FriendList.AddIgnore, entry.name)
+				end
+				restoringIgnore = false
+			end
+		end
+		UpdateIgnoreFilter()
+	end
+
+	local function OnIgnoreListUpdate()
+		SyncIgnoreList(true)
+	end
+
+	function Chat:UpdateIgnoreList(restoreNow)
+		local enabled = self.db.keepIgnore
+		self:ToggleEvent("IGNORELIST_UPDATE", enabled, OnIgnoreListUpdate)
+		if enabled then
+			HookIgnoreApi()
+			UpdateIgnoreFilter()
+			if restoreNow then
+				SyncIgnoreList(true)
+			elseif not restoreTimerArmed then
+				restoreTimerArmed = true
+				ns.After("Chat: restore ignore list", 2, function()
+					restoreTimerArmed = false
+					if Chat.db.keepIgnore then
+						SyncIgnoreList(true)
+					end
+				end)
+			end
+		else
+			SetFilter(IGNORE_CHAT_EVENTS, false, IgnoreChatFilter)
+			if systemFilterActive then
+				systemFilterActive = false
+				RemoveFilter("CHAT_MSG_SYSTEM", IgnoreSystemFilter)
+			end
+		end
+	end
+
+	function Chat:EditIgnoreList()
+		local store = IgnoreStore()
+		local names = {}
+		for _, display in pairs(store) do
+			if type(display) == "string" and display ~= "" then
+				names[#names + 1] = display
+			end
+		end
+		table.sort(names, function(a, b) return FoldCase(a) < FoldCase(b) end)
+		ns.ShowEditWindow("IgnoreList", L.CHAT_IGNORE_LIST, table.concat(names, "\n"), SAVE, function(text)
+			local nextStore = {}
+			if type(text) == "string" then
+				for part in text:gmatch("[^,\r\n]+") do
+					local canonical = IgnoreCanonical(part)
+					local key = canonical and FoldCase(canonical)
+					if key then
+						nextStore[key] = canonical
+					end
+				end
+			end
+			local oldStore = IgnoreStore()
+			local ownKey = OwnPlayerKey()
+			local now = GetTime()
+			restoringIgnore = true
+			for key, display in pairs(oldStore) do
+				if not nextStore[key] then
+					ignoreAttempted[key] = nil
+					recentlyRemoved[key] = now + 5
+					if lastServerSet[key] and type(C_FriendList) == "table" and type(C_FriendList.DelIgnore) == "function" then
+						pcall(C_FriendList.DelIgnore, display)
+					end
+				end
+			end
+			wipe(oldStore)
+			for key, display in pairs(nextStore) do
+				recentlyRemoved[key] = nil
+				oldStore[key] = display
+			end
+			if Chat.db.keepIgnore and type(C_FriendList) == "table" and type(C_FriendList.AddIgnore) == "function" then
+				for key, display in pairs(oldStore) do
+					if not lastServerSet[key] and key ~= ownKey then
+						ignoreAttempted[key] = true
+						pcall(C_FriendList.AddIgnore, display)
+					end
+				end
+			end
+			restoringIgnore = false
+			UpdateIgnoreFilter()
+		end, L.CHAT_IGNORE_LIST_HINT)
+	end
+
+	Chat.IgnoreCanonical = IgnoreCanonical
+	Chat.IgnoreKey = IgnoreKey
+	Chat.SyncIgnoreList = SyncIgnoreList
+	Chat.IgnoreChatFilter = IgnoreChatFilter
+	Chat.IgnoreSystemFilter = IgnoreSystemFilter
+	Chat.ResetIgnoreSession = function()
+		wipe(lastServerIgnores)
+		wipe(lastServerSet)
+		wipe(ignoreAttempted)
+		wipe(recentlyRemoved)
+		suppressSystemUntil = 0
+		restoreTimerArmed = false
+		if systemFilterActive then
+			systemFilterActive = false
+			RemoveFilter("CHAT_MSG_SYSTEM", IgnoreSystemFilter)
+		end
+	end
+end
+
 -- The frame of the chat windows (the border textures of the window and of its button strip, and the dark strip
 -- of the buttons) is hidden for good; the dark background of the text stays. The game fades these parts in with
 -- the buttons, so a hidden texture is the only way to keep them away.
@@ -1218,6 +1597,7 @@ function Chat:OnLogin()
 	self:UpdateKeywordAlert()
 	self:UpdateChannelNames()
 	self:UpdateTimestampColor()
+	self:UpdateIgnoreList(false)
 	self:ApplyTransparency()
 	self:RegisterEvent("PLAYER_LOGOUT", function()
 		for key in pairs(repeatPending) do
@@ -1250,6 +1630,8 @@ function Chat:OnOptionChanged(key, value)
 		end
 	elseif key == "chatLog" and not value then
 		wipe(self.cdb.chatLog)
+	elseif key == "keepIgnore" then
+		self:UpdateIgnoreList(value)
 	elseif key == "timestampColor" or key == "timestampColorValue" then
 		self:UpdateTimestampColor()
 	elseif key == "mouseScroll" then
@@ -1289,6 +1671,10 @@ Chat.options = {
 	{ key = "inputHistory", type = "toggle", name = L.CHAT_INPUT_HISTORY, desc = L.CHAT_INPUT_HISTORY_DESC },
 	{ key = "chatLog", type = "toggle", name = L.CHAT_LOG, desc = L.CHAT_LOG_DESC },
 	{ key = "chatLogLines", type = "slider", name = L.CHAT_LOG_LINES, parent = "chatLog", min = 50, max = 500, step = 50 },
+	{ key = "keepIgnore", type = "toggle", name = L.CHAT_KEEP_IGNORE, desc = L.CHAT_KEEP_IGNORE_DESC, new = true },
+	{ type = "button", name = L.CHAT_IGNORE_LIST, text = L.CHAT_KEYWORDS_EDIT, desc = L.CHAT_IGNORE_LIST_DESC, func = function()
+		Chat:EditIgnoreList()
+	end },
 	{ key = "copyButton", type = "toggle", name = L.CHAT_COPY_BUTTON, desc = L.CHAT_COPY_BUTTON_DESC },
 	{ type = "header", name = L.CHAT_MESSAGES_HEADER },
 	{ key = "channelShort", type = "toggle", name = L.CHAT_CHANNEL_SHORT, desc = L.CHAT_CHANNEL_SHORT_DESC },

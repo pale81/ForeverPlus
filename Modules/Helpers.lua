@@ -283,7 +283,6 @@ end
 local function UpdateOpenButton()
 	openButtonPending = nil
 	if InCombatLockdown() then
-		ns.RunOutOfCombat(UpdateOpenButton)
 		return
 	end
 	local button = openButton
@@ -331,7 +330,10 @@ local function QueueOpenButton()
 end
 
 local function CreateOpenButton()
-	local button = CreateFrame("Button", "ForeverPlusOpenButton", UIParent, "ActionButtonTemplate, SecureActionButtonTemplate")
+	-- Keep combat visibility separate from whether the bags contain an item to open.
+	local visibility = CreateFrame("Frame", nil, UIParent)
+	RegisterStateDriver(visibility, "visibility", "[combat] hide; show")
+	local button = CreateFrame("Button", "ForeverPlusOpenButton", visibility, "ActionButtonTemplate, SecureActionButtonTemplate")
 	button:SetSize(36, 36)
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:SetAttribute("type", "item")
@@ -916,6 +918,7 @@ function Helpers:OnLogin()
 	CreateOpenButton()
 	CreateFishButton()
 	CreateFishingMenu()
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", UpdateOpenButton)
 	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
 		cachedPole = nil
 		if self.db.openButton then

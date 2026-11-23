@@ -6500,6 +6500,16 @@ end)()
 			end
 		end
 	end
+	local random = math.random
+	math.random = function(...)
+		local first, last = ...
+		-- Control variant draws while leaving positions and animation random.
+		if last and last <= 6 then
+			if first == 1 then return last end
+			if first == 2 then return first end
+		end
+		return random(...)
+	end
 	assert(not solo.db.enabled and solo.db.sounds, "Solo Party defaults to off with sound available when enabled")
 	Fire("CHAT_MSG_SKILL", skill)
 	assert(not layer and #played == 0, "disabled: no party frame or sound")
@@ -6531,7 +6541,7 @@ end)()
 	Fire("PLAYER_MONEY")
 	assert(printed[5] == ns.L.SOLO_PARTY_SPENT and printed[6] == "−100c", "exactly -10% of the purse before spending qualifies")
 	assert(#played == 3 and reward[played[1]] and reward[played[2]] and expense[played[3]], "each qualifying burst gets a sound from its pool")
-	assert(#frames == 3 and frames[1] ~= frames[2] and frames[2] ~= frames[3] and frames[1] ~= frames[3], "all three frames rotate")
+	assert(#frames == 3 and frames[1] ~= frames[2] and frames[2] ~= frames[3] and frames[1] ~= frames[3], "all three card variants appear")
 	assert(Effect(1, "SoloPartyMotifs", 0.5, 0), "skinning has strands")
 	assert(Effect(2, "UI-GoldIcon") and Effect(3, "BonusChest-OrangeSmoke-Wide"), "loot has coins and spending has smoke")
 	assert(visuals[1][3] == "" and visuals[2][3] == "", "card text uses a shadow without an outline")
@@ -6552,9 +6562,9 @@ end)()
 	Fire("CHAT_MSG_MONEY", "Ihr plündert 1 Kupfer")
 	timers[3].fn()
 	assert(printed[8] == "+10c" and printed[10] == "+1c", "cash from zero and a second loot line in the same tick")
-	assert(reward[played[4]] and played[4] ~= played[1] and played[4] ~= played[2] and played[5] == played[1],
-		"rewards use all three sounds before repeating")
-	assert(frames[4] == frames[1] and frames[5] == frames[2], "frames repeat only after all three are used")
+	assert(reward[played[4]] and played[1] ~= played[2] and played[4] ~= played[1] and played[4] ~= played[2]
+		and played[5] == played[2], "the reward sound order changes after all three are used")
+	assert(frames[4] == frames[2] and frames[5] == frames[1], "the card order changes after all three are used")
 	Fire("CHAT_MSG_MONEY", "Ihr plündert 5 Kupfer")
 	SetEnabled(false)
 	assert(timers[4].cancelled and not layer:IsShown(), "switching off clears pending loot and active effects")
@@ -6595,7 +6605,7 @@ end)()
 		Fire("PLAYER_MONEY")
 	end
 	assert(expense[played[11]] and played[11] ~= played[8] and played[8] ~= played[3] and played[11] ~= played[3]
-		and played[12] == played[3], "expenses use all three sounds before repeating")
+		and played[12] == played[8], "the expense sound order changes after all three are used")
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	money = 810
@@ -6695,7 +6705,8 @@ end)()
 		assert(not unique[impactFiles[i]], "all six critical impact sounds play before a repeat")
 		unique[impactFiles[i]] = true
 	end
-	assert(impactFiles[7] == impactFiles[1], "critical sound rotation starts again after six sounds")
+	assert(impactFiles[7] == impactFiles[5], "the impact sound order changes after all six are used")
+	math.random = random
 	local beforeCrit = #impactFiles
 	solo.db.critSound = false
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2900)

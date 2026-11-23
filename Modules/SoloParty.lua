@@ -95,14 +95,28 @@ local PARTICLE_PATHS = {
 }
 local root, cards, nextSlot = nil, {}, 0
 local bloodFrame, bloodSplats
-local lastBurst, lastSound = nil, {}
+local burstVariants, soundVariants = {}, { reward = {}, spent = {}, crit = {} }
 local balance, lootTimer, previewTimer
 local lastXP
 local lootAmounts, lootTotal = {}, 0
 
--- Start at a random variant and use each one before repeating it.
-local function NextVariant(previous, count)
-	return previous and previous % count + 1 or math.random(count)
+local function DrawVariant(variants, count)
+	local remaining = variants.remaining
+	local first = 1
+	if not remaining then
+		for index = 1, count do
+			variants[index] = index
+		end
+		remaining = count
+	elseif remaining == 0 then
+		remaining = count
+		first = 2 -- The last draw of the previous round is at index 1.
+	end
+	local index = math.random(first, remaining)
+	local variant = variants[index]
+	variants[index], variants[remaining] = variants[remaining], variant
+	variants.remaining = remaining - 1
+	return variant
 end
 
 local function PlayBurstSound(kind)
@@ -111,8 +125,7 @@ local function PlayBurstSound(kind)
 	end
 	local group = (kind == "crit" or kind == "spent") and kind or "reward"
 	local pool = SOUNDS[group]
-	local index = NextVariant(lastSound[group], #pool)
-	lastSound[group] = index
+	local index = DrawVariant(soundVariants[group], #pool)
 	if group == "crit" then
 		if not PlaySoundFile(pool[index], "SFX") then
 			PlaySoundFile(CRIT_FALLBACKS[index], "SFX")
@@ -226,7 +239,7 @@ local function SplashBlood(w, h)
 	local scale = math.min(w / 1200, h / 800)
 	local centerX, centerY, radius = CharacterZone(w, h)
 	for i, splat in ipairs(bloodSplats) do
-		splat.variant = NextVariant(splat.variant, 4)
+		splat.variant = splat.variant % 4 + 1
 		local column, row = (splat.variant - 1) % 2, math.floor((splat.variant - 1) / 2)
 		splat.texture:SetTexCoord(column * 0.5, (column + 1) * 0.5, row * 0.5, (row + 1) * 0.5)
 		-- Advance the horizontal offset on every hit so consecutive impacts move.
@@ -354,10 +367,8 @@ local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	cards[nextSlot] = card
 	local theme = THEMES[themeName or kind]
 	local size = TEXT_SIZES[kind] + math.random(-3, 3)
-	lastBurst = NextVariant(lastBurst, #BURSTS)
-	card.normalBurst = BURSTS[lastBurst]
 	card.bloody = kind == "crit" and (bloodyPreview or SoloParty.db.bloody)
-	card.burst:SetTexture(card.bloody and BLOODY_BURST or card.normalBurst)
+	card.burst:SetTexture(card.bloody and BLOODY_BURST or BURSTS[DrawVariant(burstVariants, #BURSTS)])
 	local secret = kind == "crit" or ns.Secret(value)
 	local valueText = secret and card.secretValue or card.value
 	card.value:SetShown(not secret)
@@ -507,9 +518,9 @@ function SoloParty:OnOptionChanged(key)
 		if not self.db.bloody then
 			HideBlood()
 			for _, card in pairs(cards) do
-				if card.bloody then
+				if card.bloody and card.art:IsShown() then
 					card.bloody = false
-					card.burst:SetTexture(card.normalBurst)
+					card.burst:SetTexture(BURSTS[DrawVariant(burstVariants, #BURSTS)])
 					card.burst:SetVertexColor(unpack(THEMES.crit.paper))
 				end
 			end

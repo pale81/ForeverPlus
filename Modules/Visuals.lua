@@ -30,6 +30,7 @@ local Visuals = ns:NewModule("Visuals", {
 		playerPortraitWheel = true,
 		portraitModeAssignments = {},
 		portraitModeDisabled = {},
+		portraitModeIcons = {},
 		playerDragon = "none",
 		dragonScale = 100,
 	},

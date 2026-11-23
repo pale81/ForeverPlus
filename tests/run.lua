@@ -6123,6 +6123,76 @@ end)()
 	print("waypoint OK")
 end)()
 ;(function()
+	local way = ns:GetModule("Waypoint")
+	local arrow = _G.ForeverPlusWaypointArrow
+	local savedAPI, savedGhost, savedFacing = rawget(_G, "C_DeathInfo"), rawget(_G, "UnitIsGhost"), GetPlayerFacing
+	local savedMap, savedMapInfo, savedPosition = C_Map.GetBestMapForUnit, C_Map.GetMapInfo, C_Map.GetPlayerMapPosition
+	local savedHasWaypoint, savedGetWaypoint, savedClear = C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.ClearUserWaypoint
+	local savedNameText, savedText, savedFormat = arrow.Name.SetText, arrow.Text.SetText, arrow.Text.SetFormattedText
+	local ghost, corpse
+	local point = { uiMapID = 1429, position = { x = 0.8, y = 0.5 } }
+	local function Vector(x, y)
+		return { GetXY = function() return x, y end }
+	end
+	UnitIsGhost = function() return ghost end
+	GetPlayerFacing = function() return 0 end
+	C_DeathInfo = { GetCorpseMapPosition = function(mapID) return mapID == 1415 and corpse or nil end }
+	C_Map.GetBestMapForUnit = function() return 1429 end
+	C_Map.GetMapInfo = function(mapID) return mapID == 1429 and { mapType = 3, parentMapID = 1415 } or nil end
+	C_Map.GetPlayerMapPosition = function() return Vector(0.5, 0.5) end
+	C_Map.HasUserWaypoint = function() return point ~= nil end
+	C_Map.GetUserWaypoint = function() return point end
+	C_Map.ClearUserWaypoint = function() point = nil end
+	arrow.Name.SetText = function(self, value) self.value = value end
+	arrow.Text.SetText = arrow.Name.SetText
+	arrow.Text.SetFormattedText = function(self, format, ...) self:SetText(format:format(...)) end
+
+	local listeners = uv(ns.RegisterEvent, "listeners")
+	local function Fire(event)
+		listeners[event][way](way, event)
+	end
+	local function Update()
+		assert(arrow:IsShown(), "the navigation display is active")
+		arrow:GetScript("OnUpdate")(arrow, 0.3)
+	end
+	assert(way.db.corpseArrow, "corpse guidance is on by default")
+	ghost = true
+	Fire("PLAYER_ALIVE")
+	Update()
+	assert(not arrow.Arrow:IsShown() and arrow.Text.value == ns.L.WAYPOINT_CORPSE_UNKNOWN, "missing corpse data stays pending")
+	corpse = Vector(0.375, 0.5)
+	Update()
+	assert(arrow.Arrow:IsShown() and arrow.Name.value == ns.L.WAYPOINT_CORPSE_NAME
+		and math.abs(arrow.Arrow.rotation - math.pi / 2) < 1e-6
+		and arrow.Text.value == ns.L.WAYPOINT_DISTANCE:format(125), "the corpse on the shared map is west, 125 yards away")
+	arrow:GetScript("OnMouseUp")(arrow, "MiddleButton")
+	corpse = Vector(0.5, 0.5)
+	Update()
+	assert(arrow:IsShown() and point, "arrival and middle-click keep the saved waypoint in corpse mode")
+
+	ghost = false
+	Fire("PLAYER_UNGHOST")
+	Update()
+	assert(arrow.Arrow:IsShown() and arrow.Name.value ~= ns.L.WAYPOINT_CORPSE_NAME and way.Target().x == 0.8,
+		"resurrection restores the original waypoint")
+	way.db.arrow = false
+	ghost = true
+	Fire("PLAYER_ENTERING_WORLD")
+	Update()
+	assert(arrow.Name.value == ns.L.WAYPOINT_CORPSE_NAME, "reloading while a ghost works with the regular waypoint arrow disabled")
+	way.db.corpseArrow = false
+	way:OnOptionChanged("corpseArrow")
+	assert(not arrow:IsShown(), "the corpse arrow can be disabled independently")
+
+	way.Clear()
+	way.db.arrow, way.db.corpseArrow = true, true
+	C_DeathInfo, UnitIsGhost, GetPlayerFacing = savedAPI, savedGhost, savedFacing
+	C_Map.GetBestMapForUnit, C_Map.GetMapInfo, C_Map.GetPlayerMapPosition = savedMap, savedMapInfo, savedPosition
+	C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.ClearUserWaypoint = savedHasWaypoint, savedGetWaypoint, savedClear
+	arrow.Name.SetText, arrow.Text.SetText, arrow.Text.SetFormattedText = savedNameText, savedText, savedFormat
+	print("corpse arrow OK")
+end)()
+;(function()
 	-- Level ranges of the zones: Forever's own, after the name of the zone under the mouse, coloured like the game's
 	local worldMap = ns:GetModule("WorldMap")
 	assert(ns.ZoneLevels[1412][1] == 1 and ns.ZoneLevels[1412][2] == 14, "Mulgore is a starter zone")
@@ -10824,7 +10894,7 @@ end)()
 	C_Timer.NewTicker = function() return { Cancel = function() end } end
 	local shift, modDown, edit = false, false, false
 	local callbacks, textures = {}, {}
-	local unitChanged, wheel, menuFrame, ghostFrame
+	local unitChanged, wheel, menuFrame, pickerFrame, ghostFrame
 	local frame, container, original, mask = NewFrame("Button"), NewFrame("Frame"), NewFrame("Texture"), NewFrame("Mask")
 	frame.unit, frame.PlayerFrameContainer = "player", container
 	container.PlayerPortrait, container.PlayerPortraitMask = original, mask
@@ -10858,6 +10928,8 @@ end)()
 			wheel = region
 		elseif name == "ForeverPlusPortraitModeMenu" then
 			menuFrame = region
+		elseif name == "ForeverPlusPortraitModeIconPicker" then
+			pickerFrame = region
 		elseif template == "TooltipBackdropTemplate" and not name then
 			ghostFrame = region
 		end
@@ -10901,7 +10973,7 @@ end)()
 	-- Slot 2: Wanderlust
 	scroll(wheel, 1)
 	assert(visuals.cdb.playerPortraitMode == 2 and icon:IsShown() and background:IsShown())
-	assert(icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeWanderlust")
+	assert(icon.asset == 237386)
 	assert(icon.desaturated == true and wheel.clickEnabled == true and wheel.motionEnabled == true)
 	-- Left-click enables Wanderlust and lights up the emblem.
 	shift = false
@@ -10921,7 +10993,7 @@ end)()
 	shift = true
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeAngler")
+	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == 643874)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(helpers.db.fishing == true and icon.desaturated == false)
@@ -10931,7 +11003,7 @@ end)()
 	-- Slot 4: RP mode
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeRP")
+	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == 633139)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(roleplay.db.enabled and dialog.db.enabled and speech.db.enabled and emotes.db.enabled and camera.db.enabled)
@@ -10943,7 +11015,7 @@ end)()
 	-- Slot 5: Berserker mode (Bloody crits + Landing jump sounds + CombatText)
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
+	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == 136012)
 	assert(not pm.IsModeActive("berserker"), "partial default state shows Berserker as inactive")
 	shift = false
 	click(wheel, "LeftButton")
@@ -11014,9 +11086,16 @@ end)()
 	assert(pm.MoveFeature("SoloParty:sounds", "berserker"))
 	assert(pm.FeatureMode("SoloParty:sounds") == "berserker")
 	ns.SetOption("SoloParty", "sounds", oldSounds)
-	-- Reset restores default assignments and checkmarks.
+	-- Open icon picker, pick a custom Blizzard icon, and verify live update + reset.
+	menuFrame.IconButton:GetScript("OnClick")(menuFrame.IconButton)
+	assert(pickerFrame and pickerFrame:IsShown(), "Icon button opens the WoW icon picker")
+	assert(pickerFrame.cells[2] and pickerFrame.cells[2].iconID == 236304, "picker starts with Berserker icon presets")
+	pickerFrame.cells[2]:GetScript("OnClick")(pickerFrame.cells[2])
+	assert(pm.ModeIcon("berserker") == 236304 and icon.asset == 236304, "picking an icon updates the portrait live")
+	-- Reset restores default assignments, checkmarks and icons.
 	pm.ResetAssignments()
 	assert(pm.FeatureMode("landing") == "berserker" and pm.IsFeatureSelected("combatText"))
+	assert(pm.ModeIcon("berserker") == 136012 and icon.asset == 136012)
 	menuFrame:Hide()
 
 	-- Wrap forward to normal and backward to slot 5.
@@ -11049,7 +11128,7 @@ end)()
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
 	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
 	ns.SetOption("Visuals", "playerPortraitWheel", true)
-	assert(icon:IsShown() and icon.asset == "Interface\\AddOns\\ForeverPlus\\Media\\PortraitModeBerserker")
+	assert(icon:IsShown() and icon.asset == 136012)
 
 	-- Restore state cleanly.
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
@@ -11073,6 +11152,7 @@ end)()
 	setuv(pm.Setup, "portraitIcon", nil)
 	setuv(pm.Setup, "portraitShine", nil)
 	setuv(uv(pm.Setup, "OpenModeMenu"), "menu", nil)
+	setuv(uv(uv(pm.Setup, "OpenModeMenu"), "CreateModeMenu"), "iconPicker", nil)
 	CreateFrame, PlayerFrame, hooksecurefunc = oldCreate, oldPlayer, oldHook
 	IsShiftKeyDown, IsModifierKeyDown, EditModeManagerFrame, EventRegistry = oldShift, oldMod, oldEdit, oldRegistry
 	GetCursorPosition, C_Timer.NewTicker = oldCursor, oldTicker

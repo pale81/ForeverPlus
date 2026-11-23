@@ -6,22 +6,47 @@ local L = ns.L
 local PortraitModes = {}
 ns.PortraitModes = PortraitModes
 
-local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
 local ROW_HIGHLIGHT = [[Interface\QuestFrame\UI-QuestTitleHighlight]]
+local ICON_HIGHLIGHT = [[Interface\Buttons\ButtonHilight-Square]]
+local ICON_SELECTED = [[Interface\Buttons\UI-ActionButton-Border]]
 local PLUS_UP = [[Interface\Buttons\UI-PlusButton-Up]]
 local PLUS_DOWN = [[Interface\Buttons\UI-PlusButton-Down]]
 local MINUS_UP = [[Interface\Buttons\UI-MinusButton-Up]]
 local MINUS_DOWN = [[Interface\Buttons\UI-MinusButton-Down]]
 local PLUS_HIGHLIGHT = [[Interface\Buttons\UI-PlusButton-Hilight]]
 
--- Slot 1 is always the standard Blizzard portrait; slots 2..5 are full-bleed
--- painterly mode emblems composed slightly up-right so the bottom-left level badge stays clear.
+-- Slot 1 is always the standard Blizzard portrait; slots 2..5 use full-bleed
+-- original Blizzard icons from the client (every ID verified in Data/MacroIcons.lua).
 local MODES = {
 	{ key = "normal" },
-	{ key = "wanderlust", name = L.WANDERLUST_TITLE, short = L.WANDERLUST_TITLE, icon = MEDIA .. "PortraitModeWanderlust" },
-	{ key = "angler", name = L.HELPERS_FISHING_MODE, short = L.PORTRAIT_MODE_ANGLER_SHORT, icon = MEDIA .. "PortraitModeAngler" },
-	{ key = "rp", name = L.PORTRAIT_MODE_RP, short = L.PORTRAIT_MODE_RP_SHORT, icon = MEDIA .. "PortraitModeRP" },
-	{ key = "berserker", name = L.PORTRAIT_MODE_BERSERKER, short = L.PORTRAIT_MODE_BERSERKER_SHORT, icon = MEDIA .. "PortraitModeBerserker" },
+	{
+		key = "wanderlust",
+		name = L.WANDERLUST_TITLE,
+		short = L.WANDERLUST_TITLE,
+		icon = 237386,
+		presets = { 237386, 456568, 134269, 134377, 134249, 134440, 237382, 413583, 132144, 135725 },
+	},
+	{
+		key = "angler",
+		name = L.HELPERS_FISHING_MODE,
+		short = L.PORTRAIT_MODE_ANGLER_SHORT,
+		icon = 643874,
+		presets = { 643874, 136245, 132931, 132932, 236574, 236572, 133888, 774121, 612075, 133887 },
+	},
+	{
+		key = "rp",
+		name = L.PORTRAIT_MODE_RP,
+		short = L.PORTRAIT_MODE_RP_SHORT,
+		icon = 633139,
+		presets = { 633139, 898247, 133741, 132928, 134937, 133458, 133739, 133740, 237163, 133735 },
+	},
+	{
+		key = "berserker",
+		name = L.PORTRAIT_MODE_BERSERKER,
+		short = L.PORTRAIT_MODE_BERSERKER_SHORT,
+		icon = 136012,
+		presets = { 136012, 236304, 136009, 458971, 236303, 132277, 132334, 236364, 236149, 135727 },
+	},
 }
 local MODE_BY_KEY = {}
 for index, mode in ipairs(MODES) do
@@ -212,8 +237,22 @@ local function VisualsDB()
 		if type(visuals.db.portraitModeDisabled) ~= "table" then
 			visuals.db.portraitModeDisabled = {}
 		end
+		if type(visuals.db.portraitModeIcons) ~= "table" then
+			visuals.db.portraitModeIcons = {}
+		end
 	end
 	return visuals.db, visuals.cdb
+end
+
+local function ModeIcon(modeKey)
+	local mode = MODE_BY_KEY[modeKey]
+	if not mode then return nil end
+	local db = VisualsDB()
+	local custom = db and db.portraitModeIcons[modeKey]
+	if type(custom) == "number" and custom > 0 then
+		return custom
+	end
+	return mode.icon
 end
 
 local function FeatureMode(itemKey)
@@ -288,7 +327,19 @@ local function IsModeActive(modeKey)
 	return selectedCount > 0 and activeCount == selectedCount
 end
 
-local UpdatePlayerPortrait, RefreshMenu, StopDrag
+local UpdatePlayerPortrait, RefreshMenu, RefreshIconPicker, StopDrag
+
+local function SetModeIcon(modeKey, iconID)
+	local mode = MODE_BY_KEY[modeKey]
+	local db = VisualsDB()
+	if not (mode and db and modeKey ~= "normal") then return false end
+	if type(iconID) ~= "number" or iconID <= 0 then return false end
+	db.portraitModeIcons[modeKey] = (iconID ~= mode.icon) and iconID or nil
+	UpdatePlayerPortrait()
+	RefreshMenu()
+	RefreshIconPicker()
+	return true
+end
 
 local function ToggleMode(modeKey)
 	if not MODE_BY_KEY[modeKey] or modeKey == "normal" then return end
@@ -357,19 +408,25 @@ local function ResetAssignments()
 	if not db then return end
 	wipe(db.portraitModeAssignments)
 	wipe(db.portraitModeDisabled)
+	wipe(db.portraitModeIcons)
 	UpdatePlayerPortrait()
 	RefreshMenu()
+	RefreshIconPicker()
 end
 
 local function HasCustomAssignments()
 	local db = VisualsDB()
 	if not db then return false end
-	return next(db.portraitModeAssignments) ~= nil or next(db.portraitModeDisabled) ~= nil
+	return next(db.portraitModeAssignments) ~= nil
+		or next(db.portraitModeDisabled) ~= nil
+		or next(db.portraitModeIcons) ~= nil
 end
 
 -- Exposed helpers for unit tests and inspection.
 PortraitModes.MODES = MODES
 PortraitModes.FEATURES = FEATURES
+PortraitModes.ModeIcon = ModeIcon
+PortraitModes.SetModeIcon = SetModeIcon
 PortraitModes.FeatureMode = FeatureMode
 PortraitModes.ModeFeatures = ModeFeatures
 PortraitModes.IsFeatureSelected = IsFeatureSelected
@@ -393,11 +450,15 @@ local SUB_ROW_HEIGHT = 22
 local ACTION_ROW_HEIGHT = 26
 local MAX_LIST_HEIGHT = 276
 
-local menu, dragGhost
+local menu, iconPicker, dragGhost
 local selectedMenuMode = "wanderlust"
 local expandedFeatures = {}
 local draggingFeature, hoveredDropTab
 local listScrollOffset = 0
+local pickerIcons, pickerOffset, pickerSearchToken = {}, 0, 0
+local PICKER_COLS, PICKER_ROWS = 5, 5
+local PICKER_CELL, PICKER_GAP = 36, 5
+local PICKER_MAX_RESULTS = 200
 
 local function AtlasIcon(atlas, size)
 	if CreateAtlasMarkup then
@@ -671,13 +732,17 @@ RefreshMenu = function()
 	local mode = MODE_BY_KEY[selectedMenuMode] or MODES[2]
 	selectedMenuMode = mode.key
 	menu:SetTitle(L.PORTRAIT_MODES_MENU_TITLE)
-	if menu.SetPortraitToAsset and mode.icon then
-		menu:SetPortraitToAsset(mode.icon)
+	local icon = ModeIcon(mode.key)
+	if menu.SetPortraitToAsset and icon then
+		menu:SetPortraitToAsset(icon)
 	end
 	local active = IsModeActive(mode.key)
 	local portrait = menu.GetPortrait and menu:GetPortrait()
 	if portrait and portrait.SetDesaturated then
 		portrait:SetDesaturated(not active)
+	end
+	if iconPicker and iconPicker:IsShown() then
+		RefreshIconPicker()
 	end
 	UpdateTabStyles()
 	menu.ModeStatus:SetText(("%s: %s"):format(mode.name, StatusText(mode.key)))
@@ -769,6 +834,186 @@ RefreshMenu = function()
 	end
 	menu.ResetButton:SetEnabled(HasCustomAssignments())
 	menu:SetHeight(INSET_TOP + HEADER_HEIGHT + listHeight + 16 + INSET_BOTTOM)
+end
+
+local function RenderIconGrid()
+	if not (iconPicker and iconPicker:IsShown()) then return end
+	local perPage = PICKER_COLS * PICKER_ROWS
+	local totalRows = math.ceil(#pickerIcons / PICKER_COLS)
+	local maxOffset = math.max(0, totalRows - PICKER_ROWS)
+	pickerOffset = math.max(0, math.min(pickerOffset, maxOffset))
+	local currentIcon = ModeIcon(selectedMenuMode)
+	if iconPicker.SetPortraitToAsset and currentIcon then
+		iconPicker:SetPortraitToAsset(currentIcon)
+	end
+	iconPicker.Empty:SetShown(#pickerIcons == 0)
+	local startIndex = pickerOffset * PICKER_COLS
+	for i = 1, perPage do
+		local cell = iconPicker.cells[i]
+		local iconID = pickerIcons[startIndex + i]
+		cell.iconID = iconID
+		if iconID then
+			cell.Icon:SetTexture(iconID)
+			cell.Selected:SetShown(iconID == currentIcon)
+			cell:Show()
+		else
+			cell:Hide()
+		end
+	end
+end
+
+local function RunIconSearch(query)
+	pickerSearchToken = pickerSearchToken + 1
+	local token = pickerSearchToken
+	pickerOffset = 0
+	local trimmed = strtrim(query or "")
+	local mode = MODE_BY_KEY[selectedMenuMode] or MODES[2]
+	if trimmed == "" then
+		pickerIcons = {}
+		for _, id in ipairs(mode.presets or {}) do
+			pickerIcons[#pickerIcons + 1] = id
+		end
+		RenderIconGrid()
+		return
+	end
+	local macroIcons = ns:GetModule("MacroIcons")
+	local data = ns.MacroIconNames
+	if not (macroIcons and macroIcons.StartFind and macroIcons.StepFind and type(data) == "string") then
+		pickerIcons = {}
+		RenderIconGrid()
+		return
+	end
+	local state = macroIcons.StartFind(data, trimmed)
+	if not state then
+		pickerIcons = {}
+		RenderIconGrid()
+		return
+	end
+	local function Finish()
+		if token ~= pickerSearchToken then return end
+		local results = {}
+		for id in pairs(state.found) do
+			results[#results + 1] = id
+		end
+		table.sort(results)
+		pickerIcons = {}
+		local limit = math.min(#results, PICKER_MAX_RESULTS)
+		for i = 1, limit do
+			pickerIcons[i] = results[i]
+		end
+		RenderIconGrid()
+	end
+	ns.RunSliced("PortraitModes: icon search", 0.5, function(deadline)
+		if token ~= pickerSearchToken then return true end
+		return macroIcons.StepFind(state, deadline)
+	end, Finish)
+end
+
+RefreshIconPicker = function()
+	if not (iconPicker and iconPicker:IsShown()) then return end
+	local query = iconPicker.Search and iconPicker.Search:GetText() or ""
+	if strtrim(query) == "" then
+		RunIconSearch("")
+	else
+		RenderIconGrid()
+	end
+end
+
+local function CreateIconPicker()
+	if iconPicker then return iconPicker end
+	local width = 22 + PICKER_COLS * PICKER_CELL + (PICKER_COLS - 1) * PICKER_GAP + 20
+	local height = 104 + PICKER_ROWS * PICKER_CELL + (PICKER_ROWS - 1) * PICKER_GAP + 22
+	local panel = CreateFrame("Frame", "ForeverPlusPortraitModeIconPicker", UIParent, "PortraitFrameTemplate")
+	panel:Hide()
+	panel:SetSize(width, height)
+	panel:SetFrameStrata("DIALOG")
+	panel:SetToplevel(true)
+	panel:SetClampedToScreen(true)
+	panel:EnableMouse(true)
+	panel:SetTitle(L.PORTRAIT_MODES_ICON_TITLE)
+	panel.CloseButton:SetScript("OnClick", ns.Measured("PortraitModes: close icon picker", function()
+		panel:Hide()
+	end))
+	tinsert(UISpecialFrames, "ForeverPlusPortraitModeIconPicker")
+	ns.FadeIn(panel)
+
+	local inset = CreateFrame("Frame", nil, panel, "InsetFrameTemplate")
+	inset:SetPoint("TOPLEFT", 11, -64)
+	inset:SetPoint("BOTTOMRIGHT", -11, 12)
+
+	local search = CreateFrame("EditBox", nil, inset, "SearchBoxTemplate")
+	search:SetPoint("TOPLEFT", 12, -10)
+	search:SetPoint("TOPRIGHT", -10, -10)
+	search:SetHeight(22)
+	search:SetAutoFocus(false)
+	search:SetMaxLetters(80)
+	search.Instructions:SetText(L.PORTRAIT_MODES_ICON_SEARCH)
+	search:HookScript("OnTextChanged", ns.Measured("PortraitModes: search mode icons", function(self)
+		if panel:IsShown() then
+			RunIconSearch(self:GetText())
+		end
+	end))
+	panel.Search = search
+
+	local grid = CreateFrame("Frame", nil, inset)
+	grid:SetPoint("TOPLEFT", 10, -38)
+	grid:SetPoint("BOTTOMRIGHT", -10, 8)
+	grid:EnableMouseWheel(true)
+	grid:SetScript("OnMouseWheel", ns.Measured("PortraitModes: scroll icon picker", function(_, delta)
+		pickerOffset = pickerOffset - delta
+		RenderIconGrid()
+	end))
+
+	panel.Empty = grid:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	panel.Empty:SetPoint("CENTER")
+	panel.Empty:SetText(L.PORTRAIT_MODES_ICON_EMPTY)
+	panel.Empty:Hide()
+
+	panel.cells = {}
+	for i = 1, PICKER_COLS * PICKER_ROWS do
+		local rowIdx = math.floor((i - 1) / PICKER_COLS)
+		local colIdx = (i - 1) % PICKER_COLS
+		local cell = CreateFrame("Button", nil, grid)
+		cell:SetSize(PICKER_CELL, PICKER_CELL)
+		cell:SetPoint("TOPLEFT", colIdx * (PICKER_CELL + PICKER_GAP), -rowIdx * (PICKER_CELL + PICKER_GAP))
+		cell:SetHighlightTexture(ICON_HIGHLIGHT, "ADD")
+		cell.Icon = cell:CreateTexture(nil, "ARTWORK")
+		cell.Icon:SetAllPoints()
+		cell.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		cell.Selected = cell:CreateTexture(nil, "OVERLAY")
+		cell.Selected:SetTexture(ICON_SELECTED)
+		cell.Selected:SetBlendMode("ADD")
+		cell.Selected:SetVertexColor(1, 0.85, 0.2)
+		cell.Selected:SetPoint("CENTER")
+		cell.Selected:SetSize(PICKER_CELL * 1.65, PICKER_CELL * 1.65)
+		cell.Selected:Hide()
+		cell:SetScript("OnClick", ns.Measured("PortraitModes: pick mode icon", function(self)
+			if self.iconID then
+				SetModeIcon(selectedMenuMode, self.iconID)
+			end
+		end))
+		panel.cells[i] = cell
+	end
+
+	panel:SetScript("OnHide", ns.Measured("PortraitModes: hide icon picker", function()
+		pickerSearchToken = pickerSearchToken + 1
+	end))
+
+	iconPicker = panel
+	return panel
+end
+
+local function ToggleIconPicker()
+	local picker = CreateIconPicker()
+	if picker:IsShown() then
+		picker:Hide()
+		return
+	end
+	picker:ClearAllPoints()
+	picker:SetPoint("TOPLEFT", menu, "TOPRIGHT", 6, 0)
+	picker.Search:SetText("")
+	picker:Show()
+	RunIconSearch("")
 end
 
 local function CreateModeMenu()
@@ -872,10 +1117,37 @@ local function CreateModeMenu()
 
 	panel.Hint = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	panel.Hint:SetPoint("BOTTOMLEFT", 14, 15)
-	panel.Hint:SetPoint("RIGHT", panel, "BOTTOMRIGHT", -116, 15)
+	panel.Hint:SetPoint("RIGHT", panel, "BOTTOMRIGHT", -196, 15)
 	panel.Hint:SetJustifyH("LEFT")
 	panel.Hint:SetWordWrap(false)
 	panel.Hint:SetText(L.PORTRAIT_MODES_DRAG_HINT)
+
+	local iconButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	iconButton:SetSize(74, 22)
+	iconButton:SetPoint("BOTTOMRIGHT", -114, 10)
+	iconButton:SetText(L.PORTRAIT_MODES_ICON_BUTTON)
+	iconButton:SetScript("OnClick", ns.Measured("PortraitModes: open icon picker", ToggleIconPicker))
+	iconButton:SetScript("OnEnter", ns.Measured("PortraitModes: icon button tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L.PORTRAIT_MODES_ICON_TITLE)
+		GameTooltip_AddNormalLine(GameTooltip, L.PORTRAIT_MODES_ICON_HINT)
+		GameTooltip:Show()
+	end))
+	iconButton:SetScript("OnLeave", GameTooltip_Hide)
+	panel.IconButton = iconButton
+
+	local portraitHit = CreateFrame("Button", nil, panel)
+	portraitHit:SetSize(58, 58)
+	portraitHit:SetPoint("TOPLEFT", -4, 4)
+	portraitHit:SetFrameLevel(panel:GetFrameLevel() + 12)
+	portraitHit:SetScript("OnClick", ns.Measured("PortraitModes: portrait icon picker", ToggleIconPicker))
+	portraitHit:SetScript("OnEnter", ns.Measured("PortraitModes: portrait icon tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip_SetTitle(GameTooltip, L.PORTRAIT_MODES_ICON_TITLE)
+		GameTooltip_AddNormalLine(GameTooltip, L.PORTRAIT_MODES_ICON_HINT)
+		GameTooltip:Show()
+	end))
+	portraitHit:SetScript("OnLeave", GameTooltip_Hide)
 
 	local resetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 	resetButton:SetSize(96, 22)
@@ -886,6 +1158,7 @@ local function CreateModeMenu()
 
 	panel:SetScript("OnEvent", ns.Measured("PortraitModes: menu outside click", function(self)
 		if draggingFeature then return end
+		if iconPicker and iconPicker:IsShown() and iconPicker:IsMouseOver() then return end
 		if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then
 			self:Hide()
 		end
@@ -896,6 +1169,9 @@ local function CreateModeMenu()
 	panel:SetScript("OnHide", ns.Measured("PortraitModes: menu hide", function(self)
 		self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
 		StopDrag(false)
+		if iconPicker and iconPicker:IsShown() then
+			iconPicker:Hide()
+		end
 	end))
 
 	menu = panel
@@ -994,9 +1270,10 @@ UpdatePlayerPortrait = function()
 	if not portraitWheel then return end
 	local mode = CurrentMode()
 	local iconShown = false
-	if mode and mode.key ~= "normal" and mode.icon then
+	local icon = mode and mode.key ~= "normal" and ModeIcon(mode.key)
+	if icon then
 		local active = IsModeActive(mode.key)
-		iconShown = portraitIcon:SetTexture(mode.icon) ~= false
+		iconShown = portraitIcon:SetTexture(icon) ~= false
 		portraitIcon:SetDesaturated(not active)
 		if active then
 			portraitIcon:SetVertexColor(1, 1, 1)
@@ -1006,7 +1283,7 @@ UpdatePlayerPortrait = function()
 			portraitIcon:SetAlpha(0.84)
 		end
 		if portraitShine then
-			portraitShine:SetTexture(mode.icon)
+			portraitShine:SetTexture(icon)
 		end
 	end
 	portraitIcon:SetShown(iconShown)
@@ -1111,10 +1388,12 @@ function PortraitModes.Setup()
 
 	portraitIcon = container:CreateTexture(nil, "ARTWORK", nil, 1)
 	portraitIcon:SetAllPoints(portrait)
+	portraitIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	portraitIcon:AddMaskTexture(mask)
 
 	portraitShine = container:CreateTexture(nil, "ARTWORK", nil, 2)
 	portraitShine:SetAllPoints(portrait)
+	portraitShine:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	portraitShine:AddMaskTexture(mask)
 	portraitShine:SetBlendMode("ADD")
 	portraitShine:SetAlpha(0.22)

@@ -104,6 +104,8 @@ Modules\Trivial.lua
 Modules\ChatIndent.lua
 Modules\ChatMinimize.lua
 Modules\ChatEmotes.lua
+Data\EmoteVoice.lua
+Modules\EmoteVoice.lua
 Modules\Durability.lua
 Data\MacroIcons.lua
 Modules\MacroIcons.lua

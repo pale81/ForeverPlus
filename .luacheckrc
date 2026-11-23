@@ -103,7 +103,7 @@ read_globals = {
 	"UIErrorsFrame",
 	"PlayerFrame", "TargetFrame", "FocusFrame", "MainStatusTrackingBarContainer", "SecondaryStatusTrackingBarContainer",
 	"UnitFrame_SetUnit",
-	"PlaySoundFile", "MuteSoundFile", "UnmuteSoundFile", "StopSound",
+	"PlaySoundFile", "MuteSoundFile", "UnmuteSoundFile", "StopSound", "UnitSex",
 	"ButtonFrameTemplate_HidePortrait", "CreateScrollBoxListLinearView", "CreateDataProvider", "ScrollBoxConstants",
 	"C_NamePlate",
 	"PlayerSpellsFrame",

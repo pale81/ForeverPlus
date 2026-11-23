@@ -25,6 +25,7 @@ local MODES = {
 		name = L.WANDERLUST_TITLE,
 		short = L.WANDERLUST_TITLE,
 		icon = 237386,
+		iconRotation = -math.rad(35),
 		presets = { 237386, 456568, 134269, 134377, 134249, 134440, 237382, 413583, 132144, 135725 },
 	},
 	{
@@ -254,6 +255,11 @@ local function ModeIcon(modeKey)
 		return custom
 	end
 	return mode.icon
+end
+
+local function ModeIconRotation(modeKey, icon)
+	local mode = MODE_BY_KEY[modeKey]
+	return mode and icon == mode.icon and mode.iconRotation or 0
 end
 
 local function FeatureMode(itemKey)
@@ -742,6 +748,9 @@ RefreshMenu = function()
 	if portrait and portrait.SetDesaturated then
 		portrait:SetDesaturated(not active)
 	end
+	if portrait and portrait.SetRotation then
+		portrait:SetRotation(ModeIconRotation(mode.key, icon))
+	end
 	if iconPicker and iconPicker:IsShown() then
 		RefreshIconPicker()
 	end
@@ -846,6 +855,10 @@ local function RenderIconGrid()
 	local currentIcon = ModeIcon(selectedMenuMode)
 	if iconPicker.SetPortraitToAsset and currentIcon then
 		iconPicker:SetPortraitToAsset(currentIcon)
+	end
+	local pickerPortrait = iconPicker.GetPortrait and iconPicker:GetPortrait()
+	if pickerPortrait and pickerPortrait.SetRotation then
+		pickerPortrait:SetRotation(ModeIconRotation(selectedMenuMode, currentIcon))
 	end
 	iconPicker.Empty:SetShown(#pickerIcons == 0)
 	local startIndex = pickerOffset * PICKER_COLS
@@ -1274,7 +1287,9 @@ UpdatePlayerPortrait = function()
 	local icon = mode and mode.key ~= "normal" and ModeIcon(mode.key)
 	if icon then
 		local active = IsModeActive(mode.key)
+		local rotation = ModeIconRotation(mode.key, icon)
 		iconShown = portraitIcon:SetTexture(icon) ~= false
+		portraitIcon:SetRotation(rotation)
 		portraitIcon:SetDesaturated(not active)
 		if active then
 			-- Slightly warm, toned brightness so icons sit naturally inside the bronze portrait frame.
@@ -1286,6 +1301,7 @@ UpdatePlayerPortrait = function()
 		end
 		if portraitShine then
 			portraitShine:SetTexture(icon)
+			portraitShine:SetRotation(rotation)
 		end
 	end
 	portraitIcon:SetShown(iconShown)

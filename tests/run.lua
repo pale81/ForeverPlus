@@ -11087,7 +11087,7 @@ end)()
 	-- Slot 2: Wanderlust
 	scroll(wheel, 1)
 	assert(visuals.cdb.playerPortraitMode == 2 and icon:IsShown() and background:IsShown())
-	assert(icon.asset == 237386)
+	assert(icon.asset == 237386 and icon.rotation and icon.rotation < 0)
 	assert(icon.desaturated == true and wheel.clickEnabled == true and wheel.motionEnabled == true)
 	-- Left-click enables Wanderlust and lights up the emblem.
 	shift = false
@@ -11107,7 +11107,7 @@ end)()
 	shift = true
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == 643874)
+	assert(visuals.cdb.playerPortraitMode == 3 and icon.asset == 643874 and icon.rotation == 0)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(helpers.db.fishing == true and icon.desaturated == false)

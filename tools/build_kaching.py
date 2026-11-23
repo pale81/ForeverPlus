@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Build the cartoon cash register sound in Media/AuctionKaChing.mp3."""
-from math import cos, exp, pi, sin, tanh
+"""Build the short auction payout sound in Media/AuctionKaChing.mp3."""
+from math import cos, exp, pi, sin
 from pathlib import Path
 import random
 import struct
@@ -8,8 +8,7 @@ import subprocess
 import wave
 
 SAMPLE_RATE = 44100
-DURATION = 2.35
-N_SAMPLES = int(SAMPLE_RATE * DURATION)
+DURATION = 0.32
 TARGET = Path(__file__).resolve().parent.parent / "Media/AuctionKaChing.mp3"
 
 
@@ -32,33 +31,6 @@ def biquad_bandpass(samples, freq, q):
     x1 = x2 = y1 = y2 = 0.0
     for i, x0 in enumerate(samples):
         y0 = b0 * x0 + b2 * x2 - a1 * y1 - a2 * y2
-        out[i] = y0
-        x2, x1 = x1, x0
-        y2, y1 = y1, y0
-    return out
-
-
-def biquad_lowpass(samples, freq, q=0.707):
-    """Apply a biquad lowpass filter."""
-    w0 = 2.0 * pi * freq / SAMPLE_RATE
-    alpha = sin(w0) / (2.0 * q)
-    cos_w0 = cos(w0)
-    b0 = (1.0 - cos_w0) * 0.5
-    b1 = 1.0 - cos_w0
-    b2 = b0
-    a0 = 1.0 + alpha
-    a1 = -2.0 * cos_w0
-    a2 = 1.0 - alpha
-    b0 /= a0
-    b1 /= a0
-    b2 /= a0
-    a1 /= a0
-    a2 /= a0
-
-    out = [0.0] * len(samples)
-    x1 = x2 = y1 = y2 = 0.0
-    for i, x0 in enumerate(samples):
-        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
         out[i] = y0
         x2, x1 = x1, x0
         y2, y1 = y1, y0
@@ -99,95 +71,33 @@ def add_metallic_impulse(buf, t_start, duration, freq, q, amp, attack, decay, rn
         buf[start_i + k] += amp * env * filtered[k]
 
 
-def add_room_reflections(buf):
-    """Add subtle wooden-shop early reflections for natural acoustic depth."""
-    reflections = [
-        (0.0078, 0.13),
-        (0.0154, -0.10),
-        (0.0249, 0.085),
-        (0.0365, -0.065),
-        (0.0508, 0.048),
-        (0.0679, -0.035),
-        (0.0885, 0.024),
-        (0.1140, -0.015),
-    ]
-    wet = [0.0] * len(buf)
-    for delay_s, gain in reflections:
-        d = int(delay_s * SAMPLE_RATE)
-        for i in range(d, len(buf)):
-            wet[i] += gain * buf[i - d]
-    wet = biquad_lowpass(wet, 3600.0, 0.7)
-    return [buf[i] + 0.48 * wet[i] for i in range(len(buf))]
-
-
 def synthesize():
     rng = random.Random(16005)
-    buf = [0.0] * N_SAMPLES
+    buf = [0.0] * int(SAMPLE_RATE * DURATION)
 
-    # "Kaaa": a solid key strike, a rising spring slide and a few ratchet clicks.
-    add_damped_sine(buf, 0.006, 154.0, 0.38, 0.039, attack=0.001)
-    add_metallic_impulse(buf, 0.006, 0.044, 620.0, 1.4, 0.76, 0.0005, 0.015, rng)
-    add_metallic_impulse(buf, 0.008, 0.035, 2600.0, 2.0, 0.52, 0.0003, 0.010, rng)
-
-    slide_start = int(0.027 * SAMPLE_RATE)
-    slide_length = int(0.16 * SAMPLE_RATE)
-    phase = 0.0
-    for i in range(slide_length):
-        progress = i / slide_length
-        pitch = 188.0 + 280.0 * progress ** 1.7
-        phase += 2.0 * pi * pitch / SAMPLE_RATE
-        envelope = sin(pi * progress) ** 0.8
-        buf[slide_start + i] += envelope * (
-            0.20 * sin(phase) + 0.12 * sin(phase * 2) + 0.04 * sin(phase * 5)
-        )
-
-    for start, frequency in [(0.052, 1050.0), (0.087, 1420.0), (0.118, 1780.0), (0.142, 2210.0)]:
-        add_metallic_impulse(buf, start, 0.030, frequency, 2.5, 0.66, 0.0004, 0.010, rng)
-
-    # The drawer meets its stop, then the bell answers on a separate beat.
-    t_stop = 0.188
-    add_damped_sine(buf, t_stop, 118.0, 0.44, 0.040, attack=0.0014)
-    add_metallic_impulse(buf, t_stop, 0.055, 1040.0, 1.4, 0.80, 0.0005, 0.016, rng)
-    add_metallic_impulse(buf, t_stop, 0.031, 3500.0, 2.1, 0.52, 0.0003, 0.010, rng)
-
-    # "Chiiing": bright brass with close partials that beat as they ring out.
-    t_bell = 0.228
-    add_metallic_impulse(buf, t_bell, 0.043, 4800.0, 2.5, 0.80, 0.0003, 0.010, rng)
-    bell_modes = [
-        (659.0, 0.20, 0.51, 0.2),
-        (1318.5, 0.49, 0.69, 0.0),
-        (1322.0, 0.11, 0.58, 0.6),
-        (2080.0, 0.10, 0.32, 1.1),
-        (2642.0, 0.27, 0.48, 0.3),
-        (2649.0, 0.07, 0.35, 1.9),
-        (3602.0, 0.20, 0.26, 0.8),
-        (4855.0, 0.14, 0.13, 1.3),
-        (6350.0, 0.07, 0.068, 0.5),
+    # One handful of coins landing. Irregular spacing and short resonances
+    # keep the individual impacts audible without forming a tune.
+    impacts = [
+        (0.010, 2370.0, 0.69),
+        (0.032, 3010.0, 0.48),
+        (0.056, 1920.0, 1.00),
+        (0.081, 3170.0, 0.64),
+        (0.105, 2100.0, 0.54),
+        (0.139, 2840.0, 0.36),
+        (0.177, 2420.0, 0.24),
     ]
-    for frequency, amp, decay, phase in bell_modes:
-        add_damped_sine(buf, t_bell, frequency, amp, decay, attack=0.001, phase=phase)
+    for start, frequency, strength in impacts:
+        add_metallic_impulse(buf, start, 0.040, 1300.0, 0.9, strength * 0.70, 0.0004, 0.007, rng)
+        add_metallic_impulse(buf, start, 0.024, frequency * 1.48, 1.3, strength * 0.58, 0.0003, 0.004, rng)
+        add_damped_sine(buf, start, frequency * 0.44, strength * 0.14, 0.013)
+        add_damped_sine(buf, start, frequency, strength * 0.31, 0.019)
+        add_damped_sine(buf, start, frequency * 1.57, strength * 0.20, 0.011, phase=0.7)
+        add_damped_sine(buf, start, frequency * 2.38, strength * 0.12, 0.007, phase=1.1)
 
-    # A short tumble of ringing coins behind the bell.
-    coins = [
-        (0.274, 3180.0, 0.16),
-        (0.324, 4180.0, 0.13),
-        (0.373, 3450.0, 0.12),
-        (0.421, 5020.0, 0.10),
-        (0.479, 3920.0, 0.08),
-    ]
-    for start, frequency, amp in coins:
-        add_damped_sine(buf, start, frequency, amp, 0.053)
-        add_damped_sine(buf, start, frequency * 1.48, amp * 0.58, 0.026)
-        add_metallic_impulse(buf, start, 0.029, frequency, 5.0, amp * 2.2, 0.0004, 0.010, rng)
-
-    buf = add_room_reflections(buf)
-    fade_out = int(0.24 * SAMPLE_RATE)
+    fade_out = int(0.025 * SAMPLE_RATE)
     for i in range(fade_out):
         buf[-1 - i] *= i / fade_out
-
-    # Soft saturation keeps the transients punchy and leaves encoding headroom.
-    buf = [tanh(sample * 1.2) for sample in buf]
-    gain = 0.84 / max(abs(sample) for sample in buf)
+    gain = 0.55 / max(abs(sample) for sample in buf)
     return [sample * gain for sample in buf]
 
 

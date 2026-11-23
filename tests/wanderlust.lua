@@ -824,4 +824,23 @@ assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.sh
 	SetVisibility(true)
 	globals.BankFrame = nil
 end)()
+;(function()
+	-- Moving from the minimap onto the wider MinimapCluster rim (clock/buttons) keeps the peek active
+	-- without hiding and re-showing UIParent.
+	function cluster:GetRect() return 980, 580, 140, 140 end
+	function cluster:GetEffectiveScale() return 0.8 end
+	Enable(true)
+	Advance(60)
+	local before = visibilityCalls
+	Over(true)
+	assert(Peeking() and visibilityCalls == before + 1, "entering the minimap opens the preview once")
+	cursorX, cursorY = 790, 520 -- inside MinimapCluster (784..896), outside Minimap (800..880)
+	Tick()
+	assert(Peeking() and visibilityCalls == before + 1, "hovering the minimap rim keeps the preview without thrashing")
+	cursorX, cursorY = 700, 520 -- outside both
+	Tick()
+	assert(not Peeking() and not ui.shown and visibilityCalls == before + 2, "leaving the full cluster hides again")
+	Enable(false)
+	cluster.GetRect, cluster.GetEffectiveScale = nil, nil
+end)()
 print("Wanderlust timing, teleports, chat, mouseover, abilities, targets, windows and lifecycle OK")

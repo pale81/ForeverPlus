@@ -239,6 +239,7 @@ end
 -- Button for lootable items and quests started by bag items.
 ---------------------------------------------------------------------------
 local openButton
+local openButtonPending, bagHasQuestItem
 
 function Helpers.QuestForItem(bag, slot)
 	if not C_Container.GetContainerItemQuestInfo then return end
@@ -248,12 +249,16 @@ function Helpers.QuestForItem(bag, slot)
 end
 
 local function FindLootable()
+	local sawQuestItem = false
 	for bag = 0, NUM_BAG_SLOTS or 4 do
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			local questID, active
 			if info and not info.isLocked then
 				questID, active = Helpers.QuestForItem(bag, slot)
+				if questID then
+					sawQuestItem = true
+				end
 			end
 			local startsQuest = questID and not active and not C_QuestLog.IsOnQuest(questID)
 				and not C_QuestLog.IsQuestFlaggedCompleted(questID)
@@ -266,43 +271,63 @@ local function FindLootable()
 					end
 				end
 				if not locked then
+					bagHasQuestItem = sawQuestItem
 					return bag, slot, info
 				end
 			end
 		end
 	end
+	bagHasQuestItem = sawQuestItem
 end
 
 local function UpdateOpenButton()
+	openButtonPending = nil
 	if InCombatLockdown() then
 		ns.RunOutOfCombat(UpdateOpenButton)
 		return
 	end
 	local button = openButton
-	-- Same as the quest item button: refresh the frame and hide template art.
-	ns.FrameActionButton(button)
 	local bag, slot, info
 	if Helpers.db.openButton then
 		bag, slot, info = FindLootable()
+	else
+		bagHasQuestItem = false
 	end
 	if not bag then
-		button.bag, button.slot = nil, nil
-		button:SetAttribute("item", nil)
-		if Helpers.db.openButton and ns:IsEditModeActive() then
+		local editMode = Helpers.db.openButton and ns:IsEditModeActive() or false
+		if button.bag ~= nil or button.slot ~= nil then
+			button.bag, button.slot, button.itemID, button.shownCount = nil, nil, nil, nil
+			button:SetAttribute("item", nil)
+		end
+		if editMode then
+			ns.FrameActionButton(button)
 			button.icon:SetTexture(134400)
 			button.Count:SetText("")
 			button:Show()
-		else
+		elseif button:IsShown() then
 			button:Hide()
 		end
 		return
 	end
-	button.bag, button.slot = bag, slot
+	local count = C_Item.GetItemCount(info.itemID)
+	if button.bag == bag and button.slot == slot and button.itemID == info.itemID
+		and button.shownCount == count and button:IsShown() then
+		return
+	end
+	-- Same as the quest item button: refresh the frame and hide template art.
+	ns.FrameActionButton(button)
+	button.bag, button.slot, button.itemID, button.shownCount = bag, slot, info.itemID, count
 	button:SetAttribute("item", bag .. " " .. slot)
 	button.icon:SetTexture(info.iconFileID)
-	local count = C_Item.GetItemCount(info.itemID)
 	button.Count:SetText(count > 1 and count or "")
 	button:Show()
+end
+
+local function QueueOpenButton()
+	if not openButtonPending then
+		openButtonPending = true
+		ns.After("Helpers: open button", 0.05, UpdateOpenButton)
+	end
 end
 
 local function CreateOpenButton()
@@ -894,7 +919,7 @@ function Helpers:OnLogin()
 	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
 		cachedPole = nil
 		if self.db.openButton then
-			UpdateOpenButton()
+			QueueOpenButton()
 		end
 	end)
 	self:RegisterEvent("PLAYER_LEVEL_UP", function()
@@ -902,8 +927,8 @@ function Helpers:OnLogin()
 	end)
 	for _, event in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "QUEST_LOG_UPDATE" }) do
 		self:RegisterEvent(event, function()
-			if self.db.openButton then
-				UpdateOpenButton()
+			if self.db.openButton and bagHasQuestItem ~= false then
+				QueueOpenButton()
 			end
 		end)
 	end

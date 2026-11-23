@@ -12620,5 +12620,144 @@ end)()
 	chat:UpdateIgnoreList(false)
 	print("chat ignore list OK")
 end)()
+;(function()
+	-- Performance regression tests: Camera CVar throttling/staggering, Helpers coalescing/quest-item gating,
+	-- BankView incremental bag scans, and Quests prefix/suffix preservation + instance-quest cache.
+	local camera = ns:GetModule("Camera")
+	local saved = {
+		GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, GetTime, ns.NewTicker,
+		camera.State, camera.db.saved, camera.db.enabled,
+	}
+	local cvars = {
+		CameraKeepCharacterCentered = "1", CameraReduceUnexpectedMovement = "0", test_cameraDynamicPitch = "0",
+		test_cameraOverShoulder = "1", test_cameraDynamicPitchBaseFovPad = "0.3",
+		cameraDistanceMaxZoomFactor = "2", cameraYawMoveSpeed = "180",
+	}
+	local setCalls, now, state, zoom = 0, 100, {}, 10
+	GetCVar = function(k) return cvars[k] end
+	SetCVar = function(k, v) setCalls = setCalls + 1; cvars[k] = tostring(v) end
+	GetCameraZoom = function() return zoom end
+	CameraZoomOut = function(d) zoom = zoom + d end
+	CameraZoomIn = function(d) zoom = zoom - d end
+	GetTime = function() return now end
+	ns.NewTicker = function() return { Cancel = function() end } end
+	camera.State = function() return state end
+	camera.db.saved, camera.db.enabled = {}, true
+	camera:OnOptionChanged("enabled", true)
+	local blender = uv(uv(camera.Apply, "BlendTo"), "blender")
+	local function Go(nextState)
+		state = nextState
+		camera.Update()
+		now = now + 0.7
+		camera.Update()
+	end
+	-- Start settled outdoors (shoulder=1, pad=0.3); indoors keeps shoulder=1, pad=0.3 -> 0 SetCVar calls during zoom blend.
+	Go({})
+	setCalls = 0
+	Go({ indoors = true })
+	for _ = 1, 10 do
+		now = now + 0.1
+		if blender and blender.scripts.OnUpdate then blender.scripts.OnUpdate(blender, 0.1) end
+	end
+	assert(setCalls == 0, "camera blend with unchanged shoulder/pad never calls SetCVar: " .. setCalls)
+
+	-- Switch to combat (both shoulder 1->0.6 and pad 0.3->0.35 change): throttled (<0.05s = 0 calls) and staggered (<=1 per tick).
+	Go({ combat = true })
+	blender = uv(uv(camera.Apply, "BlendTo"), "blender")
+	setCalls = 0
+	for _ = 1, 5 do
+		now = now + 0.008
+		blender.scripts.OnUpdate(blender, 0.008)
+	end
+	assert(setCalls == 0, "camera blend skips SetCVar inside the 50 ms throttle window")
+	now = now + 0.5
+	setCalls = 0
+	blender.scripts.OnUpdate(blender, 0.5)
+	assert(setCalls <= 1, "camera blend staggers shoulder and pad to at most one SetCVar per intermediate frame: " .. setCalls)
+	now = now + 3
+	blender.scripts.OnUpdate(blender, 3)
+	assert(cvars.test_cameraOverShoulder == "0.6" and cvars.test_cameraDynamicPitchBaseFovPad == "0.35",
+		"camera blend still lands on exact targets at completion")
+	camera.db.enabled = false
+	camera:OnOptionChanged("enabled", false)
+	GetCVar, SetCVar, GetCameraZoom, CameraZoomIn, CameraZoomOut, GetTime, ns.NewTicker = unpack(saved, 1, 7)
+	camera.State, camera.db.saved, camera.db.enabled = saved[8], saved[9], saved[10]
+
+	-- Helpers: QUEST_LOG_UPDATE skips scanning bags when bags contain no quest-starting item; bursts coalesce.
+	local helpers = ns:GetModule("Helpers")
+	local savedAfter, savedSlots, savedItem, savedQuestInfo = C_Timer.After, C_Container.GetContainerNumSlots,
+		C_Container.GetContainerItemInfo, C_Container.GetContainerItemQuestInfo
+	local savedOpenOpt = helpers.db.openButton
+	local deferred, slotScans = {}, 0
+	C_Timer.After = function(_, fn) deferred[#deferred + 1] = fn end
+	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and 2 or 0 end
+	C_Container.GetContainerItemInfo = function(_, slot)
+		slotScans = slotScans + 1
+		return slot == 1 and { itemID = 10, hasLoot = false, isLocked = false } or nil
+	end
+	C_Container.GetContainerItemQuestInfo = function() return nil end
+	helpers.db.openButton = true
+	local listeners = uv(ns.RegisterEvent, "listeners")
+	local onBag = listeners.BAG_UPDATE_DELAYED[helpers]
+	local onQuest = listeners.QUEST_LOG_UPDATE[helpers]
+	onBag(helpers, "BAG_UPDATE_DELAYED")
+	onQuest(helpers, "QUEST_LOG_UPDATE")
+	assert(#deferred == 1 and slotScans == 0, "BAG_UPDATE_DELAYED + QUEST_LOG_UPDATE coalesce into one deferred scan")
+	deferred[1]()
+	assert(slotScans == 2, "coalesced scan runs once")
+	deferred, slotScans = {}, 0
+	onQuest(helpers, "QUEST_LOG_UPDATE")
+	assert(#deferred == 0 and slotScans == 0, "QUEST_LOG_UPDATE skips bag scan when bags have no quest item")
+	helpers.db.openButton = savedOpenOpt
+	C_Timer.After, C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo,
+		C_Container.GetContainerItemQuestInfo = savedAfter, savedSlots, savedItem, savedQuestInfo
+
+	-- BankView: BAG_UPDATE(1) + BAG_UPDATE_DELAYED scans only bag 1 on the deferred tick, not all bags or gear.
+	local bankView = ns:GetModule("BankView")
+	local bvSaved = { C_Timer.After, C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo, GetInventoryItemID }
+	local scannedBags, gearScans, bvDeferred = {}, 0, {}
+	C_Timer.After = function(_, fn) bvDeferred[#bvDeferred + 1] = fn end
+	C_Container.GetContainerNumSlots = function(bag)
+		scannedBags[bag] = (scannedBags[bag] or 0) + 1
+		return 1
+	end
+	C_Container.GetContainerItemInfo = function(bag, slot)
+		if bag == 1 and slot == 1 then return { itemID = 4242, stackCount = 7 } end
+	end
+	GetInventoryItemID = function() gearScans = gearScans + 1 return nil end
+	listeners.BAG_UPDATE[bankView](bankView, "BAG_UPDATE", 1)
+	listeners.BAG_UPDATE_DELAYED[bankView](bankView, "BAG_UPDATE_DELAYED")
+	assert(#bvDeferred == 1 and not next(scannedBags), "BankView defers owned-count scan off BAG_UPDATE_DELAYED")
+	bvDeferred[1]()
+	assert(scannedBags[1] == 1 and not scannedBags[0] and not scannedBags[2] and gearScans == 0,
+		"BankView only rescans the dirty bag and skips unchanged bags and gear")
+	C_Timer.After, C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo,
+		GetInventoryItemID = unpack(bvSaved, 1, 4)
+
+	-- Quests: WriteWatches preserves unchanged suffix/prefix after order verification.
+	local quests = ns:GetModule("Quests")
+	local qSort = uv(uv(quests.UpdateTrackerSort, "QueueSort"), "SortTracker")
+	local writeWatches = uv(qSort, "WriteWatches")
+	local qSaved = { C_QuestLog.RemoveQuestWatch, C_QuestLog.AddQuestWatch, C_SuperTrack.GetSuperTrackedQuestID }
+	local removed, added = 0, 0
+	C_QuestLog.RemoveQuestWatch = function() removed = removed + 1 end
+	C_QuestLog.AddQuestWatch = function() added = added + 1 end
+	C_SuperTrack.GetSuperTrackedQuestID = function() return 0 end
+	local savedAddsOnTop = uv(writeWatches, "addsOnTop")
+	local savedVerified = uv(writeWatches, "orderVerified")
+	setuv(writeWatches, "addsOnTop", false)
+	setuv(writeWatches, "orderVerified", true)
+	writeWatches({ 11, 12, 13 }, { 11, 12, 13, 14 })
+	assert(removed == 0 and added == 1, "WriteWatches keeps matching prefix and only adds the new bottom watch")
+	removed, added = 0, 0
+	setuv(writeWatches, "addsOnTop", true)
+	writeWatches({ 11, 12, 13 }, { 14, 11, 12, 13 })
+	assert(removed == 0 and added == 1, "WriteWatches keeps matching suffix when new watches land on top")
+	setuv(writeWatches, "addsOnTop", savedAddsOnTop)
+	setuv(writeWatches, "orderVerified", savedVerified)
+	C_QuestLog.RemoveQuestWatch, C_QuestLog.AddQuestWatch, C_SuperTrack.GetSuperTrackedQuestID = unpack(qSaved, 1, 3)
+
+	print("performance spike fixes OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

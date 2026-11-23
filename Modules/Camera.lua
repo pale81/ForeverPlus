@@ -62,6 +62,8 @@ end
 local DURATION = 2.5
 local BACK_DURATION = 3 -- back to the player's own distance: slower
 local MOVE_DURATION = 1.8 -- only the movement changed: the distance glides alone
+local BLEND_INTERVAL = 0.05 -- 20 Hz: SetCVar fires CVAR_UPDATE and can stall when called every frame
+local SHOULDER_STEP, PAD_STEP, ZOOM_STEP = 0.02, 0.01, 0.05
 local STILL_IN, MOVE_OUT = -0.6, 0.9 -- distance standing still and while moving, against the situation's
 local HOLD = 0.6 -- a situation must hold this long before the camera follows (doorways, short flickers)
 local MAX_ZOOM_PER_FACTOR = 15 -- the game's farthest distance is this times cameraDistanceMaxZoomFactor
@@ -147,14 +149,20 @@ end
 ---------------------------------------------------------------------------
 local function Set(cvar, value)
 	local saved = Camera.db.saved
-	if not saved[cvar] then
-		saved[cvar] = { original = GetCVar(cvar) }
+	local state = saved[cvar]
+	if not state then
+		state = { original = GetCVar(cvar) }
+		saved[cvar] = state
 	end
 	value = tostring(value)
+	if state.applied == value then
+		return false
+	end
 	if GetCVar(cvar) ~= value then
 		SetCVar(cvar, value)
 	end
-	saved[cvar].applied = GetCVar(cvar)
+	state.applied = GetCVar(cvar)
+	return true
 end
 
 -- The player's own value of a setting the module may have changed.
@@ -203,11 +211,11 @@ local function MaxZoom()
 end
 
 -- Moves the zoom target to a distance in one step (the game glides there at its own zoom speed).
-local function ZoomTo(distance)
+local function ZoomTo(distance, maxZoom)
 	if not zoomTarget or not distance then
 		return
 	end
-	distance = Camera.StepZoom(distance, 0, MaxZoom())
+	distance = Camera.StepZoom(distance, 0, maxZoom or MaxZoom())
 	local delta = distance - zoomTarget
 	if delta == 0 then
 		return
@@ -250,29 +258,64 @@ local function Number(cvar, fallback)
 	return tonumber(GetCVar(cvar)) or fallback
 end
 
+local function Quantize(value, step)
+	return math.floor(value / step + 0.5) * step
+end
+
 local function BlendStep()
-	local t = (GetTime() - blend.start) / blend.duration
-	Set(SHOULDER, Camera.Blend(blend.from[1], blend.to[1], t))
-	Set(PAD, Camera.Blend(blend.from[2], blend.to[2], t))
-	if blend.from[3] and blend.to[3] then
-		ZoomTo(Camera.Blend(blend.from[3], blend.to[3], t))
+	local now = GetTime()
+	local t = (now - blend.start) / blend.duration
+	local done = t >= 1
+	if not done and blend.last and now - blend.last < BLEND_INTERVAL then
+		return
 	end
-	if t >= 1 then
+	blend.last = now
+	-- Stagger shoulder and pad writes on intermediate ticks so at most one SetCVar runs per frame.
+	local wroteCVar = false
+	if done or blend.from[1] ~= blend.to[1] then
+		local value = done and blend.to[1] or Quantize(Camera.Blend(blend.from[1], blend.to[1], t), SHOULDER_STEP)
+		if Set(SHOULDER, value) then
+			wroteCVar = true
+		end
+	end
+	if (done or blend.from[2] ~= blend.to[2]) and (done or not wroteCVar) then
+		local value = done and blend.to[2] or Quantize(Camera.Blend(blend.from[2], blend.to[2], t), PAD_STEP)
+		Set(PAD, value)
+	end
+	if blend.from[3] and blend.to[3] then
+		local nextZoom = done and blend.to[3] or Camera.Blend(blend.from[3], blend.to[3], t)
+		if done or not zoomTarget or math.abs(nextZoom - zoomTarget) >= ZOOM_STEP then
+			ZoomTo(nextZoom, blend.maxZoom)
+		end
+	end
+	if done then
 		blend = nil
 		ns.SetUpdate(blender, "Camera: blend", nil)
 	end
 end
 
 local function BlendTo(shoulder, pad, zoom, duration)
+	local fromShoulder, fromPad = Number(SHOULDER, 0), Number(PAD, 0)
+	local fromZoom = zoomTarget
+	if fromShoulder == shoulder and fromPad == pad and (not zoom or zoom == fromZoom) then
+		Set(SHOULDER, shoulder)
+		Set(PAD, pad)
+		blend = nil
+		if blender then
+			ns.SetUpdate(blender, "Camera: blend", nil)
+		end
+		return
+	end
 	blend = {
-		from = { Number(SHOULDER, 0), Number(PAD, 0), zoomTarget },
+		from = { fromShoulder, fromPad, fromZoom },
 		to = { shoulder, pad, zoom },
 		start = GetTime(),
+		last = GetTime(),
 		duration = duration,
+		maxZoom = MaxZoom(),
 	}
 	blender = blender or CreateFrame("Frame")
 	ns.SetUpdate(blender, "Camera: blend", BlendStep)
-	BlendStep()
 end
 
 -- Moves the camera to a situation (nil: back to the player's own camera).

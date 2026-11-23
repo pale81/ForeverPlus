@@ -46,20 +46,72 @@ local function AddCount(counts, id, count)
 	if id and count and count > 0 then counts[id] = (counts[id] or 0) + count end
 end
 
-local function SaveBagCounts()
-	local entry = OwnEntry()
-	if not entry then return end
+local bagCounts, gearCounts = {}, nil
+local dirtyBags, dirtyAllBags, dirtyGear, countsPending = {}, true, true, false
+
+local function PlayerBagRange()
+	return BACKPACK_CONTAINER or 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
+end
+
+local function ScanPlayerBag(bag)
 	local counts = {}
-	for bag = BACKPACK_CONTAINER or 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
-		for slot = 1, ns.Number(C_Container.GetContainerNumSlots(bag), 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info then AddCount(counts, info.itemID, info.stackCount) end
-		end
+	for slot = 1, ns.Number(C_Container.GetContainerNumSlots(bag), 0) do
+		local info = C_Container.GetContainerItemInfo(bag, slot)
+		if info then AddCount(counts, info.itemID, info.stackCount) end
 	end
+	bagCounts[bag] = counts
+end
+
+local function ScanGear()
+	local counts = {}
 	for slot = 1, 19 do
 		AddCount(counts, GetInventoryItemID("player", slot), 1)
 	end
+	gearCounts = counts
+end
+
+local function SaveBagCounts()
+	countsPending = false
+	if not (dirtyAllBags or dirtyGear or next(dirtyBags)) then return end
+	local entry = OwnEntry()
+	if not entry then return end
+	local firstBag, lastBag = PlayerBagRange()
+	if dirtyAllBags then
+		wipe(bagCounts)
+		for bag = firstBag, lastBag do
+			ScanPlayerBag(bag)
+		end
+		dirtyAllBags = false
+		wipe(dirtyBags)
+	elseif next(dirtyBags) then
+		for bag in pairs(dirtyBags) do
+			if bag >= firstBag and bag <= lastBag then
+				ScanPlayerBag(bag)
+			end
+		end
+		wipe(dirtyBags)
+	end
+	if dirtyGear or not gearCounts then
+		ScanGear()
+		dirtyGear = false
+	end
+	local counts = {}
+	for bag = firstBag, lastBag do
+		for id, count in pairs(bagCounts[bag] or {}) do
+			counts[id] = (counts[id] or 0) + count
+		end
+	end
+	for id, count in pairs(gearCounts or {}) do
+		counts[id] = (counts[id] or 0) + count
+	end
 	entry.bags, entry.updated = counts, time()
+end
+
+local function QueueBagCounts()
+	if not countsPending then
+		countsPending = true
+		ns.After("BankView: owned counts", 0.2, SaveBagCounts)
+	end
 end
 
 local function SaveBankCounts(snapshot)
@@ -100,6 +152,7 @@ ns.AddItemSection(12, function(data)
 	if not BankView.db.ownedCount then return end
 	local itemID = data and ns.Number(data.id)
 	if not itemID then return end
+	if dirtyAllBags or dirtyGear or next(dirtyBags) then SaveBagCounts() end
 	local total, rows = BankView.Owned(ns.db.inventories, itemID, (CharacterKey()))
 	if total == 0 then return end
 	local gold = { NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b }
@@ -501,9 +554,19 @@ local function CreateBagButton(parent)
 	buttons[#buttons + 1] = button
 end
 
+local function OnAnyBagUpdate(self, event, bag)
+	local firstBag, lastBag = PlayerBagRange()
+	if type(bag) == "number" and bag >= firstBag and bag <= lastBag then
+		dirtyBags[bag] = true
+		return
+	end
+	if bankOpen and self.db.enabled then
+		OnBagUpdate(self, event, bag)
+	end
+end
+
 function BankView:WatchBank()
 	local watching = bankOpen and self.db.enabled
-	self:ToggleEvent("BAG_UPDATE", watching, OnBagUpdate)
 	self:ToggleEvent("BANK_TABS_CHANGED", watching, OnBankTabsChanged)
 	self:ToggleEvent("BAG_CONTAINER_UPDATE", watching, SaveBank)
 	if watching then
@@ -521,8 +584,18 @@ end
 function BankView:OnLogin()
 	SaveBankCounts(self.cdb.snapshot)
 	SaveBagCounts()
-	self:RegisterEvent("BAG_UPDATE_DELAYED", ns.Measured("BankView: owned counts", SaveBagCounts))
-	self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", ns.Measured("BankView: owned counts (gear)", SaveBagCounts))
+	self:RegisterEvent("BAG_UPDATE", OnAnyBagUpdate)
+	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
+		if not next(dirtyBags) then
+			dirtyAllBags = true
+		end
+		QueueBagCounts()
+	end)
+	self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function()
+		dirtyGear = true
+		QueueBagCounts()
+	end)
+	self:RegisterEvent("PLAYER_LOGOUT", SaveBagCounts)
 	CreateBagButton(_G.ContainerFrame1)
 	CreateBagButton(ContainerFrameCombinedBags)
 	self:RegisterEvent("BANKFRAME_OPENED", function()

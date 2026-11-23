@@ -14,7 +14,7 @@ local teleport
 local MIN_TELEPORT_CAST_MS = 2000
 local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
-local peek, peekArea, peekDriver, UpdateHiddenUI
+local peek, peekArea, peekKeepArea, peekDriver, UpdateHiddenUI
 
 local function UpdateHiddenChat()
 	local visible = hidUI and Wanderlust.db.enabled and Wanderlust.db.showChat or false
@@ -24,19 +24,40 @@ end
 -- Minimap on mouseover while Wanderlust hides the interface. SetUIVisibility(false) stops drawing the map itself and
 -- the game's blips ignore alpha, so a detached or faded minimap cannot work. Instead the interface comes back
 -- see-through (UIParent alpha 0) while the mouse is over the minimap; only the minimap ignores that alpha.
-local function SavePeekArea()
-	local left, bottom, width, height = Minimap:GetRect()
-	local scale = ns.Number(Minimap:GetEffectiveScale())
+local function FrameCursorRect(frame)
+	if not (frame and frame.GetRect and frame.GetEffectiveScale) then return nil end
+	local left, bottom, width, height = frame:GetRect()
+	local scale = ns.Number(frame:GetEffectiveScale())
 	left, bottom, width, height = ns.Number(left), ns.Number(bottom), ns.Number(width), ns.Number(height)
-	-- In cursor coordinates, read while the interface is still shown.
-	peekArea = left and bottom and width and height and scale
+	return left and bottom and width and height and scale
 		and { left * scale, bottom * scale, (left + width) * scale, (bottom + height) * scale } or nil
 end
 
-local function CursorOverMinimap()
-	if not peekArea then return false end
+local function SavePeekArea()
+	-- In cursor coordinates, read while the interface is still shown.
+	peekArea = FrameCursorRect(Minimap)
+	local clusterArea = FrameCursorRect(MinimapCluster)
+	if peekArea and clusterArea then
+		-- Keep the preview open across the cluster rim (clock, buttons, FPS/MS) to avoid repeated SetUIVisibility stalls.
+		peekKeepArea = {
+			math.min(peekArea[1], clusterArea[1]),
+			math.min(peekArea[2], clusterArea[2]),
+			math.max(peekArea[3], clusterArea[3]),
+			math.max(peekArea[4], clusterArea[4]),
+		}
+	else
+		peekKeepArea = peekArea
+	end
+end
+
+local function CursorInArea(area)
+	if not area then return false end
 	local x, y = GetCursorPosition()
-	return x >= peekArea[1] and x <= peekArea[3] and y >= peekArea[2] and y <= peekArea[4]
+	return x >= area[1] and x <= area[3] and y >= area[2] and y <= area[4]
+end
+
+local function CursorOverMinimap()
+	return CursorInArea(peek and peekKeepArea or peekArea)
 end
 
 local function StartPeek()

@@ -483,6 +483,9 @@ local instanceNames
 
 local QueueSort
 
+local questHeaders = {} -- questID -> quest log header, filled by QuestFacts
+local instanceCache, instanceCacheNames, instanceCachePre = {}, nil, nil
+
 -- Built in slices after the first request; until then quest tags and
 -- QuestieDB decide alone, and the tracker sorts again once it is complete.
 local function InstanceNames()
@@ -494,6 +497,7 @@ local function InstanceNames()
 				instanceNames[info.name] = true
 			end
 		end, function()
+			wipe(instanceCache)
 			if QueueSort then
 				QueueSort()
 			end
@@ -502,24 +506,34 @@ local function InstanceNames()
 	return instanceNames
 end
 
-local questHeaders = {} -- questID -> quest log header, filled by QuestFacts
-
 -- Instance quest: QuestieDB (quest zone is an instance, or with the option
 -- a quest leading to one), otherwise the quest log header or quest tag.
 local function IsInstanceQuest(questID)
-	local qdb = ns.QuestieDB
-	if qdb.IsDungeonQuest(questID) then
-		return true
-	end
-	if Quests.db.instancePreQuests and qdb.LeadsToDungeon(questID) then
-		return true
+	local names = InstanceNames()
+	local pre = Quests.db.instancePreQuests and true or false
+	if instanceCacheNames ~= names or instanceCachePre ~= pre then
+		wipe(instanceCache)
+		instanceCacheNames, instanceCachePre = names, pre
 	end
 	local header = questHeaders[questID]
-	if header and InstanceNames()[header] then
-		return true
+	local cached = instanceCache[questID]
+	if cached and cached.header == header then
+		return cached.value
 	end
-	local tag = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
-	return tag and INSTANCE_TAGS[tag.tagID] or false
+	local value
+	local qdb = ns.QuestieDB
+	if qdb.IsDungeonQuest(questID) then
+		value = true
+	elseif pre and qdb.LeadsToDungeon(questID) then
+		value = true
+	elseif header and names[header] then
+		value = true
+	else
+		local tag = C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
+		value = tag and INSTANCE_TAGS[tag.tagID] and true or false
+	end
+	instanceCache[questID] = { header = header, value = value }
+	return value
 end
 
 local function QuestFacts(sorting, countingTabs)
@@ -634,6 +648,8 @@ local function SameOrder(a, b, reversed)
 	return true
 end
 
+local orderVerified = false
+
 local function WriteWatches(current, sorted)
 	local nextToKeep = 1
 	for _, questID in ipairs(current) do
@@ -642,24 +658,43 @@ local function WriteWatches(current, sorted)
 		end
 	end
 	local onlyRemoving = nextToKeep > #sorted
+	local keepPrefix, keepSuffix = 0, 0
+	if not onlyRemoving and orderVerified then
+		if addsOnTop then
+			while keepSuffix < #current and keepSuffix < #sorted
+				and current[#current - keepSuffix] == sorted[#sorted - keepSuffix] do
+				keepSuffix = keepSuffix + 1
+			end
+		else
+			while keepPrefix < #current and keepPrefix < #sorted
+				and current[keepPrefix + 1] == sorted[keepPrefix + 1] do
+				keepPrefix = keepPrefix + 1
+			end
+		end
+	end
 	-- Removing the watch of the super tracked quest also ends its navigation.
 	local superTracked = C_SuperTrack.GetSuperTrackedQuestID()
 	writing = true
 	local ok, err = pcall(function()
-		nextToKeep = 1
-		for _, questID in ipairs(current) do
-			if onlyRemoving and questID == sorted[nextToKeep] then
-				nextToKeep = nextToKeep + 1
-			else
-				C_QuestLog.RemoveQuestWatch(questID)
-			end
-		end
 		if onlyRemoving then
+			nextToKeep = 1
+			for _, questID in ipairs(current) do
+				if questID == sorted[nextToKeep] then
+					nextToKeep = nextToKeep + 1
+				else
+					C_QuestLog.RemoveQuestWatch(questID)
+				end
+			end
 			return
 		end
-		local first, last, step = 1, #sorted, 1
+		local removeStart = keepPrefix + 1
+		local removeEnd = #current - keepSuffix
+		for i = removeStart, removeEnd do
+			C_QuestLog.RemoveQuestWatch(current[i])
+		end
+		local first, last, step = keepPrefix + 1, #sorted - keepSuffix, 1
 		if addsOnTop then
-			first, last, step = #sorted, 1, -1
+			first, last, step = #sorted - keepSuffix, keepPrefix + 1, -1
 		end
 		for i = first, last, step do
 			C_QuestLog.AddQuestWatch(sorted[i])
@@ -787,7 +822,11 @@ local function VerifyOrder(sorted)
 	local current = CurrentWatches(QuestFacts())
 	if not SameOrder(current, sorted) and SameOrder(current, sorted, true) then
 		addsOnTop = not addsOnTop
+		orderVerified = false
 		WriteWatches(current, sorted)
+		orderVerified = true
+	elseif SameOrder(current, sorted) then
+		orderVerified = true
 	end
 end
 

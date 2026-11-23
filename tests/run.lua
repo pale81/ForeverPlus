@@ -10581,9 +10581,11 @@ end)()
 	end
 	local function Node(data)
 		local node = { data = data, children = {}, GetData = function(self) return self.data end }
-		function node:InsertNode(child)
+		function node:GetNodes() return self.children end
+		function node:GetParent() return self.parent end
+		function node:InsertNode(child, index)
 			child.parent = self
-			self.children[#self.children + 1] = child
+			table.insert(self.children, index or #self.children + 1, child)
 			Redraw()
 			return child
 		end
@@ -10606,14 +10608,24 @@ end)()
 		Insert = function(_, data) return root:Insert(data) end,
 		Remove = function(_, node) return node.parent:Remove(node) end,
 		IsEmpty = function() return #root.children == 0 end,
-		EnumerateEntireRange = function()
+		Enumerate = function(_, _, _, excludeCollapsed)
 			local nodes = {}
-			for _, category in ipairs(root.children) do
-				for _, recipe in ipairs(category.children) do nodes[#nodes + 1] = recipe end
+			local function Add(parent)
+				for _, node in ipairs(parent.children) do
+					nodes[#nodes + 1] = node
+					if not (excludeCollapsed and node.collapsed) then Add(node) end
+				end
 			end
+			Add(root)
 			return ipairs(nodes)
 		end,
 	}
+	function provider:EnumerateEntireRange() return self:Enumerate(nil, nil, false) end
+	function provider:FindElementDataByPredicate(predicate, excludeCollapsed)
+		for _, node in self:Enumerate(nil, nil, excludeCollapsed) do
+			if predicate(node) then return node end
+		end
+	end
 	local savedFrame, savedAPI, savedProfessions = ProfessionsFrame, C_TradeSkillUI, Professions
 	local savedDifficulty, savedOption = Enum.TradeskillRelativeDifficulty, plan.db.efficientSkillUps
 	local savedTicker, savedProfile, savedAfter = C_Timer.NewTicker, debugprofilestop, C_Timer.After
@@ -10727,11 +10739,86 @@ end)()
 	plan.db.efficientSkillUps = false
 	plan.Inject()
 	assert(provider:IsEmpty() and noResults:IsShown(), "turning off the addon filter restores Blizzard's empty state")
+	print("profession skill-up filter OK")
+
+	local savedItemUtil = rawget(_G, "ItemUtil")
+	local makeable, inventory = false, { [101] = 1, [102] = 4, [103] = 1, [104] = 2 }
+	local inventoryReads = {}
+	ItemUtil = { GetCraftingReagentCount = function(id)
+		inventoryReads[id] = (inventoryReads[id] or 0) + 1
+		return inventory[id] or 0
+	end }
+	C_TradeSkillUI.GetOnlyShowMakeableRecipes = function() return makeable end
+	C_TradeSkillUI.GetRecipeSchematic = function(id)
+		assert(id ~= 3, "material filter uses the highest learned rank")
+		local reagents = { [1] = { { itemID = 101 } }, [2] = { { itemID = 102 } },
+			[7] = { { itemID = 107 }, { itemID = 103 } }, [4] = { { itemID = 104 } },
+			[5] = { { itemID = 107 } } }
+		return { reagentSlotSchematics = reagents[id] and {
+			{ required = id ~= 4, quantityRequired = 4, reagents = reagents[id] },
+		} or {} }
+	end
+	root:InsertNode(category)
+	local favorites = root:Insert({ categoryInfo = { uiOrder = 0 } })
+	local favoriteInfo = { recipeID = 1, learned = true, favoritesInstance = true }
+	local favorite = favorites:Insert({ recipeInfo = favoriteInfo })
+	local empty = root:Insert({ categoryInfo = { uiOrder = 2 } })
+	empty:Insert({ recipeInfo = { recipeID = 4, learned = true } })
+	local unlearned = root:Insert({ categoryInfo = { uiOrder = 3 } })
+	unlearned:Insert({ recipeInfo = { recipeID = 1, learned = false } })
+	category.collapsed = true
+	local padding = category:Insert({ bottomPadding = true })
+	local before = { unpack(category.children) }
+	local events = uv(ns.RegisterEvent, "listeners")
+	assert(not plan.db.withMaterials, "material filtering is off by default")
+	selected = favorite
+	ns.SetOption("ProfessionPlan", "withMaterials", true)
+	FinishScan()
+	assert(#root.children == 2 and root.children[1] == category and root.children[2] == favorites
+		and selected == favorite and category.collapsed, "material filter keeps matching categories, favorites and selection")
+	assert(#category.children == 4 and category.children[1] == before[1] and category.children[2] == before[2]
+		and category.children[3] == before[3] and category.children[4] == padding,
+		"partial stacks, full stacks and alternative reagents match; optional or absent reagents do not")
+	assert(inventoryReads[101] == 1 and inventoryReads[107] == 1 and not inventoryReads[104],
+		"each reagent count is read once and optional reagents are skipped")
+
+	category.collapsed = false
+	inventory = { [107] = 1 }
+	events.BAG_UPDATE_DELAYED[plan]()
+	assert(selected == favorite and root.children[2] == favorites, "the old result stays visible during a bag refresh")
+	FinishScan()
+	selectRecommended()
+	assert(#root.children == 1 and #category.children == 3 and category.children[1] == before[3]
+		and category.children[2] == before[5] and selected == before[3],
+		"bag changes remove depleted recipes and select the first visible match")
+	inventory = {}
+	events.PLAYERBANKSLOTS_CHANGED[plan]()
+	FinishScan()
+	assert(provider:IsEmpty() and noResults:IsShown(), "an empty result uses the native empty state")
+
+	makeable = true
+	plan.Inject()
+	assert(#root.children == 4 and #category.children == #before and not noResults:IsShown(),
+		"the native makeable filter takes precedence and restores the native list")
+	for index, node in ipairs(before) do assert(category.children[index] == node, "restored recipe order") end
+
+	makeable, skill, inventory = false, 25, { [101] = 1, [102] = 4 }
+	plan.db.efficientSkillUps = true
+	plan.Inject()
+	FinishScan()
+	rows = Recommendations()
+	assert(#rows == 2 and rows[1].data.fpSkillUp and rows[2].data.fpSkillUp,
+		"the top skill-up recommendations respect available materials")
+	plan.db.efficientSkillUps = false
+	ns.SetOption("ProfessionPlan", "withMaterials", false)
+	assert(#root.children == 4 and #category.children == #before and not (events.BAG_UPDATE_DELAYED or {})[plan],
+		"switching off restores all native rows and stops bag monitoring")
+	ItemUtil = savedItemUtil
 	plan.db.efficientSkillUps = savedOption
 	C_Timer.NewTicker, debugprofilestop, C_Timer.After = savedTicker, savedProfile, savedAfter
 	Enum.TradeskillRelativeDifficulty, ProfessionsFrame, C_TradeSkillUI, Professions = savedDifficulty, savedFrame, savedAPI, savedProfessions
 	ns.db.auctionPrices, auction.cdb.vendorBuyPrices = savedAuction, savedVendor
-	print("profession skill-up filter OK")
+	print("profession material filter OK")
 end)()
 ;(function()
 	-- Core helpers

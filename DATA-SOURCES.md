@@ -28,7 +28,9 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 **Solo Party effects.** The animated profession book is the visual reference for individual particles. The comic frames, water effects, leaves, strands, steam, healing sparks and feathered mask use separate textures in `Media/`. The game also renders its own smoke, sparkles and coin textures. Optional Bloody artwork uses a separate crimson card and four comic blood-splash sprites in `Media/SoloPartyBloody.tga` and `Media/SoloPartyBloodSplats.tga`.
 
-**Solo Party critical sounds.** Six native weapon impacts are referenced by FileDataID through `PlaySoundFile`. Two-handed sword critical flesh impacts 01–03 use 1240622, 1240623 and 1240624. Two-handed axe critical flesh impacts 01–03 use 1324858, 1324859 and 1324860. Names are mapped by the [community listfile](https://github.com/wowdev/wow-listfile). Audio stays in the game installation.
+**Solo Party critical sounds.** Six short impacts in `Media/SoloPartyCrit*.mp3` are synthesized from filtered noise and decaying tones by `python3 tools/build_crit_sounds.py` (requires FFmpeg). The source waveforms peak at −18 dBFS. Playback uses the game's effects channel.
+
+**Emitter sounds.** `Data/EmitterSounds.lua` indexes 2,596 named audio files under `sound/emitters/` from the [wowdev community listfile release 202611211242](https://github.com/wowdev/wow-listfile/releases/tag/202611211242). The catalog spans WoW editions, so some files may be absent in Forever. It includes FileDataIDs and paths. The audio stays in the game installation. Regenerate with `python3 tools/build_emitter_sounds.py <community-listfile.csv>`.
 
 **Landing sounds.** `Modules/Landing.lua` references native sounds by FileDataID through `PlaySoundFile`. Classic footsteps `Sound/CHARACTER/FOOTSTEPS/mFootSmallDirt` A–E use 540227, 540136, 540099, 540201 and 540128. Thuds `Sound/DOODAD/FX_DeathThud_DirtGrass_med_01`–`06` use 950654, 950656, 950658, 950660, 950662 and 950664. Names are mapped by the [community listfile](https://github.com/wowdev/wow-listfile). Audio stays in the game installation.
 

@@ -27,6 +27,7 @@ Modules\Chat.lua
 Modules\Loot.lua
 Modules\Tooltip.lua
 Modules\QuestieInfo.lua
+Data\EmitterSounds.lua
 Modules\Minimap.lua
 Modules\Teleports.lua
 Modules\InstanceStats.lua

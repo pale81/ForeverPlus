@@ -11,6 +11,8 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		wholeCoords = false, -- coordinates without the decimal place
 		trackingIcons = true,
 		trackingEntries = true,
+		emitterSoundMenu = true,
+		mutedEmitters = {},
 		campfires = false,
 		symbolScale = 100,
 		zoomReset = true,
@@ -434,6 +436,174 @@ local function AddForeverPlusEntries(rootDescription)
 end
 
 ---------------------------------------------------------------------------
+-- Emitter sounds: right-click the tracking button.
+---------------------------------------------------------------------------
+local emitterWindow, emitterButton
+local previewID, previewHandle
+
+local function CanMuteEmitters()
+	return type(MuteSoundFile) == "function" and type(UnmuteSoundFile) == "function"
+end
+
+local function StopEmitterPreview()
+	if previewHandle then StopSound(previewHandle) end
+	previewID, previewHandle = nil, nil
+end
+
+local function RefreshEmitters(retainScroll)
+	local query = emitterWindow.Search:GetText():lower():match("^%s*(.-)%s*$")
+	local id = tonumber(query)
+	local mutedOnly = emitterWindow.MutedOnly:GetChecked()
+	local muted = MinimapCoords.db.mutedEmitters
+	local matches = {}
+	for _, file in ipairs(ns.EmitterSounds) do
+		local matchesQuery = id and file[1] == id or not id and file[2]:find(query, 1, true)
+		if matchesQuery and (not mutedOnly or muted[file[1]]) then
+			matches[#matches + 1] = file
+		end
+	end
+	emitterWindow.Empty:SetShown(#matches == 0)
+	emitterWindow.List:SetDataProvider(CreateDataProvider(matches), retainScroll and ScrollBoxConstants.RetainScrollPosition)
+end
+
+local function InitEmitterRow(row, file)
+	if not row.Mute then
+		local mute = CreateFrame("CheckButton", nil, row, "UICheckButtonArtTemplate")
+		mute:SetSize(24, 24)
+		mute:SetPoint("LEFT")
+		row.Mute = mute
+
+		local preview = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+		preview:SetSize(78, 20)
+		preview:SetPoint("RIGHT", -2, 0)
+		preview:SetText(L.MINIMAP_EMITTER_PREVIEW)
+		row.Preview = preview
+
+		local name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		name:SetPoint("LEFT", mute, "RIGHT", 2, 0)
+		name:SetPoint("RIGHT", preview, "LEFT", -6, 0)
+		name:SetJustifyH("LEFT")
+		name:SetWordWrap(false)
+		row.Label = name
+		row:EnableMouse(true)
+		row:SetMouseClickEnabled(false)
+		row:SetScript("OnEnter", ns.Measured("Minimap: emitter file tooltip", function()
+			GameTooltip:SetOwner(row, "ANCHOR_LEFT")
+			GameTooltip:SetText("sound/emitters/" .. row.file[2], 1, 0.82, 0, 1, true)
+			GameTooltip:Show()
+		end))
+		row:SetScript("OnLeave", GameTooltip_Hide)
+		mute:SetScript("OnClick", ns.Measured("Minimap: mute emitter", function(self)
+			local id = row.file[1]
+			local checked = self:GetChecked()
+			if checked then
+				if previewID == id then StopEmitterPreview() end
+				MuteSoundFile(id)
+			else
+				UnmuteSoundFile(id)
+			end
+			MinimapCoords.db.mutedEmitters[id] = checked and true or nil
+			preview:SetEnabled(not checked)
+			if emitterWindow.MutedOnly:GetChecked() then RefreshEmitters(true) end
+		end))
+		preview:SetScript("OnClick", ns.Measured("Minimap: preview emitter", function()
+			StopEmitterPreview()
+			local id = row.file[1]
+			local played, handle = PlaySoundFile(id, "SFX")
+			if played then
+				previewID, previewHandle = id, handle
+			end
+		end))
+	end
+	row.file = file
+	row.Label:SetText(("[%d] %s"):format(file[1], file[2]))
+	local muted = MinimapCoords.db.mutedEmitters[file[1]]
+	row.Mute:SetChecked(muted == true)
+	row.Preview:SetEnabled(not muted)
+end
+
+local function CreateEmitterWindow()
+	local window = CreateFrame("Frame", "ForeverPlusEmitterSounds", UIParent, "ButtonFrameTemplate")
+	ButtonFrameTemplate_HidePortrait(window)
+	window:SetTitle(L.MINIMAP_EMITTER_TITLE)
+	window:SetSize(535, 370)
+	window:SetFrameStrata("DIALOG")
+	window:SetToplevel(true)
+	window:SetClampedToScreen(true)
+	window:EnableMouse(true)
+	window:Hide()
+	tinsert(UISpecialFrames, window:GetName())
+
+	local search = CreateFrame("EditBox", nil, window, "SearchBoxTemplate")
+	search:SetSize(248, 24)
+	search:SetPoint("TOPLEFT", 16, -29)
+	search:SetMaxLetters(100)
+	window.Search = search
+
+	local mutedOnly = CreateFrame("CheckButton", nil, window, "UICheckButtonTemplate")
+	mutedOnly:SetSize(26, 26)
+	mutedOnly:SetPoint("LEFT", search, "RIGHT", 12, 0)
+	mutedOnly.Text:SetText(L.MINIMAP_EMITTER_MUTED_ONLY)
+	window.MutedOnly = mutedOnly
+
+	local list = CreateFrame("Frame", nil, window, "WowScrollBoxList")
+	list:SetPoint("TOPLEFT", window.Inset, "TOPLEFT", 4, -3)
+	list:SetPoint("BOTTOMRIGHT", window.Inset, "BOTTOMRIGHT", -25, 3)
+	local scrollbar = CreateFrame("EventFrame", nil, window, "MinimalScrollBar")
+	scrollbar:SetPoint("TOPLEFT", list, "TOPRIGHT", 5, 0)
+	scrollbar:SetPoint("BOTTOMLEFT", list, "BOTTOMRIGHT", 5, 0)
+	scrollbar:SetHideIfUnscrollable(true)
+	local view = CreateScrollBoxListLinearView()
+	view:SetElementExtent(24)
+	view:SetElementInitializer("Frame", ns.Measured("Minimap: init emitter row", InitEmitterRow))
+	ScrollUtil.InitScrollBoxListWithScrollBar(list, scrollbar, view)
+	window.List = list
+
+	local empty = window:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+	empty:SetPoint("CENTER", window.Inset)
+	empty:SetText(L.MINIMAP_EMITTER_EMPTY)
+	window.Empty = empty
+	local refresh = ns.Measured("Minimap: filter emitters", function() RefreshEmitters(false) end)
+	search:HookScript("OnTextChanged", refresh)
+	mutedOnly:SetScript("OnClick", refresh)
+	window:HookScript("OnHide", ns.Measured("Minimap: stop emitter preview", function()
+		search:ClearFocus()
+		StopEmitterPreview()
+	end))
+	return window
+end
+
+local function UpdateEmitterButton()
+	local tracking = MinimapCluster and MinimapCluster.Tracking
+	local button = tracking and tracking.Button
+	local enabled = MinimapCoords.db.emitterSoundMenu and CanMuteEmitters()
+	if enabled and button and not emitterButton then
+		-- The native DropdownButton opens tracking on left mouse down. Give
+		-- right clicks their own hit area without changing its mouse registration.
+		emitterButton = CreateFrame("Button", nil, button)
+		emitterButton:SetAllPoints()
+		emitterButton:SetFrameLevel(button:GetFrameLevel() + 1)
+		emitterButton:RegisterForClicks("RightButtonUp")
+		emitterButton:SetPassThroughButtons("LeftButton", "MiddleButton", "Button4", "Button5")
+		emitterButton:SetMouseClickEnabled(true)
+		emitterButton:SetMouseMotionEnabled(false)
+		emitterButton:SetScript("OnClick", ns.Measured("Minimap: open emitter sounds", function(self)
+			if emitterWindow and emitterWindow:IsShown() then
+				emitterWindow:Hide()
+				return
+			end
+			emitterWindow = emitterWindow or CreateEmitterWindow()
+			emitterWindow:ClearAllPoints()
+			emitterWindow:SetPoint("TOPRIGHT", self, "BOTTOMLEFT", -4, -4)
+			RefreshEmitters(false)
+			emitterWindow:Show()
+		end))
+	end
+	if emitterButton then emitterButton:SetShown(enabled) end
+	if emitterWindow and not enabled then emitterWindow:Hide() end
+end
+
+---------------------------------------------------------------------------
 -- Zoom back out: after zooming in, the minimap returns to the level it had
 -- before once nobody zoomed for a few seconds.
 ---------------------------------------------------------------------------
@@ -508,6 +678,12 @@ end
 
 function MinimapCoords:OnLogin()
 	ns.OnAddOnLoaded("Blizzard_Minimap", UpdateMailIcon)
+	if CanMuteEmitters() then
+		for id, muted in pairs(self.db.mutedEmitters) do
+			if muted then MuteSoundFile(id) end
+		end
+		ns.OnAddOnLoaded("Blizzard_Minimap", UpdateEmitterButton)
+	end
 	ns.AddTrackingEntry(function(root)
 		local displays = root:CreateButton(L.MINIMAP_DISPLAYS)
 		ns.CreateOptionCheckbox(displays, L.INFO_PERF, "Info", "performance", L.INFO_PERF_DESC)
@@ -596,6 +772,8 @@ function MinimapCoords:OnOptionChanged(key)
 		zoomLast = Minimap:GetZoom()
 	elseif key == "restoreMailIcon" then
 		UpdateMailIcon()
+	elseif key == "emitterSoundMenu" then
+		ns.RunOutOfCombat(UpdateEmitterButton)
 	else
 		self:UpdateWorldMapCoords()
 	end
@@ -606,6 +784,7 @@ MinimapCoords.options = {
 	{ key = "wholeCoords", type = "toggle", name = L.MINIMAP_WHOLE_COORDS, desc = L.MINIMAP_WHOLE_COORDS_DESC, new = true },
 	{ key = "trackingIcons", type = "toggle", name = L.MINIMAP_TRACKING_ICONS, desc = L.MINIMAP_TRACKING_ICONS_DESC },
 	{ key = "trackingEntries", type = "toggle", name = L.MINIMAP_TRACKING_ENTRIES, desc = L.MINIMAP_TRACKING_ENTRIES_DESC },
+	{ key = "emitterSoundMenu", type = "toggle", name = L.MINIMAP_EMITTER_TITLE, desc = L.MINIMAP_EMITTER_DESC },
 	{ key = "restoreMailIcon", type = "toggle", name = L.MINIMAP_RESTORE_MAIL_ICON, desc = L.MINIMAP_RESTORE_MAIL_ICON_DESC },
 	{ key = "zoomReset", type = "toggle", name = L.MINIMAP_ZOOM_RESET, desc = L.MINIMAP_ZOOM_RESET_DESC },
 	{ key = "zoomDelay", type = "slider", name = L.MINIMAP_ZOOM_DELAY, desc = L.MINIMAP_ZOOM_DELAY_DESC, parent = "zoomReset", min = 5, max = 60, step = 5,

@@ -6295,7 +6295,12 @@ end)()
 	SOUNDKIT.UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER = 43503
 	local reward = { [74702] = true, [50111] = true, [31757] = true }
 	local expense = { [43501] = true, [165976] = true, [43503] = true }
-	local impacts = { [1240622] = true, [1324858] = true, [1240623] = true, [1324859] = true, [1240624] = true, [1324860] = true }
+	local impacts = {}
+	for variant = 1, 6 do
+		local file = ("Media/SoloPartyCrit%d.mp3"):format(variant)
+		assert(io.open(root .. "/" .. file, "rb")):close()
+		impacts["Interface\\AddOns\\ForeverPlus\\" .. file:gsub("/", "\\")] = true
+	end
 	local impactFiles = {}
 	PlaySoundFile = function(file, channel)
 		assert(impacts[file] and channel == "SFX", "critical sounds use the weapon impact files on the effects channel")
@@ -6609,6 +6614,14 @@ end)()
 		unique[impactFiles[i]] = true
 	end
 	assert(impactFiles[7] == impactFiles[1], "critical sound rotation starts again after six sounds")
+	local beforeCrit = #impactFiles
+	solo.db.critSound = false
+	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 2900)
+	assert(#impactFiles == beforeCrit and printed[#printed] == "2900", "the critical sound can be disabled on its own")
+	local beforeReward = #played
+	Fire("CHAT_MSG_SKILL", skill)
+	assert(#played == beforeReward + 1 and reward[played[#played]], "the critical sound switch preserves other rewards")
+	solo.db.critSound = true
 	solo.db.sounds = false
 	solo:OnOptionChanged("sounds")
 	Fire("UNIT_COMBAT", "target", "WOUND", "CRITICAL", 3000)
@@ -6725,6 +6738,90 @@ end)()
 	CreateFrame, GetMoney, issecretvalue, ns.NewTimer, GetMoneyString, SOUNDKIT, PlaySound, C_TradeSkillUI, PlaySoundFile = unpack(saved, 1, 9)
 	fontSettings.face = savedFace
 	print("solo party OK")
+end)()
+;(function()
+	local globals = { "CreateFrame", "MinimapCluster", "MuteSoundFile", "UnmuteSoundFile", "PlaySoundFile", "StopSound",
+		"CreateScrollBoxListLinearView", "CreateDataProvider", "ScrollUtil", "UISpecialFrames", "ForeverPlusEmitterSounds" }
+	local saved = {}
+	for _, key in ipairs(globals) do saved[key] = rawget(_G, key) end
+	local tracking, trigger, initialize, results = NewFrame("DropdownButton")
+	local muted, playing = {}, nil
+	MinimapCluster = { Tracking = { Button = tracking } }
+	MuteSoundFile = function(id) muted[id] = true end
+	UnmuteSoundFile = function(id) muted[id] = nil end
+	PlaySoundFile = function(id, channel)
+		assert(not muted[id] and channel == "SFX")
+		playing = id
+		return true, id
+	end
+	StopSound = function(handle) assert(handle == playing) playing = nil end
+	CreateScrollBoxListLinearView = function()
+		return { SetElementExtent = function() end, SetElementInitializer = function(_, _, fn) initialize = fn end }
+	end
+	CreateDataProvider = function(entries) return entries end
+	ScrollUtil = { InitScrollBoxListWithScrollBar = function(list)
+		list.SetDataProvider = function(_, entries) results = entries end
+	end }
+	UISpecialFrames = {}
+	CreateFrame = function(kind, name, parent)
+		local frame = NewFrame(kind, name)
+		frame.SetText = function(self, value) self.text = value end
+		frame.GetText = function(self) return rawget(self, "text") or "" end
+		frame.SetChecked = function(self, value) self.checked = value end
+		frame.GetChecked = function(self) return rawget(self, "checked") end
+		if parent == tracking then
+			trigger = frame
+			frame.RegisterForClicks = function(_, click) assert(click == "RightButtonUp") end
+			frame.SetPassThroughButtons = function(_, first) assert(first == "LeftButton") end
+		end
+		return frame
+	end
+	local module
+	local fixture = setmetatable({
+		NewModule = function(_, _, spec)
+			module = spec
+			module.ToggleEvent = function() end
+			module.RegisterEvent = function() end
+			module.db = ns.CopyDefaults(spec.defaults, {})
+			return module
+		end,
+		OnAddOnLoaded = function(name, fn) if name == "Blizzard_Minimap" then fn() end end,
+		RegisterDisplay = function() end,
+	}, { __index = ns })
+	assert(loadfile(root .. "/Modules/Minimap.lua"))("ForeverPlus", fixture)
+	module.db.mutedEmitters[7079224] = true
+	module:OnLogin()
+	assert(trigger:IsShown() and muted[7079224], "login installs the right-click trigger and reapplies saved mutes")
+	trigger:GetScript("OnClick")(trigger, "RightButton")
+	local window = ForeverPlusEmitterSounds
+	assert(window:IsShown() and #results > 2500, "right-click opens the catalog")
+	window.Search:SetText("  7079224  ")
+	window.Search:GetScript("OnTextChanged")(window.Search)
+	assert(#results == 1 and results[1][1] == 7079224, "search finds an exact FileDataID")
+	local row = NewFrame("Frame")
+	row.Mute = false
+	initialize(row, results[1])
+	assert(row.Mute:GetChecked(), "saved mutes are visibly checked")
+	window.MutedOnly:SetChecked(true)
+	row.Mute:SetChecked(false)
+	row.Mute:GetScript("OnClick")(row.Mute)
+	assert(not muted[7079224] and next(module.db.mutedEmitters) == nil and #results == 0,
+		"unmuting updates the client, saved selection and muted-only list")
+	window.MutedOnly:SetChecked(false)
+	window.Search:SetText("RIVER_SMALLA_01")
+	window.Search:GetScript("OnTextChanged")(window.Search)
+	assert(#results == 1 and results[1][1] == 567231, "search accepts case-insensitive filenames")
+	initialize(row, results[1])
+	row.Preview:GetScript("OnClick")(row.Preview)
+	assert(playing == 567231, "reused rows preview the current file")
+	row.Mute:SetChecked(true)
+	row.Mute:GetScript("OnClick")(row.Mute)
+	assert(not playing and muted[567231] and module.db.mutedEmitters[567231], "muting stops the preview and saves the selected file")
+	module.db.emitterSoundMenu = false
+	module:OnOptionChanged("emitterSoundMenu")
+	assert(not trigger:IsShown() and not window:IsShown() and muted[567231], "disabling the menu keeps active mutes")
+	for _, key in ipairs(globals) do _G[key] = saved[key] end
+	print("emitter sounds OK")
 end)()
 ;(function()
 	-- The stats pane rebuilds a provider from its original rows and reuses frames for new rows.

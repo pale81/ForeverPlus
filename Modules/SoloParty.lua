@@ -5,7 +5,7 @@ local L = ns.L
 local SoloParty = ns:NewModule("SoloParty", {
 	title = L.SOLO_PARTY_TITLE,
 	order = 5.37,
-	defaults = { enabled = false, sounds = true, effects = true, criticals = true, bloody = false },
+	defaults = { enabled = false, sounds = true, critSound = true, effects = true, criticals = true, bloody = false },
 })
 
 local MEDIA = "Interface\\AddOns\\ForeverPlus\\Media\\"
@@ -17,7 +17,8 @@ local SOUNDS = {
 	reward = { "UI_MISSION_SUCCESS_CHEERS", "UI_RAID_BOSS_DEFEATED", "UI_SCENARIO_STAGE_END" },
 	spent = { "UI_GARRISON_MISSION_COMPLETE_ENCOUNTER_FAIL", "UI_ADVENTURES_ADVENTURE_FAILURE_COMPLETE",
 		"UI_GARRISON_MISSION_COMPLETE_MISSION_FAIL_STINGER" },
-	crit = { 1240622, 1324858, 1240623, 1324859, 1240624, 1324860 }, -- Two-handed sword / axe critical flesh impacts.
+	crit = { MEDIA .. "SoloPartyCrit1.mp3", MEDIA .. "SoloPartyCrit2.mp3", MEDIA .. "SoloPartyCrit3.mp3",
+		MEDIA .. "SoloPartyCrit4.mp3", MEDIA .. "SoloPartyCrit5.mp3", MEDIA .. "SoloPartyCrit6.mp3" },
 }
 local TEXT_SIZES = {
 	skill = 36,
@@ -104,7 +105,7 @@ local function NextVariant(previous, count)
 end
 
 local function PlayBurstSound(kind)
-	if not SoloParty.db.sounds then
+	if not SoloParty.db.sounds or (kind == "crit" and not SoloParty.db.critSound) then
 		return
 	end
 	local group = (kind == "crit" or kind == "spent") and kind or "reward"
@@ -496,7 +497,7 @@ function SoloParty:UNIT_COMBAT(_, unit, event, flagText, amount)
 end
 
 function SoloParty:OnOptionChanged(key)
-	if key == "sounds" then
+	if key == "sounds" or key == "critSound" then
 		return
 	end
 	if key == "bloody" then
@@ -592,6 +593,7 @@ end
 SoloParty.options = {
 	{ key = "enabled", type = "toggle", name = L.SOLO_PARTY_ENABLED, desc = L.SOLO_PARTY_DESC, new = true },
 	{ key = "sounds", type = "toggle", name = L.SOLO_PARTY_SOUNDS, desc = L.SOLO_PARTY_SOUNDS_DESC, new = true },
+	{ key = "critSound", type = "toggle", name = L.SOLO_PARTY_CRIT_SOUND, desc = L.SOLO_PARTY_CRIT_SOUND_DESC, parent = "sounds" },
 	{ key = "effects", type = "toggle", name = L.SOLO_PARTY_EFFECTS, desc = L.SOLO_PARTY_EFFECTS_DESC, new = true },
 	{ key = "criticals", type = "toggle", name = L.SOLO_PARTY_CRITICALS, desc = L.SOLO_PARTY_CRITICALS_DESC, parent = "enabled", new = true },
 	{ key = "bloody", type = "toggle", name = L.SOLO_PARTY_BLOODY, desc = L.SOLO_PARTY_BLOODY_DESC, parent = "criticals", new = true },

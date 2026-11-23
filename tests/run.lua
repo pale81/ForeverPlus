@@ -11015,7 +11015,7 @@ end)()
 	-- Slot 5: Berserker mode (Bloody crits + Landing jump sounds + CombatText)
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == 136012)
+	assert(visuals.cdb.playerPortraitMode == 5 and icon.asset == 236304)
 	assert(not pm.IsModeActive("berserker"), "partial default state shows Berserker as inactive")
 	shift = false
 	click(wheel, "LeftButton")
@@ -11089,13 +11089,13 @@ end)()
 	-- Open icon picker, pick a custom Blizzard icon, and verify live update + reset.
 	menuFrame.IconButton:GetScript("OnClick")(menuFrame.IconButton)
 	assert(pickerFrame and pickerFrame:IsShown(), "Icon button opens the WoW icon picker")
-	assert(pickerFrame.cells[2] and pickerFrame.cells[2].iconID == 236304, "picker starts with Berserker icon presets")
+	assert(pickerFrame.cells[2] and pickerFrame.cells[2].iconID == 236364, "picker starts with Berserker icon presets")
 	pickerFrame.cells[2]:GetScript("OnClick")(pickerFrame.cells[2])
-	assert(pm.ModeIcon("berserker") == 236304 and icon.asset == 236304, "picking an icon updates the portrait live")
+	assert(pm.ModeIcon("berserker") == 236364 and icon.asset == 236364, "picking an icon updates the portrait live")
 	-- Reset restores default assignments, checkmarks and icons.
 	pm.ResetAssignments()
 	assert(pm.FeatureMode("landing") == "berserker" and pm.IsFeatureSelected("combatText"))
-	assert(pm.ModeIcon("berserker") == 136012 and icon.asset == 136012)
+	assert(pm.ModeIcon("berserker") == 236304 and icon.asset == 236304)
 	menuFrame:Hide()
 
 	-- Wrap forward to normal and backward to slot 5.
@@ -11128,7 +11128,7 @@ end)()
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
 	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
 	ns.SetOption("Visuals", "playerPortraitWheel", true)
-	assert(icon:IsShown() and icon.asset == 136012)
+	assert(icon:IsShown() and icon.asset == 236304)
 
 	-- Restore state cleanly.
 	ns.SetOption("Visuals", "playerPortraitWheel", false)

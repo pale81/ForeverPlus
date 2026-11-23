@@ -38,8 +38,8 @@ local MODES = {
 		key = "rp",
 		name = L.PORTRAIT_MODE_RP,
 		short = L.PORTRAIT_MODE_RP_SHORT,
-		icon = 633139,
-		presets = { 633139, 898247, 133741, 132928, 134937, 133458, 133739, 133740, 237163, 133735 },
+		icon = 133741,
+		presets = { 133741, 133739, 133740, 133735, 133738, 132928, 134937, 133458, 898247, 633139 },
 	},
 	{
 		key = "berserker",

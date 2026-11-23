@@ -215,6 +215,34 @@ end
 local arrow
 local ARROW_ATLAS, ARROW_FILE = "Navigation-Tracked-Arrow", [[Interface\Minimap\MiniMap-QuestArrow]]
 
+local function SetArrowDisplay(self, name, showArrow, angle, distText, distYards)
+	if self.lastName ~= name then
+		self.lastName = name
+		self.Name:SetText(name)
+	end
+	if self.lastArrowShown ~= showArrow then
+		self.lastArrowShown = showArrow
+		self.Arrow:SetShown(showArrow)
+	end
+	if showArrow and angle then
+		local quant = math.floor(angle * 100 + 0.5)
+		if self.lastAngle ~= quant then
+			self.lastAngle = quant
+			self.Arrow:SetRotation(angle)
+		end
+	end
+	if distYards ~= nil then
+		local rounded = math.floor(distYards + 0.5)
+		if self.lastDistYards ~= rounded or self.lastDistText ~= nil then
+			self.lastDistYards, self.lastDistText = rounded, nil
+			self.Text:SetFormattedText(L.WAYPOINT_DISTANCE, distYards)
+		end
+	elseif self.lastDistText ~= distText then
+		self.lastDistYards, self.lastDistText = nil, distText
+		self.Text:SetText(distText)
+	end
+end
+
 local function UpdateArrow(self, elapsed)
 	self.wait = (self.wait or 0) - elapsed
 	if self.wait > 0 then
@@ -223,13 +251,10 @@ local function UpdateArrow(self, elapsed)
 	self.wait = 0.05
 	if CorpseRun() then
 		local distance, angle = CorpseBearing()
-		self.Name:SetText(L.WAYPOINT_CORPSE_NAME)
-		self.Arrow:SetShown(distance ~= nil and distance > 0)
 		if distance then
-			self.Arrow:SetRotation(angle)
-			self.Text:SetFormattedText(L.WAYPOINT_DISTANCE, distance)
+			SetArrowDisplay(self, L.WAYPOINT_CORPSE_NAME, distance > 0, angle, nil, distance)
 		else
-			self.Text:SetText(L.WAYPOINT_CORPSE_UNKNOWN)
+			SetArrowDisplay(self, L.WAYPOINT_CORPSE_NAME, false, nil, L.WAYPOINT_CORPSE_UNKNOWN, nil)
 			self.wait = 0.25
 		end
 		return
@@ -248,15 +273,13 @@ local function UpdateArrow(self, elapsed)
 		Waypoint.Clear()
 		return
 	end
-	self.Arrow:SetShown(distance ~= nil)
+	local goalName = goal.name or ("%.1f, %.1f"):format(goal.x * 100, goal.y * 100)
 	if distance then
-		self.Arrow:SetRotation(angle)
-		self.Text:SetFormattedText(L.WAYPOINT_DISTANCE, distance)
+		SetArrowDisplay(self, goalName, true, angle, nil, distance)
 	else
 		local info = C_Map.GetMapInfo(goal.mapID)
-		self.Text:SetFormattedText(L.WAYPOINT_ELSEWHERE, info and info.name or "?")
+		SetArrowDisplay(self, goalName, false, nil, L.WAYPOINT_ELSEWHERE:format(info and info.name or "?"), nil)
 	end
-	self.Name:SetText(goal.name or ("%.1f, %.1f"):format(goal.x * 100, goal.y * 100))
 end
 
 local function CreateArrow()

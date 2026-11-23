@@ -434,8 +434,14 @@ local function IsActiveSelfBuff(button)
 	local imbueKind = actionType == "spell" and ImbueKind(id)
 	if imbueKind then
 		buffButtons[button] = true
+		if not activeImbues[imbueKind] then
+			return false
+		end
+		if not next(Visuals.db.activeBuffExceptions) then
+			return true
+		end
 		local spellName = C_Spell.GetSpellName(id)
-		return activeImbues[imbueKind] and not (spellName and Visuals.db.activeBuffExceptions[spellName]) or false
+		return not (spellName and Visuals.db.activeBuffExceptions[spellName])
 	elseif actionType == "spell" and IsSelfBuff(id) then
 		buffButtons[button] = true
 		name = next(activeAuras) and C_Spell.GetSpellName(id)

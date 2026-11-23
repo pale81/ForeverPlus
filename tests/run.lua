@@ -13851,5 +13851,99 @@ end)()
 	assert(info.SpikesText(true) == nil, "ResetSession clears the recorded GC moment")
 	print("map/radar/gc optimization OK")
 end)()
+;(function()
+	-- Runtime stutter optimizations: lazy/incremental LootSources cache, single-pass nameplate scans,
+	-- Blizzard_* exclusion in Info sampler, non-player Camera spellcast filtering, PortraitModes batching,
+	-- SoloParty font reuse, and Waypoint unchanged-state skip.
+
+	-- 1. LootSources: Record updates cache incrementally without rebuilding untouched items, DropsFrom stays lazy.
+	local loot = ns:GetModule("LootSources")
+	local savedSources, savedCount, savedMerged = ns.db.lootSources, loot.count, loot.merged
+	ns.db.lootSources, loot.count, loot.merged = {}, 0, nil
+	local itemA, itemB
+	for id in pairs(ns.LootData.items) do
+		if not itemA then itemA = id elseif not itemB then itemB = id break end
+	end
+	assert(itemA and itemB, "shipped loot table has at least two items")
+	local rowA = ns.LootData.items[itemA][1]
+	assert(loot.DropsFrom(itemA, rowA[1]), "lazy shipped drop lookup finds item")
+	assert(loot.merged == nil, "DropsFrom does not eagerly build the full merge table")
+	loot.Sources(itemA)
+	loot.Sources(itemB)
+	local cacheBefore = loot.merged
+	local cachedB = cacheBefore.byItem[itemB]
+	assert(cacheBefore and cacheBefore.byItem[itemA] and cachedB, "Sources caches only queried items")
+	loot.Record("perf-g1", rowA[1], { itemA }, "Perf Mob")
+	assert(loot.merged == cacheBefore, "Record keeps merge cache instance alive instead of wiping it")
+	assert(cacheBefore.byItem[itemA] == nil and cacheBefore.byItem[itemB] == cachedB,
+		"Record invalidates only the looted item and keeps untouched item caches")
+	local updatedA
+	for _, s in ipairs(loot.Sources(itemA)) do
+		if s.key == rowA[1] then updatedA = s end
+	end
+	assert(updatedA and updatedA.drops == rowA[2] + 1 and updatedA.windows == rowA[3] + 1,
+		"incremental Record update reflects new drop and window counts")
+	ns.db.lootSources, loot.count, loot.merged = savedSources, savedCount, savedMerged
+
+	-- 2. Quests: UpdateNameplate scans the unit tooltip at most once per nameplate.
+	local quests = ns:GetModule("Quests")
+	local updatePlate = uv(quests.RefreshNameplates, "UpdateNameplate")
+	local qSaved = { C_NamePlate.GetNamePlateForUnit, C_QuestLog.UnitIsRelatedToActiveQuest, C_TooltipInfo.GetUnit,
+		UnitIsPlayer, UnitCanAttack, quests.db.nameplateIcons }
+	local tipCalls = 0
+	local fakePlate = CreateFrame("Frame")
+	C_NamePlate.GetNamePlateForUnit = function() return fakePlate end
+	C_QuestLog.UnitIsRelatedToActiveQuest = function() return true end
+	C_TooltipInfo.GetUnit = function()
+		tipCalls = tipCalls + 1
+		return { lines = { { type = Enum.TooltipDataLineType.QuestObjective, leftText = "Felle: 2/5" } } }
+	end
+	UnitIsPlayer = function() return false end
+	UnitCanAttack = function() return true end
+	quests.db.nameplateIcons = true
+	updatePlate("nameplate1")
+	assert(tipCalls == 1, "UpdateNameplate scans the unit tooltip once instead of twice: " .. tipCalls)
+	C_NamePlate.GetNamePlateForUnit, C_QuestLog.UnitIsRelatedToActiveQuest, C_TooltipInfo.GetUnit,
+		UnitIsPlayer, UnitCanAttack, quests.db.nameplateIcons = unpack(qSaved, 1, 6)
+
+	-- 3. Info: TrackAddon ignores Blizzard_* internal load-on-demand addons.
+	local info = ns:GetModule("Info")
+	local trackAddon = uv(uv(info.UpdatePerformance, "SetupProfilerSampler"), "TrackAddon")
+	local metrics = uv(trackAddon, "sessionMetrics")
+	trackAddon("Blizzard_Professions", "Blizzard_Professions")
+	assert(metrics["Blizzard_Professions"] == nil, "Blizzard_* LoD addons are not added to per-frame profiler sampling")
+
+	-- 4. Camera: OnFastEvent ignores non-player UNIT_SPELLCAST_START / STOP.
+	local camera = ns:GetModule("Camera")
+	local onFast = uv(camera.Start, "OnFastEvent")
+	local savedCamUpdate = camera.Update
+	local camCalls = 0
+	camera.Update = function() camCalls = camCalls + 1 end
+	onFast(camera, "UNIT_SPELLCAST_START", "nameplate1")
+	onFast(camera, "UNIT_SPELLCAST_STOP", "target")
+	assert(camCalls == 0, "Camera ignores non-player spellcast events")
+	onFast(camera, "UNIT_SPELLCAST_START", "player")
+	assert(camCalls == 1, "Camera handles player spellcast events")
+	camera.Update = savedCamUpdate
+
+	-- 5. PortraitModes: non-Shift modifier events do not call native input setters.
+	local pm = ns.PortraitModes
+	local wheelFrame = _G.ForeverPlusPlayerPortraitWheel
+	if wheelFrame then
+		local updateInput = uv(pm.Refresh, "UpdatePortraitInput")
+		local savedEnableWheel = wheelFrame.EnableMouseWheel
+		local wheelCalls = 0
+		wheelFrame.EnableMouseWheel = function(self, on)
+			wheelCalls = wheelCalls + 1
+			return savedEnableWheel(self, on)
+		end
+		updateInput(nil, "MODIFIER_STATE_CHANGED", "LCTRL")
+		updateInput(nil, "MODIFIER_STATE_CHANGED", "LALT")
+		assert(wheelCalls == 0, "PortraitModes ignores Ctrl/Alt modifier events")
+		wheelFrame.EnableMouseWheel = savedEnableWheel
+	end
+
+	print("runtime stutter optimizations OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")

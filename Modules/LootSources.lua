@@ -128,7 +128,27 @@ function LootSources.Record(guid, key, items, name)
 			entry.items[id] = (entry.items[id] or 0) + 1
 		end
 	end
-	LootSources.merged = nil
+	local cache = LootSources.merged
+	if cache and cache.sourcesRef == sources then
+		local ownByItem, byItem = cache.ownByItem, cache.byItem
+		-- entry.windows increased for every recorded item of this source; refresh only those items.
+		for id, drops in pairs(entry.items) do
+			local list = ownByItem[id]
+			if not list then
+				list = {}
+				ownByItem[id] = list
+			end
+			local row = list[key]
+			if row then
+				row.drops, row.windows = drops, entry.windows
+			else
+				list[key] = { drops = drops, windows = entry.windows }
+			end
+			byItem[id] = nil
+		end
+	else
+		LootSources.merged = nil
+	end
 	creatureDrops[key] = nil
 end
 
@@ -240,47 +260,97 @@ end
 ---------------------------------------------------------------------------
 -- Lookup: shipped data and the player's own windows together
 ---------------------------------------------------------------------------
--- item -> { { key, drops, windows }, ... }, built on first use.
-local function Merged()
-	if LootSources.merged then
-		return LootSources.merged
+-- Lazy per-item merge cache: rebuilding all shipped items on every loot would allocate ~1.6 MB of tables.
+local function EnsureMergeCache()
+	local sources = ns.db.lootSources
+	local shipped = ns.LootData and ns.LootData.items
+	local cache = LootSources.merged
+	if cache and cache.sourcesRef == sources and cache.shippedRef == shipped then
+		return cache
 	end
-	local byItem = {}
-	for item, rows in pairs(ns.LootData and ns.LootData.items or {}) do
-		local list = {}
-		for _, row in ipairs(rows) do
-			list[row[1]] = { drops = row[2], windows = row[3] }
-		end
-		byItem[item] = list
-	end
-	for key, entry in pairs(ns.db.lootSources) do
+	local ownByItem = {}
+	for key, entry in pairs(sources or {}) do
 		for item, drops in pairs(entry.items) do
-			local list = byItem[item]
+			local list = ownByItem[item]
 			if not list then
 				list = {}
-				byItem[item] = list
+				ownByItem[item] = list
 			end
+			list[key] = { drops = drops, windows = entry.windows }
+		end
+	end
+	cache = {
+		sourcesRef = sources,
+		shippedRef = shipped,
+		ownByItem = ownByItem,
+		byItem = {},
+	}
+	LootSources.merged = cache
+	return cache
+end
+
+local function MergedForItem(itemID)
+	local cache = EnsureMergeCache()
+	local cached = cache.byItem[itemID]
+	if cached ~= nil then
+		return cached or nil
+	end
+	local shippedRows = cache.shippedRef and cache.shippedRef[itemID]
+	local ownRows = cache.ownByItem[itemID]
+	if not shippedRows and not ownRows then
+		cache.byItem[itemID] = false
+		return nil
+	end
+	local list = {}
+	if shippedRows then
+		for _, row in ipairs(shippedRows) do
+			list[row[1]] = { drops = row[2], windows = row[3] }
+		end
+	end
+	if ownRows then
+		for key, entry in pairs(ownRows) do
 			local row = list[key]
 			if row then
-				row.drops, row.windows = row.drops + drops, row.windows + entry.windows
+				row.drops, row.windows = row.drops + entry.drops, row.windows + entry.windows
 			else
-				list[key] = { drops = drops, windows = entry.windows }
+				list[key] = { drops = entry.drops, windows = entry.windows }
 			end
 		end
 	end
-	LootSources.merged = byItem
-	return byItem
+	cache.byItem[itemID] = list
+	return list
 end
+
+local shippedLookupRef, shippedLookup = nil, {}
 
 -- Whether the recordings (shipped and own) have the item dropping from the source ("npc:<id>").
 function LootSources.DropsFrom(itemID, key)
-	local list = Merged()[itemID]
-	return list ~= nil and list[key] ~= nil
+	local own = ns.db.lootSources and ns.db.lootSources[key]
+	if own and own.items and own.items[itemID] then
+		return true
+	end
+	local shipped = ns.LootData and ns.LootData.items
+	local rows = shipped and shipped[itemID]
+	if not rows then
+		return false
+	end
+	if shippedLookupRef ~= shipped then
+		shippedLookupRef, shippedLookup = shipped, {}
+	end
+	local lookup = shippedLookup[itemID]
+	if not lookup then
+		lookup = {}
+		for _, row in ipairs(rows) do
+			lookup[row[1]] = true
+		end
+		shippedLookup[itemID] = lookup
+	end
+	return lookup[key] == true
 end
 
 -- The best sources of an item: { { key, drops, windows }, ... } by share.
 function LootSources.Sources(itemID)
-	local list = Merged()[itemID]
+	local list = MergedForItem(itemID)
 	if not list then
 		return {}
 	end

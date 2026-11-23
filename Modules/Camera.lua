@@ -62,8 +62,8 @@ end
 local DURATION = 2.5
 local BACK_DURATION = 3 -- back to the player's own distance: slower
 local MOVE_DURATION = 1.8 -- only the movement changed: the distance glides alone
-local BLEND_INTERVAL = 0.05 -- 20 Hz: SetCVar fires CVAR_UPDATE and can stall when called every frame
-local SHOULDER_STEP, PAD_STEP, ZOOM_STEP = 0.02, 0.01, 0.05
+local BLEND_INTERVAL = 0.08 -- ~12.5 Hz: SetCVar fires CVAR_UPDATE and logs test CVars on every write
+local SHOULDER_STEP, PAD_STEP, ZOOM_STEP = 0.05, 0.02, 0.05
 local STILL_IN, MOVE_OUT = -0.6, 0.9 -- distance standing still and while moving, against the situation's
 local HOLD = 0.6 -- a situation must hold this long before the camera follows (doorways, short flickers)
 local MAX_ZOOM_PER_FACTOR = 15 -- the game's farthest distance is this times cameraDistanceMaxZoomFactor
@@ -398,6 +398,14 @@ local FAST_EVENTS = {
 	"UNIT_SPELLCAST_STOP",
 }
 
+local function OnFastEvent(_, event, unit)
+	if (event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP")
+		and (ns.Secret(unit) or unit ~= "player") then
+		return
+	end
+	Camera.Update()
+end
+
 -- A loading screen (after a teleport) must not leave the camera turning.
 local function OnLeavingWorld()
 	Rotate(nil)
@@ -450,7 +458,7 @@ function Camera.Start()
 		Set(control[1], control[2])
 	end
 	for _, event in ipairs(FAST_EVENTS) do
-		Camera:RegisterEvent(event, Camera.Update)
+		Camera:RegisterEvent(event, OnFastEvent)
 	end
 	Camera:RegisterEvent("PLAYER_LEAVING_WORLD", OnLeavingWorld)
 	ticker = ns.NewTicker("Camera: situation", 0.25, Camera.Update)

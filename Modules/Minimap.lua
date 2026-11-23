@@ -239,6 +239,8 @@ local function FormatCoords(x, y)
 	return MinimapCoords.Format(x * 100, y * 100)
 end
 
+local lastCursorText, lastPlayerText
+
 local function UpdateMapCoords()
 	local map = WorldMapFrame
 	local cursorX, cursorY
@@ -251,8 +253,16 @@ local function UpdateMapCoords()
 	if position then
 		playerX, playerY = position:GetXY()
 	end
-	mapCoords.Cursor:SetText(L.MAP_CURSOR:format(FormatCoords(cursorX, cursorY)))
-	mapCoords.Player:SetText(L.MAP_PLAYER:format(FormatCoords(playerX, playerY)))
+	local cursorText = FormatCoords(cursorX, cursorY)
+	if cursorText ~= lastCursorText then
+		lastCursorText = cursorText
+		mapCoords.Cursor:SetText(L.MAP_CURSOR:format(cursorText))
+	end
+	local playerText = FormatCoords(playerX, playerY)
+	if playerText ~= lastPlayerText then
+		lastPlayerText = playerText
+		mapCoords.Player:SetText(L.MAP_PLAYER:format(playerText))
+	end
 end
 
 local function CreateMapCoords()
@@ -749,7 +759,7 @@ end
 
 function MinimapCoords:OnOptionChanged(key)
 	if key == "wholeCoords" then
-		lastX, lastY = nil, nil
+		lastX, lastY, lastCursorText, lastPlayerText = nil, nil, nil, nil
 		if text then
 			Update()
 		end

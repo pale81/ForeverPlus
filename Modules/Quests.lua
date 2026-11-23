@@ -186,38 +186,45 @@ local function QuestScan(unit, data)
 	return status, progress
 end
 
-local function QuestProgress(unit)
-	local status, progress = QuestScan(unit)
-	return progress or (status == "open" and "" or nil)
-end
-
 -- Open objectives of active quests that the creature serves, by the recordings of the loot windows: the item the
 -- quest asks for dropped from this creature (shipped data and the player's own windows), or the creature itself is
 -- to be killed. The game's own flag and tooltip miss some of them. { { title, text, have, need }, ... } or nil.
+local lootSourcesModule
+
 local function DropObjectives(guid)
-	local sources = ns:GetModule("LootSources")
-	local key = sources.SourceKey(guid)
+	if not next(state) then
+		return
+	end
 	local targets = ns.QuestData and ns.QuestData.targets
-	if not key or not targets then
+	if not targets then
 		return
 	end
-	local npcID = tonumber(key:match("^npc:(%d+)$"))
-	if not npcID then
+	local kind, npcID = ns.GuidParts(guid)
+	if kind ~= "Creature" or not npcID then
 		return
 	end
+	lootSourcesModule = lootSourcesModule or ns:GetModule("LootSources")
+	local key
 	local found
 	for questID in pairs(state) do
 		local list = targets[questID]
-		local objectives
-		for index, target in ipairs(list or {}) do
-			local kind, id = target[1], target[2]
-			if (kind == "i" and sources.DropsFrom(id, key)) or (kind == "m" and id == npcID) then
-				objectives = objectives or C_QuestLog.GetQuestObjectives(questID)
-				local objective = objectives and objectives[index]
-				if objective and not objective.finished then
-					found = found or {}
-					found[#found + 1] = { questID = questID, title = C_QuestLog.GetTitleForQuestID(questID), text = objective.text,
-						have = objective.numFulfilled, need = objective.numRequired }
+		if list then
+			local objectives
+			for index, target in ipairs(list) do
+				local targetKind, id = target[1], target[2]
+				local matched = targetKind == "m" and id == npcID
+				if not matched and targetKind == "i" then
+					key = key or ("npc:" .. npcID)
+					matched = lootSourcesModule.DropsFrom(id, key)
+				end
+				if matched then
+					objectives = objectives or C_QuestLog.GetQuestObjectives(questID)
+					local objective = objectives and objectives[index]
+					if objective and not objective.finished then
+						found = found or {}
+						found[#found + 1] = { questID = questID, title = C_QuestLog.GetTitleForQuestID(questID), text = objective.text,
+							have = objective.numFulfilled, need = objective.numRequired }
+					end
 				end
 			end
 		end
@@ -227,16 +234,28 @@ end
 
 -- Units of an active quest. The game's own flag misses some, for example
 -- creatures whose drop a quest asks for; their tooltip still lists the objective.
+-- Also returns tooltip progress and matched drop objectives so nameplates do not scan twice.
 local function IsQuestUnit(unit, data)
 	local related = C_QuestLog.UnitIsRelatedToActiveQuest(unit)
 	if related and not Secret(related) then
 		-- The game keeps the flag after the objective is done: the tooltip then lists it as finished (8/8).
-		return QuestScan(unit, data) ~= "done"
+		local status, progress = QuestScan(unit, data)
+		return status ~= "done", progress or (status == "open" and "" or nil)
 	end
 	if Secret(related) or UnitIsPlayer(unit) or not UnitCanAttack("player", unit) then
 		return false
 	end
-	return QuestScan(unit, data) == "open" or (Quests.db.dropObjectives and DropObjectives(UnitGUID(unit)) ~= nil)
+	local status, progress = QuestScan(unit, data)
+	if status == "open" then
+		return true, progress or ""
+	end
+	if Quests.db.dropObjectives then
+		local drops = DropObjectives(UnitGUID(unit))
+		if drops then
+			return true, nil, drops
+		end
+	end
+	return false
 end
 Quests.IsQuestUnit = IsQuestUnit
 
@@ -331,12 +350,15 @@ local function UpdateNameplate(unit)
 	if not nameplate or nameplate:IsForbidden() then
 		return
 	end
-	if Quests.db.nameplateIcons and IsQuestUnit(unit) then
+	local isQuest, progress, drops
+	if Quests.db.nameplateIcons then
+		isQuest, progress, drops = IsQuestUnit(unit)
+	end
+	if isQuest then
 		local marker = GetMarker(nameplate)
 		PlaceMarker(marker, nameplate)
-		local progress = QuestProgress(unit)
 		if not progress and Quests.db.dropObjectives then
-			local drops = DropObjectives(UnitGUID(unit))
+			drops = drops or DropObjectives(UnitGUID(unit))
 			local first = drops and drops[1]
 			progress = first and ns.Number(first.need, 0) > 1 and ("%d/%d"):format(ns.Number(first.have, 0), first.need) or nil
 		end

@@ -326,7 +326,7 @@ local function RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, f
 end
 
 local function TrackAddon(name, title)
-	if name and not sessionMetrics[name] then
+	if name and not sessionMetrics[name] and not name:find("^Blizzard_") then
 		local label = title or name
 		local entry = { name = name, title = (label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")),
 			own = name == ns.name, recent = {} }

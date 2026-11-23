@@ -334,7 +334,7 @@ local frameCalls, frameCounts, frameMax, frameHasCalls = {}, {}, {}, false
 local lastCalls, lastCounts, lastMax, lastHasCalls = {}, {}, {}, false
 local previousFrameAt, previousFrameMem
 local sessionSampler
-local SESSION_CALL_MIN = 0.05
+local SESSION_CALL_MIN = 0.15
 local measureStartedAt
 
 local function ActiveMeasurement()
@@ -352,7 +352,7 @@ end
 -- A slow call during which the Lua memory went down: the garbage collector ran inside it, and its time (for all
 -- addons) counts to this call. Such calls carry " (GC)" in their name.
 local function SpikeName(name, elapsed, memoryBefore)
-	if elapsed > ns.SLOW_MS and collectgarbage("count") < memoryBefore then
+	if memoryBefore and elapsed > ns.SLOW_MS and collectgarbage("count") < memoryBefore then
 		return name .. " (GC)"
 	end
 	return name
@@ -449,7 +449,7 @@ spikeFrame:SetScript("OnUpdate", function()
 			end
 		end
 	end
-	previousFrameAt, previousFrameMem = now, collectgarbage("count")
+	previousFrameAt, previousFrameMem = now, currentMem
 end)
 
 function ns.SetSessionProfiler(sample)
@@ -498,6 +498,22 @@ local function OwnerName(owner)
 	return type(owner) == "table" and owner.name or tostring(owner)
 end
 
+local eventLabels = {}
+
+local function EventLabel(owner, event)
+	local byEvent = eventLabels[owner]
+	if not byEvent then
+		byEvent = {}
+		eventLabels[owner] = byEvent
+	end
+	local label = byEvent[event]
+	if not label then
+		label = OwnerName(owner) .. ": " .. event
+		byEvent[event] = label
+	end
+	return label
+end
+
 -- An error in one listener goes to the error handler; the others still run.
 -- The game's stack ends at the xpcall below, so the message names the listener and the event.
 local runningOwner, runningEvent
@@ -515,7 +531,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 		-- An event can fire inside another listener: restore the outer one afterwards.
 		local outerOwner, outerEvent = runningOwner, runningEvent
 		runningEvent = event
-		if ns.measuring or sessionSampler then
+		if ns.measuring then
 			for owner, fn in pairs(set) do
 				local measurement = ActiveMeasurement()
 				local memory = collectgarbage("count")
@@ -524,9 +540,19 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 				xpcall(fn, ErrorHandler, owner, event, ...)
 				local elapsed = debugprofilestop() - start
 				if measurement and measurement == ns.spikes and ns.measuring then
-					ns.RecordTiming(SpikeName(OwnerName(owner) .. ": " .. event, elapsed, memory), elapsed)
+					ns.RecordTiming(SpikeName(EventLabel(owner, event), elapsed, memory), elapsed)
 				elseif elapsed >= SESSION_CALL_MIN then
-					RecordFrameCall(SpikeName(OwnerName(owner) .. ": " .. event, elapsed, memory), elapsed)
+					RecordFrameCall(SpikeName(EventLabel(owner, event), elapsed, memory), elapsed)
+				end
+			end
+		elseif sessionSampler then
+			for owner, fn in pairs(set) do
+				local start = debugprofilestop()
+				runningOwner = owner
+				xpcall(fn, ErrorHandler, owner, event, ...)
+				local elapsed = debugprofilestop() - start
+				if elapsed >= SESSION_CALL_MIN then
+					RecordFrameCall(EventLabel(owner, event), elapsed)
 				end
 			end
 		else
@@ -547,30 +573,38 @@ end
 -- Wraps a hook or callback. Return values are dropped (hooks ignore them).
 function ns.Measured(name, fn)
 	return function(...)
-		if not (ns.measuring or sessionSampler) then
+		if ns.measuring then
+			local measurement = ActiveMeasurement()
+			local memory = collectgarbage("count")
+			local start = debugprofilestop()
+			fn(...)
+			local elapsed = debugprofilestop() - start
+			if measurement and measurement == ns.spikes and ns.measuring then
+				ns.RecordTiming(SpikeName(name, elapsed, memory), elapsed)
+			elseif elapsed >= SESSION_CALL_MIN then
+				RecordFrameCall(SpikeName(name, elapsed, memory), elapsed)
+			end
+			return
+		end
+		if not sessionSampler then
 			fn(...)
 			return
 		end
-		local measurement = ActiveMeasurement()
-		local memory = collectgarbage("count")
 		local start = debugprofilestop()
 		fn(...)
 		local elapsed = debugprofilestop() - start
-		if measurement and measurement == ns.spikes and ns.measuring then
-			ns.RecordTiming(SpikeName(name, elapsed, memory), elapsed)
-		elseif elapsed >= SESSION_CALL_MIN then
-			RecordFrameCall(SpikeName(name, elapsed, memory), elapsed)
+		if elapsed >= SESSION_CALL_MIN then
+			RecordFrameCall(name, elapsed)
 		end
 	end
 end
 
 local function FinishMeasured(name, start, memBefore, measurement, ...)
 	local elapsed = debugprofilestop() - start
-	local label = SpikeName(name, elapsed, memBefore)
 	if measurement and measurement == ns.spikes and ns.measuring then
-		ns.RecordTiming(label, elapsed)
+		ns.RecordTiming(SpikeName(name, elapsed, memBefore), elapsed)
 	elseif elapsed >= SESSION_CALL_MIN then
-		RecordFrameCall(label, elapsed)
+		RecordFrameCall(SpikeName(name, elapsed, memBefore), elapsed)
 	end
 	return ...
 end
@@ -578,13 +612,17 @@ end
 -- Wraps a callback while preserving all return values (e.g. chat filters).
 function ns.MeasuredReturn(name, fn)
 	return function(...)
-		if not (ns.measuring or sessionSampler) then
+		if ns.measuring then
+			local measurement = ActiveMeasurement()
+			local memBefore = collectgarbage("count")
+			local start = debugprofilestop()
+			return FinishMeasured(name, start, memBefore, measurement, fn(...))
+		end
+		if not sessionSampler then
 			return fn(...)
 		end
-		local measurement = ActiveMeasurement()
-		local memBefore = collectgarbage("count")
 		local start = debugprofilestop()
-		return FinishMeasured(name, start, memBefore, measurement, fn(...))
+		return FinishMeasured(name, start, nil, nil, fn(...))
 	end
 end
 

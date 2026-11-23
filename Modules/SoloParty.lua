@@ -316,9 +316,19 @@ local function Update(_, delta)
 	end
 end
 
-local function SetCardFont(text, size)
-	if text:SetFont(ns.GetFontFace(), size, "") == false then
-		text:SetFont(GameFontNormal:GetFont(), size, "")
+local function SetCardFont(text, baseSize, displaySize)
+	local face = ns.GetFontFace()
+	if text.fpFontFace ~= face or text.fpFontSize ~= baseSize then
+		if text:SetFont(face, baseSize, "") == false then
+			text:SetFont(GameFontNormal:GetFont(), baseSize, "")
+		end
+		text.fpFontFace, text.fpFontSize = face, baseSize
+		text.fpTextHeight = baseSize
+	end
+	local height = displaySize or baseSize
+	if text.SetTextHeight and text.fpTextHeight ~= height then
+		text:SetTextHeight(height)
+		text.fpTextHeight = height
 	end
 end
 
@@ -365,7 +375,8 @@ local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	local card = cards[nextSlot] or CreateCard()
 	cards[nextSlot] = card
 	local theme = THEMES[themeName or kind]
-	local size = TEXT_SIZES[kind] + math.random(-3, 3)
+	local baseSize = TEXT_SIZES[kind]
+	local size = baseSize + math.random(-3, 3)
 	card.bloody = kind == "crit" and (bloodyPreview or SoloParty.db.bloody)
 	card.burst:SetTexture(card.bloody and BLOODY_BURST or BURSTS[DrawVariant(burstVariants, #BURSTS)])
 	local secret = kind == "crit" or ns.Secret(value)
@@ -373,7 +384,7 @@ local function ShowBurst(kind, label, value, themeName, bloodyPreview)
 	card.value:SetShown(not secret)
 	card.secretValue:SetShown(secret)
 	SetCardFont(card.label, 18)
-	SetCardFont(valueText, size)
+	SetCardFont(valueText, baseSize, size)
 	card.label:SetText(label)
 	valueText:SetText(value)
 	card.label:SetTextColor(0.94, 0.87, 0.72)

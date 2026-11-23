@@ -229,9 +229,13 @@ for _, feature in ipairs(FEATURES) do
 	end
 end
 
+local visualsModule
+local suppressOptionNotify = false
+
 local function VisualsDB()
-	local visuals = ns:GetModule("Visuals")
+	local visuals = visualsModule or ns:GetModule("Visuals")
 	if not visuals then return nil, nil end
+	visualsModule = visuals
 	if visuals.db then
 		if type(visuals.db.portraitModeAssignments) ~= "table" then
 			visuals.db.portraitModeAssignments = {}
@@ -351,11 +355,13 @@ end
 local function ToggleMode(modeKey)
 	if not MODE_BY_KEY[modeKey] or modeKey == "normal" then return end
 	local target = not IsModeActive(modeKey)
+	suppressOptionNotify = true
 	for _, feature in ipairs(ModeFeatures(modeKey)) do
 		if IsFeatureSelected(ItemKey(feature)) then
 			feature.setOn(target)
 		end
 	end
+	suppressOptionNotify = false
 	UpdatePlayerPortrait()
 	RefreshMenu()
 end
@@ -368,7 +374,9 @@ local function SetFeatureSelected(itemKey, selected)
 	local wasActive = IsModeActive(modeKey)
 	db.portraitModeDisabled[itemKey] = (not selected) or nil
 	if wasActive then
+		suppressOptionNotify = true
 		item.setOn(selected and true or false)
+		suppressOptionNotify = false
 	end
 	UpdatePlayerPortrait()
 	RefreshMenu()
@@ -399,11 +407,13 @@ local function MoveFeature(itemKey, targetModeKey)
 		db.portraitModeAssignments[itemKey] = (targetModeKey ~= item.defaultMode) and targetModeKey or nil
 	end
 	if IsFeatureSelected(itemKey) then
+		suppressOptionNotify = true
 		if targetWasActive and not sourceWasActive and (not item.isSub or IsDetachedSub(item)) then
 			item.setOn(true)
 		elseif sourceWasActive and not targetWasActive and (not item.isSub or wasDetachedSub) then
 			item.setOn(false)
 		end
+		suppressOptionNotify = false
 	end
 	UpdatePlayerPortrait()
 	RefreshMenu()
@@ -1231,14 +1241,26 @@ local function CurrentMode()
 	return MODES[cdb.playerPortraitMode] or MODES[1]
 end
 
-local function UpdatePortraitInput()
+local lastWheelEnabled, lastInteractive
+
+local function UpdatePortraitInput(_, event, key)
 	if not portraitWheel then return end
+	if event == "MODIFIER_STATE_CHANGED" and key and key ~= "LSHIFT" and key ~= "RSHIFT" then
+		return
+	end
 	local canUse = CanCyclePortrait()
 	local mode = CurrentMode()
 	local interactive = canUse and mode ~= nil and mode.key ~= "normal"
-	portraitWheel:EnableMouseWheel(canUse and IsShiftKeyDown() and true or false)
-	portraitWheel:SetMouseClickEnabled(interactive)
-	portraitWheel:SetMouseMotionEnabled(interactive)
+	local wheelEnabled = canUse and IsShiftKeyDown() and true or false
+	if lastWheelEnabled ~= wheelEnabled then
+		lastWheelEnabled = wheelEnabled
+		portraitWheel:EnableMouseWheel(wheelEnabled)
+	end
+	if lastInteractive ~= interactive then
+		lastInteractive = interactive
+		portraitWheel:SetMouseClickEnabled(interactive)
+		portraitWheel:SetMouseMotionEnabled(interactive)
+	end
 	if not interactive then
 		if portraitShine then portraitShine:Hide() end
 		if GameTooltip:IsOwned(portraitWheel) then GameTooltip:Hide() end
@@ -1319,7 +1341,7 @@ UpdatePlayerPortrait = function()
 end
 
 local function OnAnyOptionChanged(moduleName)
-	if WATCHED_MODULES[moduleName] then
+	if not suppressOptionNotify and WATCHED_MODULES[moduleName] then
 		UpdatePlayerPortrait()
 		RefreshMenu()
 	end

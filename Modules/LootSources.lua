@@ -23,7 +23,7 @@ local TOOLTIP_SOURCES = 3
 local TOOLTIP_DROPS = 20
 local MIN_WINDOWS = 2      -- sources with fewer windows are not shown as a share
 local creatureDrops = {}
-LootSources.objectListeners = {} -- fn("object:<id>", { item, ... }) for each newly opened object
+LootSources.objectListeners = {} -- fn("object:<id>", { itemID, ... }, { [itemID] = name }) for each newly opened object
 local NON_CORPSE_SPELLS = { [921] = true, [8613] = true, [8617] = true, [8618] = true, [10768] = true }
 local CAST_GRACE = 6
 local lastNonCorpseCast, lastLootCastGUID
@@ -53,7 +53,7 @@ end
 
 local opened = {} -- GUIDs counted in this session
 
-local function ReadSlotSources(sources, itemID, ...)
+local function ReadSlotSources(sources, itemID, itemName, ...)
 	if select("#", ...) == 0 then
 		return false
 	end
@@ -70,6 +70,10 @@ local function ReadSlotSources(sources, itemID, ...)
 		end
 		if itemID then
 			source.items[#source.items + 1] = itemID
+			if itemName and key:sub(1, 7) == "object:" then
+				source.itemNames = source.itemNames or {}
+				source.itemNames[itemID] = itemName
+			end
 		end
 	end
 	return true
@@ -84,8 +88,10 @@ local function ReadWindow()
 			return
 		end
 		local isItem = slotType == Enum.LootSlotType.Item
-		local itemID = isItem and ItemID(GetLootSlotLink(slot))
-		if (isItem and not itemID) or not ReadSlotSources(sources, itemID, GetLootSourceInfo(slot)) then
+		local link = isItem and GetLootSlotLink(slot)
+		local itemID = isItem and ItemID(link)
+		local itemName = itemID and link:match("|h%[(.+)%]|h")
+		if (isItem and not itemID) or not ReadSlotSources(sources, itemID, itemName, GetLootSourceInfo(slot)) then
 			return
 		end
 	end
@@ -206,7 +212,7 @@ function LootSources.CaptureWindow()
 		if not opened[guid] and source.key:sub(1, 7) == "object:" then
 			-- Other modules learn about opened nodes and chests; an error there must not stop fast loot.
 			for _, listener in ipairs(LootSources.objectListeners) do
-				pcall(listener, source.key, source.items)
+				pcall(listener, source.key, source.items, source.itemNames)
 			end
 		end
 		if not opened[guid] and not (npcID and nonCorpseLoot) then

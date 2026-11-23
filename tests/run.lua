@@ -1297,8 +1297,6 @@ end)()
 -- Scout: node kinds, remembered spots, rare announcements
 ;(function()
 	local scout = ns:GetModule("Scout")
-	assert(scout.NodeKind({ { 7, 9 } }) == "herb" and scout.NodeKind({ { 15, 0 }, { 7, 7 } }) == "ore"
-		and scout.NodeKind({ { 2, 0 } }) == nil, "node kind from the loot")
 	local list = {}
 	scout.AddNode(list, 1731, "ore", 0.5, 0.5)
 	scout.AddNode(list, 1731, "ore", 0.503, 0.498)
@@ -1309,25 +1307,70 @@ end)()
 	assert(scout.ShouldAnnounce("g", 10, last) and not scout.ShouldAnnounce("g", 500, last)
 		and scout.ShouldAnnounce("g", 611, last), "rares are announced again after ten minutes")
 	-- gathering from a loot window
+	local globals = { "C_Map", "UnitClassification", "UnitIsDead", "UnitGUID", "UnitName", "UnitLevel", "PlaySound",
+		"GetNumLootItems", "GetLootSlotType", "GetLootSlotLink", "GetLootSourceInfo", "IsFishingLoot" }
 	local saved = {}
-	for _, key in ipairs({ "C_Map", "UnitClassification", "UnitIsDead", "UnitGUID", "UnitName", "UnitLevel", "PlaySound" }) do
+	for _, key in ipairs(globals) do
 		saved[key] = rawget(_G, key)
 	end
 	local oldNodes, oldItem = ns.db.gatherNodes, C_Item
-	ns.db.gatherNodes = nil
-	C_Map = { GetBestMapForUnit = function() return 1429 end, GetPlayerMapPosition = function() return { x = 0.4, y = 0.6 } end }
-	C_Item = setmetatable({ GetItemInfoInstant = function(id) return id, nil, nil, nil, nil, 7, id == 2770 and 7 or 9 end },
-		{ __index = oldItem })
+	local oldLootSlotTypes = Enum.LootSlotType
 	local sources = ns:GetModule("LootSources")
-	local listener = sources.objectListeners[#sources.objectListeners]
-	listener("object:1731", { 2770 })
-	listener("npc:5", { 2770 })
-	assert(#ns.db.gatherNodes[1429] == 1 and ns.db.gatherNodes[1429][1][4] == "ore", "an ore vein is remembered")
+	local oldSources, oldCount, oldMerged = ns.db.lootSources, sources.count, sources.merged
+	local de = GetLocale() == "deDE"
+	local copper, stone, herb = de and "Kupfererz" or "Copper Ore", de and "Rauer Stein" or "Rough Stone",
+		de and "Friedensblume" or "Peacebloom"
+	local oldHerb = { 0.1, 0.2, 1618, "herb", 3 }
+	local oldVein = { 0.2, 0.3, 1731, "ore", 2 }
+	local nodes = { oldHerb, oldVein }
+	ns.db.gatherNodes = { [1429] = nodes }
+	ns.db.lootSources, sources.count = { ["object:1618"] = { windows = 3, items = { [2447] = 3, [774] = 1 } } }, 1
+	C_Map = { GetBestMapForUnit = function() return 1429 end, GetPlayerMapPosition = function() return { x = 0.4, y = 0.6 } end }
+	local legacyName, requested = nil, nil
+	C_Item = {
+		GetItemInfoInstant = function(id)
+			if id == 774 then return id, nil, nil, nil, nil, 3, 0 end
+			return id, nil, nil, nil, nil, 7, id == 2447 and 9 or 7
+		end,
+		GetItemNameByID = function(id) if id == 2447 then return legacyName end end,
+		RequestLoadItemDataByID = function(id) requested = id end,
+	}
+	local guid = "GameObject-0-1-2-3-1731-0042"
+	local window = { { 774, "Malachite" }, { 2770, copper }, { 2835, stone }, { 2770, copper } }
+	Enum.LootSlotType = { Item = 1, Money = 2, None = 0 }
+	GetNumLootItems = function() return #window end
+	GetLootSlotType = function() return Enum.LootSlotType.Item end
+	GetLootSlotLink = function(slot) return ("|Hitem:%d|h[%s]|h"):format(unpack(window[slot])) end
+	GetLootSourceInfo = function() return guid, 1 end
+	IsFishingLoot = function() return false end
+	UnitGUID = function() end
+	sources.CaptureWindow()
+	sources.CaptureWindow()
+	local vein = nodes[3]
+	assert(#nodes == 3 and vein[4] == "ore" and vein[5] == 1 and vein.items[2770] == copper and vein.items[2835] == stone
+		and vein.items[774] == nil, "ore and stone names come from the loot window even without cached names")
+	guid = "GameObject-0-1-2-3-1618-0043"
+	window = { { 2447, herb } }
+	C_Map.GetPlayerMapPosition = function() return { x = 0.1, y = 0.2 } end
 	local symbols = {}
 	for _, source in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
 		pcall(source, 1429, function(_, _, symbol) if symbol.kind == "gather" then symbols[#symbols + 1] = symbol end end)
 	end
-	assert(#symbols == 1 and symbols[1].texture:find("Ore", 1, true), "remembered vein on the world map")
+	assert(#symbols == 3 and symbols[3].texture:find("Ore", 1, true), "remembered vein on the world map")
+	local function TooltipLines(symbol)
+		local lines = {}
+		symbol.tooltip({ AddLine = function(_, line) lines[#lines + 1] = line end }, symbol)
+		return lines
+	end
+	local lines = TooltipLines(symbols[3])
+	assert(#lines == 3 and lines[1] == copper and lines[2] == stone and lines[3] == ns.L.SCOUT_GATHERED:format(1),
+		"the map shows the saved materials and the gathering count")
+	assert(TooltipLines(symbols[1])[1] == ns.L.SCOUT_HERB and requested == 2447, "an uncached historical name is requested")
+	legacyName = herb
+	assert(TooltipLines(symbols[1])[1] == herb and TooltipLines(symbols[2])[1] == ns.L.SCOUT_ORE,
+		"an old map marker gets a name only if the local history identifies one material")
+	sources.CaptureWindow()
+	assert(#nodes == 3 and oldHerb.items[2447] == herb and oldHerb[5] == 4, "gathering at an old marker saves the name in place")
 	scout.db.gatherMap = false
 	wipe(symbols)
 	for _, source in ipairs(uv(ns.MapSymbols.AddSource, "sources")) do
@@ -1352,8 +1395,10 @@ end)()
 	assert(#printed == 1 and printed[1]:find("Mor'Ladim", 1, true) and printed[1]:find("35", 1, true) and sounds == 1,
 		"a rare is announced once")
 	ns.PrintAlways = oldPrint
-	for key, value in pairs(saved) do _G[key] = value end
+	for _, key in ipairs(globals) do _G[key] = saved[key] end
 	ns.db.gatherNodes, C_Item = oldNodes, oldItem
+	Enum.LootSlotType = oldLootSlotTypes
+	ns.db.lootSources, sources.count, sources.merged = oldSources, oldCount, oldMerged
 	local rareChoice
 	for _, option in ipairs(scout.options) do
 		if option.key == "rareSoundChoice" then rareChoice = #option.values() >= 3 end

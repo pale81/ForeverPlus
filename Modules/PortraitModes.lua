@@ -9,6 +9,7 @@ ns.PortraitModes = PortraitModes
 local ROW_HIGHLIGHT = [[Interface\QuestFrame\UI-QuestTitleHighlight]]
 local ICON_HIGHLIGHT = [[Interface\Buttons\ButtonHilight-Square]]
 local ICON_SELECTED = [[Interface\Buttons\UI-ActionButton-Border]]
+local PORTRAIT_SHADE = [[Interface\AddOns\ForeverPlus\Media\PortraitModeShade]]
 local PLUS_UP = [[Interface\Buttons\UI-PlusButton-Up]]
 local PLUS_DOWN = [[Interface\Buttons\UI-PlusButton-Down]]
 local MINUS_UP = [[Interface\Buttons\UI-MinusButton-Up]]
@@ -44,8 +45,8 @@ local MODES = {
 		key = "berserker",
 		name = L.PORTRAIT_MODE_BERSERKER,
 		short = L.PORTRAIT_MODE_BERSERKER_SHORT,
-		icon = 236304,
-		presets = { 236304, 236364, 458971, 236268, 236303, 132277, 132334, 236149, 136009, 135727 },
+		icon = 458974,
+		presets = { 458974, 236364, 132403, 132397, 236304, 458971, 236268, 236303, 132277, 136009 },
 	},
 }
 local MODE_BY_KEY = {}
@@ -1196,7 +1197,7 @@ end
 ---------------------------------------------------------------------------
 -- Portrait wheel & clickable mode emblem on PlayerFrame
 ---------------------------------------------------------------------------
-local portraitWheel, portraitBackground, portraitIcon, portraitShine
+local portraitWheel, portraitBackground, portraitIcon, portraitShade, portraitShine
 local optionListenerRegistered
 
 local function ShowsOwnPortrait()
@@ -1276,10 +1277,11 @@ UpdatePlayerPortrait = function()
 		iconShown = portraitIcon:SetTexture(icon) ~= false
 		portraitIcon:SetDesaturated(not active)
 		if active then
-			portraitIcon:SetVertexColor(1, 1, 1)
+			-- Slightly warm, toned brightness so icons sit naturally inside the bronze portrait frame.
+			portraitIcon:SetVertexColor(0.92, 0.90, 0.86)
 			portraitIcon:SetAlpha(1)
 		else
-			portraitIcon:SetVertexColor(0.76, 0.76, 0.76)
+			portraitIcon:SetVertexColor(0.68, 0.68, 0.68)
 			portraitIcon:SetAlpha(0.84)
 		end
 		if portraitShine then
@@ -1288,6 +1290,9 @@ UpdatePlayerPortrait = function()
 	end
 	portraitIcon:SetShown(iconShown)
 	portraitBackground:SetShown(iconShown)
+	if portraitShade then
+		portraitShade:SetShown(iconShown)
+	end
 	if not iconShown and portraitShine then
 		portraitShine:Hide()
 	end
@@ -1388,15 +1393,21 @@ function PortraitModes.Setup()
 
 	portraitIcon = container:CreateTexture(nil, "ARTWORK", nil, 1)
 	portraitIcon:SetAllPoints(portrait)
-	portraitIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	portraitIcon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
 	portraitIcon:AddMaskTexture(mask)
 
-	portraitShine = container:CreateTexture(nil, "ARTWORK", nil, 2)
+	-- Soft inner edge vignette embeds the icon smoothly inside the portrait ring.
+	portraitShade = container:CreateTexture(nil, "ARTWORK", nil, 2)
+	portraitShade:SetAllPoints(portrait)
+	portraitShade:SetTexture(PORTRAIT_SHADE)
+	portraitShade:AddMaskTexture(mask)
+
+	portraitShine = container:CreateTexture(nil, "ARTWORK", nil, 3)
 	portraitShine:SetAllPoints(portrait)
-	portraitShine:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	portraitShine:SetTexCoord(0.04, 0.96, 0.04, 0.96)
 	portraitShine:AddMaskTexture(mask)
 	portraitShine:SetBlendMode("ADD")
-	portraitShine:SetAlpha(0.22)
+	portraitShine:SetAlpha(0.18)
 	portraitShine:Hide()
 
 	hooksecurefunc("UnitFrame_SetUnit", ns.Measured("PortraitModes: unit changed", function(frame)

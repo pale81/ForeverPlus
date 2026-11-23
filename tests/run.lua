@@ -1123,6 +1123,20 @@ for _, f in ipairs({ "percent", "both", "remaining", "full" }) do xp.db.format =
 	textFn({ currXP = 300, maxBar = 6000, IsCapped = function() return false end, SetBarText = function(_, t) text = t end })
 	GetTime = oldGetTime
 	assert(text:find(ns.L.XP_RATE:format("23400"), 1, true), "full text carries the rate")
+	-- short bars: the least important parts go first, at the end only the percent
+	local parts = { { text = "AAAA", keep = 6, short = "A" }, { text = "BB", keep = 5 }, { text = "CC", keep = 1 },
+		{ text = "DD", keep = 4 } }
+	local function Fits(limit) return function(t) return #t <= limit end end
+	assert(xp.FitParts(parts, Fits(100)) == "AAAA – BB – CC – DD", "everything when there is room")
+	assert(xp.FitParts(parts, Fits(#"AAAA – BB – DD")) == "AAAA – BB – DD", "rested goes first")
+	assert(xp.FitParts(parts, Fits(#"AAAA – BB")) == "AAAA – BB", "then the lower parts")
+	assert(xp.FitParts(parts, Fits(3)) == "A", "the short form last")
+	assert(#parts == 4, "the parts stay as they were")
+	local shown
+	local label = { SetText = function(_, t) shown = t end, GetUnboundedStringWidth = function() return #shown * 6 end }
+	textFn({ currXP = 300, maxBar = 6000, IsCapped = function() return false end, GetWidth = function() return 200 end,
+		OverlayFrame = { Text = label }, SetBarText = function(_, t) text = t end })
+	assert(#text * 6 <= 200 - 12 and text:find("300", 1, true), "the bar text fits the bar")
 	xp.ResetRate()
 	print("xp per hour OK")
 end)()
@@ -1266,6 +1280,18 @@ end)()
 	ns.PrintAlways = oldPrint
 	for k, v in pairs(saved) do _G[k] = v end
 	ns.db.playerNotes = oldStore
+	local hasChoice, hasTest
+	for _, option in ipairs(notes.options) do
+		if option.key == "enemySoundChoice" then hasChoice = #option.values() >= 3 end
+		if option.type == "button" and option.func then hasTest = true end
+	end
+	assert(hasChoice and hasTest, "enemy sound: a choice of at least three and a test button")
+	local played
+	local oldPlay = ns.AlertSounds.play
+	ns.AlertSounds.play = function(choice) played = choice end
+	ns.AlertSounds.PlayWarning("ping")
+	ns.AlertSounds.play = oldPlay
+	assert(played == "ping", "a chosen sound is played")
 	print("player notes OK")
 end)()
 -- Scout: node kinds, remembered spots, rare announcements
@@ -1328,6 +1354,11 @@ end)()
 	ns.PrintAlways = oldPrint
 	for key, value in pairs(saved) do _G[key] = value end
 	ns.db.gatherNodes, C_Item = oldNodes, oldItem
+	local rareChoice
+	for _, option in ipairs(scout.options) do
+		if option.key == "rareSoundChoice" then rareChoice = #option.values() >= 3 end
+	end
+	assert(rareChoice, "rare sound: a choice of at least three")
 	print("scout OK")
 end)()
 -- Upgrades per slot: best upgrades of each slot, wearable now before "later", loading items are counted
@@ -1366,6 +1397,26 @@ end)()
 		and built.items[3].right == "50%", "list with header, items and boss share")
 	assert(built.title == ns.L.UPGRADES_LOADING:format(1), "title tells what is still loading")
 	ns.LootData, C_Item, ns.ItemLinkUpgradeState, ns.ItemUpgradeGain = oldData, oldItem, oldState, oldGain
+	-- the button lies above the character model scene
+	local oldSlot, oldScene, oldPaper = rawget(_G, "CharacterMainHandSlot"), rawget(_G, "CharacterModelScene"), rawget(_G, "PaperDollFrame")
+	CharacterMainHandSlot = { GetFrameLevel = function() return 12 end }
+	CharacterModelScene = { GetFrameLevel = function() return 50 end }
+	PaperDollFrame = CreateFrame("Frame")
+	local level
+	local oldCreate = CreateFrame
+	CreateFrame = function(...)
+		local f = oldCreate(...)
+		f.SetFrameLevel = function(_, value) level = value end
+		return f
+	end
+	local create = uv(upgrades.OnLogin, "CreateButton")
+	for index = 1, 20 do
+		if debug.getupvalue(create, index) == "button" then debug.setupvalue(create, index, nil) break end
+	end
+	create()
+	CreateFrame = oldCreate
+	assert(level == 55, "button above the model scene")
+	CharacterMainHandSlot, CharacterModelScene, PaperDollFrame = oldSlot, oldScene, oldPaper
 	print("upgrades per slot OK")
 end)()
 -- XP bar: extra shrinking

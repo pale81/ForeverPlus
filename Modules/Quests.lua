@@ -1413,6 +1413,23 @@ local SOUND_CHOICES = {
 -- The sounds are offered to other modules (bags full).
 ns.AlertSounds = { play = Play, choices = SOUND_CHOICES }
 
+-- Sounds for warnings (marked enemies, rare creatures): the raid warning first, then the quest sounds.
+function ns.AlertSounds.WarningChoices()
+	local choices = { { "warning", L.QUESTS_SOUND_WARNING } }
+	for _, entry in ipairs(SOUND_CHOICES) do
+		if entry[1] ~= "none" then choices[#choices + 1] = entry end
+	end
+	return choices
+end
+
+function ns.AlertSounds.PlayWarning(choice)
+	if choice == "warning" or not choice then
+		PlaySound(SOUNDKIT.RAID_WARNING, "Master")
+	else
+		ns.AlertSounds.play(choice)
+	end
+end
+
 Quests.options = {
 	{ type = "header", name = L.QUESTS_SOUNDS },
 	{ key = "sounds", type = "toggle", name = L.QUESTS_SOUNDS_ENABLE, desc = L.QUESTS_SOUNDS_ENABLE_DESC },

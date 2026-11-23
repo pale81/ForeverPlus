@@ -7,7 +7,7 @@ local L = ns.L
 local Notes = ns:NewModule("PlayerNotes", {
 	title = L.NOTES_TITLE,
 	order = 11.9,
-	defaults = { enabled = true, tooltip = true, enemyWarn = true, enemySound = true },
+	defaults = { enabled = true, tooltip = true, enemyWarn = true, enemySound = true, enemySoundChoice = "warning" },
 })
 
 local WARN_PAUSE = 300 -- seconds between two warnings about the same player
@@ -135,7 +135,7 @@ local function Sighted(unit)
 	entry.seen = time()
 	if Notes.db.enemyWarn and Notes.ShouldWarn(entry, key, GetTime(), warned) then
 		ns.PrintAlways(entry.note and L.NOTES_ENEMY_NEAR_NOTE or L.NOTES_ENEMY_NEAR, display, entry.note)
-		if Notes.db.enemySound then PlaySound(SOUNDKIT.RAID_WARNING) end
+		if Notes.db.enemySound then ns.AlertSounds.PlayWarning(Notes.db.enemySoundChoice) end
 	end
 end
 
@@ -165,4 +165,8 @@ Notes.options = {
 	{ key = "tooltip", type = "toggle", name = L.NOTES_TOOLTIP, desc = L.NOTES_TOOLTIP_DESC, parent = "enabled" },
 	{ key = "enemyWarn", type = "toggle", name = L.NOTES_WARN, desc = L.NOTES_WARN_DESC, parent = "enabled" },
 	{ key = "enemySound", type = "toggle", name = L.NOTES_WARN_SOUND, parent = "enemyWarn" },
+	{ key = "enemySoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "enemySound",
+		values = function() return ns.AlertSounds.WarningChoices() end },
+	{ type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST,
+		func = function() ns.AlertSounds.PlayWarning(Notes.db.enemySoundChoice) end },
 }

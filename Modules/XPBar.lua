@@ -94,6 +94,52 @@ end
 
 XPBar.RateText = RateText
 
+-- The parts of the full text in reading order; keep: the higher, the longer a part stays on a short bar.
+local function FullParts(current, maximum, percent, remaining, extras)
+	local parts = {
+		{ text = ("%s / %s (%.1f%%)"):format(Number(current), Number(maximum), percent), keep = 6,
+			short = ("%.1f%%"):format(percent) },
+		{ text = L.XP_REMAINING:format(Number(remaining)), keep = 5 },
+	}
+	if not extras then return parts end
+	local rested = GetXPExhaustion()
+	if rested and rested > 0 then
+		parts[#parts + 1] = { text = L.XP_RESTED:format(Number(rested)), keep = 1 }
+	end
+	if questXP > 0 then
+		parts[#parts + 1] = { text = L.XP_QUESTS:format(Number(questXP)), keep = 2 }
+	end
+	local rate = XPBar.db.xpRate and XPBar.Rate(GetTime())
+	if rate then
+		parts[#parts + 1] = { text = L.XP_RATE:format(Number(math.floor(rate + 0.5))), keep = 3 }
+		parts[#parts + 1] = { text = L.XP_TO_LEVEL:format(Duration(remaining / rate)), keep = 4 }
+	end
+	return parts
+end
+
+local function Join(parts)
+	local texts = {}
+	for index, part in ipairs(parts) do texts[index] = part.text end
+	return table.concat(texts, " – ")
+end
+
+-- The longest text that fits(text): the part with the lowest keep goes first; at the end only the short form.
+function XPBar.FitParts(parts, fits)
+	local list = {}
+	for index, part in ipairs(parts) do list[index] = part end
+	local text = Join(list)
+	while not fits(text) and #list > 1 do
+		local lowest = 1
+		for index, part in ipairs(list) do
+			if part.keep < list[lowest].keep then lowest = index end
+		end
+		table.remove(list, lowest)
+		text = Join(list)
+	end
+	if not fits(text) and list[1].short then text = list[1].short end
+	return text
+end
+
 local function BarText(current, maximum, format, extras)
 	local percent = maximum > 0 and current / maximum * 100 or 0
 	local remaining = maximum - current
@@ -104,29 +150,28 @@ local function BarText(current, maximum, format, extras)
 	elseif format == "remaining" then
 		return L.XP_REMAINING:format(Number(remaining))
 	end
-	local text = ("%s / %s (%.1f%%) – %s"):format(Number(current), Number(maximum), percent, L.XP_REMAINING:format(Number(remaining)))
-	if not extras then
-		return text
-	end
-	local rested = GetXPExhaustion()
-	if rested and rested > 0 then
-		text = text .. " – " .. L.XP_RESTED:format(Number(rested))
-	end
-	if questXP > 0 then
-		text = text .. " – " .. L.XP_QUESTS:format(Number(questXP))
-	end
-	local rate = RateText(remaining)
-	if rate then
-		text = text .. " – " .. rate
-	end
-	return text
+	local parts = FullParts(current, maximum, percent, remaining, extras)
+	return Join(parts), parts
 end
+
+local TEXT_PADDING = 12
 
 local function UpdateText(bar)
 	if XPBar.db.format == "blizzard" or not bar.currXP or not bar.maxBar or bar:IsCapped() then
 		return
 	end
-	bar:SetBarText(BarText(bar.currXP, bar.maxBar, XPBar.db.format, true))
+	local text, parts = BarText(bar.currXP, bar.maxBar, XPBar.db.format, true)
+	local label = bar.OverlayFrame and bar.OverlayFrame.Text
+	local width = ns.Number(bar.GetWidth and bar:GetWidth())
+	if parts and label and width then
+		-- Shrunk bars (Edit Mode) cut a long text off: drop the least important parts instead.
+		text = XPBar.FitParts(parts, function(candidate)
+			label:SetText(candidate)
+			local used = ns.Number(label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth())
+			return not used or used <= width - TEXT_PADDING
+		end)
+	end
+	bar:SetBarText(text)
 end
 
 -- Reputation: Blizzard stores "Name %d / %d" while the standing is not capped.
@@ -138,7 +183,7 @@ local function UpdateRepText(bar)
 		return
 	end
 	local name = bar.name:gsub("%s*%%d%s*/%s*%%d", "")
-	bar:SetBarText(("%s: %s"):format(name, BarText(bar.value, bar.max, format, false)))
+	bar:SetBarText(("%s: %s"):format(name, (BarText(bar.value, bar.max, format, false))))
 end
 
 local function UpdateOverlay(bar)

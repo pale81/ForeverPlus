@@ -7,7 +7,7 @@ local L = ns.L
 local Scout = ns:NewModule("Scout", {
 	title = L.SCOUT_TITLE,
 	order = 12.5,
-	defaults = { rareAlert = true, rareSound = true, gatherRecord = true, gatherMap = true },
+	defaults = { rareAlert = true, rareSound = true, rareSoundChoice = "warning", gatherRecord = true, gatherMap = true },
 })
 
 local RARE = { rare = true, rareelite = true }
@@ -110,7 +110,7 @@ local function OnNameplate(_, _, unit)
 	if ns.Secret(name) or type(name) ~= "string" then return end
 	level = ns.Number(level)
 	ns.PrintAlways(L.SCOUT_RARE, name, level and level > 0 and tostring(level) or "??")
-	if Scout.db.rareSound then PlaySound(SOUNDKIT.RAID_WARNING) end
+	if Scout.db.rareSound then ns.AlertSounds.PlayWarning(Scout.db.rareSoundChoice) end
 end
 
 function Scout:OnOptionChanged()
@@ -127,6 +127,10 @@ end
 Scout.options = {
 	{ key = "rareAlert", type = "toggle", name = L.SCOUT_RARE_OPTION, desc = L.SCOUT_RARE_OPTION_DESC },
 	{ key = "rareSound", type = "toggle", name = L.SCOUT_RARE_SOUND, parent = "rareAlert" },
+	{ key = "rareSoundChoice", type = "dropdown", name = L.ITEMS_FULL_SOUND_CHOICE, parent = "rareSound",
+		values = function() return ns.AlertSounds.WarningChoices() end },
+	{ type = "button", name = L.ITEMS_FULL_SOUND_TEST, text = L.QUESTS_TEST,
+		func = function() ns.AlertSounds.PlayWarning(Scout.db.rareSoundChoice) end },
 	{ key = "gatherRecord", type = "toggle", name = L.SCOUT_GATHER_OPTION, desc = L.SCOUT_GATHER_OPTION_DESC },
 	{ key = "gatherMap", type = "toggle", name = L.SCOUT_GATHER_MAP, desc = L.SCOUT_GATHER_MAP_DESC },
 }

@@ -193,6 +193,9 @@ local function CreateButton()
 	button = CreateFrame("Button", "ForeverPlusUpgradesButton", _G.PaperDollFrame)
 	button:SetSize(24, 24)
 	button:SetPoint("RIGHT", slot, "LEFT", -8, 0)
+	-- The character model scene lies on frame level 50 and would cover a button on the window's own level.
+	local scene = _G.CharacterModelScene
+	button:SetFrameLevel(math.max(ns.Number(slot:GetFrameLevel(), 0), ns.Number(scene and scene:GetFrameLevel(), 0)) + 5)
 	button:SetNormalAtlas("bags-greenarrow")
 	button:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
 	button:SetScript("OnClick", ns.Measured("Upgrades: button", function(self) Upgrades.Open(self) end))
@@ -211,6 +214,12 @@ end
 
 function Upgrades:OnLogin()
 	CreateButton()
+	if not button and _G.CharacterFrame then
+		_G.CharacterFrame:HookScript("OnShow", ns.Measured("Upgrades: character window", function()
+			CreateButton()
+			Upgrades:OnOptionChanged()
+		end))
+	end
 	self:OnOptionChanged()
 end
 

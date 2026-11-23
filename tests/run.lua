@@ -9359,6 +9359,64 @@ end)()
 	tip.db.questIcon, quests.db.nameplateIcons, quests.db.dropObjectives = unpack(savedOptions)
 	print("quest symbols in tooltip and cursor name OK")
 end)()
+-- A native quest objective does not hide another open objective from the same creature's loot.
+;(function()
+	local quests = ns:GetModule("Quests")
+	local handler = uv(quests.OnInitialize, "OnUnitTooltip")
+	local state = uv(uv(handler, "DropObjectives"), "state")
+	local questCall, lootCall
+	for index, callback in ipairs(TEST_POSTCALLS) do
+		local fn = uv(callback, "fn")
+		if fn == handler then questCall = index end
+		if fn and uv(fn, "MouseoverCreatureKey") then lootCall = index end
+	end
+	assert(questCall and lootCall and questCall < lootCall, "missing objectives precede the observed loot section")
+	local savedLog, savedTypes, savedOption = C_QuestLog, Enum.TooltipDataLineType, quests.db.dropObjectives
+	local savedAddLine, savedNumLines = GameTooltip.AddLine, GameTooltip.NumLines
+	local questID = 92909
+	local title, spring, stabilizer = "Die Ernter ernten", "Golemisofeder: 1/14", "Gyrostabilisator für Erntearbeiter: 5/5"
+	local oldState = state[questID]
+	quests.db.dropObjectives = true
+	state[questID] = {}
+	C_QuestLog = {
+		GetQuestObjectives = function(id)
+			if id == questID then
+				return { { text = spring, numFulfilled = 1, numRequired = 14, finished = false },
+					{ text = stabilizer, numFulfilled = 5, numRequired = 5, finished = true } }
+			end
+		end,
+		GetTitleForQuestID = function() return title end,
+	}
+	local types = { QuestTitle = 17, QuestObjective = 8 }
+	Enum.TooltipDataLineType = types
+	local data = { guid = "Creature-0-0-0-0-114-0000000001", lines = {
+		{ type = types.QuestTitle, id = questID, leftText = title, lineIndex = 4 },
+		{ type = types.QuestObjective, leftText = stabilizer, completed = true, lineIndex = 5 },
+	} }
+	local added, numLines = {}, 5
+	GameTooltip.AddLine = function(_, text) added[#added + 1] = text end
+	GameTooltip.NumLines = function() return numLines end
+	handler(GameTooltip, data)
+	assert(#added == 1 and added[1] == "- " .. spring, "only the missing open drop follows the native quest block")
+	added, numLines = {}, 6
+	data.lines[3] = { type = types.QuestObjective, leftText = " |cffffffff- " .. spring .. "|r ", lineIndex = 6 }
+	handler(GameTooltip, data)
+	assert(#added == 0, "an already displayed objective is not duplicated")
+	data.lines[3] = { type = types.QuestTitle, id = questID + 1, leftText = "Andere Quest", lineIndex = 6 }
+	handler(GameTooltip, data)
+	assert(#added == 2 and added[1] == title and added[2] == "- " .. spring, "a different trailing quest keeps its own heading")
+	added, numLines, data.lines = {}, 3, {}
+	handler(GameTooltip, data)
+	assert(#added == 2 and added[1] == title and added[2] == "- " .. spring, "the recorded drop is also shown on its own")
+	added = {}
+	quests.db.dropObjectives = false
+	handler(GameTooltip, data)
+	assert(#added == 0, "the tooltip respects the recorded drop option")
+	state[questID] = oldState
+	C_QuestLog, Enum.TooltipDataLineType, quests.db.dropObjectives = savedLog, savedTypes, savedOption
+	GameTooltip.AddLine, GameTooltip.NumLines = savedAddLine, savedNumLines
+	print("missing quest objectives in unit tooltip OK")
+end)()
 -- Speech bubbles
 ;(function()
 	local sb = ns:GetModule("SpeechBubbles")

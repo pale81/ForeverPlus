@@ -216,7 +216,7 @@ local function DropObjectives(guid)
 				local objective = objectives and objectives[index]
 				if objective and not objective.finished then
 					found = found or {}
-					found[#found + 1] = { title = C_QuestLog.GetTitleForQuestID(questID), text = objective.text,
+					found[#found + 1] = { questID = questID, title = C_QuestLog.GetTitleForQuestID(questID), text = objective.text,
 						have = objective.numFulfilled, need = objective.numRequired }
 				end
 			end
@@ -273,27 +273,57 @@ local function PlaceMarker(marker, nameplate)
 	marker:SetPoint("LEFT", health, "RIGHT", offset, 0)
 end
 
+local function ObjectiveText(text)
+	if type(text) == "string" and not Secret(text) then
+		return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("^%s*%-%s+", ""):match("^%s*(.-)%s*$"))
+	end
+end
+
 -- The tooltip of a unit lists the objectives the game left out (quest title and the objective line).
 local function OnUnitTooltip(tooltip, data)
-	if not Quests.db.dropObjectives or tooltip:IsForbidden() or tooltip ~= GameTooltip or not data then
+	if not Quests.db.dropObjectives or tooltip:IsForbidden() or tooltip ~= GameTooltip or Secret(data) or not data then
 		return
-	end
-	for _, line in ipairs(data.lines or {}) do
-		if line.type == Enum.TooltipDataLineType.QuestObjective then
-			return
-		end
 	end
 	local drops = DropObjectives(data.guid)
 	if not drops then
 		return
 	end
-	for _, entry in ipairs(drops) do
-		if type(entry.title) == "string" and type(entry.text) == "string" then
-			tooltip:AddLine(entry.title, 1, 0.82, 0)
-			tooltip:AddLine("- " .. entry.text, 1, 1, 1)
+	local shown, questID, lastQuestID = {}
+	-- Reuse the native quest heading when nothing else has been appended below it.
+	local lastLine = tooltip:NumLines()
+	for _, line in ipairs(data.lines or {}) do
+		if line.type == Enum.TooltipDataLineType.QuestTitle then
+			questID = ns.Number(line.id)
+			if questID then
+				shown[questID] = shown[questID] or {}
+			end
+		elseif line.type == Enum.TooltipDataLineType.QuestObjective and questID then
+			local text = ObjectiveText(line.leftText)
+			if text then
+				shown[questID][text] = true
+			end
+		end
+		if (line.type == Enum.TooltipDataLineType.QuestTitle or line.type == Enum.TooltipDataLineType.QuestObjective)
+			and ns.Number(line.lineIndex) == lastLine then
+			lastQuestID = questID
 		end
 	end
-	tooltip:Show()
+	local added = false
+	for _, entry in ipairs(drops) do
+		local text = ObjectiveText(entry.text)
+		local objectives = shown[entry.questID]
+		if text and type(entry.title) == "string" and not Secret(entry.title) and (not objectives or not objectives[text]) then
+			if lastQuestID ~= entry.questID then
+				tooltip:AddLine(entry.title, 1, 0.82, 0)
+				lastQuestID = entry.questID
+			end
+			tooltip:AddLine("- " .. entry.text, 1, 1, 1)
+			added = true
+		end
+	end
+	if added then
+		tooltip:Show()
+	end
 end
 
 local function UpdateNameplate(unit)
@@ -1350,10 +1380,13 @@ function Quests.ApplySparkle()
 	end)
 end
 
+function Quests:OnInitialize()
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Quests: drop objectives", OnUnitTooltip))
+end
+
 function Quests:OnLogin()
 	Quests.HookWowheadMenus()
 	Quests.ApplySparkle()
-	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Quests: drop objectives", OnUnitTooltip))
 	if QuestLogQuests_Update then
 		hooksecurefunc("QuestLogQuests_Update", ns.Measured("Quests: Forever marks (log)", MarkQuestLog))
 	end

@@ -11117,7 +11117,7 @@ end)()
 	-- Slot 4: RP mode
 	shift = true
 	scroll(wheel, 1)
-	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == 133741)
+	assert(visuals.cdb.playerPortraitMode == 4 and icon.asset == 132928)
 	shift = false
 	click(wheel, "LeftButton")
 	assert(roleplay.db.enabled and dialog.db.enabled and speech.db.enabled and emotes.db.enabled and camera.db.enabled)

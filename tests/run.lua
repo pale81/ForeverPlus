@@ -13258,6 +13258,45 @@ end)()
 	lr.TogglePreview()
 	assert(#lr._activeBars == 0, "second TogglePreview hides remaining preview bars")
 
+	-- Height, width, scale and Edit Mode options panel integration.
+	assert(lr.db.height == 28, "LootRoll height defaults to 28")
+	local editEntry = ns.editFrames and ns.editFrames.LootRoll
+	assert(editEntry and type(editEntry.onClick) == "function", "LootRoll registers Edit Mode click handler")
+	local anchor = lr._GetAnchor()
+	local anchorW, anchorH, barW, barH, barScale, barStrata
+	local origAnchorSize = anchor.SetSize
+	anchor.SetSize = function(_, w, h) anchorW, anchorH = w, h end
+	local origBarSize, origBarScale, origBarStrata = b1.SetSize, b1.SetScale, b1.SetFrameStrata
+	b1.SetSize = function(_, w, h) barW, barH = w, h end
+	b1.SetScale = function(_, s) barScale = s end
+	b1.SetFrameStrata = function(_, st) barStrata = st end
+
+	ns.SetOption("LootRoll", "width", 400)
+	ns.SetOption("LootRoll", "height", 36)
+	ns.SetOption("LootRoll", "scale", 1.25)
+	assert(anchorW == 500 and anchorH == 45, "anchor tracks scaled width and height")
+	assert(barW == 400 and barH == 36 and barScale == 1.25, "bars apply width, height and scale")
+
+	-- Edit Mode shows preview bars at LOW strata and opens the options panel with 3 sliders (scale, width, height).
+	local savedIsEdit = ns.IsEditModeActive
+	ns.IsEditModeActive = function() return true end
+	editEntry.onEditMode(true)
+	assert(#lr._activeBars == 2 and barStrata == "LOW", "Edit Mode shows preview bars behind selection frame")
+	editEntry.onClick(anchor)
+	local panel = lr._GetEditPanel()
+	assert(panel and panel:IsShown() and #panel.refreshers == 3 and panel.growCheck,
+		"Edit Mode options panel opens with scale, width, height sliders and growUp toggle")
+	ns.IsEditModeActive = function() return false end
+	editEntry.onEditMode(false)
+	assert(not panel:IsShown() and #lr._activeBars == 0, "exiting Edit Mode hides options panel and preview bars")
+
+	ns.IsEditModeActive = savedIsEdit
+	anchor.SetSize = origAnchorSize
+	b1.SetSize, b1.SetScale, b1.SetFrameStrata = origBarSize, origBarScale, origBarStrata
+	ns.SetOption("LootRoll", "width", 328)
+	ns.SetOption("LootRoll", "height", 28)
+	ns.SetOption("LootRoll", "scale", 1)
+
 	lr._ResetStateForTests()
 	GetLootRollItemInfo, GetLootRollItemLink, GetLootRollTimeLeft, RollOnLoot, ConfirmLootRoll = unpack(saved, 1, 5)
 	IsShiftKeyDown, C_LootHistory, C_ClassColor, Enum.EncounterLootDropRollState = unpack(saved, 6, 9)

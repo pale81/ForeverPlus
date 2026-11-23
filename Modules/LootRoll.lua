@@ -12,16 +12,14 @@ local LootRoll = ns:NewModule("LootRoll", {
 	defaults = {
 		enabled = true,
 		width = 328,
+		height = 28,
 		scale = 1,
 		growUp = false,
 		showUpgrade = true,
 	},
 })
 
-local BAR_HEIGHT = 28
 local BAR_GAP = 4
-local ICON_SIZE = 24
-local BUTTON_SIZE = 24
 local DEFAULT_ANCHOR = { "BOTTOM", UIParent, "BOTTOM", 0, 221 }
 
 local BAR_BACKDROP = {
@@ -56,6 +54,7 @@ end
 local ROLL_KEYS = { "need", "greed", "transmog", "disenchant", "pass" }
 
 local anchor
+local editPanel
 local updateFrame
 local barPool = {}       -- all created bars
 local activeBars = {}    -- currently visible bars in display order
@@ -65,7 +64,7 @@ local active = false     -- true once Blizzard's START_LOOT_ROLL has been detach
 local previewActive = false
 local editPreview = false
 
-local LayoutBars, RefreshTimerLoop, ApplyBarSize
+local LayoutBars, RefreshTimerLoop, ApplyBarSize, ApplySingleBarSize, ShowEditOptions
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -446,7 +445,7 @@ end
 ---------------------------------------------------------------------------
 local function CreateRollButton(parent, bar, rollKey, rollType, tooltipText, atlasPrefix, filePrefix, yOffset)
 	local btn = CreateFrame("Button", nil, parent)
-	btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
+	btn:SetSize(24, 24)
 	SetButtonTexture(btn, "Normal", atlasPrefix and (atlasPrefix .. "-up"), filePrefix .. "-Up")
 	SetButtonTexture(btn, "Pushed", atlasPrefix and (atlasPrefix .. "-down"), filePrefix .. "-Down")
 	SetButtonTexture(btn, "Highlight", atlasPrefix and (atlasPrefix .. "-highlight"), filePrefix .. "-Highlight")
@@ -468,8 +467,6 @@ end
 
 local function CreateRollBar()
 	local bar = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-	bar:SetSize(LootRoll.db.width, BAR_HEIGHT)
-	bar:SetScale(LootRoll.db.scale)
 	bar:SetFrameStrata("DIALOG")
 	bar:SetBackdrop(BAR_BACKDROP)
 	bar:SetBackdropColor(0.06, 0.07, 0.10, 0.92)
@@ -488,7 +485,7 @@ local function CreateRollBar()
 	-- Item icon button on the left.
 	local iconBtn = CreateFrame("Button", nil, bar)
 	iconBtn:SetPoint("LEFT", 4, 0)
-	iconBtn:SetSize(ICON_SIZE, ICON_SIZE)
+	iconBtn:SetSize(24, 24)
 	iconBtn:SetFrameLevel(bar:GetFrameLevel() + 3)
 	iconBtn.bar = bar
 	iconBtn:SetHighlightTexture([[Interface\Buttons\ButtonHilight-Square]], "ADD")
@@ -537,7 +534,7 @@ local function CreateRollBar()
 	end
 
 	local spark = status:CreateTexture(nil, "OVERLAY")
-	spark:SetSize(14, BAR_HEIGHT + 6)
+	spark:SetSize(14, LootRoll.db.height + 6)
 	spark:SetTexture([[Interface\CastingBar\UI-CastingBar-Spark]])
 	spark:SetBlendMode("ADD")
 	bar.Spark = spark
@@ -583,6 +580,7 @@ local function CreateRollBar()
 	bar.showTransmog = false
 	bar.showDisenchant = false
 
+	ApplySingleBarSize(bar)
 	barPool[#barPool + 1] = bar
 	return bar
 end
@@ -599,6 +597,30 @@ end
 ---------------------------------------------------------------------------
 -- Layout and timer loop
 ---------------------------------------------------------------------------
+ApplySingleBarSize = function(bar)
+	local width = LootRoll.db.width
+	local height = LootRoll.db.height
+	local scale = LootRoll.db.scale
+	local iconSize = math.max(16, height - 4)
+	local btnSize = math.max(16, math.min(34, height - 4))
+	bar:SetSize(width, height)
+	bar:SetScale(scale)
+	if bar.IconButton then
+		bar.IconButton:SetSize(iconSize, iconSize)
+	end
+	if bar.Spark then
+		bar.Spark:SetSize(14, height + 6)
+	end
+	if bar.ItemName then
+		bar.ItemName:SetHeight(math.max(14, height - 10))
+	end
+	if bar.buttons then
+		for _, btn in pairs(bar.buttons) do
+			btn:SetSize(btnSize, btnSize)
+		end
+	end
+end
+
 LayoutBars = function()
 	if not anchor then
 		return
@@ -609,6 +631,7 @@ LayoutBars = function()
 	local gap = growUp and BAR_GAP or -BAR_GAP
 	local prev
 	for _, bar in ipairs(activeBars) do
+		bar:SetFrameStrata((editPreview and bar.preview) and "LOW" or "DIALOG")
 		bar:ClearAllPoints()
 		if not prev then
 			bar:SetPoint(anchorPoint, anchor, anchorPoint, 0, 0)
@@ -620,14 +643,14 @@ LayoutBars = function()
 end
 
 ApplyBarSize = function()
-	local width, scale = LootRoll.db.width, LootRoll.db.scale
+	local width = LootRoll.db.width
+	local height = LootRoll.db.height
+	local scale = LootRoll.db.scale
 	if anchor then
-		anchor:SetSize(width, BAR_HEIGHT)
-		anchor:SetScale(scale)
+		anchor:SetSize(width * scale, height * scale)
 	end
 	for _, bar in ipairs(barPool) do
-		bar:SetSize(width, BAR_HEIGHT)
-		bar:SetScale(scale)
+		ApplySingleBarSize(bar)
 	end
 	LayoutBars()
 end
@@ -1066,8 +1089,98 @@ local function Activate()
 	AdoptActiveRolls()
 end
 
+local SCALE_OPTION = {
+	key = "scale", type = "slider", name = L.LOOTROLL_SCALE, desc = L.LOOTROLL_SCALE_DESC, parent = "enabled",
+	min = 0.7, max = 1.5, step = 0.05, new = true,
+	format = function(v)
+		return ("%d%%"):format(math.floor(v * 100 + 0.5))
+	end,
+}
+local WIDTH_OPTION = {
+	key = "width", type = "slider", name = L.LOOTROLL_WIDTH, desc = L.LOOTROLL_WIDTH_DESC, parent = "enabled",
+	min = 240, max = 460, step = 8, new = true,
+	format = function(v)
+		return ("%d px"):format(v)
+	end,
+}
+local HEIGHT_OPTION = {
+	key = "height", type = "slider", name = L.LOOTROLL_HEIGHT, desc = L.LOOTROLL_HEIGHT_DESC, parent = "enabled",
+	min = 20, max = 48, step = 2, new = true,
+	format = function(v)
+		return ("%d px"):format(v)
+	end,
+}
+
+local function CreateEditOptions()
+	local panel = ns.CreatePanel("ForeverPlusLootRollEditOptions", { close = true, movable = true })
+	panel.Title:SetText(L.LOOTROLL_TITLE)
+
+	local sliders = { SCALE_OPTION, WIDTH_OPTION, HEIGHT_OPTION }
+	local refreshers = {}
+	local y = -40
+	for index, option in ipairs(sliders) do
+		local label = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+		label:SetPoint("TOPLEFT", 12, y - 5)
+		label:SetText(option.name)
+		local slider, refreshSlider = ns.CreateEditSlider(panel, LootRoll, option)
+		slider:SetPoint("TOPRIGHT", -56, y)
+		slider:SetSize(154, 24)
+		refreshers[index] = refreshSlider
+		y = y - 30
+	end
+
+	local growCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+	growCheck:SetPoint("TOPLEFT", 9, y - 2)
+	growCheck:SetSize(24, 24)
+	growCheck.Text:SetText(L.LOOTROLL_GROW_UP)
+	growCheck:SetHitRectInsets(0, -growCheck.Text:GetStringWidth(), 0, 0)
+	growCheck:SetScript("OnClick", ns.Measured("LootRoll: Edit Mode growUp", function(self)
+		ns.SetOption("LootRoll", "growUp", self:GetChecked())
+	end))
+	ns.SetEditTooltip(growCheck, L.LOOTROLL_GROW_UP, L.LOOTROLL_GROW_UP_DESC)
+
+	panel:SetSize(350, -y + 38)
+	panel.refreshers = refreshers
+	panel.growCheck = growCheck
+	panel:HookScript("OnShow", ns.Measured("LootRoll: refresh Edit Mode options", function()
+		for _, refresh in ipairs(refreshers) do
+			refresh()
+		end
+		growCheck:SetChecked(LootRoll.db.growUp)
+	end))
+	return panel
+end
+
+ShowEditOptions = function(anchorFrame)
+	if not ns:IsEditModeActive() then
+		return
+	end
+	editPanel = editPanel or CreateEditOptions()
+	editPanel:ClearAllPoints()
+	local target = anchorFrame or anchor
+	local right = target and ns.Number(target:GetRight(), 0) or 0
+	if target and UIParent:GetWidth() - right >= editPanel:GetWidth() + 16 then
+		editPanel:SetPoint("TOPLEFT", target, "TOPRIGHT", 12, 8)
+	elseif target then
+		editPanel:SetPoint("TOPRIGHT", target, "TOPLEFT", -12, 8)
+	else
+		editPanel:SetPoint("CENTER")
+	end
+	editPanel:Show()
+	editPanel:Raise()
+end
+
+EventRegistry:RegisterCallback("EditMode.Exit", ns.Measured("LootRoll: close Edit Mode options", function()
+	if editPanel then
+		editPanel:Hide()
+	end
+end), LootRoll)
+
 local function OnEditMode(inEditMode)
 	editPreview = inEditMode and true or false
+	if not inEditMode and editPanel then
+		editPanel:Hide()
+	end
 	if not anchor then
 		return
 	end
@@ -1076,19 +1189,20 @@ local function OnEditMode(inEditMode)
 		ShowPreviewBars(2)
 	elseif not previewActive then
 		ClearPreviewBars()
+	else
+		LayoutBars()
 	end
 end
 
 function LootRoll:OnLogin()
 	anchor = CreateFrame("Frame", "ForeverPlusLootRollAnchor", UIParent)
-	anchor:SetSize(self.db.width, BAR_HEIGHT)
-	anchor:SetScale(self.db.scale)
+	anchor:SetSize(self.db.width * self.db.scale, self.db.height * self.db.scale)
 	anchor:SetClampedToScreen(true)
 	anchor:Hide()
 
 	updateFrame = CreateFrame("Frame")
 
-	ns:RegisterEditFrame(anchor, "LootRoll", L.LOOTROLL_TITLE, DEFAULT_ANCHOR, OnEditMode)
+	ns:RegisterEditFrame(anchor, "LootRoll", L.LOOTROLL_TITLE, DEFAULT_ANCHOR, OnEditMode, ShowEditOptions)
 
 	if self.db.enabled then
 		Activate()
@@ -1106,7 +1220,10 @@ function LootRoll:OnOptionChanged(key, value)
 		if editPreview and anchor then
 			anchor:SetShown(value and true or false)
 		end
-	elseif key == "width" or key == "scale" then
+		if not value and editPanel then
+			editPanel:Hide()
+		end
+	elseif key == "width" or key == "height" or key == "scale" then
 		ApplyBarSize()
 	elseif key == "growUp" then
 		LayoutBars()
@@ -1129,10 +1246,20 @@ end
 LootRoll._activeBars = activeBars
 LootRoll._barPool = barPool
 LootRoll._ParseChatRoll = ParseChatRoll
+LootRoll._ShowEditOptions = ShowEditOptions
+LootRoll._GetAnchor = function()
+	return anchor
+end
+LootRoll._GetEditPanel = function()
+	return editPanel
+end
 LootRoll._ResetStateForTests = function()
 	ClearPreviewBars()
 	for i = #activeBars, 1, -1 do
 		RemoveBar(activeBars[i])
+	end
+	if editPanel then
+		editPanel:Hide()
 	end
 	wipe(cancelledRolls)
 	chatRollPatterns = nil
@@ -1142,16 +1269,9 @@ end
 
 LootRoll.options = {
 	{ key = "enabled", type = "toggle", name = L.LOOTROLL_ENABLE, desc = L.LOOTROLL_ENABLE_DESC, new = true },
-	{ key = "width", type = "slider", name = L.LOOTROLL_WIDTH, desc = L.LOOTROLL_WIDTH_DESC, parent = "enabled",
-		min = 240, max = 460, step = 8, new = true,
-		format = function(v)
-			return ("%d px"):format(v)
-		end },
-	{ key = "scale", type = "slider", name = L.LOOTROLL_SCALE, desc = L.LOOTROLL_SCALE_DESC, parent = "enabled",
-		min = 0.7, max = 1.5, step = 0.05, new = true,
-		format = function(v)
-			return ("%d%%"):format(math.floor(v * 100 + 0.5))
-		end },
+	SCALE_OPTION,
+	WIDTH_OPTION,
+	HEIGHT_OPTION,
 	{ key = "growUp", type = "toggle", name = L.LOOTROLL_GROW_UP, desc = L.LOOTROLL_GROW_UP_DESC, parent = "enabled", new = true },
 	{ key = "showUpgrade", type = "toggle", name = L.LOOTROLL_UPGRADE, desc = L.LOOTROLL_UPGRADE_DESC, parent = "enabled", new = true },
 	{ key = "test", type = "button", name = L.LOOTROLL_TEST, text = L.LOOTROLL_TEST_BTN, desc = L.LOOTROLL_TEST_DESC, func = function()

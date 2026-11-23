@@ -20,6 +20,7 @@ local SOUNDS = {
 	crit = { MEDIA .. "SoloPartyCrit1.mp3", MEDIA .. "SoloPartyCrit2.mp3", MEDIA .. "SoloPartyCrit3.mp3",
 		MEDIA .. "SoloPartyCrit4.mp3", MEDIA .. "SoloPartyCrit5.mp3", MEDIA .. "SoloPartyCrit6.mp3" },
 }
+local CRIT_FALLBACKS = { 567880, 567621, 567881, 567620, 567883, 567632 } -- One-handed sword / axe impacts.
 local TEXT_SIZES = {
 	skill = 36,
 	loot = 44,
@@ -113,7 +114,9 @@ local function PlayBurstSound(kind)
 	local index = NextVariant(lastSound[group], #pool)
 	lastSound[group] = index
 	if group == "crit" then
-		PlaySoundFile(pool[index], "SFX")
+		if not PlaySoundFile(pool[index], "SFX") then
+			PlaySoundFile(CRIT_FALLBACKS[index], "SFX")
+		end
 		return
 	end
 	local kit = SOUNDKIT[pool[index]]

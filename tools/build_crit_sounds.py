@@ -11,7 +11,8 @@ from tempfile import TemporaryDirectory
 
 
 RATE = 44100
-PEAK = 10 ** (-18 / 20)
+DURATION = 0.24
+PEAK = 10 ** (-8 / 20)
 MEDIA = Path(__file__).resolve().parents[1] / "Media"
 
 
@@ -20,15 +21,15 @@ def render(variant):
     body_freq = (132, 112, 144, 105, 121, 116)[variant - 1]
     samples = []
     low_noise = 0
-    for i in range(int(RATE * 0.16)):
+    for i in range(int(RATE * DURATION)):
         t = i / RATE
         noise = rng.uniform(-1, 1)
         low_noise += 0.14 * (noise - low_noise)
-        body = math.sin(math.tau * (body_freq * t - 240 * t * t)) * math.exp(-t / 0.027)
-        crack = (low_noise + 0.22 * noise) * math.exp(-t / 0.013)
-        edge = math.sin(math.tau * (580 + 32 * variant) * t) * math.exp(-t / 0.019)
-        envelope = min(1, t / 0.002, (0.16 - t) / 0.02)
-        samples.append((0.65 * body + 0.8 * crack + 0.17 * edge) * envelope)
+        body = math.sin(math.tau * (body_freq * t - 130 * t * t)) * math.exp(-t / 0.055)
+        crack = (low_noise + 0.22 * noise) * math.exp(-t / 0.028)
+        edge = math.sin(math.tau * (580 + 32 * variant) * t) * math.exp(-t / 0.044)
+        envelope = min(1, t / 0.002, (DURATION - t) / 0.025)
+        samples.append((0.55 * body + 0.65 * crack + 0.36 * edge) * envelope)
     gain = PEAK * 32767 / max(abs(sample) for sample in samples)
     return b"".join(struct.pack("<h", round(gain * sample)) for sample in samples)
 

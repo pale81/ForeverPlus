@@ -6372,8 +6372,20 @@ end)()
 		impacts["Interface\\AddOns\\ForeverPlus\\" .. file:gsub("/", "\\")] = true
 	end
 	local impactFiles = {}
+	local nativeImpacts = { [567880] = 1, [567621] = 2, [567881] = 3, [567620] = 4, [567883] = 5, [567632] = 6 }
+	local failedImpact
 	PlaySoundFile = function(file, channel)
-		assert(impacts[file] and channel == "SFX", "critical sounds use the weapon impact files on the effects channel")
+		assert(channel == "SFX", "critical sounds respect the effects channel")
+		if failedImpact and impacts[file] then
+			assert(failedImpact == true, "the fallback follows a single failed attempt")
+			failedImpact = tonumber(file:match("(%d)%.mp3$"))
+			return false
+		end
+		if failedImpact then
+			assert(nativeImpacts[file] == failedImpact, "a rejected clip falls back to its native impact")
+		else
+			assert(impacts[file], "successful clips do not play a fallback")
+		end
 		impactFiles[#impactFiles + 1] = file
 		played[#played + 1] = file
 		return true
@@ -6768,6 +6780,10 @@ end)()
 		"the Bloody test immediately shows only its critical card, splashes and impact sound")
 	assert(not solo.db.enabled and not solo.db.bloody and #timers == timerCount,
 		"the Bloody test changes no settings and schedules no preview sequence")
+	failedImpact = true
+	bloodyPreview()
+	assert(nativeImpacts[impactFiles[#impactFiles]] == failedImpact, "a failed clip still plays an impact in the preview")
+	failedImpact = nil
 	preview()
 	local pendingPreview = timers[#timers]
 	bloodyPreview()

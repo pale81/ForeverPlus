@@ -464,8 +464,14 @@ local EMITTER_KINDS = {
 	{ "source", L.MINIMAP_EMITTER_FILTER_SOURCES },
 	{ "background", L.MINIMAP_EMITTER_AMBIENCE },
 	{ "detail", L.MINIMAP_EMITTER_AMBIENCE_DETAIL },
+	{ "rain", L.MINIMAP_EMITTER_FILTER_RAIN },
 }
 local EMITTER_RADII = { 0, 25, 50, 100, 250, 500 }
+local RAIN_NAMES = {
+	light = L.MINIMAP_EMITTER_RAIN_LIGHT,
+	medium = L.MINIMAP_EMITTER_RAIN_MEDIUM,
+	heavy = L.MINIMAP_EMITTER_RAIN_HEAVY,
+}
 local emitterFilesByID
 local emitterFilesByKind = {}
 
@@ -556,6 +562,7 @@ local function EmitterFilesByID()
 end
 
 local function EmitterFilesOfKind(kind)
+	if kind == "rain" then return ns.EmitterRainSounds end
 	if not emitterFilesByKind[kind] then
 		local files = {}
 		if kind == "source" then
@@ -574,7 +581,8 @@ local function EmitterFilesOfKind(kind)
 end
 
 local function EmitterFileTitle(file)
-	return file[3] or (file[2] and file[2]:match("[^/]+$")) or L.MINIMAP_EMITTER_UNKNOWN
+	return file[3] or RAIN_NAMES[ns.EmitterRainSounds[file[1]]]
+		or (file[2] and file[2]:match("[^/]+$")) or L.MINIMAP_EMITTER_UNKNOWN
 end
 
 local function NormalizeEmitterText(value)
@@ -681,9 +689,9 @@ local function RefreshEmitters(retainScroll)
 	if id and (id <= 0 or id > 2147483647 or id ~= floor(id)) then id = nil end
 	local mutedOnly = emitterWindow.MutedOnly:GetChecked()
 	local db = MinimapCoords.db
-	local nearbyOnly = db.nearbyEmitters and not mutedOnly and not id
-	local muted = db.mutedEmitters
 	local kind = db.emitterSoundKind
+	local nearbyOnly = db.nearbyEmitters and not mutedOnly and not id and kind ~= "rain"
+	local muted = db.mutedEmitters
 	local showSources = kind == "all" or kind == "source"
 	local root, map, x, y, inInstance
 	if nearbyOnly then root, map, x, y, inInstance = EmitterPlayerLocation() end
@@ -692,7 +700,7 @@ local function RefreshEmitters(retainScroll)
 	emitterWindow.RadiusAvailable = radiusAvailable
 	local activeFilters = (kind ~= "all" and 1 or 0) + (radius > 0 and 1 or 0)
 	emitterWindow.Filter:SetText(activeFilters > 0 and L.MINIMAP_EMITTER_FILTER_ACTIVE:format(activeFilters) or L.MINIMAP_EMITTER_FILTER)
-	emitterWindow.Nearby:SetEnabled(not mutedOnly)
+	emitterWindow.Nearby:SetEnabled(not mutedOnly and kind ~= "rain")
 	local zoneName = nearbyOnly and GetRealZoneText()
 	emitterWindow.Scope:SetText(not ns.Secret(zoneName) and type(zoneName) == "string" and zoneName or L.MINIMAP_EMITTER_FOREVER)
 	emitterWindow.Empty:SetText(nearbyOnly and L.MINIMAP_EMITTER_EMPTY_HERE or L.MINIMAP_EMITTER_EMPTY)
@@ -907,7 +915,7 @@ local function InitEmitterRow(row, file)
 	row.file = file
 	row.Label:SetText(EmitterFileTitle(file))
 	local filename = file[2] and file[2]:match("[^/]+$")
-	local source = file[4] or (file[3] and filename)
+	local source = file[4] or ((file[3] or ns.EmitterRainSounds[file[1]]) and filename)
 	row.Detail:SetText(source and ("%s   ·   %d"):format(source, file[1]) or tostring(file[1]))
 	local muted = MinimapCoords.db.mutedEmitters[file[1]]
 	row.Mute:SetChecked(muted == true)
@@ -1007,7 +1015,8 @@ local function CreateEmitterWindow()
 		self:RegisterEvent("PLAYER_STOPPED_MOVING")
 	end))
 	window:SetScript("OnEvent", ns.Measured("Minimap: refresh emitter location", function()
-		if MinimapCoords.db.nearbyEmitters and not mutedOnly:GetChecked() and not tonumber(search:GetText()) then
+		if MinimapCoords.db.nearbyEmitters and MinimapCoords.db.emitterSoundKind ~= "rain"
+			and not mutedOnly:GetChecked() and not tonumber(search:GetText()) then
 			QueueEmitterSearch()
 		end
 	end))

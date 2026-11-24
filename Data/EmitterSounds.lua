@@ -1160,7 +1160,13 @@ ns.EmitterSounds = {
 	{ 2066253, "sound/ambience/fx_distant_fire_explosion_flavor_06.ogg", false },
 	{ 538966, "sound/ambience/undwaterloop.ogg", false },
 	{ 2182419, "sound/ambience/weather/fx_weather_80_lightningstorm_loop.ogg", false },
+	{ 2057626, "sound/ambience/weather/fx_weather_rain_heavy_01_stereo_loop.ogg", false },
+	{ 2057628, "sound/ambience/weather/fx_weather_rain_heavy_02_stereo_loop.ogg", false },
+	{ 2057630, "sound/ambience/weather/fx_weather_rain_light_02_stereo_loop.ogg", false },
 	{ 2057631, "sound/ambience/weather/fx_weather_rain_med_01_stereo_loop.ogg", false },
+	{ 538982, "sound/ambience/weather/rainheavyloop.ogg", false },
+	{ 538983, "sound/ambience/weather/rainlightloop.ogg", false },
+	{ 538981, "sound/ambience/weather/rainmediumloop.ogg", false },
 	{ 537328, "sound/ambience/wmoambience/blackfathom.ogg", false },
 	{ 537351, "sound/ambience/wmoambience/darnassusday.ogg", false },
 	{ 537352, "sound/ambience/wmoambience/darnassusnight.ogg", false },
@@ -3102,6 +3108,15 @@ ns.EmitterSounds = {
 	{ 1311637, "sound/spells/spell_felbombardment_cast03.ogg", false },
 	{ 569215, "sound/spells/sunwell_fel_portalstand.ogg", false },
 	{ 7519860, "sound/ui/amb_gluescreen_skyborne_0_7519860.ogg", false },
+}
+ns.EmitterRainSounds = {
+	[538981] = "medium",
+	[538982] = "heavy",
+	[538983] = "light",
+	[2057626] = "heavy",
+	[2057628] = "heavy",
+	[2057630] = "light",
+	[2057631] = "medium",
 }
 ns.EmitterMapAreas = {
 	[1411] = { 1, 14 },

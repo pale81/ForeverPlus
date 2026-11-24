@@ -7062,6 +7062,26 @@ end)()
 	SelectFilter(ns.L.RESET)
 	assert(FindSound(4524098) and module.db.emitterSoundRadius == 0 and module.db.emitterSoundKind == "all",
 		"reset restores the default range and all categories")
+	Search("")
+	SelectFilter("rain")
+	local rainResults = results
+	assert(module.db.nearbyEmitters and #rainResults == 7 and not OpenFilters()[25].enabled,
+		"rain finds the build's variants at any location without changing the saved local filter")
+	assert(FindSound(538982) and FindSound(2057626) and FindSound(2057628) and not FindSound(4524098),
+		"rain includes the loud loops and excludes other ambient sounds")
+	Search(ns.L.MINIMAP_EMITTER_RAIN_HEAVY)
+	assert(#results == 3 and FindSound(538982), "localized intensity labels can be searched")
+	Search("")
+	toggleBulk(bulk)
+	for _, sound in ipairs(rainResults) do
+		assert(muted[sound[1]] and module.db.mutedEmitters[sound[1]], "all rain loops can be muted together")
+	end
+	assert(not muted[4524098] and muted[7079224], "the rain filter leaves other files out of the bulk operation")
+	toggleBulk(bulk)
+	for _, sound in ipairs(rainResults) do
+		assert(not muted[sound[1]] and not module.db.mutedEmitters[sound[1]], "all rain loops can be unmuted together")
+	end
+	SelectFilter(ns.L.RESET)
 	x, y = -8600, 860
 	Search("bridge wind")
 	assert(not FindSound(4524098), "a bridge emitter leaves the results when out of range")

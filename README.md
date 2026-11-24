@@ -19,6 +19,8 @@ Jeder Punkt ist einzeln abschaltbar; die vollständige Liste mit allen Optionen 
 
 Lokal entwickeln (macOS): `sh tools/setup-local.sh` richtet Lua 5.1 (aus dem Quelltext nach `~/ForeverPlus-dev/lua51` gebaut, Homebrew hat es nicht mehr), luacheck, QuestieDB und Blizzards Interface-Quelltext ein (`--data` zusätzlich die Quellen der Datengeneratoren) und legt die Arbeitsregeln als lokale `CLAUDE.md` an (nicht im Projekt; eine vorhandene bleibt unverändert); `sh tools/check.sh` führt Tests und luacheck aus (auf dem Mac geprüft).
 
+Der [Entwicklungsablauf](AGENTS.md#entwicklung-und-delegation) beschreibt Akzeptanzkriterien, Teststrategie und unabhängige Prüfungen für Änderungen.
+
 Aktualisieren aus dem Projekt (macOS, Git-Clone im AddOns-Ordner): `sh tools/autopull.sh install` richtet einmalig einen Hintergrundauftrag ein, der alle 30 Sekunden `git pull --ff-only` ausführt; danach genügt `/rl` im Spiel (`status` und `uninstall` gehören dazu; ungeprüft).
 
 Einstellungen: **Esc → Optionen → AddOns → ForeverPlus** (je Thema ein Untermenü: Chat, Tooltip, Gegenstände, Quests, Mouseover, Aktionsleisten, Kampf, Buff-Erinnerung, Talente, Karten & Infos, Erfahrung & Ruf, Optik, Schrift, Rezeptradar) oder `/fp`. Auf der Hauptseite: „Alle Meldungen stumm“, „Verschieben, Skalieren, Sperren“, „Alle Positionen sperren“, „Meldung beim Sperren“, „Klick beim Sperren und Entsperren“ (kurzer Blizzard-Klang), „Alle Positionen zurücksetzen“, „Mehrere Fenster zugleich“.

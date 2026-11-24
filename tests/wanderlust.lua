@@ -1176,6 +1176,9 @@ end)()
 	qolShownAlphas[bagsBar] = 1
 	local targetFrame = PeekableFrame()
 	targetFrame.shown, targetFrame.alpha = false, 1
+	local secretAuraChild = PeekableFrame()
+	secretAuraChild.IsIgnoringParentAlpha = function() return secret end
+	targetFrame.children = { secretAuraChild }
 	local playerContainer = PeekableFrame()
 	playerContainer.shown, playerContainer.alpha = true, 1
 	local playerFrame = PeekableFrame()

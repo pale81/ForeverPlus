@@ -155,8 +155,22 @@ for _, name in ipairs(WINDOW_NAMES) do
 end
 local lastOpenWindow
 
+local function IsForbiddenSafe(frame)
+	if not frame or not frame.IsForbidden then return false end
+	local forbidden = frame:IsForbidden()
+	return ns.Secret(forbidden) or forbidden == true
+end
+
+local function IgnoresParentAlpha(object)
+	if not object or not object.IsIgnoringParentAlpha then return false end
+	local ignoring = object:IsIgnoringParentAlpha()
+	return not ns.Secret(ignoring) and ignoring == true
+end
+
 local function WindowShown(frame)
-	return frame and (not frame.IsForbidden or not frame:IsForbidden()) and frame:IsShown()
+	if not frame or IsForbiddenSafe(frame) or not frame.IsShown then return false end
+	local shown = frame:IsShown()
+	return not ns.Secret(shown) and shown == true
 end
 
 -- Not IsAnyBagOpen(): it builds Blizzard's bag frame list on first use. Called from here (tainted, e.g. at login),
@@ -251,7 +265,7 @@ local TRANSIENT_HUD_NAMES = {
 }
 
 local function CanFadeFrame(frame)
-	return frame and (not frame.IsForbidden or not frame:IsForbidden())
+	return frame and not IsForbiddenSafe(frame)
 		and frame.GetAlpha and frame.SetAlpha
 end
 
@@ -263,26 +277,30 @@ local function RecordSoftEntry(bucket, frame, qol)
 	bucket[frame] = { restore = actual, show = shown }
 end
 
-local function CollectIndependentOverlays(parent, bucket, visited, qol)
-	if not parent or visited[parent] or (parent.IsForbidden and parent:IsForbidden()) then
+local function CollectIndependentOverlays(parent, bucket, visited, qol, depth)
+	if not parent or visited[parent] or IsForbiddenSafe(parent) then
 		return
 	end
 	visited[parent] = true
 	if parent.GetRegions then
 		local regions = { parent:GetRegions() }
 		for _, region in ipairs(regions) do
-			if CanFadeFrame(region) and region.IsIgnoringParentAlpha and region:IsIgnoringParentAlpha() then
+			if CanFadeFrame(region) and IgnoresParentAlpha(region) then
 				RecordSoftEntry(bucket, region, qol)
 			end
 		end
 	end
+	if depth and depth <= 0 then return end
 	if not parent.GetChildren then return end
+	local nextDepth = depth and (depth - 1) or nil
 	local children = { parent:GetChildren() }
 	for _, child in ipairs(children) do
-		if CanFadeFrame(child) and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha() then
+		if CanFadeFrame(child) and IgnoresParentAlpha(child) then
 			RecordSoftEntry(bucket, child, qol)
 		end
-		CollectIndependentOverlays(child, bucket, visited, qol)
+		if not nextDepth or nextDepth > 0 then
+			CollectIndependentOverlays(child, bucket, visited, qol, nextDepth)
+		end
 	end
 end
 
@@ -291,7 +309,8 @@ local function RecordSoftFrameAndOverlays(state, frame, visited)
 	state.frames[frame] = ns.Number(frame:GetAlpha(), 1)
 	frame:SetAlpha(0)
 	local independent = {}
-	CollectIndependentOverlays(frame, independent, visited, nil)
+	-- Shallow scan (depth 1) catches direct independent overlays without crawling deep aura/button subtrees.
+	CollectIndependentOverlays(frame, independent, visited, nil, 1)
 	for child, info in pairs(independent) do
 		if state.frames[child] == nil and not state.minimap[child] then
 			state.frames[child] = info.restore

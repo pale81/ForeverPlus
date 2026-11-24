@@ -161,7 +161,10 @@ local function UpdateIndependentMinimapOverlays(enabled)
 		end
 		visited[parent] = true
 		for _, child in ipairs({ parent:GetChildren() }) do
-			if (not child.IsForbidden or not child:IsForbidden()) and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha() then
+			local forbidden = child.IsForbidden and child:IsForbidden()
+			local ignoring = not (ns.Secret(forbidden) or forbidden == true)
+				and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha()
+			if not ns.Secret(ignoring) and ignoring == true then
 				SetFaded(child, enabled, Minimap)
 			end
 			Scan(child)

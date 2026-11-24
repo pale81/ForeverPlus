@@ -412,12 +412,16 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, 
 				entry.peak = elapsed
 				entry.peakAt = now
 				if own then
-					entry.peakCall, entry.peakCallTime = peakCall, peakCallTime
+					if peakCall and peakCallTime and peakCallTime >= ns.SLOW_MS then
+						entry.peakCall, entry.peakCallTime = peakCall, peakCallTime
+					else
+						entry.peakCall, entry.peakCallTime = nil, nil
+					end
 				end
 			end
 			if elapsed > ns.SLOW_MS then
 				entry.slow = entry.slow + 1
-				if own and peakCall then
+				if own and peakCall and peakCallTime and peakCallTime >= ns.SLOW_MS then
 					entry.slowAt, entry.slowFrame = now, elapsed
 					entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
 				end
@@ -553,7 +557,12 @@ local function AddSpikeMomentLines(now)
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			RED_FONT_COLOR.r, RED_FONT_COLOR.g, RED_FONT_COLOR.b)
 		if own then
-			local detail = FormatCallList(moment.calls, 2) or UnattributedLabel(moment)
+			local detail = FormatCallList(moment.calls, 2)
+			if not detail then
+				detail = UnattributedLabel(moment)
+			elseif moment.calls[1].total < ns.SLOW_MS then
+				detail = L.INFO_SPIKES_SHORT_CALLS:format(ns.SLOW_MS) .. " (" .. detail .. ")"
+			end
 			GameTooltip:AddLine("  " .. detail, 0.62, 0.62, 0.62, true)
 		else
 			sawExternal = true
@@ -592,11 +601,14 @@ local function ShowCpuTooltip(owner)
 	for _, addon in ipairs(tooltipRows) do
 		local ms = addon.recentCount > 0 and max(0, addon.recentTotal / addon.recentCount) or 0
 		total = total + ms
-		local color = PeakColor(addon.peak, addon.slow)
 		local own = addon.own
-		GameTooltip:AddDoubleLine(addon.title, L.INFO_CPU_LINE:format(ms, addon.peak, addon.slow),
+		local values = L.INFO_CPU_LINE:format(
+			CpuColor(ms):WrapTextInColorCode(("%.2f"):format(ms)),
+			PeakColor(addon.peak, 0):WrapTextInColorCode(("%.1f"):format(addon.peak)),
+			PeakColor(0, addon.slow):WrapTextInColorCode(("%d×"):format(addon.slow)))
+		GameTooltip:AddDoubleLine(addon.title, values,
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
-			color.r, color.g, color.b)
+			1, 1, 1)
 	end
 	local own = sessionMetrics[ns.name]
 	if own and own.peakAt then

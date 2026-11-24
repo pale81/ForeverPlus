@@ -14275,6 +14275,90 @@ end)()
 
 	print("runtime stutter optimizations OK")
 end)()
+;(function()
+	-- CPU display accuracy: nested ns.Measured self-time, per-column colors, and ignoring <5 ms calls as peak/slow culprits.
+	local info = ns:GetModule("Info")
+	local setup = uv(info.UpdatePerformance, "SetupProfilerSampler")
+	local sampler = uv(setup, "profilerSampler")
+	local onEvent = sampler:GetScript("OnEvent")
+	local sample = uv(ns.SetMeasuring, "spikeFrame"):GetScript("OnUpdate")
+	local metrics = uv(uv(setup, "SampleAddonMetrics"), "sessionMetrics")
+	local perf = uv(info.UpdatePerformance, "perfFrame")
+	local resetSession = uv(info.ShowSpikes, "ResetSession")
+
+	local savedTime, savedClock = GetTime, debugprofilestop
+	local savedMetric, savedOverall = C_AddOnProfiler.GetAddOnMetric, C_AddOnProfiler.GetOverallMetric
+	local savedAddLine, savedAddDouble = GameTooltip.AddLine, GameTooltip.AddDoubleLine
+
+	local now, clock = 3000, 0
+	local ownMs = 0
+	GetTime = function() return now end
+	debugprofilestop = function() return clock end
+	C_AddOnProfiler.GetAddOnMetric = function(name) return name == ns.name and ownMs or 0 end
+	C_AddOnProfiler.GetOverallMetric = function() return ownMs end
+
+	onEvent(sampler, "LOADING_SCREEN_DISABLED")
+	now = 3030
+	resetSession()
+	sample()
+
+	-- 1. Nested ns.Measured calls record exclusive (self) time so an outer wrapper does not hide or double-count an inner spike.
+	local inner = ns.Measured("Wanderlust: SetUIVisibility", function() clock = clock + 68.0 end)
+	local outer = ns.Measured("Wanderlust: window activity", function()
+		clock = clock + 0.1
+		inner()
+	end)
+	now = 3031
+	sample()
+	outer()
+	now, ownMs = 3032, 68.2
+	sample()
+	local own = metrics[ns.name]
+	assert(own.peakCall == "Wanderlust: SetUIVisibility" and math.abs(own.peakCallTime - 68.0) < 0.01,
+		"nested inner call is credited as peakCall instead of outer wrapper: " .. tostring(own.peakCall))
+	assert(own.slowCall == "Wanderlust: SetUIVisibility", "inner call is credited as slowCall")
+
+	-- 2. A short (<5 ms) call inside a later >5 ms frame must not replace slowCall or look like the culprit in the tooltip.
+	local tiny = ns.Measured("Wanderlust: window activity", function() clock = clock + 0.2 end)
+	tiny()
+	now, ownMs = 3033, 15.5
+	sample()
+	assert(own.slowCall == "Wanderlust: SetUIVisibility" and own.slowFrame == 68.2,
+		"a 0.2 ms call does not overwrite the last real >=5 ms slowCall")
+
+	-- 3. Per-column coloring: low Avg stays green while high Max is red and moderate >5 ms count is orange.
+	own.recentTotal, own.recentCount, own.slow = 0.07 * 60, 60, 19
+	local doubleLines, singleLines = {}, {}
+	GameTooltip.AddDoubleLine = function(_, left, right)
+		doubleLines[#doubleLines + 1] = { left = tostring(left), right = tostring(right) }
+	end
+	GameTooltip.AddLine = function(_, line)
+		singleLines[#singleLines + 1] = tostring(line)
+	end
+	perf:GetScript("OnEnter")(perf)
+
+	local ownRow
+	for _, row in ipairs(doubleLines) do
+		if row.left == own.title then ownRow = row.right break end
+	end
+	local expectedRow = ns.L.INFO_CPU_LINE:format(
+		GREEN_FONT_COLOR:WrapTextInColorCode("0.07"),
+		RED_FONT_COLOR:WrapTextInColorCode("68.2"),
+		ORANGE_FONT_COLOR:WrapTextInColorCode("19×"))
+	assert(ownRow == expectedRow, "CPU table colors Avg, Max and >5 ms independently: " .. tostring(ownRow))
+
+	local joinedSingle = table.concat(singleLines, "\n")
+	local shortPrefix = ns.L.INFO_SPIKES_SHORT_CALLS:format(ns.SLOW_MS)
+	assert(joinedSingle:find(shortPrefix .. " (Wanderlust: window activity (0.2 ms))", 1, true),
+		"tooltip moment marks sub-5 ms captured calls clearly instead of blaming them")
+
+	resetSession()
+	onEvent(sampler, "LOADING_SCREEN_ENABLED")
+	GameTooltip.AddLine, GameTooltip.AddDoubleLine = savedAddLine, savedAddDouble
+	C_AddOnProfiler.GetAddOnMetric, C_AddOnProfiler.GetOverallMetric = savedMetric, savedOverall
+	GetTime, debugprofilestop = savedTime, savedClock
+	print("cpu display accuracy OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
 assert(loadfile("emote_voice.lua"))(root, ns)

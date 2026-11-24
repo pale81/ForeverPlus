@@ -336,6 +336,30 @@ local previousFrameAt, previousFrameMem
 local sessionSampler
 local SESSION_CALL_MIN = 0.15
 local measureStartedAt
+local measureDepth, measureChild = 0, {}
+
+local function PushMeasure()
+	measureDepth = measureDepth + 1
+	measureChild[measureDepth] = 0
+	return debugprofilestop()
+end
+
+local function PopMeasure(start)
+	local total = debugprofilestop() - start
+	local depth = measureDepth
+	if depth <= 0 then
+		return total
+	end
+	local selfElapsed = total - (measureChild[depth] or 0)
+	if selfElapsed < 0 then
+		selfElapsed = 0
+	end
+	measureDepth = depth - 1
+	if measureDepth > 0 then
+		measureChild[measureDepth] = (measureChild[measureDepth] or 0) + total
+	end
+	return selfElapsed
+end
 
 local function ActiveMeasurement()
 	return ns.measuring and GetTime() > measureStartedAt and ns.spikes
@@ -407,6 +431,8 @@ end
 local spikeFrame = CreateFrame("Frame")
 spikeFrame:Hide()
 spikeFrame:SetScript("OnUpdate", function()
+	-- Guard against an uncaught error in an earlier frame leaving nested timing depth > 0.
+	measureDepth = 0
 	local now = GetTime()
 	local name, elapsed, calls, counts, maxes
 	-- Events may already have run in the current tick when OnUpdate samples the previous one.
@@ -535,10 +561,10 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 			for owner, fn in pairs(set) do
 				local measurement = ActiveMeasurement()
 				local memory = collectgarbage("count")
-				local start = debugprofilestop()
+				local start = PushMeasure()
 				runningOwner = owner
 				xpcall(fn, ErrorHandler, owner, event, ...)
-				local elapsed = debugprofilestop() - start
+				local elapsed = PopMeasure(start)
 				if measurement and measurement == ns.spikes and ns.measuring then
 					ns.RecordTiming(SpikeName(EventLabel(owner, event), elapsed, memory), elapsed)
 				elseif elapsed >= SESSION_CALL_MIN then
@@ -547,10 +573,10 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 			end
 		elseif sessionSampler then
 			for owner, fn in pairs(set) do
-				local start = debugprofilestop()
+				local start = PushMeasure()
 				runningOwner = owner
 				xpcall(fn, ErrorHandler, owner, event, ...)
-				local elapsed = debugprofilestop() - start
+				local elapsed = PopMeasure(start)
 				if elapsed >= SESSION_CALL_MIN then
 					RecordFrameCall(EventLabel(owner, event), elapsed)
 				end
@@ -576,9 +602,9 @@ function ns.Measured(name, fn)
 		if ns.measuring then
 			local measurement = ActiveMeasurement()
 			local memory = collectgarbage("count")
-			local start = debugprofilestop()
+			local start = PushMeasure()
 			fn(...)
-			local elapsed = debugprofilestop() - start
+			local elapsed = PopMeasure(start)
 			if measurement and measurement == ns.spikes and ns.measuring then
 				ns.RecordTiming(SpikeName(name, elapsed, memory), elapsed)
 			elseif elapsed >= SESSION_CALL_MIN then
@@ -590,9 +616,9 @@ function ns.Measured(name, fn)
 			fn(...)
 			return
 		end
-		local start = debugprofilestop()
+		local start = PushMeasure()
 		fn(...)
-		local elapsed = debugprofilestop() - start
+		local elapsed = PopMeasure(start)
 		if elapsed >= SESSION_CALL_MIN then
 			RecordFrameCall(name, elapsed)
 		end
@@ -600,7 +626,7 @@ function ns.Measured(name, fn)
 end
 
 local function FinishMeasured(name, start, memBefore, measurement, ...)
-	local elapsed = debugprofilestop() - start
+	local elapsed = PopMeasure(start)
 	if measurement and measurement == ns.spikes and ns.measuring then
 		ns.RecordTiming(SpikeName(name, elapsed, memBefore), elapsed)
 	elseif elapsed >= SESSION_CALL_MIN then
@@ -615,13 +641,13 @@ function ns.MeasuredReturn(name, fn)
 		if ns.measuring then
 			local measurement = ActiveMeasurement()
 			local memBefore = collectgarbage("count")
-			local start = debugprofilestop()
+			local start = PushMeasure()
 			return FinishMeasured(name, start, memBefore, measurement, fn(...))
 		end
 		if not sessionSampler then
 			return fn(...)
 		end
-		local start = debugprofilestop()
+		local start = PushMeasure()
 		return FinishMeasured(name, start, nil, nil, fn(...))
 	end
 end

@@ -13220,6 +13220,78 @@ end)()
 
 ;(function()
 	local visuals = ns:GetModule("Visuals")
+	local setup = assert(uv(visuals.OnLogin, "SetupTotemRecallBinding"))
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local updateBindings = eventFrame:GetScript("OnEvent")
+	local savedFrame, savedRegistry, savedMixin = CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin
+	local savedSpells, savedKey = TOTEM_MULTI_CAST_RECALL_SPELLS, GetBindingKey
+	local savedClear, savedOverride = ClearOverrideBindings, SetOverrideBindingClick
+	local castName = "ForeverPlusTotemRecallCastButton"
+	local command = "CLICK MultiCastRecallSpellButton:LeftButton"
+	local recall = NewFrame("CheckButton")
+	local cast, selector
+	local events, overrides = {}, {}
+	local keys = { "SHIFT-R", "CTRL-R" }
+	TOTEM_MULTI_CAST_RECALL_SPELLS = { 36936 }
+	EventRegistry = { RegisterCallback = function(_, event, fn, owner)
+		events[event] = function() fn(owner) end
+	end }
+	QuickKeybindButtonTemplateMixin = {}
+	CreateFrame = function(kind, name, parent, template)
+		local frame = savedFrame(kind, name, parent, template)
+		local attributes = {}
+		frame.SetAttribute = function(_, key, value) attributes[key] = value end
+		frame.GetAttribute = function(_, key) return attributes[key] end
+		frame.RegisterForClicks = function(self, ...) self.clicks = table.concat({ ... }, ",") end
+		frame.SetAllPoints = function(self, target) self.anchor = target end
+		if template == "SecureActionButtonTemplate" then
+			cast = frame
+		elseif template == "QuickKeybindButtonTemplate" then
+			assert(parent == recall, "quick keybind follows the position and visibility of the recall button")
+			selector = frame
+			frame.DoModeChange = function(self, enabled) self.highlighted = enabled end
+		end
+		return frame
+	end
+	GetBindingKey = function(action)
+		assert(action == command, "recall uses its saved binding")
+		return unpack(keys)
+	end
+	ClearOverrideBindings = function(owner)
+		assert(owner == cast, "recall clears only its own overrides")
+		overrides = {}
+	end
+	SetOverrideBindingClick = function(owner, priority, key, name, mouseButton)
+		assert(owner == cast and not priority and mouseButton == "LeftButton", "ordinary binding priority")
+		overrides[key] = name
+	end
+	setup(recall)
+	assert(cast:GetAttribute("type") == "spell" and cast:GetAttribute("spell") == 36936, "secure cast uses Totemic Recall")
+	assert(cast.clicks == "AnyUp,AnyDown", "the game can use either key press or release")
+	assert(overrides["SHIFT-R"] == castName and overrides["CTRL-R"] == castName, "both bound keys use the secure cast")
+	assert(selector.commandName == command and selector.anchor == recall and not selector:IsShown(),
+		"fast binding targets the saved command and starts hidden")
+	events["QuickKeybindFrame.QuickKeybindModeEnabled"]()
+	assert(selector:IsShown() and selector.highlighted, "fast binding can select the recall button under the cursor")
+	keys = { "ALT-R" }
+	updateBindings(eventFrame, "UPDATE_BINDINGS")
+	assert(overrides["ALT-R"] == castName and not overrides["SHIFT-R"] and not overrides["CTRL-R"],
+		"rebinding replaces both old keys")
+	keys = {}
+	updateBindings(eventFrame, "UPDATE_BINDINGS")
+	assert(not next(overrides), "clearing the binding removes the shortcut")
+	events["QuickKeybindFrame.QuickKeybindModeDisabled"]()
+	assert(not selector:IsShown(), "closing fast binding returns mouse input to the recall button")
+	visuals:UnregisterEvent("UPDATE_BINDINGS")
+	_G[castName] = nil
+	CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin = savedFrame, savedRegistry, savedMixin
+	TOTEM_MULTI_CAST_RECALL_SPELLS, GetBindingKey = savedSpells, savedKey
+	ClearOverrideBindings, SetOverrideBindingClick = savedClear, savedOverride
+	print("totem recall quick keybind and secure cast binding OK")
+end)()
+
+;(function()
+	local visuals = ns:GetModule("Visuals")
 	assert(visuals.defaults.totemTimers == true, "totem timers default on")
 	local foundOption
 	for _, opt in ipairs(visuals.options) do

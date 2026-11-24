@@ -393,6 +393,7 @@ read_globals = {
 	"NUM_MULTI_CAST_BUTTONS_PER_PAGE", "FIRE_TOTEM_SLOT", "EARTH_TOTEM_SLOT", "WATER_TOTEM_SLOT", "AIR_TOTEM_SLOT",
 	"GetTotemInfo", "GetTotemDuration", "MultiCastActionBarFrame_Update", "ChangeMultiCastActionPage",
 	"MultiCastRecallSpellButton", "MultiCastRecallSpellButton_Update",
+	"TOTEM_MULTI_CAST_RECALL_SPELLS", "QuickKeybindButtonTemplateMixin",
 	"C_FriendList", "ERR_IGNORE_ADDED_S", "ERR_IGNORE_ALREADY_S", "ERR_IGNORE_NOT_FOUND", "ERR_IGNORE_SELF",
 	"GameEvent", "GetActiveLootRollIDs", "GetLootRollItemInfo", "GetLootRollTimeLeft", "RollOnLoot",
 	"C_Loot", "ColorManager", "NEED", "GREED", "PASS", "ROLL_DISENCHANT", "TRANSMOGRIFICATION",

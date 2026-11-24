@@ -14167,6 +14167,29 @@ end)()
 	setuv(sampleMetrics, "loadingScreen", savedLoading)
 	C_AddOnProfiler.GetAddOnMetric, C_AddOnProfiler.GetOverallMetric = savedRead, savedOverall
 
+	-- 14. ChatIndent: OnSizeChanged skips height-only resizes (e.g. ChatMinimize folding) and re-wraps on width changes.
+	local indentMod = ns:GetModule("ChatIndent")
+	local onIndentResize = uv(uv(indentMod.Apply, "Hook"), "OnSizeChanged")
+	local savedAfterIndent, savedIndentEnabled = C_Timer.After, indentMod.db.enabled
+	local indentTimers, indentTransforms = 0, 0
+	local fakeChat = {
+		width = 320,
+		GetWidth = function(self) return self.width end,
+		TransformMessages = function() indentTransforms = indentTransforms + 1 end,
+	}
+	C_Timer.After = function(_, fn) indentTimers = indentTimers + 1 fn() end
+	indentMod.db.enabled = true
+	onIndentResize(fakeChat, 320, 120) -- first recorded width
+	local afterFirst = indentTransforms
+	onIndentResize(fakeChat, 320, 28)  -- height-only fold: must not re-wrap
+	onIndentResize(fakeChat, 320, 120) -- height-only unfold: must not re-wrap
+	assert(indentTimers == 1 and indentTransforms == afterFirst,
+		"ChatIndent skips height-only OnSizeChanged events: " .. indentTimers .. "/" .. indentTransforms)
+	fakeChat.width = 400
+	onIndentResize(fakeChat, 400, 120) -- real width change: must re-wrap
+	assert(indentTimers == 2, "ChatIndent still re-wraps when chat width changes: " .. indentTimers)
+	C_Timer.After, indentMod.db.enabled = savedAfterIndent, savedIndentEnabled
+
 	print("runtime stutter optimizations OK")
 end)()
 dofile("wanderlust.lua")

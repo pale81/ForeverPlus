@@ -235,6 +235,9 @@ end
 
 -- Wraps the lines again (after a resize) or gives them back unwrapped (rewrap false).
 local function Redo(frame, rewrap)
+	if not next(originals) then
+		return
+	end
 	frame:TransformMessages(function(text)
 		return not ns.Secret(text) and originals[text] ~= nil
 	end, function(text, ...)
@@ -249,15 +252,37 @@ local function Redo(frame, rewrap)
 end
 
 local pending = {}
+local lastWidths = {}
 
-local function OnSizeChanged(frame)
+local function FrameWidth(frame, width)
+	width = ns.Number(width) or (frame.GetWidth and ns.Number(frame:GetWidth()))
+	if not width or width <= 0 then
+		return nil
+	end
+	return math.floor(width + 0.5)
+end
+
+local function OnSizeChanged(frame, width)
 	if pending[frame] or not Indent.db.enabled then
 		return
+	end
+	local current = FrameWidth(frame, width)
+	local previous = lastWidths[frame]
+	if current then
+		lastWidths[frame] = current
+		-- Height-only changes (such as ChatMinimize folding) do not change line wrapping.
+		if previous and math.abs(current - previous) < 1 then
+			return
+		end
 	end
 	pending[frame] = true
 	ns.After("ChatIndent: OnSizeChanged (timer)", 0.4, function()
 		pending[frame] = nil
 		if Indent.db.enabled then
+			local latest = FrameWidth(frame)
+			if latest then
+				lastWidths[frame] = latest
+			end
 			Redo(frame, true)
 		end
 	end)
@@ -268,6 +293,7 @@ local function Hook(frame)
 		return
 	end
 	hooked[frame] = true
+	lastWidths[frame] = FrameWidth(frame)
 	hooksecurefunc(frame, "AddMessage", ns.Measured("Chat: indented wrap", OnAddMessage))
 	frame:HookScript("OnSizeChanged", OnSizeChanged)
 end

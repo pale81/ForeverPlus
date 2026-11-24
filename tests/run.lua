@@ -14949,6 +14949,123 @@ end)()
 	UiMapPoint, C_SuperTrack = savedUiMapPoint, savedSuperTrack
 	print("guiding wind OK")
 end)()
+;(function()
+	local tooltip = ns:GetModule("Tooltip")
+	local showHover = uv(tooltip.OnLogin, "ShowHoverName")
+	local objectCall = uv(tooltip.OnInitialize, "OnObjectTooltip")
+	local frame = uv(showHover, "GetHover")()
+
+	local saved = {
+		rawget(_G, "UnitEffectiveLevel"), rawget(_G, "UnitLevel"), rawget(_G, "UnitIsCorpse"),
+		rawget(_G, "UnitIsWildBattlePet"), rawget(_G, "UnitIsBattlePetCompanion"),
+		rawget(_G, "UnitExists"), rawget(_G, "UnitName"), rawget(_G, "UnitIsPlayer"),
+		rawget(_G, "issecretvalue"), C_Texture.GetAtlasInfo,
+		frame.SetSize, frame.Level.SetText, frame.Skull.SetSize,
+		tooltip.db.hoverLevel, tooltip.db.hoverName, tooltip.db.hoverObjects,
+	}
+
+	local effectiveLevel, rawLevel, corpse, wildPet, companionPet = 13, 13, false, false, false
+	local exists, unitName, secretVal = true, "Onyxia", nil
+	local atlasInfo = { width = 16, height = 20 }
+	local levelText, frameW, skullW, skullH
+
+	UnitEffectiveLevel = function() return effectiveLevel end
+	UnitLevel = function() return rawLevel end
+	UnitIsCorpse = function() return corpse end
+	UnitIsWildBattlePet = function() return wildPet end
+	UnitIsBattlePetCompanion = function() return companionPet end
+	UnitExists = function() return exists end
+	UnitName = function() return unitName end
+	UnitIsPlayer = function() return false end
+	issecretvalue = function(v) return secretVal ~= nil and v == secretVal end
+	C_Texture.GetAtlasInfo = function(atlas) return atlas == "UI-HUD-UnitFrame-Target-HighLevelTarget_Icon" and atlasInfo or nil end
+	frame.SetSize = function(self, w, h) frameW = w; self.w, self.h = w, h end
+	frame.Level.SetText = function(_, text) levelText = text end
+	frame.Skull.SetSize = function(_, w, h) skullW, skullH = w, h end
+	tooltip.db.hoverName, tooltip.db.hoverLevel, tooltip.db.hoverObjects = true, true, true
+
+	-- 1. Effective level overrides raw UnitLevel (matches TargetFrameMixin:CheckLevel).
+	effectiveLevel, rawLevel = 25, 40
+	local lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == 25 and not isSkull, "effective level is used instead of raw UnitLevel")
+	showHover()
+	assert(levelText == 25 and frame.Level:IsShown() and not frame.Skull:IsShown(),
+		"normal effective level shows text and hides skull")
+
+	-- 2. Skull target: UnitEffectiveLevel <= 0 shows skull even when UnitLevel returns a positive number.
+	effectiveLevel, rawLevel = -1, 63
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and isSkull, "negative effective level marks skull despite positive UnitLevel")
+	showHover()
+	assert(not frame.Level:IsShown() and levelText == "" and frame.Skull:IsShown(),
+		"skull target hides level text and shows skull texture")
+	assert(skullW == 11 and skullH == 14 and frameW == 82 + 11 + 4,
+		"skull texture keeps atlas aspect ratio and reserves layout width")
+
+	-- 3. Zero effective level also shows skull.
+	effectiveLevel, rawLevel = 0, 60
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and isSkull, "zero effective level shows skull")
+
+	-- 4. Corpse shows skull even when effective level is positive (matches TargetFrameMixin:CheckLevel).
+	effectiveLevel, rawLevel, corpse = 18, 18, true
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and isSkull, "corpse shows skull even with positive effective level")
+	showHover()
+	assert(frame.Skull:IsShown() and not frame.Level:IsShown(), "corpse renders skull on hover frame")
+	corpse = false
+
+	-- 5. Battle pets hide level and skull (matches Camelot CheckBattlePet).
+	effectiveLevel, wildPet = 1, true
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and not isSkull, "wild battle pet shows neither level nor skull")
+	showHover()
+	assert(not frame.Level:IsShown() and not frame.Skull:IsShown(), "wild battle pet hides level and skull")
+	wildPet, companionPet = false, true
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and not isSkull, "companion battle pet shows neither level nor skull")
+	companionPet = false
+
+	-- 6. Missing atlas falls back cleanly to "??".
+	effectiveLevel, atlasInfo = -1, nil
+	showHover()
+	assert(frame.Level:IsShown() and levelText == "??" and not frame.Skull:IsShown(),
+		"missing skull atlas falls back to ?? text")
+	atlasInfo = { width = 16, height = 20 }
+
+	-- 7. Secret values on level or flags hide level and skull without error.
+	secretVal = "SECRET_LEVEL"
+	effectiveLevel = secretVal
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and not isSkull, "secret effective level hides level safely")
+	effectiveLevel, corpse = 20, secretVal
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and not isSkull, "secret corpse flag hides level safely")
+	corpse, wildPet = false, secretVal
+	lv, isSkull = tooltip.HoverLevel("mouseover")
+	assert(lv == nil and not isSkull, "secret battle pet flag hides level safely")
+	wildPet, secretVal = false, nil
+
+	-- 8. Toggling hoverLevel off hides skull immediately; switching to object hides skull too.
+	effectiveLevel = -1
+	showHover()
+	assert(frame.Skull:IsShown(), "skull shown before option toggle")
+	tooltip.db.hoverLevel = false
+	tooltip:OnOptionChanged("hoverLevel")
+	assert(not frame.Skull:IsShown() and not frame.Level:IsShown(), "disabling hoverLevel hides skull immediately")
+	tooltip.db.hoverLevel = true
+	tooltip:OnOptionChanged("hoverLevel")
+	assert(frame.Skull:IsShown(), "reenabling hoverLevel restores skull immediately")
+	exists = false
+	objectCall(GameTooltip)
+	assert(not frame.Skull:IsShown() and not frame.Level:IsShown(), "object hover hides skull texture")
+
+	UnitEffectiveLevel, UnitLevel, UnitIsCorpse, UnitIsWildBattlePet, UnitIsBattlePetCompanion,
+		UnitExists, UnitName, UnitIsPlayer, issecretvalue, C_Texture.GetAtlasInfo,
+		frame.SetSize, frame.Level.SetText, frame.Skull.SetSize,
+		tooltip.db.hoverLevel, tooltip.db.hoverName, tooltip.db.hoverObjects = unpack(saved, 1, 16)
+	print("hover skull level OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
 assert(loadfile("emote_voice.lua"))(root, ns)

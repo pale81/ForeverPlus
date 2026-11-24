@@ -178,7 +178,7 @@ read_globals = {
 	"STATUS_BAR_SIZE_ADJUSTMENT",
 	"C_EventUtils",
 	"C_SpecializationInfo",
-	"UnitLevel",
+	"UnitLevel", "UnitEffectiveLevel", "UnitIsCorpse", "UnitIsWildBattlePet", "UnitIsBattlePetCompanion",
 	"UnitAttackPower", "UnitRangedAttackPower",
 	"UnitGroupRolesAssigned",
 	"UnitStat",

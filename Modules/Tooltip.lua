@@ -335,7 +335,77 @@ local function ApplyNameColor(frame, r, g, b)
 	frame.Grey:SetTextColor(grey, grey, grey)
 end
 
-local function LayoutHoverText(frame, name, level, showHealth)
+local SKULL_ATLAS = "UI-HUD-UnitFrame-Target-HighLevelTarget_Icon"
+local SKULL_SIZE = NAME_SIZE + 1
+
+local function IsUnitFlag(fn, unit)
+	if type(fn) ~= "function" then
+		return false, false
+	end
+	local value = fn(unit)
+	if Secret(value) then
+		return false, true
+	end
+	return value == true, false
+end
+
+local function SkullSize()
+	local info = C_Texture and type(C_Texture.GetAtlasInfo) == "function" and C_Texture.GetAtlasInfo(SKULL_ATLAS)
+	if not info or IsSecretData(info) then
+		return nil
+	end
+	local w, h = ns.Number(info.width), ns.Number(info.height)
+	if w and h and w > 0 and h > 0 then
+		return max(1, floor(SKULL_SIZE * w / h + 0.5)), SKULL_SIZE
+	end
+	return SKULL_SIZE, SKULL_SIZE
+end
+
+-- Matches Blizzard's TargetFrameMixin:CheckLevel and Camelot's CheckBattlePet:
+-- corpses and units with UnitEffectiveLevel <= 0 show the skull icon; battle pets show no level.
+function Tooltip.HoverLevel(unit)
+	if not Tooltip.db.hoverLevel or not unit or Secret(unit) then
+		return nil, false
+	end
+	local isCorpse, secretCorpse = IsUnitFlag(UnitIsCorpse, unit)
+	if secretCorpse then
+		return nil, false
+	end
+	if isCorpse then
+		return nil, true
+	end
+	local isWildPet, secretWild = IsUnitFlag(UnitIsWildBattlePet, unit)
+	local isCompanionPet, secretComp = IsUnitFlag(UnitIsBattlePetCompanion, unit)
+	if secretWild or secretComp or isWildPet or isCompanionPet then
+		return nil, false
+	end
+	local rawLevel
+	if type(UnitEffectiveLevel) == "function" then
+		rawLevel = UnitEffectiveLevel(unit)
+	elseif type(UnitLevel) == "function" then
+		rawLevel = UnitLevel(unit)
+	end
+	if Secret(rawLevel) then
+		return nil, false
+	end
+	local level = ns.Number(rawLevel)
+	if not level then
+		return nil, false
+	end
+	if level > 0 then
+		return level, false
+	end
+	return nil, true
+end
+
+local function LayoutHoverText(frame, name, level, showHealth, isSkull)
+	local skullW, skullH
+	if isSkull then
+		skullW, skullH = SkullSize()
+		if not skullW then
+			level, isSkull = "??", false
+		end
+	end
 	frame.Name:SetText(name)
 	frame.Level:SetText(level or "")
 	frame.Clip:ClearAllPoints()
@@ -350,8 +420,16 @@ local function LayoutHoverText(frame, name, level, showHealth)
 		height = ns.Number(frame.Grey:GetStringHeight())
 	end
 	local hasSize = width ~= nil and height ~= nil
-	local levelWidth = hasSize and level and ns.Number(frame.Level:GetStringWidth())
+	local showSkull = hasSize and isSkull and skullW ~= nil
+	local levelWidth = hasSize and not showSkull and level and ns.Number(frame.Level:GetStringWidth()) or nil
 	frame.Level:SetShown(not not levelWidth)
+	if frame.Skull then
+		if showSkull then
+			frame.Skull:SetSize(skullW, skullH)
+		end
+		frame.Skull:SetShown(showSkull)
+	end
+	local extraWidth = showSkull and (skullW + 4) or (levelWidth and levelWidth + 4 or 0)
 	frame.masked = hasSize and showHealth
 	frame.Grey:SetShown(frame.masked)
 	frame.Clip:SetClipsChildren(frame.masked)
@@ -364,7 +442,7 @@ local function LayoutHoverText(frame, name, level, showHealth)
 		frame.Name:SetPoint("CENTER", frame.Box)
 	end
 	frame.Box:SetSize(width, height)
-	frame:SetSize(width + (levelWidth and levelWidth + 4 or 0), height)
+	frame:SetSize(width + extraWidth, height)
 
 	if frame.masked then
 		frame.Clip:SetPoint("TOPLEFT", frame.Box, "TOPLEFT")
@@ -375,7 +453,7 @@ local function LayoutHoverText(frame, name, level, showHealth)
 end
 
 local function Layout(frame, data)
-	local name, level = UnitName("mouseover"), UnitLevel("mouseover")
+	local name = UnitName("mouseover")
 	-- First name and surname, as Blizzard's own unit display does.
 	if Tooltip.db.hoverFullName and not Secret(name) and NameUtil and NameUtil.FormatUnitNameForDisplay then
 		local ok, full = pcall(NameUtil.FormatUnitNameForDisplay, "mouseover")
@@ -409,8 +487,8 @@ local function Layout(frame, data)
 		name = ("|T%d:0|t "):format(tree.icon) .. name
 	end
 	name = WithQuestIcon(name, "mouseover", data)
-	local levelText = Tooltip.db.hoverLevel and not Secret(level) and (level and level > 0 and level or "??")
-	LayoutHoverText(frame, name, levelText, Tooltip.db.hoverHealth)
+	local levelText, isSkull = Tooltip.HoverLevel("mouseover")
+	LayoutHoverText(frame, name, levelText, Tooltip.db.hoverHealth, isSkull)
 	ApplyNameColor(frame, r, g, b)
 	UpdateHealthMask(frame)
 end
@@ -440,6 +518,12 @@ local function CreateHover()
 	frame.Level = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	frame.Level:SetPoint("LEFT", frame.Box, "RIGHT", 3, 0)
 	frame.Level:SetTextColor(0.8, 0.8, 0.8)
+	frame.Skull = frame:CreateTexture(nil, "OVERLAY")
+	frame.Skull:SetPoint("LEFT", frame.Box, "RIGHT", 3, 0)
+	if frame.Skull.SetAtlas then
+		frame.Skull:SetAtlas(SKULL_ATLAS)
+	end
+	frame.Skull:Hide()
 	return frame
 end
 
@@ -1379,6 +1463,9 @@ end
 function Tooltip:OnOptionChanged(key)
 	if wanderlustHover and (key == "hoverName" or key == "hoverObjects") then
 		RefreshWanderlustHover()
+	end
+	if key == "hoverLevel" and hover and hover:IsShown() and not hover.object then
+		Layout(hover)
 	end
 	if key == "questIcon" then
 		if hover and hover:IsShown() and not hover.object then

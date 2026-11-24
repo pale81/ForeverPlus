@@ -6900,7 +6900,7 @@ end)()
 ;(function()
 	local globals = { "CreateFrame", "MinimapCluster", "MuteSoundFile", "UnmuteSoundFile", "PlaySoundFile", "StopSound",
 		"CreateScrollBoxListLinearView", "CreateDataProvider", "ScrollUtil", "UISpecialFrames", "ForeverPlusEmitterSounds",
-		"C_Map", "GetRealZoneText", "GetSubZoneText", "GetInstanceInfo", "IsSubmerged" }
+		"C_Map", "GetRealZoneText", "GetSubZoneText", "GetInstanceInfo", "IsSubmerged", "MenuUtil" }
 	local saved = {}
 	for _, key in ipairs(globals) do saved[key] = rawget(_G, key) end
 	local tracking, trigger, initialize, results, visibleRow = NewFrame("DropdownButton")
@@ -6933,6 +6933,26 @@ end)()
 		list.ReinitializeFrames = function()
 			if visibleRow then initialize(visibleRow, visibleRow.file) end
 		end
+	end }
+	local filterEntries
+	MenuUtil = { CreateContextMenu = function(button, generator)
+		filterEntries = {}
+		generator(button, {
+			CreateTitle = function() end,
+			CreateDivider = function() end,
+			CreateRadio = function(_, _, selected, action, value)
+				local entry = { selected = selected, action = action, enabled = true }
+				entry.SetEnabled = function(self, enabled) self.enabled = enabled end
+				filterEntries[value] = entry
+				return entry
+			end,
+			CreateButton = function(_, name, action)
+				local entry = { action = action }
+				entry.SetEnabled = function(self, enabled) self.enabled = enabled end
+				filterEntries[name] = entry
+				return entry
+			end,
+		})
 	end }
 	UISpecialFrames = {}
 	CreateFrame = function(kind, name, parent)
@@ -6977,6 +6997,15 @@ end)()
 		window.Search:SetText(query)
 		window.Search:GetScript("OnTextChanged")(window.Search)
 	end
+	local function OpenFilters()
+		window.Filter:GetScript("OnClick")(window.Filter)
+		return filterEntries
+	end
+	local function SelectFilter(value)
+		local entry = OpenFilters()[value]
+		assert(entry and entry.enabled, "filter is selectable")
+		entry.action(value)
+	end
 	assert(window:IsShown() and window.Nearby:GetChecked() and #results > 0 and #results < 600,
 		"right-click opens a short list of local sources and ambience")
 	Search("wind")
@@ -7013,6 +7042,23 @@ end)()
 	runSearch()
 	assert(#results == 0 and not bulk.enabled, "bulk action is unavailable on an empty list")
 	fixture.After = nil
+	x, y = -8990, 420
+	Search("bridge wind")
+	assert(FindSound(4524098), "default source range includes the bridge near the gate")
+	SelectFilter("source")
+	SelectFilter(25)
+	assert(not FindSound(4524098), "a smaller radius removes the bridge source")
+	SelectFilter(100)
+	assert(FindSound(4524098), "the type and radius filter combine with the text search")
+	assert(window.Filter:GetText() == ns.L.MINIMAP_EMITTER_FILTER_ACTIVE:format(2))
+	SelectFilter("background")
+	local radios = OpenFilters()
+	assert(radios.background.selected("background") and not radios[100].enabled and not FindSound(4524098),
+		"background filter hides placed sources and disables the radius")
+	assert(module.db.emitterSoundRadius == 100, "switching categories remembers the radius")
+	SelectFilter(ns.L.RESET)
+	assert(FindSound(4524098) and module.db.emitterSoundRadius == 0 and module.db.emitterSoundKind == "all",
+		"reset restores the default range and all categories")
 	x, y = -8600, 860
 	Search("bridge wind")
 	assert(not FindSound(4524098), "a bridge emitter leaves the results when out of range")
@@ -7020,9 +7066,21 @@ end)()
 	Search("")
 	local forest = assert(FindSound(539108), "the current zone's background plays outside the emitters folder")
 	assert(forest[4] == ns.L.MINIMAP_EMITTER_AMBIENCE, "the list identifies the source as zone background")
+	SelectFilter("detail")
+	assert(FindSound(648331) and not FindSound(539108), "other zone sounds can be filtered separately")
+	SelectFilter("background")
+	assert(FindSound(539108) and not FindSound(648331), "background excludes the secondary ambience of the zone")
+	toggleBulk(bulk)
+	assert(muted[539108] and not muted[648331], "bulk mute respects the selected sound category")
+	toggleBulk(bulk)
+	assert(not muted[539108], "bulk unmute respects the selected sound category")
 	window.Nearby:SetChecked(false)
 	window.Nearby:GetScript("OnClick")(window.Nearby)
 	Search("")
+	SelectFilter("source")
+	assert(FindSound(7139274) and not FindSound(539108) and not OpenFilters()[50].enabled,
+		"the kind filter works across Forever and only local sources have a radius")
+	SelectFilter(ns.L.RESET)
 	assert(FindSound(7139274) and not FindSound(7386632), "the global list includes Forever-linked files and omits unrelated Retail files")
 	Search("  7079224  ")
 	assert(#results == 1 and results[1][1] == 7079224, "search finds an exact FileDataID")

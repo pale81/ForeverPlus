@@ -13,6 +13,8 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		trackingEntries = true,
 		emitterSoundMenu = true,
 		nearbyEmitters = true,
+		emitterSoundKind = "all",
+		emitterSoundRadius = 0,
 		mutedEmitters = {},
 		campfires = false,
 		symbolScale = 100,
@@ -457,7 +459,15 @@ local emitterFilterToken, emitterDebounceToken = 0, 0
 local EMITTER_SEARCH_DELAY = 0.12
 local EMITTER_SLICE_BUDGET = 0.5
 local EMITTER_DISTANCE_MARGIN = 100
+local EMITTER_KINDS = {
+	{ "all", L.MINIMAP_EMITTER_FILTER_ALL },
+	{ "source", L.MINIMAP_EMITTER_FILTER_SOURCES },
+	{ "background", L.MINIMAP_EMITTER_AMBIENCE },
+	{ "detail", L.MINIMAP_EMITTER_AMBIENCE_DETAIL },
+}
+local EMITTER_RADII = { 0, 25, 50, 100, 250, 500 }
 local emitterFilesByID
+local emitterFilesByKind = {}
 
 local function CanMuteEmitters()
 	return type(MuteSoundFile) == "function" and type(UnmuteSoundFile) == "function"
@@ -545,6 +555,24 @@ local function EmitterFilesByID()
 	return emitterFilesByID
 end
 
+local function EmitterFilesOfKind(kind)
+	if not emitterFilesByKind[kind] then
+		local files = {}
+		if kind == "source" then
+			for _, kit in pairs(ns.EmitterKitFiles) do
+				for _, id in ipairs(kit) do files[id] = true end
+			end
+		else
+			local index = kind == "background" and 1 or 2
+			for _, groups in pairs(ns.EmitterAmbienceFiles) do
+				for _, id in ipairs(groups[index]) do files[id] = true end
+			end
+		end
+		emitterFilesByKind[kind] = files
+	end
+	return emitterFilesByKind[kind]
+end
+
 local function EmitterFileTitle(file)
 	return file[3] or (file[2] and file[2]:match("[^/]+$")) or L.MINIMAP_EMITTER_UNKNOWN
 end
@@ -611,7 +639,7 @@ local function EmitterDistance(x, y, coords)
 	return math.sqrt(closest)
 end
 
-local function CollectZoneAmbience(root, add)
+local function CollectZoneAmbience(root, kind, add)
 	local areas = root and ns.EmitterAmbience[root]
 	if not areas then return end
 	local area = root
@@ -630,11 +658,15 @@ local function CollectZoneAmbience(root, add)
 	local function AddArea(id, offset)
 		local data = ns.EmitterAmbienceFiles[areas[id][submerged and 2 or 1]]
 		if not data then return end
-		for _, fileID in ipairs(data[1]) do
-			add(fileID, 400 + offset, false, L.MINIMAP_EMITTER_AMBIENCE)
+		if kind ~= "detail" then
+			for _, fileID in ipairs(data[1]) do
+				add(fileID, 400 + offset, false, L.MINIMAP_EMITTER_AMBIENCE)
+			end
 		end
-		for _, fileID in ipairs(data[2]) do
-			add(fileID, 2000 + offset, false, L.MINIMAP_EMITTER_AMBIENCE_DETAIL)
+		if kind ~= "background" then
+			for _, fileID in ipairs(data[2]) do
+				add(fileID, 2000 + offset, false, L.MINIMAP_EMITTER_AMBIENCE_DETAIL)
+			end
 		end
 	end
 	AddArea(area, 0)
@@ -648,21 +680,32 @@ local function RefreshEmitters(retainScroll)
 	local id = tonumber(query)
 	if id and (id <= 0 or id > 2147483647 or id ~= floor(id)) then id = nil end
 	local mutedOnly = emitterWindow.MutedOnly:GetChecked()
-	local nearbyOnly = MinimapCoords.db.nearbyEmitters and not mutedOnly and not id
-	local muted = MinimapCoords.db.mutedEmitters
+	local db = MinimapCoords.db
+	local nearbyOnly = db.nearbyEmitters and not mutedOnly and not id
+	local muted = db.mutedEmitters
+	local kind = db.emitterSoundKind
+	local showSources = kind == "all" or kind == "source"
+	local root, map, x, y, inInstance
+	if nearbyOnly then root, map, x, y, inInstance = EmitterPlayerLocation() end
+	local radiusAvailable = showSources and x ~= nil and y ~= nil
+	local radius = radiusAvailable and db.emitterSoundRadius or 0
+	emitterWindow.RadiusAvailable = radiusAvailable
+	local activeFilters = (kind ~= "all" and 1 or 0) + (radius > 0 and 1 or 0)
+	emitterWindow.Filter:SetText(activeFilters > 0 and L.MINIMAP_EMITTER_FILTER_ACTIVE:format(activeFilters) or L.MINIMAP_EMITTER_FILTER)
 	emitterWindow.Nearby:SetEnabled(not mutedOnly)
 	local zoneName = nearbyOnly and GetRealZoneText()
 	emitterWindow.Scope:SetText(not ns.Secret(zoneName) and type(zoneName) == "string" and zoneName or L.MINIMAP_EMITTER_FOREVER)
 	emitterWindow.Empty:SetText(nearbyOnly and L.MINIMAP_EMITTER_EMPTY_HERE or L.MINIMAP_EMITTER_EMPTY)
-	if query == "" and not mutedOnly and not nearbyOnly then
+	if query == "" and not mutedOnly and not nearbyOnly and kind == "all" then
 		ApplyEmitterMatches(ns.EmitterSounds, retainScroll)
 		return
 	end
 	local byID = EmitterFilesByID()
+	local kindFiles = not nearbyOnly and kind ~= "all" and EmitterFilesOfKind(kind)
 	if id then
 		local files = {}
-		if byID[id] or muted[id] then
-			if not mutedOnly or muted[id] then files[1] = byID[id] or { id } end
+		if (not kindFiles or kindFiles[id]) and (not mutedOnly or muted[id]) then
+			files[1] = byID[id] or (muted[id] and { id } or nil)
 		end
 		ApplyEmitterMatches(files, retainScroll)
 		return
@@ -672,7 +715,7 @@ local function RefreshEmitters(retainScroll)
 	local matches = {}
 	if mutedOnly then
 		for fileID, isMuted in pairs(muted) do
-			if isMuted then
+			if isMuted and (not kindFiles or kindFiles[fileID]) then
 				local file = byID[fileID] or { fileID }
 				if MatchesEmitter(file, words) then matches[#matches + 1] = file end
 			end
@@ -692,13 +735,14 @@ local function RefreshEmitters(retainScroll)
 	if not nearbyOnly then
 		emitterFilterTicker = ns.RunSliced("Minimap: filter emitters", #ns.EmitterSounds, function(index)
 			local file = ns.EmitterSounds[index]
-			if MatchesEmitter(file, words) then matches[#matches + 1] = file end
+			if (not kindFiles or kindFiles[file[1]]) and MatchesEmitter(file, words) then
+				matches[#matches + 1] = file
+			end
 		end, Done, EMITTER_SLICE_BUDGET)
 		return
 	end
 
-	local root, map, x, y, inInstance = EmitterPlayerLocation()
-	local placements = (x and y or inInstance) and ns.EmitterLocations[map] or {}
+	local placements = showSources and (x and y or inInstance) and ns.EmitterLocations[map] or {}
 	local candidates = {}
 	local function AddCandidate(fileID, rank, title, source)
 		local file = byID[fileID]
@@ -708,12 +752,12 @@ local function RefreshEmitters(retainScroll)
 			if MatchesEmitter(candidate, words) then candidates[fileID] = candidate end
 		end
 	end
-	CollectZoneAmbience(root, AddCandidate)
+	if kind ~= "source" then CollectZoneAmbience(root, kind, AddCandidate) end
 	emitterFilterTicker = ns.RunSliced("Minimap: find nearby emitters", #placements, function(index)
 		if token ~= emitterFilterToken then return end
 		local placement = placements[index]
 		local distance = x and y and EmitterDistance(x, y, placement[4])
-		if not distance or distance <= placement[2] + EMITTER_DISTANCE_MARGIN then
+		if not distance or (distance <= placement[2] + EMITTER_DISTANCE_MARGIN and (radius == 0 or distance <= radius)) then
 			local detail = distance and L.MINIMAP_EMITTER_DISTANCE:format(floor(distance + 0.5)) or L.MINIMAP_EMITTER_PLACED
 			for _, fileID in ipairs(ns.EmitterKitFiles[placement[3]]) do
 				AddCandidate(fileID, distance or 0, placement[1], detail)
@@ -729,6 +773,41 @@ local function RefreshEmitters(retainScroll)
 		end)
 		Done()
 	end, EMITTER_SLICE_BUDGET)
+end
+
+local function OpenEmitterFilterMenu(button)
+	local db = MinimapCoords.db
+	MenuUtil.CreateContextMenu(button, function(_, menu)
+		menu:CreateTitle(L.MINIMAP_EMITTER_FILTER_KIND)
+		local function SetKind(kind)
+			db.emitterSoundKind = kind
+			RefreshEmitters(false)
+		end
+		for _, entry in ipairs(EMITTER_KINDS) do
+			menu:CreateRadio(entry[2], function(kind) return db.emitterSoundKind == kind end, SetKind, entry[1])
+		end
+		menu:CreateDivider()
+		menu:CreateTitle(L.MINIMAP_EMITTER_FILTER_RADIUS)
+		if not emitterWindow.RadiusAvailable then
+			menu:CreateTitle(L.MINIMAP_EMITTER_FILTER_RADIUS_HINT)
+		end
+		local function SetRadius(radius)
+			if emitterWindow.RadiusAvailable then
+				db.emitterSoundRadius = radius
+				RefreshEmitters(false)
+			end
+		end
+		for _, radius in ipairs(EMITTER_RADII) do
+			local label = radius == 0 and L.MINIMAP_EMITTER_FILTER_RADIUS_DEFAULT or L.MINIMAP_EMITTER_FILTER_RADIUS_LIMIT:format(radius)
+			local radio = menu:CreateRadio(label, function(value) return db.emitterSoundRadius == value end, SetRadius, radius)
+			radio:SetEnabled(emitterWindow.RadiusAvailable == true)
+		end
+		menu:CreateDivider()
+		menu:CreateButton(L.RESET, function()
+			db.emitterSoundKind, db.emitterSoundRadius = "all", 0
+			RefreshEmitters(false)
+		end):SetEnabled(db.emitterSoundKind ~= "all" or db.emitterSoundRadius ~= 0)
+	end)
 end
 
 local function ToggleEmitterMatches(button)
@@ -848,7 +927,7 @@ local function CreateEmitterWindow()
 	tinsert(UISpecialFrames, window:GetName())
 
 	local search = CreateFrame("EditBox", nil, window, "SearchBoxTemplate")
-	search:SetSize(235, 24)
+	search:SetSize(205, 24)
 	search:SetPoint("TOPLEFT", 16, -29)
 	search:SetMaxLetters(100)
 	window.Search = search
@@ -862,9 +941,16 @@ local function CreateEmitterWindow()
 
 	local mutedOnly = CreateFrame("CheckButton", nil, window, "UICheckButtonTemplate")
 	mutedOnly:SetSize(26, 26)
-	mutedOnly:SetPoint("LEFT", nearby, "LEFT", 126, 0)
+	mutedOnly:SetPoint("LEFT", nearby, "LEFT", 112, 0)
 	mutedOnly.Text:SetText(L.MINIMAP_EMITTER_MUTED_ONLY)
 	window.MutedOnly = mutedOnly
+
+	local filter = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+	filter:SetSize(94, 20)
+	filter:SetPoint("TOPRIGHT", -16, -31)
+	filter:SetText(L.MINIMAP_EMITTER_FILTER)
+	filter:SetScript("OnClick", ns.Measured("Minimap: open ambient sound filters", OpenEmitterFilterMenu))
+	window.Filter = filter
 
 	local scope = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	scope:SetPoint("LEFT", window, "BOTTOMLEFT", 14, 14)

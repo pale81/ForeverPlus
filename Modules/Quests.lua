@@ -997,14 +997,33 @@ local function RestoreWatches()
 	WriteWatches(CurrentWatches(facts), list)
 end
 
+local lastDistMap, lastDistX, lastDistY
+local DIST_MOVE_EPS = 0.002
+
+local function QueueDistanceSort()
+	local mapID = ns.Number(C_Map.GetBestMapForUnit("player"))
+	local pos = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
+	if pos then
+		local x, y = pos:GetXY()
+		x, y = ns.Number(x), ns.Number(y)
+		if x and y and mapID == lastDistMap and lastDistX and lastDistY
+			and math.abs(x - lastDistX) + math.abs(y - lastDistY) < DIST_MOVE_EPS then
+			return
+		end
+		lastDistMap, lastDistX, lastDistY = mapID, x, y
+	end
+	QueueSort()
+end
+
 function Quests:UpdateTrackerSort(switched)
 	local mode = self.db.trackerSort
 	if sortTicker then
 		sortTicker:Cancel()
 		sortTicker = nil
 	end
+	lastDistMap, lastDistX, lastDistY = nil, nil, nil
 	if mode == "distance" then
-		sortTicker = ns.NewTicker("Quests: QueueSort", DISTANCE_INTERVAL, QueueSort)
+		sortTicker = ns.NewTicker("Quests: QueueSort", DISTANCE_INTERVAL, QueueDistanceSort)
 	end
 	local now = IsManaging()
 	if now then

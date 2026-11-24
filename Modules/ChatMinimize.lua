@@ -56,7 +56,8 @@ end
 
 local MAX_LINES = 4
 local MARGIN = 6 -- pixels of the width not used by the text (as in the indented chat)
-local meter
+local meter, meterFile, meterSize, meterFlags, meterSpacing, meterWidth
+local tsFormatCache, tsTimeCache, tsSampleCache
 
 -- Timestamp the window puts in front of a line (nil when it shows none).
 local function TimestampSample()
@@ -64,10 +65,18 @@ local function TimestampSample()
 	if not format or not TimeUtil or not TimeUtil.BetterDate then
 		return nil
 	end
-	local sample = TimeUtil.BetterDate(format, time())
-	if type(sample) == "string" and sample ~= "" then
-		return (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	local nowSec = time()
+	if format == tsFormatCache and nowSec == tsTimeCache then
+		return tsSampleCache
 	end
+	local sample = TimeUtil.BetterDate(format, nowSec)
+	tsFormatCache, tsTimeCache = format, nowSec
+	if type(sample) ~= "string" or sample == "" then
+		tsSampleCache = nil
+		return nil
+	end
+	tsSampleCache = (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	return tsSampleCache
 end
 
 -- The last message in this window, measured with the font and width of the window: how many lines it takes and how
@@ -82,16 +91,31 @@ local function LastMessageSize(frame)
 	if not file then
 		return 1, LineHeight(frame)
 	end
-	meter = meter or ns.hider:CreateFontString(nil, "ARTWORK")
-	meter:SetFont(file, ns.Number(size, 14), flags or "")
-	if meter.SetSpacing and frame.GetSpacing then
-		meter:SetSpacing(ns.Number(frame:GetSpacing(), 0))
+	size = ns.Number(size, 14)
+	flags = flags or ""
+	if not meter then
+		meter = ns.hider:CreateFontString(nil, "ARTWORK")
+		meter:SetWordWrap(true)
 	end
-	meter:SetWidth(math.max(50, ns.Number(frame:GetWidth(), 300) - MARGIN))
-	meter:SetWordWrap(true)
+	if file ~= meterFile or size ~= meterSize or flags ~= meterFlags then
+		meter:SetFont(file, size, flags)
+		meterFile, meterSize, meterFlags = file, size, flags
+	end
+	if meter.SetSpacing and frame.GetSpacing then
+		local spacing = ns.Number(frame:GetSpacing(), 0)
+		if spacing ~= meterSpacing then
+			meter:SetSpacing(spacing)
+			meterSpacing = spacing
+		end
+	end
+	local width = math.max(50, ns.Number(frame:GetWidth(), 300) - MARGIN)
+	if width ~= meterWidth then
+		meter:SetWidth(width)
+		meterWidth = width
+	end
 	meter:SetText((TimestampSample() or "") .. text)
 	local height = ns.Number(meter:GetStringHeight(), 0)
-	local lines = math.max(1, math.floor(height / math.max(1, ns.Number(size, 14)) + 0.5))
+	local lines = math.max(1, math.floor(height / math.max(1, size) + 0.5))
 	if lines > MAX_LINES then
 		height = height / lines * MAX_LINES
 		lines = MAX_LINES
@@ -244,6 +268,7 @@ local function Check()
 end
 
 local hooked = {}
+local pendingFold = {}
 
 local function HookFrames()
 	for _, frame in ipairs(Windows()) do
@@ -252,13 +277,19 @@ local function HookFrames()
 			hooksecurefunc(frame, "AddMessage", ns.Measured("ChatMinimize: message", function(window)
 				lastMessage = GetTime()
 				-- A new message shows a faded chat again; a shrunken one stays shrunken and takes the height of that
-				-- message.
+				-- message. Coalesce bursts so 15 lines in one frame only measure the final line once.
 				if fadeTarget == 1 then
 					SetFade(0)
 				end
-				if foldTarget == 1 and heights[window] then
-					foldHeights[window] = FoldHeight(window)
-					Animate()
+				if foldTarget == 1 and heights[window] and not pendingFold[window] then
+					pendingFold[window] = true
+					ns.After("ChatMinimize: measure folded height", 0, function()
+						pendingFold[window] = nil
+						if foldTarget == 1 and heights[window] then
+							foldHeights[window] = FoldHeight(window)
+							Animate()
+						end
+					end)
 				end
 			end))
 		end

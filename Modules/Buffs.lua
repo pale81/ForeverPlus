@@ -815,16 +815,32 @@ function Buffs.BuffUnit(selfMissing, targetMissing)
 	end
 end
 
+local wheelBoundName
+
 -- Hides the buttons from index `first` on. Nothing to cast: the key does nothing (it would cast the last buff shown).
 local function HideButtons(first)
 	for index = first, #buttons do
 		local button = buttons[index]
-		button.ownReminder = false
-		button:SetAttribute("type", nil)
-		button:Hide()
-		button.Alert.ProcStartAnim:Stop()
-		button.Alert:Hide()
+		if button.ownReminder or button:IsShown() or button:GetAttribute("type") ~= nil then
+			button.ownReminder = false
+			button:SetAttribute("type", nil)
+			button:Hide()
+			button.Alert.ProcStartAnim:Stop()
+			button.Alert:Hide()
+		end
 	end
+end
+
+local function SyncWheelBindings(buttonName)
+	if wheelBoundName == buttonName then
+		return
+	end
+	ClearOverrideBindings(wheelHandler)
+	if buttonName then
+		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELUP", buttonName)
+		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttonName)
+	end
+	wheelBoundName = buttonName
 end
 
 local function Update()
@@ -841,7 +857,7 @@ local function Update()
 	-- (it would stay clickable with a state that is no longer checked).
 	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() == true then
 		HideButtons(1)
-		ClearOverrideBindings(wheelHandler)
+		SyncWheelBindings(nil)
 		WatchRange(nil)
 		events:UnregisterEvent("UNIT_POWER_UPDATE")
 		return
@@ -914,11 +930,7 @@ local function Update()
 
 	-- The plain mouse wheel casts the first missing buff while a reminder is
 	-- shown (camera zoom pauses meanwhile; Shift + wheel keeps its binding).
-	ClearOverrideBindings(wheelHandler)
-	if Buffs.db.wheelCast and count > 0 then
-		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELUP", buttons[1]:GetName())
-		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttons[1]:GetName())
-	end
+	SyncWheelBindings(Buffs.db.wheelCast and count > 0 and buttons[1]:GetName() or nil)
 
 	if next(watchedPower) then
 		events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
@@ -1003,6 +1015,7 @@ local function CreateBar()
 	events:RegisterEvent("PLAYER_REGEN_DISABLED")
 	events:SetScript("OnEvent", ns.Measured("Buffs: event", function(self, event)
 		if event == "PLAYER_REGEN_DISABLED" then
+			wheelBoundName = nil -- SecureHandlerStateTemplate clears the override bindings on combat entry
 			self:UnregisterEvent("UNIT_AURA")
 			self:UnregisterEvent("UNIT_POWER_UPDATE")
 			return

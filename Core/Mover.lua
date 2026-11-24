@@ -410,8 +410,17 @@ catcher:SetFrameStrata("TOOLTIP")
 catcher:EnableMouse(false)
 catcher:Hide()
 
-local ticker, ctrlDown, catcherOn
-local function UpdateCatcherTarget()
+local catcherDriver, ctrlDown, catcherOn
+local lastCursorX, lastCursorY, lastCtrlDown
+
+local function UpdateCatcherTarget(force)
+	local cx, cy = GetCursorPosition()
+	local target = catcher.target
+	if not force and cx == lastCursorX and cy == lastCursorY and ctrlDown == lastCtrlDown
+		and (not target or target:IsShown()) then
+		return
+	end
+	lastCursorX, lastCursorY, lastCtrlDown = cx, cy, ctrlDown
 	local foci = GetMouseFoci()
 	local region = foci and foci[1]
 	if region == catcher then
@@ -471,11 +480,11 @@ catcher:SetScript("OnMouseWheel", function(self, delta)
 end)
 
 local function StopCatcher()
-	if ticker then
-		ticker:Cancel()
-		ticker = nil
+	if catcherDriver then
+		catcherDriver:Hide()
 	end
 	catcherOn = false
+	lastCursorX, lastCursorY, lastCtrlDown = nil, nil, nil
 	catcher.target = nil
 	catcher:EnableMouseWheel(false)
 	catcher:Hide()
@@ -494,28 +503,41 @@ local function AnyWindowUnlocked()
 	return false
 end
 
--- The catcher follows the mouse while Ctrl is held or while a window is unlocked: a timer that plans itself
--- again as long as that holds (no endless ticker).
-local function UpdateCatcher()
+-- The catcher follows the mouse while Ctrl is held or while a window is unlocked, reusing one throttled driver
+-- instead of creating a new C_Timer + closure ten times per second.
+local catcherElapsed = 0
+local UpdateCatcher
+
+local function EnsureCatcherDriver()
+	if catcherDriver then
+		return catcherDriver
+	end
+	catcherDriver = CreateFrame("Frame")
+	catcherDriver:Hide()
+	ns.SetUpdate(catcherDriver, "Mover: UpdateCatcherTarget", function(_, elapsed)
+		catcherElapsed = catcherElapsed + elapsed
+		if catcherElapsed < 0.1 then
+			return
+		end
+		catcherElapsed = 0
+		if not (catcherOn and Mover.db.enabled and (ctrlDown or AnyWindowUnlocked())) then
+			StopCatcher()
+			return
+		end
+		UpdateCatcherTarget(false)
+	end)
+	return catcherDriver
+end
+
+UpdateCatcher = function()
 	if not (Mover.db.enabled and (ctrlDown or AnyWindowUnlocked())) then
 		StopCatcher()
 		return
 	end
-	UpdateCatcherTarget()
+	UpdateCatcherTarget(true)
 	catcherOn = true
-	if not ticker then
-		local scheduling = true
-		ticker = ns.NewTimer("Mover: UpdateCatcherTarget", 0.1, function()
-			if scheduling then
-				return -- a timer that fires at once (not in the game) must not plan itself again without end
-			end
-			ticker = nil
-			if catcherOn then
-				UpdateCatcher()
-			end
-		end)
-		scheduling = false
-	end
+	catcherElapsed = 0
+	EnsureCatcherDriver():Show()
 end
 Mover.UpdateCatcher = UpdateCatcher
 

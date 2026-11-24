@@ -36,6 +36,14 @@ local function Point(sample)
 	return { mapID = sample.mapID, x = sample.x, y = sample.y }
 end
 
+local function SetPoint(dst, sample)
+	if dst then
+		dst.mapID, dst.x, dst.y = sample.mapID, sample.x, sample.y
+		return dst
+	end
+	return Point(sample)
+end
+
 local function Moved(a, b)
 	return a.mapID == b.mapID and math.abs(a.x - b.x) + math.abs(a.y - b.y) > MOVE_EPS
 end
@@ -64,7 +72,7 @@ function Transports.Step(state, sample)
 		state.passive = (state.passive or 0) + 1
 		local ride = state.ride
 		if not ride and state.passive >= START_SAMPLES and state.anchor then
-			ride = { from = state.anchor, start = sample.time - SAMPLE_INTERVAL * state.passive, lastSeen = sample.time,
+			ride = { from = Point(state.anchor), start = sample.time - SAMPLE_INTERVAL * state.passive, lastSeen = sample.time,
 				path = {}, crossed = false, nextPath = sample.time }
 			state.ride = ride
 		end
@@ -72,7 +80,7 @@ function Transports.Step(state, sample)
 			if last.mapID ~= sample.mapID then
 				ride.crossed = true
 			end
-			ride.to, ride.lastSeen = Point(sample), sample.time
+			ride.to, ride.lastSeen = SetPoint(ride.to, sample), sample.time
 			if sample.time >= ride.nextPath and #ride.path < MAX_PATH then
 				ride.path[#ride.path + 1] = { sample.mapID, sample.x, sample.y }
 				ride.nextPath = sample.time + PATH_INTERVAL
@@ -91,10 +99,10 @@ function Transports.Step(state, sample)
 			end
 		end
 		if not state.ride then
-			state.anchor = Point(sample)
+			state.anchor = SetPoint(state.anchor, sample)
 		end
 	end
-	state.last = Point(sample)
+	state.last = SetPoint(state.last, sample)
 	return finished
 end
 
@@ -106,6 +114,7 @@ function Transports.Finish(ride)
 end
 
 local state = {}
+local sampleCache = {}
 
 local function Sample()
 	local mapID = C_Map.GetBestMapForUnit("player")
@@ -115,11 +124,13 @@ local function Sample()
 		x, y = position:GetXY()
 		x, y = ns.Number(x), ns.Number(y)
 	end
-	local ride = Transports.Step(state, {
-		time = GetTime(), mapID = mapID, x = x, y = y,
-		speed = ns.Number((GetUnitSpeed("player")), 1),
-		blocked = UnitOnTaxi("player") or IsFalling() or UnitIsDeadOrGhost("player") or InCombatLockdown(),
-	})
+	sampleCache.time = GetTime()
+	sampleCache.mapID = mapID
+	sampleCache.x = x
+	sampleCache.y = y
+	sampleCache.speed = ns.Number((GetUnitSpeed("player")), 1)
+	sampleCache.blocked = UnitOnTaxi("player") or IsFalling() or UnitIsDeadOrGhost("player") or InCombatLockdown()
+	local ride = Transports.Step(state, sampleCache)
 	if ride then
 		Transports:AddRide(ride)
 	end

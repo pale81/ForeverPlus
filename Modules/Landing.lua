@@ -65,7 +65,11 @@ local function Blocked()
 end
 
 local function OnUpdate()
-	local kind = Landing.Step(state, IsFalling(), GetTime(), Blocked())
+	local falling = IsFalling()
+	if not falling and not state.since then
+		return
+	end
+	local kind = Landing.Step(state, falling, GetTime(), Blocked())
 	if kind then
 		Play(kind)
 	end

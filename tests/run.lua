@@ -14084,6 +14084,64 @@ end)()
 	assert(dp.collection == sample and insertCalls == 0, "MakeEmitterProvider attaches entries directly without per-row InsertTable")
 	CreateDataProvider = savedCreateDP
 
+	-- 9. Quests: QueueDistanceSort skips QueueSort when the player has not moved.
+	local queueDistSort = uv(quests.UpdateTrackerSort, "QueueDistanceSort")
+	local savedMapBest, savedMapPos = C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition
+	local savedQueueSort = uv(queueDistSort, "QueueSort")
+	local distSorts, px, py = 0, 0.5, 0.5
+	setuv(queueDistSort, "QueueSort", function() distSorts = distSorts + 1 end)
+	setuv(queueDistSort, "lastDistMap", nil)
+	C_Map.GetBestMapForUnit = function() return 1453 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return px, py end } end
+	queueDistSort()
+	queueDistSort()
+	assert(distSorts == 1, "QueueDistanceSort skips repeated sort ticks while standing still: " .. distSorts)
+	px = 0.51
+	queueDistSort()
+	assert(distSorts == 2, "QueueDistanceSort runs again once the player moves")
+	setuv(queueDistSort, "QueueSort", savedQueueSort)
+	C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition = savedMapBest, savedMapPos
+
+	-- 10. Landing: OnUpdate skips GetTime and Blocked checks while grounded.
+	local landing = ns:GetModule("Landing")
+	local landingUpdate = uv(landing.Apply, "OnUpdate")
+	local savedFalling, savedSwimming = IsFalling, IsSwimming
+	local swimCalls = 0
+	IsFalling = function() return false end
+	IsSwimming = function() swimCalls = swimCalls + 1 return false end
+	landingUpdate()
+	assert(swimCalls == 0, "Landing skips Blocked() checks when not falling")
+	IsFalling, IsSwimming = savedFalling, savedSwimming
+
+	-- 11. Mover: UpdateCatcherTarget skips GetMouseFoci when the cursor has not moved.
+	local moverMod = ns:GetModule("Mover")
+	local updateCatcherTarget = uv(moverMod.UpdateCatcher, "UpdateCatcherTarget")
+	local savedCursor, savedFoci = GetCursorPosition, GetMouseFoci
+	local fociCalls = 0
+	GetCursorPosition = function() return 400, 300 end
+	GetMouseFoci = function() fociCalls = fociCalls + 1 return {} end
+	updateCatcherTarget(true)
+	updateCatcherTarget(false)
+	assert(fociCalls == 1, "Mover skips GetMouseFoci when cursor coordinates have not changed")
+	GetCursorPosition, GetMouseFoci = savedCursor, savedFoci
+
+	-- 12. Buffs: SyncWheelBindings skips ClearOverrideBindings / SetOverrideBindingClick when unchanged.
+	local buffsMod = ns:GetModule("Buffs")
+	local buffsUpdate = uv(buffsMod.OnLogin, "Update")
+	local syncWheel = uv(buffsUpdate, "SyncWheelBindings")
+	local savedClearBind, savedSetBind = ClearOverrideBindings, SetOverrideBindingClick
+	local clearCalls, setCalls = 0, 0
+	ClearOverrideBindings = function() clearCalls = clearCalls + 1 end
+	SetOverrideBindingClick = function() setCalls = setCalls + 1 end
+	setuv(syncWheel, "wheelBoundName", nil)
+	syncWheel("ForeverPlusBuffButton1")
+	syncWheel("ForeverPlusBuffButton1")
+	assert(clearCalls == 1 and setCalls == 2, "Buffs updates wheel override bindings only when target changes")
+	syncWheel(nil)
+	syncWheel(nil)
+	assert(clearCalls == 2 and setCalls == 2, "Buffs clears wheel override bindings only once")
+	ClearOverrideBindings, SetOverrideBindingClick = savedClearBind, savedSetBind
+
 	print("runtime stutter optimizations OK")
 end)()
 dofile("wanderlust.lua")

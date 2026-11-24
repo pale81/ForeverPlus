@@ -103,16 +103,25 @@ local function Tokens(text)
 end
 
 -- The timestamp of the chat window as text (nil when the chat shows none).
+local tsFormatCache, tsTimeCache, tsSampleCache
+
 local function TimestampSample()
 	local format = ChatFrameUtil and ChatFrameUtil.GetTimestampFormat and ChatFrameUtil.GetTimestampFormat()
 	if not format or not TimeUtil or not TimeUtil.BetterDate then
 		return nil
 	end
-	local sample = TimeUtil.BetterDate(format, time())
+	local nowSec = time()
+	if format == tsFormatCache and nowSec == tsTimeCache then
+		return tsSampleCache
+	end
+	local sample = TimeUtil.BetterDate(format, nowSec)
+	tsFormatCache, tsTimeCache = format, nowSec
 	if type(sample) ~= "string" or sample == "" then
+		tsSampleCache = nil
 		return nil
 	end
-	return (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	tsSampleCache = (sample:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+	return tsSampleCache
 end
 
 -- Whether the message itself starts with the timestamp (else the chat window puts it in front when it draws the
@@ -185,39 +194,43 @@ end
 local pendingWraps = {}
 
 local function OnAddMessage(frame, message)
-	if not Indent.db.enabled or type(message) ~= "string" or ns.Secret(message) then
+	if not Indent.db.enabled or type(message) ~= "string" or ns.Secret(message) or not message:find(" ", 1, true) then
 		return
 	end
 	local batch = pendingWraps[frame]
-	if batch and batch[message] then
-		return -- the same text uses the same wrap
-	end
-	local wrapped = Indent.Wrap(frame, message)
-	if not wrapped then
+	if batch then
+		batch[message] = true
 		return
 	end
-	if batch then
-		batch[message] = wrapped
-	else
-		batch = { [message] = wrapped }
-		pendingWraps[frame] = batch
-		-- TransformMessages traverses the whole history. Do that once per
-		-- window for all messages that arrived together.
-		ns.After("Chat: apply indented wraps", 0, function()
-			if pendingWraps[frame] ~= batch then
-				return
+	batch = { [message] = true }
+	pendingWraps[frame] = batch
+	-- Measure, wrap and TransformMessages once on the next frame so message bursts do not stall AddMessage.
+	ns.After("Chat: apply indented wraps", 0, function()
+		if pendingWraps[frame] ~= batch then
+			return
+		end
+		pendingWraps[frame] = nil
+		if not Indent.db.enabled then
+			return
+		end
+		local replacements
+		for original in pairs(batch) do
+			local wrapped = Indent.Wrap(frame, original)
+			if wrapped then
+				replacements = replacements or {}
+				replacements[original] = wrapped
+				Remember(wrapped, original)
 			end
-			pendingWraps[frame] = nil
-			for original, replacement in pairs(batch) do
-				Remember(replacement, original)
-			end
-			frame:TransformMessages(function(text)
-				return not ns.Secret(text) and batch[text] ~= nil
-			end, function(text, ...)
-				return batch[text], ...
-			end)
+		end
+		if not replacements then
+			return
+		end
+		frame:TransformMessages(function(text)
+			return not ns.Secret(text) and replacements[text] ~= nil
+		end, function(text, ...)
+			return replacements[text], ...
 		end)
-	end
+	end)
 end
 
 -- Wraps the lines again (after a resize) or gives them back unwrapped (rewrap false).

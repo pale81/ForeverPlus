@@ -2,12 +2,107 @@
 """Build the Forever ambience finder from client DB2 CSVs and a community listfile."""
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 import csv
 from functools import cache
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+
+
+# Match sound descriptions, including common concatenated filenames. Avoid matching
+# place names such as Stormwind, Thunder Bluff, Riverglades and Firelands as effects.
+SOUND_NAMES = {
+    "water": r"\b(?:waterfall\w*|watersplash\w*|waterdrip\w*|waterflow\w*|waterbubble\w*|"
+             r"underwater\w*|oceanlapping\w*|river(?:small|medium|large|flow)\w*|water|waves|"
+             r"rapids|river|ocean|(?:call)?tsunami\w*|splash(?:es|ing)?|drips?|bubbling)\b",
+    "wind": r"\b(?:wind|winds|windy|wind(?:loop|gust|whisp|howl|blow)\w*|"
+            r"breeze\w*|gust\w*|whistlingwind\w*|ravinewind\w*|chillingwinds)\b",
+    "rain": r"\b(?:rain|rain(?:heavy|medium|med|light|loop)\w*|raindrops?)\b",
+    "thunder": r"\b(?:thunder|thundercrack\w*|thunderrumble\w*|thunderclap\w*|"
+               r"thunderstorm\w*|lightning|lightningbolt\w*)\b",
+    "fire": r"\b(?:fire|campfire\w*|bonfire\w*|fireplace\w*|flames?|lava\w*|magma\w*|"
+            r"torch(?:es)?|brazier\w*|burning)\b",
+    "snow": r"\b(?:snow|snow(?:light|medium|heavy|storm)\w*|blizzard\w*|hail)\b",
+    "animals": r"\b(?:birds?\w*|cricket\w*|frogs?\w*|seagull\w*|sparrow\w*|"
+               r"crows?|owls?|ravens?|monkeys?|"
+               r"wolves|wolf\w*|lion\w*|bear|bears|bat|bats|rat|rats|wasp\w*|flies|"
+               r"mosquit\w*|bee\w*|insect\w*|dinosaurs?)\b",
+    "voices": r"\b(?:walla\w*|crowds?|chatter\w*|voices?|conversation\w*|"
+              r"dialog\w*|talking|yelling|laugh\w*|cheering|whisper\w*)\b",
+    "objects": r"\b(?:machin\w*|windmill\w*|towermachine\w*|piston\w*|gears?|cogwheels?|"
+               r"steam|pump\w*|boiler\w*|doors?|gear(?:s)?door\w*|chain\w*|"
+               r"rope\w*|creak\w*|bell\w*|footsteps?|console\w*|rocks?|debris)\b",
+    "magic": r"\b(?:arcane\w*|magic\w*|portals?|leyline\w*|spectral|runic|fel|void|"
+             r"ghosts?|necromanc\w*)\b",
+    "combat": r"\b(?:battles?|distantbattle\w*|swords?|cannons?|gunfire\w*|"
+              r"explosions?|distantfireexplosion\w*|siege|explosion\w*)\b",
+}
+SOUND_NAMES = {kind: re.compile(pattern) for kind, pattern in SOUND_NAMES.items()}
+SETTING_NAMES = (
+    ("water", re.compile(r"\b(?:lake|lakeside|coast|sewer|shore|riverbank|harbo[u]?r|dock)\b")),
+    ("snow", re.compile(r"\b(?:forestsnow\w*|snowy\w*|snowfield\w*|snow covered)\b")),
+    ("voices", re.compile(r"\b(?:tavern|market|bazaar|inn|town square)\b")),
+    ("environment", re.compile(r"\b(?:amb|ambience|zonetone|forest\w*|jungle\w*|desert\w*|"
+                               r"cave\w*|mine|mines|indoors|outdoors|city|plains|tundra)\b")),
+)
+
+
+def sound_words(name):
+    separated = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+    words = re.sub(r"[^a-z]+", " ", separated.lower())
+    return re.sub(r"\bthunder bluff\b", "thunderbluff", words)
+
+
+def named_categories(words):
+    return {kind: list(pattern.finditer(words)) for kind, pattern in SOUND_NAMES.items() if pattern.search(words)}
+
+
+def placement_category(name):
+    # The ending usually names a source, while the beginning is a map or
+    # subzone. Prefer Running Water in Burning Blade Coven, for example.
+    for part in reversed(name.split(" - ")):
+        matches = named_categories(sound_words(part))
+        if matches:
+            return next(iter(matches)) if len(matches) == 1 else None
+    words = sound_words(name)
+    return next((kind for kind, pattern in SETTING_NAMES if pattern.search(words)), None)
+
+
+def classify_sound(path, placements, rain):
+    if rain:
+        return ("rain", False)
+
+    words = sound_words(PurePosixPath(path).stem) if path else ""
+    matches = named_categories(words)
+    if len(matches) == 1:
+        return (next(iter(matches)), False)
+
+    evidence = Counter(kind for kind in placements if kind != "environment")
+    if matches:
+        # Prefer the description supported by placements. When they give no
+        # preference, use the most explicit and earliest cue in the filename.
+        return (min(matches, key=lambda kind: (-evidence[kind], -len(matches[kind]), matches[kind][0].start())), True)
+    if evidence:
+        ranked = evidence.most_common()
+        if len(ranked) == 1 or ranked[0][1] > ranked[1][1]:
+            return (ranked[0][0], True)
+        return None
+    for kind, pattern in SETTING_NAMES:
+        if pattern.search(words):
+            return (kind, True)
+    if path:
+        if path.startswith(("sound/ambience/", "sound/emitters/")):
+            return ("environment", True)
+        if path.startswith(("sound/spell/", "sound/spells/")):
+            return ("magic", True)
+        if path.startswith("sound/creature/"):
+            return ("animals", True)
+        if path.startswith(("sound/foley/", "sound/doodad/", "sound/item/")):
+            return ("objects", True)
+    if placements:
+        return ("environment", True)
+    return None
 
 
 def table(directory, name):
@@ -20,6 +115,8 @@ def lua(value):
         return json.dumps(value, ensure_ascii=False)
     if value is None:
         return "false"
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, (tuple, list)):
         return "{ " + ", ".join(map(lua, value)) + " }"
     return str(value)
@@ -103,6 +200,7 @@ def build(directory, listfile):
 
     emitters = defaultdict(list)
     labels = {}
+    placement_categories = defaultdict(list)
     placement_kits = {}
     for row in table(directory, "SoundEmitters"):
         name = row["Name"]
@@ -115,10 +213,16 @@ def build(directory, listfile):
         if not files or coords == [(0, 0)]:
             continue
         label = re.sub(r"^1\.60\s+(?:Amb(?:ience)?\s*)?-\s*", "", name).strip()
-        emitters[int(row["MapID"])].append((label, round(ranges.get(kit, 0)), kit, sum(coords, ())))
+        category = placement_category(label)
+        placement = (label, round(ranges.get(kit, 0)), kit, sum(coords, ()))
+        if category:
+            placement += (category,)
+        emitters[int(row["MapID"])].append(placement)
         placement_kits[kit] = files
         for file_id in files:
             labels.setdefault(file_id, label)
+            if category:
+                placement_categories[file_id].append(category)
 
     used = set(labels)
     ambient_kits = {}
@@ -147,9 +251,14 @@ def build(directory, listfile):
                         intensity = rain[1]
                         rain_sounds[file_id] = "medium" if intensity == "med" else intensity
     used.update(rain_sounds)
+    categories = {}
+    for file_id in used:
+        category = classify_sound(paths.get(file_id), placement_categories.get(file_id, ()), file_id in rain_sounds)
+        if category:
+            categories[file_id] = category
     files = sorted(((id_, paths.get(id_), labels.get(id_)) for id_ in used),
                    key=lambda row: (row[2] or row[1] or "", row[0]))
-    return files, maps, area_sounds, ambient_kits, placement_kits, emitters, rain_sounds
+    return files, maps, area_sounds, ambient_kits, placement_kits, emitters, rain_sounds, categories
 
 
 def main():
@@ -159,7 +268,7 @@ def main():
     parser.add_argument("build", help="Client build of the DB2 exports")
     args = parser.parse_args()
 
-    files, maps, areas, ambient_kits, placement_kits, emitters, rain_sounds = build(args.tables, args.listfile)
+    files, maps, areas, ambient_kits, placement_kits, emitters, rain_sounds, categories = build(args.tables, args.listfile)
     if not files or not maps or not emitters or not rain_sounds:
         parser.error("Missing Forever sound, weather or map records")
     output = Path(__file__).resolve().parents[1] / "Data" / "EmitterSounds.lua"
@@ -169,6 +278,9 @@ def main():
         target.write("ns.EmitterSounds = {\n")
         for record in files:
             target.write(f"\t{lua(record)},\n")
+        target.write("}\nns.EmitterSoundCategories = {\n")
+        for file_id, category in sorted(categories.items()):
+            target.write(f"\t[{file_id}] = {lua(category)},\n")
         target.write("}\nns.EmitterRainSounds = {\n")
         for file_id, intensity in sorted(rain_sounds.items()):
             target.write(f"\t[{file_id}] = {lua(intensity)},\n")

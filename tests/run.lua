@@ -6937,20 +6937,23 @@ end)()
 			if visibleRow then initialize(visibleRow, visibleRow.file) end
 		end
 	end }
-	local filterEntries
+	local filterEntries, categoryEntries
 	MenuUtil = { CreateContextMenu = function(button, generator)
-		filterEntries = {}
+		filterEntries, categoryEntries = {}, {}
+		local function AddRadioTo(entries)
+			return function(_, _, selected, action, value)
+				local entry = { selected = selected, action = action, enabled = true }
+				entry.SetEnabled = function(self, enabled) self.enabled = enabled end
+				entries[value] = entry
+				return entry
+			end
+		end
 		generator(button, {
 			CreateTitle = function() end,
 			CreateDivider = function() end,
-			CreateRadio = function(_, _, selected, action, value)
-				local entry = { selected = selected, action = action, enabled = true }
-				entry.SetEnabled = function(self, enabled) self.enabled = enabled end
-				filterEntries[value] = entry
-				return entry
-			end,
+			CreateRadio = AddRadioTo(filterEntries),
 			CreateButton = function(_, name, action)
-				local entry = { action = action }
+				local entry = { action = action, CreateRadio = AddRadioTo(categoryEntries) }
 				entry.SetEnabled = function(self, enabled) self.enabled = enabled end
 				filterEntries[name] = entry
 				return entry
@@ -7009,6 +7012,11 @@ end)()
 		assert(entry and entry.enabled, "filter is selectable")
 		entry.action(value)
 	end
+	local function SelectCategory(value)
+		OpenFilters()
+		assert(categoryEntries[value], "category is selectable in its own submenu")
+		categoryEntries[value].action(value)
+	end
 	assert(window:IsShown() and window.Nearby:GetChecked() and #results > 0 and #results < 600,
 		"right-click opens a short list of local sources and ambience")
 	Search("wind")
@@ -7016,10 +7024,23 @@ end)()
 	assert(bridge[3]:find("Bridge Wind", 1, true) and bridge[2]:find("ambience/", 1, true),
 		"placement labels identify the source even for reused audio in a different archive folder")
 	assert(not FindSound(7386632) and not FindSound(7139274), "unrelated Retail and Westfall files stay out of the local results")
+	SelectCategory("wind")
+	assert(module.db.emitterSoundCategory == "wind" and FindSound(4524098),
+		"category filtering finds a wind source whose filename gives no clue")
+	SelectCategory("water")
+	assert(not FindSound(4524098), "water does not match the wind source")
+	SelectCategory("all")
 	local row = NewFrame("Frame")
+	row.CreateFontString = function()
+		local label = NewFrame("FontString")
+		label.SetText = function(self, value) self.text = value end
+		return label
+	end
 	row.Mute = false
 	visibleRow = row
 	initialize(row, bridge)
+	local guessedWind = ns.L.MINIMAP_EMITTER_CATEGORY_INFERRED:format(ns.L.MINIMAP_EMITTER_CATEGORY_WIND)
+	assert(row.Detail.text:find(guessedWind, 1, true), "a category inferred from the placement is marked as a guess")
 	row.Preview:GetScript("OnClick")(row.Preview)
 	local bulk = window.BulkMute
 	local toggleBulk = bulk:GetScript("OnClick")
@@ -7105,6 +7126,16 @@ end)()
 		"the kind filter works across Forever and only local sources have a radius")
 	SelectFilter(ns.L.RESET)
 	assert(FindSound(7139274) and not FindSound(7386632), "the global list includes Forever-linked files and omits unrelated Retail files")
+	SelectCategory("water")
+	local waterfall = assert(FindSound(566760), "the catalog has an explicit waterfall in the water category")
+	assert(not FindSound(4524098) and not FindSound(604807), "bridge wind and windmills are excluded from water")
+	initialize(row, waterfall)
+	assert(row.Detail.text:find(ns.L.MINIMAP_EMITTER_CATEGORY_WATER .. "   ·", 1, true) == 1,
+		"an explicit filename is displayed without a guess marker")
+	Search(ns.L.MINIMAP_EMITTER_CATEGORY_WATER)
+	assert(FindSound(566760), "localized category names are searchable")
+	SelectFilter(ns.L.RESET)
+	assert(module.db.emitterSoundCategory == "all", "reset clears the category selection")
 	Search("  7079224  ")
 	assert(#results == 1 and results[1][1] == 7079224, "search finds an exact FileDataID")
 	initialize(row, results[1])
@@ -7116,9 +7147,11 @@ end)()
 		"unmuting updates the client, saved selection and muted-only list")
 	module.db.mutedEmitters[7386632] = true
 	Search("")
+	SelectCategory("unknown")
 	assert(#results == 1 and results[1][1] == 7386632, "previously muted files outside the new catalog can still be unmuted")
 	toggleBulk(bulk)
 	assert(#results == 0 and not module.db.mutedEmitters[7386632], "bulk unmute refreshes the muted-only list")
+	SelectFilter(ns.L.RESET)
 	window.MutedOnly:SetChecked(false)
 	Search("EXT-29_51 LOOPA")
 	assert(FindSound(7139274), "search accepts multiple terms and mixed filename punctuation")

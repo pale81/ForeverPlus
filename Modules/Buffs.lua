@@ -124,6 +124,7 @@ local buttons = {}
 local updatePending, thresholdTimer
 local RequestUpdate
 local rangeTicker, rangeSpell, rangeOut -- watches the target's distance while it lacks a buff
+local watchedPower = {} -- cast identifier -> whether the spell lacks power
 
 ---------------------------------------------------------------------------
 -- Trace (/fp buff verlauf, kept after /rl): what the target button chose, what was clicked and what the game
@@ -157,6 +158,14 @@ end
 ---------------------------------------------------------------------------
 local function SpellName(spellID)
 	return C_Spell.GetSpellName(spellID)
+end
+
+local function CastIdentifier(reminder, unit, spellID)
+	-- Match the button: cast by name for the learned rank, except for low-level blessings.
+	if reminder.blessings and IsLowLevel(ns.Number(UnitLevel(unit), 0)) then
+		return spellID
+	end
+	return SpellName(spellID) or spellID
 end
 
 local function IsKnown(spellID)
@@ -414,9 +423,7 @@ local function SetupButton(button, reminder, unit, chosen)
 			return false
 		end
 		button:SetAttribute("type", "spell")
-		-- For low-level recipients, cast the chosen rank instead of resolving the name to a higher rank.
-		local lowLevelBlessing = reminder.blessings and IsLowLevel(ns.Number(UnitLevel(unit or "player"), 0))
-		button:SetAttribute("spell", lowLevelBlessing and spellID or SpellName(spellID))
+		button:SetAttribute("spell", CastIdentifier(reminder, unit or "player", spellID))
 		button:SetAttribute("item", nil)
 		button:SetAttribute("target-slot", nil)
 		button:SetAttribute("unit", unit or "player")
@@ -442,24 +449,54 @@ local function IsEnabled(reminder)
 	return value
 end
 
--- Not enough mana, rage or energy for the spell right now.
-local function LacksPower(spellID)
-	local _, noPower = C_Spell.IsSpellUsable(spellID)
-	if ns.Secret(noPower) then
+local function LacksPower(spell)
+	local _, noPower = C_Spell.IsSpellUsable(spell)
+	if not ns.Secret(noPower) and noPower == true then
+		return true
+	end
+	-- Check mana directly when the usability flag does not report a shortage.
+	local costs = C_Spell.GetSpellPowerCost and C_Spell.GetSpellPowerCost(spell)
+	if type(costs) ~= "table" or ns.Secret(costs) or #costs == 0 then
 		return false
 	end
-	return noPower and true or false
+	local manaType = Enum.PowerType.Mana
+	local mana = ns.Number(UnitPower("player", manaType))
+	if not mana then
+		return false
+	end
+	for _, info in ipairs(costs) do
+		if not ns.Secret(info) and ns.Number(info.type) == manaType then
+			local aura = ns.Number(info.requiredAuraID, 0)
+			local applies = aura == 0 or (not ns.Secret(info.hasRequiredAura) and info.hasRequiredAura == true)
+			local cost = ns.Number(info.minCost) or ns.Number(info.cost, 0)
+			if applies and mana < cost then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function CanAfford(reminder, unit, spellID, powerStates)
+	local spell = CastIdentifier(reminder, unit, spellID)
+	local lacksPower = powerStates and powerStates[spell]
+	if lacksPower == nil then
+		lacksPower = LacksPower(spell)
+	end
+	if powerStates then
+		powerStates[spell] = lacksPower
+	end
+	return not lacksPower
 end
 
 -- Returns shown (bool), seconds until it should be re-checked, whether the
--- buff is only about to expire (not missing yet) and whether it waits for
--- power to cast it.
+-- buff is only about to expire (not missing yet), and the spell to cast.
 local OwnBlessing -- set below, with the blessings
 
-local function Evaluate(reminder, threshold)
+local function Evaluate(reminder, threshold, powerStates)
 	local remaining, spellID
 	if reminder.blessings then
-		return OwnBlessing(reminder, threshold)
+		return OwnBlessing(reminder, threshold, powerStates)
 	elseif reminder.weapon then
 		if reminder.slot and not HasWeapon(reminder.slot) then
 			return false
@@ -471,10 +508,10 @@ local function Evaluate(reminder, threshold)
 		spellID = reminder.cast and PickSpell(reminder)
 	elseif reminder.tracking then
 		-- Tracking has no timer: missing while none of the abilities is switched on.
-		if not PickSpell(reminder) or TrackingActive(reminder.exclusive or reminder.cast) or FindAura(reminder.auras) then
+		spellID = PickSpell(reminder)
+		if not spellID or TrackingActive(reminder.exclusive or reminder.cast) or FindAura(reminder.auras) then
 			return false
 		end
-		return true
 	else
 		spellID = PickSpell(reminder)
 		if not spellID then
@@ -488,13 +525,13 @@ local function Evaluate(reminder, threshold)
 	if remaining and remaining > threshold then
 		return false, remaining - threshold
 	end
-	if spellID and LacksPower(spellID) then
-		return false, nil, nil, true
+	if spellID and not CanAfford(reminder, "player", spellID, powerStates) then
+		return false
 	end
-	return true, nil, remaining ~= nil
+	return true, nil, remaining ~= nil, spellID
 end
 
-local function EvaluateOwn(reminder, threshold)
+local function EvaluateOwn(reminder, threshold, powerStates)
 	local mutedUntil = Buffs.cdb.mutedUntil
 	local deadline = mutedUntil[reminder.key]
 	if deadline and Buffs.db.middleClickMute then
@@ -504,7 +541,7 @@ local function EvaluateOwn(reminder, threshold)
 		end
 		mutedUntil[reminder.key] = nil
 	end
-	return Evaluate(reminder, threshold)
+	return Evaluate(reminder, threshold, powerStates)
 end
 
 -- Paladin blessings by kind: the normal and the greater one count the same. Each paladin gives a target one
@@ -627,8 +664,8 @@ local function IsPaladinTank(unit)
 	return name and C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL") ~= nil
 end
 
--- Shown, seconds until the next check, only expiring, waiting for power, the blessing to cast.
-OwnBlessing = function(reminder, threshold)
+-- Shown, seconds until the next check, only expiring, the blessing to cast.
+OwnBlessing = function(reminder, threshold, powerStates)
 	local paladinTank = IsPaladinTank("player")
 	-- Automatic selection for a tank uses the tank order. The dropdown still allows a manual choice.
 	local preferred
@@ -654,10 +691,10 @@ OwnBlessing = function(reminder, threshold)
 		return false, recheck
 	end
 	local blessing = kind == preferredKind and preferred or BLESSING_KINDS[kind][1]
-	if LacksPower(blessing) then
-		return false, nil, nil, true
+	if not CanAfford(reminder, "player", blessing, powerStates) then
+		return false
 	end
-	return true, nil, renew, nil, blessing
+	return true, nil, renew, blessing
 end
 
 local function TargetClass()
@@ -679,7 +716,7 @@ end
 
 -- A buff for others that the friendly target lacks (or that runs out within the threshold): shown, whether it is
 -- only expiring, seconds until it should be checked again.
-local function EvaluateTarget(reminder, threshold)
+local function EvaluateTarget(reminder, threshold, powerStates)
 	local class, usesMana = TargetClass()
 	if (reminder.forMana and not Buffs.HasMana(class, usesMana))
 		or (reminder.forClasses and not reminder.forClasses[class]) then
@@ -708,7 +745,7 @@ local function EvaluateTarget(reminder, threshold)
 			return false, false, recheck
 		end
 		local blessing = BLESSING_KINDS[kind][1]
-		if LacksPower(blessing) then
+		if not CanAfford(reminder, "target", blessing, powerStates) then
 			return false
 		end
 		return true, renew, nil, blessing
@@ -724,7 +761,7 @@ local function EvaluateTarget(reminder, threshold)
 	if remaining and remaining > threshold then
 		return false, false, remaining - threshold
 	end
-	if LacksPower(spellID) then
+	if not CanAfford(reminder, "target", spellID, powerStates) then
 		return false
 	end
 	return true, remaining ~= nil, nil, spellID
@@ -799,17 +836,19 @@ local function Update()
 		thresholdTimer:Cancel()
 		thresholdTimer = nil
 	end
+	wipe(watchedPower)
 	-- Secret auras read as missing: no reminders where addons cannot see the auras. What was shown before goes
 	-- (it would stay clickable with a state that is no longer checked).
 	if C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() == true then
 		HideButtons(1)
 		ClearOverrideBindings(wheelHandler)
 		WatchRange(nil)
+		events:UnregisterEvent("UNIT_POWER_UPDATE")
 		return
 	end
 
 	local count = 0
-	local nextCheck, waitingForPower
+	local nextCheck
 	local watchSpell, watchOut
 	-- In rest areas (inns, cities) only when wanted; never during a flight.
 	local resting = IsResting() and not Buffs.db.restingZones
@@ -822,11 +861,10 @@ local function Update()
 		local threshold = Buffs.db.threshold * 60
 		for _, reminder in ipairs(reminders) do
 			if IsEnabled(reminder) and count < MAX_BUTTONS then
-				local missing, recheck, expiring, noPower, ownSpell = EvaluateOwn(reminder, threshold)
-				waitingForPower = waitingForPower or noPower
+				local missing, recheck, expiring, ownSpell = EvaluateOwn(reminder, threshold, watchedPower)
 				local targetMissing, targetExpiring, targetRecheck, targetSpell
 				if target and reminder.others then
-					targetMissing, targetExpiring, targetRecheck, targetSpell = EvaluateTarget(reminder, threshold)
+					targetMissing, targetExpiring, targetRecheck, targetSpell = EvaluateTarget(reminder, threshold, watchedPower)
 					if targetRecheck then
 						nextCheck = nextCheck and min(nextCheck, targetRecheck) or targetRecheck
 					end
@@ -882,8 +920,7 @@ local function Update()
 		SetOverrideBindingClick(wheelHandler, true, "MOUSEWHEELDOWN", buttons[1]:GetName())
 	end
 
-	-- Power changes matter only while a reminder waits for power.
-	if waitingForPower then
+	if next(watchedPower) then
 		events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
 	else
 		events:UnregisterEvent("UNIT_POWER_UPDATE")
@@ -967,9 +1004,18 @@ local function CreateBar()
 	events:SetScript("OnEvent", ns.Measured("Buffs: event", function(self, event)
 		if event == "PLAYER_REGEN_DISABLED" then
 			self:UnregisterEvent("UNIT_AURA")
+			self:UnregisterEvent("UNIT_POWER_UPDATE")
 			return
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			self:RegisterUnitEvent("UNIT_AURA", "player", "target")
+		elseif event == "UNIT_POWER_UPDATE" then
+			for spell, lackedPower in pairs(watchedPower) do
+				if LacksPower(spell) ~= lackedPower then
+					RequestUpdate()
+					break
+				end
+			end
+			return
 		end
 		RequestUpdate()
 	end))

@@ -7880,11 +7880,11 @@ end)()
 	setuv(evaluate, "FindAura", function() return nil end)
 	local noPower = true
 	C_Spell.IsSpellUsable = function() return false, noPower end
-	local shown, _, _, waiting = evaluate(reminder, 60)
-	assert(not shown and waiting, "no mana: hidden, waits for power")
+	local powerStates = {}
+	assert(not evaluate(reminder, 60, powerStates) and powerStates.Spell1459 == true, "no mana: hidden, waits for power")
 	noPower = false
-	shown, _, _, waiting = evaluate(reminder, 60)
-	assert(shown and not waiting, "mana back: shown")
+	wipe(powerStates)
+	assert(evaluate(reminder, 60, powerStates) and powerStates.Spell1459 == false, "mana back: shown and still watched")
 	-- The target first, then oneself; the target's buff is read on the target
 	assert(buffs.BuffUnit(true, true) == "target" and buffs.BuffUnit(true, false) == "player"
 		and buffs.BuffUnit(false, false) == nil, "who the button buffs")
@@ -7951,6 +7951,41 @@ end)()
 	update()
 	first = uv(update, "buttons")[1]
 	assert(first and first.shown and first.targetName == "Brann", "button buffs the target, named below")
+
+	local savedPower, savedCosts, savedPowerType = rawget(_G, "UnitPower"), C_Spell.GetSpellPowerCost, rawget(Enum, "PowerType")
+	local events = uv(update, "events")
+	local onEvent = events:GetScript("OnEvent")
+	local eventRegistered = false
+	events.RegisterUnitEvent = function(_, event, unit)
+		if event == "UNIT_POWER_UPDATE" then eventRegistered = unit == "player" end
+	end
+	events.UnregisterEvent = function(_, event)
+		if event == "UNIT_POWER_UPDATE" then eventRegistered = false end
+	end
+	Enum.PowerType = { Mana = 0 }
+	local mana = 25
+	UnitPower = function(unit, power)
+		assert(unit == "player" and power == 0, "the caster pays the cost in mana")
+		return mana
+	end
+	C_Spell.GetSpellPowerCost = function(spell)
+		if spell == "Spell1459" then return { { type = 0, minCost = 80, cost = 100 } } end
+	end
+	update()
+	assert(not first.shown and eventRegistered, "target-only reminder waits until the cast rank is affordable")
+	mana = 80
+	onEvent(events, "UNIT_POWER_UPDATE", "player", "MANA")
+	assert(first.shown and first.targetName == "Brann" and eventRegistered, "target reminder returns at the minimum mana needed")
+	mana = 79
+	onEvent(events, "UNIT_POWER_UPDATE", "player", "MANA")
+	assert(not first.shown and eventRegistered, "a visible reminder hides as mana drops below the cost")
+	setuv(evaluate, "FindAura", function(_, unit) if unit == "target" then return 0 end end)
+	assert(not evaluate(reminder, 60), "the caster's own reminder uses the same mana check")
+	setuv(evaluate, "FindAura", function() return 0 end)
+	update()
+	assert(not eventRegistered, "mana is ignored while all buffs are active")
+	events.RegisterUnitEvent, events.UnregisterEvent = nil, nil
+	UnitPower, C_Spell.GetSpellPowerCost, Enum.PowerType = savedPower, savedCosts, savedPowerType
 
 	local savedDescription, savedAura, savedClock = C_Spell.GetSpellDescription, C_UnitAuras.GetAuraDataBySpellName, GetServerTime
 	local savedAfter, savedTimer, savedRange = ns.After, ns.NewTimer, buffs.db.targetRange
@@ -8055,7 +8090,7 @@ end)()
 		return select(4, buffs.EvaluateTarget(reminder, 60))
 	end
 	local function ownSpell()
-		return select(5, evaluate(reminder, 60))
+		return select(4, evaluate(reminder, 60))
 	end
 	for _, class in ipairs({ "WARRIOR", "ROGUE", "HUNTER", "MAGE", "PRIEST", "WARLOCK", "PALADIN", "SHAMAN", "DRUID" }) do
 		targetClass = class

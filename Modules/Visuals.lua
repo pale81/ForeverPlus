@@ -22,6 +22,7 @@ local Visuals = ns:NewModule("Visuals", {
 		combatBuffRecommendation = false,
 		castsLeft = false,
 		totemTimers = true,
+		totemRecallColors = true,
 		auraActionFrame = true,
 		bagActionFrame = false, -- thin line on grey and white items (looked odd in the bags: off, once reset for all)
 		bagFrameOff = false,
@@ -36,6 +37,8 @@ local Visuals = ns:NewModule("Visuals", {
 	},
 	charDefaults = { playerPortraitMode = 1 },
 })
+
+_G["BINDING_NAME_CLICK MultiCastRecallSpellButton:LeftButton"] = L.VISUALS_TOTEM_RECALL_BINDING
 
 ---------------------------------------------------------------------------
 -- Item quality frame (like the tooltip frame) from "uncommon" upwards, soft grey for grey and white items (option)
@@ -494,6 +497,19 @@ local function SetGreyed(button, icon, greyed)
 	end
 end
 
+local function ColorUsableIcon(icon, isUsable, notEnoughMana)
+	local db = Visuals.db
+	if isUsable then
+		icon:SetVertexColor(1, 1, 1)
+	elseif notEnoughMana and (not db.actionColors or db.colorMana) then
+		icon:SetVertexColor(0.5, 0.5, 1)
+	elseif not notEnoughMana and (not db.actionColors or db.colorUnusable) then
+		icon:SetVertexColor(0.4, 0.4, 0.4)
+	else
+		icon:SetVertexColor(1, 1, 1)
+	end
+end
+
 local function ColorButton(button)
 	local icon = button.icon
 	if not icon or not button.action then
@@ -513,16 +529,7 @@ local function ColorButton(button)
 		icon:SetVertexColor(0.7, 0.7, 0.7)
 		return
 	end
-	local isUsable, notEnoughMana = C_ActionBar.IsUsableAction(button.action)
-	if isUsable then
-		icon:SetVertexColor(1, 1, 1)
-	elseif notEnoughMana and (not enabled or db.colorMana) then
-		icon:SetVertexColor(0.5, 0.5, 1)
-	elseif not notEnoughMana and (not enabled or db.colorUnusable) then
-		icon:SetVertexColor(0.4, 0.4, 0.4)
-	else
-		icon:SetVertexColor(1, 1, 1)
-	end
+	ColorUsableIcon(icon, C_ActionBar.IsUsableAction(button.action))
 end
 
 local actionButtons = {}
@@ -552,10 +559,35 @@ local function HookActionButtons()
 	hooksecurefunc("ActionButton_UpdateRangeIndicator", ns.Measured("Visuals: action range", OnRangeUpdate))
 end
 
+-- The native recall button holds a spell ID instead of an action slot.
+local function ColorTotemRecall()
+	local button = MultiCastRecallSpellButton
+	if not button or not button.icon then
+		return
+	end
+	local spellID = ns.Number(button.spellId)
+	if not Visuals.db.totemRecallColors or not spellID or spellID <= 0 then
+		button.icon:SetVertexColor(1, 1, 1)
+		return
+	end
+	local isUsable, notEnoughMana = C_Spell.IsSpellUsable(spellID)
+	if not ns.Secret(isUsable) and not ns.Secret(notEnoughMana) then
+		ColorUsableIcon(button.icon, isUsable, notEnoughMana)
+	end
+end
+
+local function UpdateTotemRecallWatch()
+	local enabled = Visuals.db.totemRecallColors and select(2, UnitClass("player")) == "SHAMAN"
+	Visuals:ToggleEvent("SPELL_UPDATE_USABLE", enabled, ColorTotemRecall)
+	Visuals:ToggleEvent("PLAYER_TOTEM_UPDATE", enabled, ColorTotemRecall)
+	ColorTotemRecall()
+end
+
 local function RecolorAll()
 	for button in pairs(actionButtons) do
 		ColorButton(button)
 	end
+	ColorTotemRecall()
 end
 
 local function RecolorBuffButtons()
@@ -2073,6 +2105,10 @@ function Visuals:OnLogin()
 	FrameBuffs()
 	HookQuestItems()
 	HookActionButtons()
+	if select(2, UnitClass("player")) == "SHAMAN" and type(MultiCastRecallSpellButton_Update) == "function" then
+		hooksecurefunc("MultiCastRecallSpellButton_Update", ns.Measured("Visuals: totem recall", ColorTotemRecall))
+		UpdateTotemRecallWatch()
+	end
 	UpdatePaladinWatch()
 	UpdateCombatBuffWatch()
 	UpdateAuraWatch()
@@ -2124,6 +2160,8 @@ function Visuals:OnOptionChanged(key)
 		UpdateCastWatch()
 	elseif key == "totemTimers" then
 		UpdateTotemWatch()
+	elseif key == "totemRecallColors" then
+		UpdateTotemRecallWatch()
 	elseif key == "paladinRecommendations" or key == "paladinSealRecommendation" then
 		UpdatePaladinWatch()
 		UpdateAuraWatch()
@@ -2170,6 +2208,7 @@ Visuals.options = {
 	{ key = "colorActiveBuff", type = "toggle", name = L.VISUALS_COLOR_ACTIVE_BUFF, desc = L.VISUALS_COLOR_ACTIVE_BUFF_DESC, parent = "actionColors" },
 	{ key = "castsLeft", type = "toggle", name = L.VISUALS_CASTS_LEFT, desc = L.VISUALS_CASTS_LEFT_DESC },
 	{ key = "totemTimers", type = "toggle", name = L.VISUALS_TOTEM_TIMERS, desc = L.VISUALS_TOTEM_TIMERS_DESC, new = true },
+	{ key = "totemRecallColors", type = "toggle", name = L.VISUALS_TOTEM_RECALL_COLORS, desc = L.VISUALS_TOTEM_RECALL_COLORS_DESC },
 	{ key = "paladinRecommendations", type = "toggle", name = L.VISUALS_PALADIN_RECOMMENDATIONS,
 		desc = L.VISUALS_PALADIN_RECOMMENDATIONS_DESC, new = true },
 	{ key = "paladinSealRecommendation", type = "toggle", name = L.VISUALS_PALADIN_SEAL_RECOMMENDATION,

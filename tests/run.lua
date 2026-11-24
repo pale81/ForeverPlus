@@ -13086,6 +13086,59 @@ end)()
 
 ;(function()
 	local visuals = ns:GetModule("Visuals")
+	local db = visuals.db
+	local savedClass, savedUsable, savedButton = UnitClass, C_Spell.IsSpellUsable, MultiCastRecallSpellButton
+	local savedSecret, savedColors = issecretvalue, db.totemRecallColors
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local onEvent = eventFrame:GetScript("OnEvent")
+	local icon = NewFrame("Texture")
+	local button = { icon = icon }
+	local usable, noMana, queries = false, false, 0
+	local secret = {}
+	issecretvalue = function(value) return value == secret end
+	UnitClass = function() return "Shaman", "SHAMAN" end
+	MultiCastRecallSpellButton = button
+	C_Spell.IsSpellUsable = function(spellID)
+		assert(spellID == 36936, "recall uses the spell ID assigned by the native button")
+		queries = queries + 1
+		return usable, noMana
+	end
+	assert(visuals.defaults.totemRecallColors, "recall colors default on")
+	assert(_G["BINDING_NAME_CLICK MultiCastRecallSpellButton:LeftButton"] == ns.L.VISUALS_TOTEM_RECALL_BINDING,
+		"binding targets the original recall button")
+	db.totemRecallColors = true
+	visuals:OnOptionChanged("totemRecallColors")
+	assert(queries == 0, "unlearned recall has no spell usability query")
+
+	button.spellId = 36936
+	onEvent(eventFrame, "PLAYER_TOTEM_UPDATE")
+	assert(icon.vertexColor[1] == 0.4 and icon.vertexColor[3] == 0.4, "unusable recall is gray")
+	noMana = true
+	onEvent(eventFrame, "SPELL_UPDATE_USABLE")
+	assert(icon.vertexColor[1] == 0.5 and icon.vertexColor[3] == 1, "low mana colors recall blue")
+	usable = secret
+	onEvent(eventFrame, "SPELL_UPDATE_USABLE")
+	assert(icon.vertexColor[1] == 0.5, "protected usability keeps the last readable color")
+	usable, noMana = true, false
+	onEvent(eventFrame, "SPELL_UPDATE_USABLE")
+	assert(icon.vertexColor[1] == 1, "usable recall has full color")
+
+	usable = false
+	onEvent(eventFrame, "SPELL_UPDATE_USABLE")
+	db.totemRecallColors = false
+	visuals:OnOptionChanged("totemRecallColors")
+	local before = queries
+	onEvent(eventFrame, "SPELL_UPDATE_USABLE")
+	assert(icon.vertexColor[1] == 1 and queries == before, "turning recall colors off restores the original icon")
+
+	UnitClass, C_Spell.IsSpellUsable, MultiCastRecallSpellButton = savedClass, savedUsable, savedButton
+	issecretvalue, db.totemRecallColors = savedSecret, savedColors
+	visuals:OnOptionChanged("totemRecallColors")
+	print("totem recall binding and action colors OK")
+end)()
+
+;(function()
+	local visuals = ns:GetModule("Visuals")
 	assert(visuals.defaults.totemTimers == true, "totem timers default on")
 	local foundOption
 	for _, opt in ipairs(visuals.options) do

@@ -318,6 +318,9 @@ local function ForEachActionButton(fn)
 			end
 		end
 	end
+	if MultiCastRecallSpellButton then
+		fn(MultiCastRecallSpellButton)
+	end
 end
 
 function QoL:UpdateActionText()

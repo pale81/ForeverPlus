@@ -5,4 +5,5 @@
 	</Binding>
 	<Binding name="CLICK ForeverPlusQuestItemButton:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK ForeverPlusBuffButton1:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK MultiCastRecallSpellButton:LeftButton" category="ADDONS"/>
 </Bindings>

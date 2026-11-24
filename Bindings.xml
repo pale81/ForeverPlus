@@ -3,6 +3,9 @@
 	<Binding name="FOREVERPLUS_TOGGLEJUNK" category="ADDONS">
 		ForeverPlus_ToggleJunkUnderMouse()
 	</Binding>
+	<Binding name="FOREVERPLUS_GUIDINGWIND" category="ADDONS">
+		ForeverPlus_SummonGuidingWind()
+	</Binding>
 	<Binding name="CLICK ForeverPlusQuestItemButton:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK ForeverPlusBuffButton1:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK MultiCastRecallSpellButton:LeftButton" category="ADDONS"/>

@@ -331,6 +331,7 @@ local PAGES = {
 		{ "DungeonJournal", header = L.JOURNAL_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Waypoint", header = L.WAYPOINT_TITLE },
+		{ "GuidingWind", header = L.WIND_TITLE },
 		{ "Scout", header = L.SCOUT_TITLE },
 		{ "Innkeepers", header = L.INNS_TITLE },
 		{ "Transports", header = L.TRANSPORTS_TITLE },

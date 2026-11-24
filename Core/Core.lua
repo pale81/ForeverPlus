@@ -1068,6 +1068,8 @@ local function RunSlashCommand(msg)
 		ns:GetModule("Dialog").PrintStatus()
 	elseif msg:find("^weg") or msg:find("^way") then
 		ns:GetModule("Waypoint").Command(msg)
+	elseif msg == "wind" or msg:find("^wind%s") then
+		ns:GetModule("GuidingWind").Command(msg)
 	elseif msg:find("^nord") then
 		ns:GetModule("Teleports").Command(msg)
 	elseif msg:find("^bücher") or msg:find("^books") then

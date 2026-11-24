@@ -14639,6 +14639,205 @@ end)()
 	GetTime, debugprofilestop = savedTime, savedClock
 	print("cpu display accuracy OK")
 end)()
+;(function()
+	-- Guiding Wind: bearing/direction vectors, biome mapping, instance & combat guards,
+	-- waypoint arrow suppression, sound rules, idle cleanup, bindings/commands and PortraitModes.
+	local wind = ns:GetModule("GuidingWind")
+	local way = ns:GetModule("Waypoint")
+	local pm = ns.PortraitModes
+	assert(wind and way, "GuidingWind and Waypoint modules loaded")
+
+	-- 1. Options, defaults, NEU flags and settings page registration.
+	assert(wind.db.enabled == true and wind.db.autoGusts == true and wind.db.hideArrow == false
+		and wind.db.biomeParticles == true and wind.db.sound == true and wind.db.interval == 14
+		and wind.db.strength == 75, "GuidingWind defaults are sensible and non-breaking")
+	local foundOnPage = false
+	for _, page in ipairs(ns.SettingsPages) do
+		for _, entry in ipairs(page) do
+			if entry[1] == "GuidingWind" then foundOnPage = true end
+		end
+	end
+	assert(foundOnPage, "GuidingWind is registered on a settings page")
+	for _, opt in ipairs(wind.options) do
+		if opt.key then
+			assert(opt.new == true, "new GuidingWind option carries new=true: " .. tostring(opt.key))
+		end
+	end
+	assert(type(ForeverPlus_SummonGuidingWind) == "function"
+		and BINDING_NAME_FOREVERPLUS_GUIDINGWIND == ns.L.WIND_BINDING, "key binding hook and label registered")
+
+	-- 2. Angle normalization and screen-space direction vector.
+	local function near(a, b) return math.abs(a - b) < 1e-6 end
+	local dx, dy, mode = wind.DirectionVector(0)
+	assert(near(dx, 0) and near(dy, 1) and mode == "ahead", "0 rad points straight ahead (up)")
+	dx, dy, mode = wind.DirectionVector(math.pi / 2)
+	assert(near(dx, -1) and near(dy, 0) and mode == "left", "+pi/2 points left")
+	dx, dy, mode = wind.DirectionVector(-math.pi / 2)
+	assert(near(dx, 1) and near(dy, 0) and mode == "right", "-pi/2 points right")
+	dx, dy, mode = wind.DirectionVector(math.pi)
+	assert(near(dx, 0) and near(dy, -1) and mode == "behind", "pi points behind (down)")
+	assert(near(wind.NormalizeAngle(3 * math.pi), math.pi)
+		and near(wind.NormalizeAngle(-3 * math.pi / 2), math.pi / 2), "angle wraps into (-pi, pi]")
+
+	-- 3. Biome mapping (direct zones, parentMapID sub-map walk, unknown fallback).
+	local savedMapInfo = C_Map.GetMapInfo
+	C_Map.GetMapInfo = function(id)
+		if id == 9901 then return { mapID = 9901, parentMapID = 1426, name = "Coldridge Cave" } end
+		if id == 9999 then return { mapID = 9999, parentMapID = 0, name = "Unknown" } end
+		return { mapID = id, parentMapID = 0, name = "Zone " .. tostring(id) }
+	end
+	assert(wind.BiomeForMap(1429) == "forest", "Elwynn Forest -> forest")
+	assert(wind.BiomeForMap(1447) == "autumn", "Azshara -> autumn")
+	assert(wind.BiomeForMap(1452) == "snow", "Winterspring -> snow")
+	assert(wind.BiomeForMap(1446) == "desert", "Tanaris -> desert")
+	assert(wind.BiomeForMap(1428) == "volcanic", "Burning Steppes -> volcanic")
+	assert(wind.BiomeForMap(1431) == "marsh", "Duskwood -> marsh")
+	assert(wind.BiomeForMap(9901) == "snow", "sub-map inherits parent zone biome (Dun Morogh -> snow)")
+	assert(wind.BiomeForMap(9999) == "neutral" and wind.BiomeForMap(nil) == "neutral", "unknown maps fall back to neutral")
+
+	-- 4. Live waypoint guidance, WorldFrame parent, sound rules, idle stop and arrow suppression.
+	local savedBestMap, savedPlayerPos, savedWorldSize = C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize
+	local savedHasWp, savedGetWp, savedSetWp, savedClearWp, savedCanWp =
+		C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, C_Map.CanSetUserWaypointOnMap
+	local savedFacing, savedInstance, savedCombat, savedTaxi = GetPlayerFacing, rawget(_G, "IsInInstance"), InCombatLockdown, rawget(_G, "UnitOnTaxi")
+	local savedPlaySoundFile, savedStopSound, savedTimer, savedTime, savedPrintAlways, savedPrint =
+		PlaySoundFile, rawget(_G, "StopSound"), C_Timer.NewTimer, GetTime, ns.PrintAlways, ns.Print
+	local savedUiMapPoint, savedSuperTrack = UiMapPoint, C_SuperTrack
+
+	local currentMap, playerX, playerY, facing = 1429, 0.5, 0.5, 0
+	local inInstance, inCombat, onTaxi, nowTime = false, false, false, 500
+	local userWp, soundsPlayed, timers, printed = nil, {}, {}, {}
+
+	C_Map.GetBestMapForUnit = function() return currentMap end
+	C_Map.GetPlayerMapPosition = function(mapID)
+		if mapID == currentMap then return { GetXY = function() return playerX, playerY end } end
+		return nil
+	end
+	C_Map.GetMapWorldSize = function() return 1000, 1000 end
+	C_Map.CanSetUserWaypointOnMap = function() return true end
+	C_Map.HasUserWaypoint = function() return userWp ~= nil end
+	C_Map.GetUserWaypoint = function() return userWp end
+	C_Map.SetUserWaypoint = function(pt) userWp = pt return true end
+	C_Map.ClearUserWaypoint = function() userWp = nil end
+	UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { uiMapID = m, position = { x = x, y = y } } end }
+	C_SuperTrack = { SetSuperTrackedUserWaypoint = function() end }
+	GetPlayerFacing = function() return facing end
+	IsInInstance = function() return inInstance, inInstance and "party" or "none" end
+	InCombatLockdown = function() return inCombat end
+	UnitOnTaxi = function() return onTaxi end
+	GetTime = function() return nowTime end
+	PlaySoundFile = function(id, channel)
+		soundsPlayed[#soundsPlayed + 1] = { id = id, channel = channel }
+		return true, #soundsPlayed
+	end
+	StopSound = function() end
+	C_Timer.NewTimer = function(delay, fn)
+		local t = { delay = delay, fn = fn, cancelled = false }
+		function t:Cancel() self.cancelled = true end
+		timers[#timers + 1] = t
+		return t
+	end
+	ns.PrintAlways = function(msg, ...) printed[#printed + 1] = select("#", ...) > 0 and msg:format(...) or msg end
+	ns.Print = ns.PrintAlways
+	WorldMapFrame:Hide()
+
+	-- No waypoint yet: manual summon reports clearly, plays no sound and leaves overlay idle.
+	local ok, reason = wind.Summon(true)
+	assert(not ok and reason == "none" and #soundsPlayed == 0 and not wind.GetState().active,
+		"manual summon without waypoint prints hint and stays idle")
+	assert(printed[#printed] == ns.L.WIND_NO_WAYPOINT, "no-waypoint hint shown")
+
+	-- Set waypoint to the east (right when facing north = -pi/2).
+	way.Set(80, 50, "Goldhain")
+	local arrow = _G.ForeverPlusWaypointArrow
+	assert(arrow and arrow:IsShown(), "waypoint arrow remains visible by default (hideArrow=false)")
+	assert(wind.GetState().timerActive, "auto gust timer starts once a waypoint exists")
+
+	-- Manual summon triggers gust pointing right (-pi/2), forest biome, and plays a real wind sound.
+	ok, reason = wind.Summon(true)
+	assert(ok and reason == "waypoint", "manual summon succeeds for active waypoint")
+	local state = wind.GetState()
+	local overlay = _G.ForeverPlusGuidingWind
+	assert(state.active and state.rootShown and state.biome == "forest" and near(state.angle, -math.pi / 2),
+		"gust runs toward east (-pi/2) with forest biome")
+	assert(#soundsPlayed == 1 and soundsPlayed[1].channel == "SFX", "manual summon plays wind sound")
+
+	-- Advancing past the gust duration hides the overlay cleanly (no idle OnUpdate).
+	local onUpdate = overlay:GetScript("OnUpdate")
+	for _ = 1, 30 do
+		if not overlay:IsShown() then break end
+		onUpdate(overlay, 0.1)
+	end
+	assert(not overlay:IsShown() and not wind.GetState().active, "overlay hides itself after gust completes")
+
+	-- Automatic gust fires silently (no sound) out of combat, and respects combat/instance guards.
+	nowTime = nowTime + 5
+	local latestTimer = timers[#timers]
+	assert(latestTimer and not latestTimer.cancelled and latestTimer.delay == 14, "auto gust scheduled for configured interval")
+	latestTimer.fn()
+	assert(wind.GetState().active and #soundsPlayed == 1, "automatic gust runs without playing sound")
+	for _ = 1, 30 do
+		if not overlay:IsShown() then break end
+		onUpdate(overlay, 0.1)
+	end
+
+	-- Combat guard blocks automatic gusts.
+	inCombat = true
+	timers[#timers].fn()
+	assert(not wind.GetState().active, "automatic gust does not fire during combat")
+	inCombat = false
+
+	-- Instance / nil facing guard catches missing GetPlayerFacing cleanly.
+	inInstance = true
+	facing = nil
+	ok, reason = wind.Summon(true)
+	assert(not ok and reason == "no_facing" and not wind.GetState().active, "nil facing in instance is caught safely")
+	assert(printed[#printed] == ns.L.WIND_NO_DIRECTION, "instance/no-facing message shown")
+	-- Preview (/fp wind test links) still works even without facing.
+	nowTime = nowTime + 5
+	SlashCmdList.FOREVERPLUS("wind test links")
+	assert(wind.GetState().active and near(wind.GetState().angle, math.pi / 2) and #soundsPlayed == 2,
+		"/fp wind test links runs preview gust to the left with sound")
+	inInstance = false
+	facing = 0
+
+	-- Waypoint arrow suppression & clean restore on disable.
+	ns.SetOption("GuidingWind", "hideArrow", true)
+	assert(wind.HidesWaypointArrow() and not arrow:IsShown(), "hideArrow hides the waypoint arrow immediately")
+	ns.SetOption("GuidingWind", "enabled", false)
+	assert(not wind.HidesWaypointArrow() and arrow:IsShown(), "disabling GuidingWind restores the waypoint arrow")
+	assert(not wind.GetState().active and not wind.GetState().timerActive and not overlay:IsShown(),
+		"disabling GuidingWind stops active gust and cancels auto timer")
+
+	-- Re-enable and verify arrival clears the waypoint even while arrow is hidden.
+	ns.SetOption("GuidingWind", "enabled", true)
+	assert(not arrow:IsShown(), "arrow hidden again with hideArrow=true")
+	playerX, playerY = 0.799, 0.5
+	ok, reason = wind.Summon(true)
+	assert(not ok and reason == "arrived" and way.Target() == nil, "arrival check clears waypoint when close")
+
+	-- PortraitModes: guidingWind is an optional entry in Wanderlust mode, unselected by default.
+	assert(pm.FeatureMode("guidingWind") == "wanderlust" and not pm.IsFeatureSelected("guidingWind"),
+		"GuidingWind is registered in Wanderlust mode as optional (unselected by default)")
+	pm.SetFeatureSelected("guidingWind", true)
+	assert(pm.IsFeatureSelected("guidingWind"), "GuidingWind can be opted into Wanderlust mode")
+	pm.ResetAssignments()
+	assert(not pm.IsFeatureSelected("guidingWind"), "ResetAssignments restores optional default")
+
+	-- Restore state cleanly.
+	way.Clear()
+	ns.SetOption("GuidingWind", "hideArrow", false)
+	ns.SetOption("GuidingWind", "enabled", true)
+	C_Map.GetMapInfo, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize =
+		savedMapInfo, savedBestMap, savedPlayerPos, savedWorldSize
+	C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint, C_Map.CanSetUserWaypointOnMap =
+		savedHasWp, savedGetWp, savedSetWp, savedClearWp, savedCanWp
+	GetPlayerFacing, IsInInstance, InCombatLockdown, UnitOnTaxi = savedFacing, savedInstance, savedCombat, savedTaxi
+	PlaySoundFile, StopSound, C_Timer.NewTimer, GetTime, ns.PrintAlways, ns.Print =
+		savedPlaySoundFile, savedStopSound, savedTimer, savedTime, savedPrintAlways, savedPrint
+	UiMapPoint, C_SuperTrack = savedUiMapPoint, savedSuperTrack
+	print("guiding wind OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
 assert(loadfile("emote_voice.lua"))(root, ns)

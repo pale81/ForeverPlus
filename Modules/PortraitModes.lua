@@ -88,6 +88,22 @@ local FEATURES = {
 		},
 	},
 	{
+		key = "guidingWind",
+		defaultMode = "wanderlust",
+		defaultSelected = false,
+		name = L.WIND_TITLE,
+		desc = L.WIND_ENABLE_DESC,
+		modules = { GuidingWind = true },
+		isOn = function() return ModuleOn("GuidingWind", "enabled") end,
+		setOn = function(on) SetModuleOn("GuidingWind", "enabled", on) end,
+		subOptions = {
+			{ module = "GuidingWind", key = "autoGusts", name = L.WIND_AUTO, desc = L.WIND_AUTO_DESC },
+			{ module = "GuidingWind", key = "hideArrow", name = L.WIND_HIDE_ARROW, desc = L.WIND_HIDE_ARROW_DESC },
+			{ module = "GuidingWind", key = "biomeParticles", name = L.WIND_BIOME, desc = L.WIND_BIOME_DESC },
+			{ module = "GuidingWind", key = "sound", name = L.WIND_SOUND, desc = L.WIND_SOUND_DESC },
+		},
+	},
+	{
 		key = "angler",
 		defaultMode = "angler",
 		name = L.HELPERS_FISHING_MODE,
@@ -315,8 +331,13 @@ local function ItemKey(item)
 end
 
 local function IsFeatureSelected(itemKey)
+	local item = ITEM_BY_KEY[itemKey]
 	local db = VisualsDB()
-	return not (db and db.portraitModeDisabled[itemKey])
+	local saved = db and db.portraitModeDisabled[itemKey]
+	if saved ~= nil then
+		return not saved
+	end
+	return not (item and item.defaultSelected == false)
 end
 
 local function ModeCounts(modeKey)
@@ -372,7 +393,13 @@ local function SetFeatureSelected(itemKey, selected)
 	if not (item and db) then return end
 	local modeKey = FeatureMode(itemKey)
 	local wasActive = IsModeActive(modeKey)
-	db.portraitModeDisabled[itemKey] = (not selected) or nil
+	local defaultOn = item.defaultSelected ~= false
+	local disabled = not selected
+	if disabled == (not defaultOn) then
+		db.portraitModeDisabled[itemKey] = nil
+	else
+		db.portraitModeDisabled[itemKey] = disabled
+	end
 	if wasActive then
 		suppressOptionNotify = true
 		item.setOn(selected and true or false)

@@ -212,6 +212,69 @@ local function CorpseBearing()
 	end
 end
 
+function Waypoint.CheckArrival(distance)
+	if distance and distance <= ARRIVAL_YARDS and Waypoint.db.clearOnArrival then
+		ns.Print(L.WAYPOINT_ARRIVED)
+		Waypoint.Clear()
+		return true
+	end
+	return false
+end
+
+function Waypoint.HasGuidanceTarget()
+	return CorpseRun() or (Waypoint.Target() ~= nil)
+end
+
+-- Shared guidance query (corpse first, then active waypoint) with explicit facing check and same-continent fallback.
+-- Returns: distance, goal, angle, kind ("corpse"|"waypoint"|nil), reason ("none"|"no_facing"|"unknown"|"elsewhere"|nil)
+function Waypoint.Guidance()
+	local facing = ns.Number(GetPlayerFacing())
+	if CorpseRun() then
+		local corpseGoal = { name = L.WAYPOINT_CORPSE_NAME }
+		if not facing then
+			return nil, corpseGoal, nil, "corpse", "no_facing"
+		end
+		local distance, angle = CorpseBearing()
+		return distance, corpseGoal, angle, "corpse", distance and nil or "unknown"
+	end
+	local goal = Waypoint.Target()
+	if not goal then
+		return nil, nil, nil, nil, "none"
+	end
+	if not facing then
+		return nil, goal, nil, "waypoint", "no_facing"
+	end
+	local distance, angle = BearingOnMap(goal.mapID, goal.x, goal.y)
+	if distance then
+		return distance, goal, angle, "waypoint", nil
+	end
+	if CreateVector2D and C_Map.GetWorldPosFromMapPos then
+		local playerMap = ns.Number(C_Map.GetBestMapForUnit("player"))
+		local playerPos = playerMap and C_Map.GetPlayerMapPosition(playerMap, "player")
+		if playerPos and not ns.Secret(playerPos) then
+			local playerContinent, playerWorld = C_Map.GetWorldPosFromMapPos(playerMap, playerPos)
+			local goalContinent, goalWorld = C_Map.GetWorldPosFromMapPos(goal.mapID, CreateVector2D(goal.x, goal.y))
+			if playerContinent and goalContinent and not ns.Secret(playerContinent) and not ns.Secret(goalContinent)
+				and playerContinent == goalContinent and playerWorld and goalWorld
+				and not ns.Secret(playerWorld) and not ns.Secret(goalWorld) then
+				local px, py = playerWorld:GetXY()
+				local gx, gy = goalWorld:GetXY()
+				px, py, gx, gy = ns.Number(px), ns.Number(py), ns.Number(gx), ns.Number(gy)
+				if px and py and gx and gy then
+					local north, west = gx - px, gy - py
+					return math.sqrt(north * north + west * west), goal, math.atan2(west, north) - facing, "waypoint", nil
+				end
+			end
+		end
+	end
+	return nil, goal, nil, "waypoint", "elsewhere"
+end
+
+local function ArrowSuppressed()
+	local wind = ns:GetModule("GuidingWind")
+	return wind and wind.HidesWaypointArrow and wind.HidesWaypointArrow() or false
+end
+
 local arrow
 local ARROW_ATLAS, ARROW_FILE = "Navigation-Tracked-Arrow", [[Interface\Minimap\MiniMap-QuestArrow]]
 
@@ -249,6 +312,10 @@ local function UpdateArrow(self, elapsed)
 		return
 	end
 	self.wait = 0.05
+	if ArrowSuppressed() then
+		self:Hide()
+		return
+	end
 	if CorpseRun() then
 		local distance, angle = CorpseBearing()
 		if distance then
@@ -268,9 +335,7 @@ local function UpdateArrow(self, elapsed)
 		self:Hide()
 		return
 	end
-	if distance and distance <= ARRIVAL_YARDS and Waypoint.db.clearOnArrival then
-		ns.Print(L.WAYPOINT_ARRIVED)
-		Waypoint.Clear()
+	if Waypoint.CheckArrival(distance) then
 		return
 	end
 	local goalName = goal.name or ("%.1f, %.1f"):format(goal.x * 100, goal.y * 100)
@@ -322,7 +387,7 @@ end
 -- The corpse temporarily takes priority over any existing waypoint.
 function Refresh()
 	local db = Waypoint.db
-	if CorpseRun() or (db.enabled and db.arrow and Waypoint.Target()) then
+	if not ArrowSuppressed() and (CorpseRun() or (db.enabled and db.arrow and Waypoint.Target())) then
 		if not arrow then
 			CreateArrow()
 		end
@@ -330,6 +395,10 @@ function Refresh()
 		arrow:Show()
 	elseif arrow then
 		arrow:Hide()
+	end
+	local wind = ns:GetModule("GuidingWind")
+	if wind and wind.OnWaypointChanged then
+		wind.OnWaypointChanged()
 	end
 end
 Waypoint.Refresh = Refresh

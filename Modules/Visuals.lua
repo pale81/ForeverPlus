@@ -1971,6 +1971,7 @@ local dragon, dragonButtons
 
 local function CanUsePlayerDragon()
 	return ShowsOwnPortrait() and not ns:IsEditModeActive()
+		and (not PlayerFrame.GetEffectiveAlpha or ns.Number(PlayerFrame:GetEffectiveAlpha(), 1) > 0.05)
 end
 
 local function DrawDragonHover(group)

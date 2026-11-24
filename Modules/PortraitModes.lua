@@ -77,6 +77,7 @@ local FEATURES = {
 		isOn = function() return ModuleOn("Wanderlust", "enabled") end,
 		setOn = function(on) SetModuleOn("Wanderlust", "enabled", on) end,
 		subOptions = {
+			{ module = "Wanderlust", key = "softHide", name = L.WANDERLUST_SOFT_HIDE, desc = L.WANDERLUST_SOFT_HIDE_DESC },
 			{ module = "Wanderlust", key = "minimapMouseover", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC },
 			{ module = "Wanderlust", key = "hoverText", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC },
 			{ module = "Wanderlust", key = "showChat", name = L.WANDERLUST_CHAT, desc = L.WANDERLUST_CHAT_DESC },
@@ -1250,15 +1251,22 @@ end
 ---------------------------------------------------------------------------
 local portraitWheel, portraitBackground, portraitIcon, portraitShade, portraitShine
 local optionListenerRegistered
+local wanderlustHidden = false
 
 local function ShowsOwnPortrait()
 	local unit = PlayerFrame and PlayerFrame.unit
 	return not ns.Secret(unit) and unit == "player"
 end
 
+local function PlayerFrameVisible()
+	return not wanderlustHidden and PlayerFrame
+		and (not PlayerFrame.GetEffectiveAlpha or ns.Number(PlayerFrame:GetEffectiveAlpha(), 1) > 0.05) or false
+end
+
 local function CanCyclePortrait()
 	local db = VisualsDB()
-	return db and db.playerPortraitWheel and ShowsOwnPortrait() and not EditModeManagerFrame:IsEditModeActive() or false
+	return db and db.playerPortraitWheel and ShowsOwnPortrait() and PlayerFrameVisible()
+		and not EditModeManagerFrame:IsEditModeActive() or false
 end
 
 local function CurrentMode()
@@ -1353,6 +1361,14 @@ end
 
 UpdatePlayerPortrait = function()
 	if not portraitWheel then return end
+	if wanderlustHidden then
+		portraitIcon:Hide()
+		portraitBackground:Hide()
+		if portraitShade then portraitShade:Hide() end
+		if portraitShine then portraitShine:Hide() end
+		UpdatePortraitInput()
+		return
+	end
 	local mode = CurrentMode()
 	local iconShown = false
 	local icon = mode and mode.key ~= "normal" and ModeIcon(mode.key)
@@ -1394,6 +1410,13 @@ local function OnAnyOptionChanged(moduleName)
 		UpdatePlayerPortrait()
 		RefreshMenu()
 	end
+end
+
+function PortraitModes.SetWanderlustHidden(hidden)
+	hidden = hidden and true or false
+	if hidden == wanderlustHidden then return end
+	wanderlustHidden = hidden
+	UpdatePlayerPortrait()
 end
 
 function PortraitModes.Refresh()

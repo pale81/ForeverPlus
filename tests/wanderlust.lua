@@ -1163,6 +1163,9 @@ end)()
 	-- Soft-hide mode (default): fades visible HUD children via SetAlpha(0) with zero SetUIVisibility calls.
 	local actionBar = PeekableFrame()
 	actionBar.shown, actionBar.alpha = true, 0.85
+	local independentRegion = PeekableFrame()
+	independentRegion.ignore, independentRegion.alpha = true, 0.75
+	actionBar.GetRegions = function() return independentRegion end
 	local hiddenPanel = PeekableFrame()
 	hiddenPanel.shown, hiddenPanel.alpha = false, 1
 	local minimapOverlay = PeekableFrame()
@@ -1173,8 +1176,16 @@ end)()
 	qolShownAlphas[bagsBar] = 1
 	local targetFrame = PeekableFrame()
 	targetFrame.shown, targetFrame.alpha = false, 1
+	local playerContainer = PeekableFrame()
+	playerContainer.shown, playerContainer.alpha = true, 1
+	local playerFrame = PeekableFrame()
+	playerFrame.shown, playerFrame.alpha, playerFrame.PlayerFrameContainer = true, 1, playerContainer
+	local portraitHidden = false
+	ns.PortraitModes = { SetWanderlustHidden = function(hidden) portraitHidden = hidden end }
 	globals.TargetFrame = targetFrame
-	ui.children = { actionBar, hiddenPanel, cluster, bagsBar, chatFrame, chatDock, gameTooltip }
+	globals.PlayerFrame = playerFrame
+	env.PlayerFrame = playerFrame
+	ui.children = { actionBar, hiddenPanel, cluster, bagsBar, playerFrame, chatFrame, chatDock, gameTooltip }
 
 	module.db.softHide = true
 	Over(false)
@@ -1183,9 +1194,11 @@ end)()
 	Advance(60)
 	assert(ui.shown and ui.alpha == 0.9 and visibilityCalls == visBefore,
 		"soft hide keeps UIParent shown and never calls SetUIVisibility or UIParent:SetAlpha")
-	assert(qolSuppressed, "soft hide pauses QoL mouseover fade writes while active")
-	assert(actionBar.alpha == 0 and targetFrame.alpha == 0 and hiddenPanel.alpha == 1,
-		"visible HUD and transient target frames fade to 0 while hidden panels stay untouched")
+	assert(qolSuppressed and portraitHidden and module.IsSoftHidden(),
+		"soft hide pauses QoL mouseover, hides portrait mode emblem and reports IsSoftHidden()")
+	assert(actionBar.alpha == 0 and independentRegion.alpha == 0 and playerFrame.alpha == 0
+		and playerContainer.alpha == 0 and targetFrame.alpha == 0 and hiddenPanel.alpha == 1,
+		"visible HUD, independent regions, player portrait container and transient target frames fade to 0 while hidden panels stay untouched")
 	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0 and bagsBar.alpha == 0,
 		"minimap, independent minimap overlays and bags bar start transparent")
 	assert(chatFrame.alpha == 1 and chatFrame.parent == ui and gameTooltip.alpha == 1,
@@ -1219,9 +1232,11 @@ end)()
 	-- Combat restores all faded frames to their exact pre-hide alpha (0 for idle QoL BagsBar, no flash!) and resumes QoL.
 	combat = true
 	Fire("PLAYER_REGEN_DISABLED")
-	assert(actionBar.alpha == 0.85 and cluster.alpha == 1 and minimapOverlay.alpha == 0.9
-		and targetFrame.alpha == 1 and bagsBar.alpha == 0 and not qolSuppressed and visibilityCalls == visBefore,
-		"combat restores exact original alphas without flashing idle QoL frames or calling SetUIVisibility")
+	assert(actionBar.alpha == 0.85 and independentRegion.alpha == 0.75 and playerFrame.alpha == 1
+		and playerContainer.alpha == 1 and cluster.alpha == 1 and minimapOverlay.alpha == 0.9
+		and targetFrame.alpha == 1 and bagsBar.alpha == 0 and not qolSuppressed and not portraitHidden
+		and not module.IsSoftHidden() and visibilityCalls == visBefore,
+		"combat restores exact original alphas and portrait emblem without flashing idle QoL frames or calling SetUIVisibility")
 	combat = false
 	Fire("PLAYER_REGEN_ENABLED")
 
@@ -1244,6 +1259,7 @@ end)()
 		"manual Alt+Z during soft hide restores frame alphas cleanly")
 	SetVisibility(true)
 	Enable(false)
-	ui.children, cluster.children, globals.TargetFrame, qolShownAlphas[bagsBar] = {}, {}, nil, nil
+	ui.children, cluster.children, globals.TargetFrame, globals.PlayerFrame, env.PlayerFrame = {}, {}, nil, nil, nil
+	ns.PortraitModes, qolShownAlphas[bagsBar] = nil, nil
 end)()
 print("Wanderlust timing, teleports, chat, bags, dialog bubbles, mouseover, abilities, targets, windows and lifecycle OK")

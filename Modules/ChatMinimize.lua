@@ -133,6 +133,10 @@ local function FoldHeight(frame)
 end
 
 local function ApplyAlpha()
+	local wanderlust = ns:GetModule("Wanderlust")
+	if wanderlust and wanderlust.IsSoftHidden and wanderlust.IsSoftHidden() and not wanderlust.db.showChat then
+		return Ease(fold)
+	end
 	local alpha = 1 - Ease(fade)
 	local hidden = fade >= 1
 	for _, frame in ipairs(Windows()) do

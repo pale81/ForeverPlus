@@ -408,6 +408,7 @@ local fishingMenu
 local function CanUseFishingMenu()
 	local unit = PlayerFrame.unit
 	return not ns.Secret(unit) and unit == "player" and not ns:IsEditModeActive()
+		and (not PlayerFrame.GetEffectiveAlpha or ns.Number(PlayerFrame:GetEffectiveAlpha(), 1) > 0.05)
 end
 
 local function OpenFishingMenu()

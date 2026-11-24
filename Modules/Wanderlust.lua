@@ -245,7 +245,9 @@ end
 -- instead of calling SetUIVisibility(false)/(true), avoiding 30-60 ms stalls.
 ---------------------------------------------------------------------------
 local TRANSIENT_HUD_NAMES = {
-	"TargetFrame", "FocusFrame", "PlayerCastingBarFrame", "CastingBarFrame", "PetFrame", "PartyFrame",
+	"PlayerFrame", "TargetFrame", "FocusFrame", "PlayerCastingBarFrame", "CastingBarFrame",
+	"PetFrame", "PartyFrame", "CompactPartyFrame", "CompactRaidFrameContainer",
+	"BuffFrame", "DebuffFrame", "ForeverPlusBuffBar", "ForeverPlusWaypointArrow",
 }
 
 local function CanFadeFrame(frame)
@@ -266,6 +268,14 @@ local function CollectIndependentOverlays(parent, bucket, visited, qol)
 		return
 	end
 	visited[parent] = true
+	if parent.GetRegions then
+		local regions = { parent:GetRegions() }
+		for _, region in ipairs(regions) do
+			if CanFadeFrame(region) and region.IsIgnoringParentAlpha and region:IsIgnoringParentAlpha() then
+				RecordSoftEntry(bucket, region, qol)
+			end
+		end
+	end
 	if not parent.GetChildren then return end
 	local children = { parent:GetChildren() }
 	for _, child in ipairs(children) do
@@ -273,6 +283,20 @@ local function CollectIndependentOverlays(parent, bucket, visited, qol)
 			RecordSoftEntry(bucket, child, qol)
 		end
 		CollectIndependentOverlays(child, bucket, visited, qol)
+	end
+end
+
+local function RecordSoftFrameAndOverlays(state, frame, visited)
+	if not CanFadeFrame(frame) or state.frames[frame] ~= nil then return end
+	state.frames[frame] = ns.Number(frame:GetAlpha(), 1)
+	frame:SetAlpha(0)
+	local independent = {}
+	CollectIndependentOverlays(frame, independent, visited, nil)
+	for child, info in pairs(independent) do
+		if state.frames[child] == nil and not state.minimap[child] then
+			state.frames[child] = info.restore
+			child:SetAlpha(0)
+		end
 	end
 end
 
@@ -395,6 +419,7 @@ local function EnterSoftHide()
 		state.bags = { frame = BagsBar, restore = actual, show = shown }
 	end
 
+	local frameVisited = {}
 	if UIParent.GetChildren then
 		local children = { UIParent:GetChildren() }
 		for _, child in ipairs(children) do
@@ -402,19 +427,24 @@ local function EnterSoftHide()
 				and not state.minimap[child]
 				and (not state.bags or child ~= state.bags.frame)
 				and not IsSoftExcluded(child) then
-				state.frames[child] = ns.Number(child:GetAlpha(), 1)
-				child:SetAlpha(0)
+				RecordSoftFrameAndOverlays(state, child, frameVisited)
 			end
 		end
 	end
 
-	-- Also keep transient HUD frames (target/focus/castbar) transparent if they appear while hidden.
+	-- Also keep transient HUD frames (player portrait container, target/focus/castbar, buff bar, waypoint) transparent.
 	for _, name in ipairs(TRANSIENT_HUD_NAMES) do
 		local frame = _G[name]
-		if CanFadeFrame(frame) and state.frames[frame] == nil and not state.minimap[frame] then
-			state.frames[frame] = ns.Number(frame:GetAlpha(), 1)
-			frame:SetAlpha(0)
+		if CanFadeFrame(frame) and not state.minimap[frame] then
+			RecordSoftFrameAndOverlays(state, frame, frameVisited)
 		end
+	end
+	local playerContainer = PlayerFrame and PlayerFrame.PlayerFrameContainer
+	if CanFadeFrame(playerContainer) and not state.minimap[playerContainer] then
+		RecordSoftFrameAndOverlays(state, playerContainer, frameVisited)
+	end
+	if ns.PortraitModes and ns.PortraitModes.SetWanderlustHidden then
+		ns.PortraitModes.SetWanderlustHidden(true)
 	end
 
 	SyncSoftPeek()
@@ -439,10 +469,17 @@ local function ExitSoftHide()
 	if saved.bags and CanFadeFrame(saved.bags.frame) then
 		saved.bags.frame:SetAlpha(saved.bags.restore)
 	end
+	if ns.PortraitModes and ns.PortraitModes.SetWanderlustHidden then
+		ns.PortraitModes.SetWanderlustHidden(false)
+	end
 	local qol = QoLModule()
 	if qol and qol.SetWanderlustSuppressed then
 		qol.SetWanderlustSuppressed(false)
 	end
+end
+
+function Wanderlust.IsSoftHidden()
+	return softHidden ~= nil
 end
 
 local function EnterPeek(desired, reveal)

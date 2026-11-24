@@ -19,6 +19,7 @@ local Helpers = ns:NewModule("Helpers", {
 		fishingHideUI = false,
 		fishingSound = false,
 		fishingBear = true,
+		fishingBearSound = true,
 		knownRecipes = true,
 	},
 	charDefaults = { fishingWeapons = {} },
@@ -395,7 +396,23 @@ local FISHING_OPTIONS = {
 	{ key = "fishingHideUI", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC, parent = "fishing", new = true },
 	{ key = "fishingSound", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC, parent = "fishing", new = true },
 	{ key = "fishingBear", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, parent = "fishing", new = true },
+	{ key = "fishingBearSound", name = L.HELPERS_FISHING_BEAR_SOUND, desc = L.HELPERS_FISHING_BEAR_SOUND_DESC, parent = "fishingBear", new = true },
 }
+local FISHING_OPTION_PARENTS = {}
+for _, option in ipairs(FISHING_OPTIONS) do
+	FISHING_OPTION_PARENTS[option.key] = option.parent
+end
+
+local function FishingOptionEnabled(key)
+	local parent = FISHING_OPTION_PARENTS[key]
+	while parent do
+		if not Helpers.db[parent] then
+			return false
+		end
+		parent = FISHING_OPTION_PARENTS[parent]
+	end
+	return true
+end
 local ROD_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerRod]]
 local ROD_SIZE = 28
 -- Hit areas in the 64-unit artwork: grip, reel, shaft, tip and float.
@@ -436,9 +453,9 @@ local function OpenFishingMenu()
 					ns.db.settingsNewSeen = counts
 				end))
 			end
-			local parent = option.parent
-			if parent then
-				row:SetEnabled(function() return Helpers.db[parent] end)
+			if option.parent then
+				local key = option.key
+				row:SetEnabled(function() return FishingOptionEnabled(key) end)
 			end
 		end
 	end)
@@ -513,9 +530,9 @@ local function CreateFishingMenu()
 end
 
 ---------------------------------------------------------------------------
--- Angler mode activation bear flash
+-- Angler mode activation Nat Pagle flash and sounds
 ---------------------------------------------------------------------------
-local BEAR_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerBear.tga]]
+local BEAR_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerNatPagle.tga]]
 local BEAR_MAX_ALPHA = 0.50
 local BEAR_FADE_IN = 0.15
 local BEAR_HOLD = 0.30
@@ -523,7 +540,52 @@ local BEAR_SHRINK = 0.55
 local BEAR_TOTAL = BEAR_FADE_IN + BEAR_HOLD + BEAR_SHRINK
 local BEAR_START_SCALE = 0.94
 local BEAR_MIN_SCALE = 0.04
+-- Verified Forever 1.60.1.71037 fishing cast and bobber splash FileDataIDs.
+local BEAR_CAST_SOUNDS = { 3610663, 3610665 }
+local BEAR_SPLASH_SOUNDS = { 569285, 568970, 569044 }
+local BEAR_SPLASH_DELAY = 0.22
 local bearFrame, bearElapsed, bearBaseSize, lastFishing
+local bearSoundGen, bearCastIndex, bearSplashIndex = 0, 0, 0
+local bearCastHandle, bearSplashHandle
+
+local function StopAnglerBearSounds()
+	bearSoundGen = bearSoundGen + 1
+	if bearCastHandle then
+		if StopSound then
+			StopSound(bearCastHandle)
+		end
+		bearCastHandle = nil
+	end
+	if bearSplashHandle then
+		if StopSound then
+			StopSound(bearSplashHandle)
+		end
+		bearSplashHandle = nil
+	end
+end
+
+local function PlayAnglerBearSounds()
+	StopAnglerBearSounds()
+	if not (Helpers.db and Helpers.db.fishingBearSound and PlaySoundFile) then
+		return
+	end
+	local gen = bearSoundGen
+	bearCastIndex = (bearCastIndex % #BEAR_CAST_SOUNDS) + 1
+	local ok, handle = PlaySoundFile(BEAR_CAST_SOUNDS[bearCastIndex], "SFX")
+	if ok and handle then
+		bearCastHandle = handle
+	end
+	ns.After("Helpers: angler splash", BEAR_SPLASH_DELAY, function()
+		if gen ~= bearSoundGen or not (Helpers.db and Helpers.db.fishingBearSound and PlaySoundFile) then
+			return
+		end
+		bearSplashIndex = (bearSplashIndex % #BEAR_SPLASH_SOUNDS) + 1
+		local splashOk, splashHandle = PlaySoundFile(BEAR_SPLASH_SOUNDS[bearSplashIndex], "SFX")
+		if splashOk and splashHandle then
+			bearSplashHandle = splashHandle
+		end
+	end)
+end
 
 local function BearSize()
 	local width = ns.Number(UIParent and UIParent:GetWidth(), 1280)
@@ -558,6 +620,7 @@ end
 
 local function StopAnglerBear()
 	bearElapsed = nil
+	StopAnglerBearSounds()
 	if bearFrame then
 		ns.SetUpdate(bearFrame, "Helpers: angler bear", nil)
 		bearFrame:SetAlpha(0)
@@ -608,6 +671,7 @@ local function ShowAnglerBear()
 	ApplyAnglerBearFrame(0)
 	frame:Show()
 	ns.SetUpdate(frame, "Helpers: angler bear", UpdateAnglerBear)
+	PlayAnglerBearSounds()
 end
 
 function Helpers.PreviewBear()
@@ -1102,6 +1166,8 @@ function Helpers:OnOptionChanged(key)
 	local playBear = key == "fishing" and self.db.fishing and lastFishing == false and self.db.fishingBear
 	if (key == "fishing" and not self.db.fishing) or (key == "fishingBear" and not self.db.fishingBear) then
 		StopAnglerBear()
+	elseif key == "fishingBearSound" and not self.db.fishingBearSound then
+		StopAnglerBearSounds()
 	end
 	self:Update()
 	if key == "fishing" or key == "fishingRestore" then
@@ -1121,6 +1187,8 @@ Helpers.options = {
 	{ type = "header", name = L.HELPERS_FISHING_MODE },
 	{ key = "fishingMenu", type = "toggle", name = L.HELPERS_FISHING_MENU, desc = L.HELPERS_FISHING_MENU_DESC, new = true },
 	{ key = "fishingBear", type = "toggle", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, new = true },
+	{ key = "fishingBearSound", type = "toggle", name = L.HELPERS_FISHING_BEAR_SOUND, desc = L.HELPERS_FISHING_BEAR_SOUND_DESC,
+		parent = "fishingBear", new = true },
 	{ type = "button", name = L.HELPERS_FISHING_BEAR_PREVIEW, text = L.HELPERS_FISHING_BEAR_PREVIEW_BUTTON,
 		desc = L.HELPERS_FISHING_BEAR_PREVIEW_DESC, func = Helpers.PreviewBear },
 }

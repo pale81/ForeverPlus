@@ -2242,20 +2242,29 @@ print("helpers OK")
 			fishingSettings[#fishingSettings + 1] = option.key
 		end
 	end
-	assert(table.concat(fishingSettings, ",") == "fishingMenu,fishingBear", "settings expose rod visibility and angler bear")
+	assert(table.concat(fishingSettings, ",") == "fishingMenu,fishingBear,fishingBearSound",
+		"settings expose rod visibility, Nat Pagle flash and sound")
 	local click = firstHit:GetScript("OnClick")
 	click(firstHit)
 	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")
 	local mode, equip, restore = rows[ns.L.HELPERS_FISHING], rows[ns.L.HELPERS_FISHING_EQUIP], rows[ns.L.HELPERS_FISHING_RESTORE]
 	assert(mode.checked() and equip.enabled() and restore.enabled(), "all three fishing settings are available from the same menu")
-	local hide, sound, bear = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND], rows[ns.L.HELPERS_FISHING_BEAR]
+	local hide, sound = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND]
+	local bear, bearSound = rows[ns.L.HELPERS_FISHING_BEAR], rows[ns.L.HELPERS_FISHING_BEAR_SOUND]
 	assert(not hide.checked() and not sound.checked() and bear.checked() and bear.enabled()
+		and bearSound.checked() and bearSound.enabled()
 		and hide.text:find(ns.L.SETTINGS_NEW, 1, true) and sound.text:find(ns.L.SETTINGS_NEW, 1, true)
-		and bear.text:find(ns.L.SETTINGS_NEW, 1, true), "presentation and bear options are marked NEW")
+		and bear.text:find(ns.L.SETTINGS_NEW, 1, true) and bearSound.text:find(ns.L.SETTINGS_NEW, 1, true),
+		"presentation, Nat Pagle and sound options are marked NEW")
 	mode.toggle()
-	assert(not helpers.db.fishing and not equip.enabled() and menu:IsShown(), "turning off fishing leaves the menu available to turn it back on")
+	assert(not helpers.db.fishing and not equip.enabled() and not bearSound.enabled() and menu:IsShown(),
+		"turning off fishing leaves the menu available to turn it back on")
 	mode.toggle()
-	assert(helpers.db.fishing and equip.enabled(), "turning fishing back on enables the two dependent choices")
+	assert(helpers.db.fishing and equip.enabled() and bearSound.enabled(), "turning fishing back on enables the dependent choices")
+	bear.toggle()
+	assert(not helpers.db.fishingBear and not bearSound.enabled(), "turning off Nat Pagle flash disables its sound option")
+	bear.toggle()
+	assert(helpers.db.fishingBear and bearSound.enabled(), "turning Nat Pagle flash back on re-enables its sound option")
 	edit, owner = true, nil
 	click(firstHit)
 	assert(not owner, "the rod is inactive while the player frame is being placed")
@@ -2309,17 +2318,34 @@ end)()
 	UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar = savedChannel, savedVisibility, savedGet, savedSet
 end)()
 ;(function()
-	-- Angler mode bear flash: trigger on off -> on transition, geometry/animation, 0-CPU idle, options and preview.
+	-- Angler mode Nat Pagle flash & native sounds: trigger, geometry/animation, delayed splash, abort, options and previews.
 	local showBear = uv(helpers.PreviewBear, "ShowAnglerBear")
 	local ensureBear = uv(showBear, "EnsureAnglerBearFrame")
 	local savedBearFrame = uv(ensureBear, "bearFrame")
 	local savedGlobalBear = ForeverPlusAnglerBear
-	local savedCreate = CreateFrame
+	local savedCreate, savedPlay, savedStop, savedAfter =
+		CreateFrame, PlaySoundFile, rawget(_G, "StopSound"), C_Timer.After
 	local savedW, savedH = UIParent.w, UIParent.h
-	local savedFishing, savedBearOpt = helpers.db.fishing, helpers.db.fishingBear
+	local savedFishing, savedBearOpt, savedBearSoundOpt =
+		helpers.db.fishing, helpers.db.fishingBear, helpers.db.fishingBearSound
 	local bear, strata, mouseEnabled, ignoreAlpha, texturePath, anchorPoint
+	local played, stopped, pendingAfter, nextHandle = {}, {}, {}, 100
+	local CAST_IDS = { [3610663] = true, [3610665] = true }
+	local SPLASH_IDS = { [569285] = true, [568970] = true, [569044] = true }
+
 	UIParent.w, UIParent.h = 1920, 1080
 	setuv(ensureBear, "bearFrame", nil)
+	PlaySoundFile = function(id, channel)
+		nextHandle = nextHandle + 1
+		played[#played + 1] = { id = id, channel = channel, handle = nextHandle }
+		return true, nextHandle
+	end
+	StopSound = function(handle)
+		stopped[#stopped + 1] = handle
+	end
+	C_Timer.After = function(delay, fn)
+		pendingAfter[#pendingAfter + 1] = { delay = delay, fn = fn }
+	end
 	CreateFrame = function(kind, name, parent)
 		local frame = savedCreate(kind, name, parent)
 		if name == "ForeverPlusAnglerBear" then
@@ -2339,82 +2365,132 @@ end)()
 		return frame
 	end
 
-	-- Settings expose fishingBear with new = true and a preview button; PortraitModes lists fishingBear under angler.
-	local bearOpt, previewOpt
+	-- Settings expose fishingBear + fishingBearSound with new = true and a preview button; PortraitModes lists both.
+	local bearOpt, soundOpt, previewOpt
 	for _, opt in ipairs(helpers.options) do
 		if opt.key == "fishingBear" then bearOpt = opt end
+		if opt.key == "fishingBearSound" then soundOpt = opt end
 		if opt.type == "button" and opt.name == ns.L.HELPERS_FISHING_BEAR_PREVIEW then previewOpt = opt end
 	end
 	assert(bearOpt and bearOpt.new == true and helpers.db.fishingBear == true, "fishingBear option defaults on and is marked NEW")
-	assert(previewOpt and type(previewOpt.func) == "function", "angler bear preview button is present in settings")
-	local pmSubFound = false
+	assert(soundOpt and soundOpt.new == true and soundOpt.parent == "fishingBear" and helpers.db.fishingBearSound == true,
+		"fishingBearSound option defaults on, depends on fishingBear and is marked NEW")
+	assert(previewOpt and type(previewOpt.func) == "function", "Nat Pagle preview button is present in settings")
+	assert(ns.L.SLASH_HELP:find("/fp nat", 1, true), "slash help documents /fp nat")
+	local pmBearFound, pmSoundFound = false, false
 	for _, feature in ipairs(ns.PortraitModes.FEATURES) do
 		if feature.key == "angler" then
 			for _, sub in ipairs(feature.subOptions or {}) do
-				if sub.module == "Helpers" and sub.key == "fishingBear" then pmSubFound = true end
+				if sub.module == "Helpers" and sub.key == "fishingBear" then pmBearFound = true end
+				if sub.module == "Helpers" and sub.key == "fishingBearSound" then pmSoundFound = true end
 			end
 		end
 	end
-	assert(pmSubFound, "PortraitModes angler sub-options include fishingBear")
+	assert(pmBearFound and pmSoundFound, "PortraitModes angler sub-options include fishingBear and fishingBearSound")
 
-	-- Staying on or turning off does not flash the bear.
+	-- Staying on or turning off does not flash Nat Pagle or play sounds.
 	ns.SetOption("Helpers", "fishing", true)
-	assert(not bear, "re-enabling an already active fishing mode does not trigger the bear")
+	assert(not bear and #played == 0, "re-enabling an already active fishing mode does not trigger Nat Pagle")
 	ns.SetOption("Helpers", "fishing", false)
-	assert(not bear, "disabling fishing mode does not trigger the bear")
+	assert(not bear and #played == 0, "disabling fishing mode does not trigger Nat Pagle")
 
-	-- Turning off -> on triggers the bear overlay with proper attributes and animation.
+	-- Turning off -> on triggers Nat Pagle overlay, immediate cast sound and delayed splash.
 	ns.SetOption("Helpers", "fishing", true)
-	assert(bear and bear:IsShown(), "off -> on fishing transition shows the angler bear")
+	assert(bear and bear:IsShown(), "off -> on fishing transition shows Nat Pagle")
 	assert(strata == "FULLSCREEN_DIALOG" and mouseEnabled == false and ignoreAlpha == true,
-		"angler bear uses non-interactive fullscreen overlay ignoring parent alpha")
-	assert(anchorPoint and anchorPoint[1] == "CENTER" and anchorPoint[2] == UIParent, "angler bear is centered on UIParent")
-	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\AnglerBear.tga]], "angler bear loads AnglerBear.tga")
+		"Nat Pagle uses non-interactive fullscreen overlay ignoring parent alpha")
+	assert(anchorPoint and anchorPoint[1] == "CENTER" and anchorPoint[2] == UIParent, "Nat Pagle is centered on UIParent")
+	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\AnglerNatPagle.tga]], "Nat Pagle loads AnglerNatPagle.tga")
+	assert(#played == 1 and CAST_IDS[played[1].id] and played[1].channel == "SFX",
+		"activation plays a verified fishing cast sound immediately on SFX")
+	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.22) < 0.001,
+		"bobber splash is scheduled 0.22 s after cast via ns.After")
+	local firstCastID, firstCastHandle = played[1].id, played[1].handle
+	pendingAfter[1].fn()
+	assert(#played == 2 and SPLASH_IDS[played[2].id] and played[2].channel == "SFX",
+		"delayed timer plays a verified bobber splash sound on SFX")
+	local firstSplashID, firstSplashHandle = played[2].id, played[2].handle
+
 	local update = bear:GetScript("OnUpdate")
-	assert(type(update) == "function", "angler bear starts an OnUpdate handler while active")
+	assert(type(update) == "function", "Nat Pagle starts an OnUpdate handler while active")
 	update(bear, 0.25)
 	local holdSize, holdAlpha = bear:GetWidth(), bear:GetAlpha()
-	assert(holdSize > 900 and math.abs(holdAlpha - 0.50) < 0.01, "during hold the bear fills screen height at half transparency")
+	assert(holdSize > 900 and math.abs(holdAlpha - 0.50) < 0.01, "during hold Nat Pagle fills screen height at half transparency")
 	update(bear, 0.50)
 	local midSize, midAlpha = bear:GetWidth(), bear:GetAlpha()
-	assert(midSize < holdSize and midAlpha < holdAlpha, "during shrink the bear starts shrinking and fading")
+	assert(midSize < holdSize and midAlpha < holdAlpha, "during shrink Nat Pagle starts shrinking and fading")
 	update(bear, 0.20)
 	assert(bear:GetWidth() < holdSize * 0.35 and bear:GetWidth() < midSize and bear:GetAlpha() < midAlpha,
-		"accelerated in-easing rapidly shrinks the bear toward the screen center")
+		"accelerated in-easing rapidly shrinks Nat Pagle toward the screen center")
 	update(bear, 0.10)
 	assert(not bear:IsShown() and bear:GetAlpha() == 0 and bear:GetScript("OnUpdate") == nil,
-		"after completion the bear hides cleanly and stops OnUpdate (0 CPU idle)")
+		"after completion Nat Pagle hides cleanly and stops OnUpdate (0 CPU idle)")
+	assert(stopped[1] == firstCastHandle and stopped[2] == firstSplashHandle,
+		"stopping Nat Pagle cleanly stops its active cast and splash sound handles")
 
-	-- PortraitModes ToggleMode off -> on also triggers the bear.
+	-- PortraitModes ToggleMode off -> on triggers Nat Pagle and alternates cast/splash sounds.
+	played, stopped, pendingAfter = {}, {}, {}
 	ns.PortraitModes.ToggleMode("angler")
 	assert(not helpers.db.fishing and not bear:IsShown(), "PortraitModes turns angler mode off")
 	ns.PortraitModes.ToggleMode("angler")
 	assert(helpers.db.fishing and bear:IsShown() and bear:GetScript("OnUpdate") ~= nil,
-		"PortraitModes off -> on transition plays the angler bear")
-
-	-- Turning fishingBear off stops an active animation and suppresses future activations.
+		"PortraitModes off -> on transition plays Nat Pagle")
+	assert(#played == 1 and CAST_IDS[played[1].id] and played[1].id ~= firstCastID,
+		"consecutive casts alternate between the two verified cast sounds")
+	local pendingSplash = pendingAfter[1]
+	-- Turning fishingBear off stops an active animation, stops sound handles and cancels the pending splash.
+	local activeCastHandle = played[1].handle
 	ns.SetOption("Helpers", "fishingBear", false)
 	assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "disabling fishingBear stops an active flash")
+	assert(stopped[1] == activeCastHandle, "disabling fishingBear stops active sound handle")
+	pendingSplash.fn()
+	assert(#played == 1, "cancelled splash timer does not fire after StopAnglerBear")
 	ns.SetOption("Helpers", "fishing", false)
 	ns.SetOption("Helpers", "fishing", true)
-	assert(not bear:IsShown(), "fishingBear = false suppresses the flash on activation")
+	assert(not bear:IsShown() and #played == 1, "fishingBear = false suppresses the flash and sound on activation")
 
-	-- Slash commands and preview button still preview the bear regardless of option state.
-	SlashCmdList.FOREVERPLUS("bär")
-	assert(bear:IsShown() and bear:GetScript("OnUpdate") ~= nil, "/fp bär previews the angler bear")
+	-- Re-triggering preview stops previous handles and cancels stale splash timer; new timer plays alternate splash.
+	played, stopped, pendingAfter = {}, {}, {}
+	SlashCmdList.FOREVERPLUS("nat")
+	assert(bear:IsShown() and bear:GetScript("OnUpdate") ~= nil and #played == 1 and #pendingAfter == 1,
+		"/fp nat previews Nat Pagle with cast sound and scheduled splash")
+	local staleCastHandle, staleSplash = played[1].handle, pendingAfter[1]
+	SlashCmdList.FOREVERPLUS("pagle")
+	assert(stopped[1] == staleCastHandle and #played == 2 and #pendingAfter == 2,
+		"/fp pagle stops previous sound handle and restarts preview")
+	staleSplash.fn()
+	assert(#played == 2, "stale splash timer from previous start is ignored")
+	pendingAfter[2].fn()
+	assert(#played == 3 and SPLASH_IDS[played[3].id] and played[3].id ~= firstSplashID,
+		"active splash timer plays the next bobber splash variant")
+	-- Disabling fishingBearSound mid-flash stops active sounds without hiding the portrait.
+	local countBeforeMute = #stopped
+	ns.SetOption("Helpers", "fishingBearSound", false)
+	assert(bear:IsShown() and #stopped > countBeforeMute, "disabling fishingBearSound stops active sounds immediately")
 	bear:GetScript("OnUpdate")(bear, 1.5)
-	assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "preview finishes and stops OnUpdate")
-	SlashCmdList.FOREVERPLUS("anglerbär")
-	assert(bear:IsShown(), "/fp anglerbär previews the angler bear")
+
+	-- With fishingBearSound = false, activation and all preview commands/aliases stay completely silent.
+	played, stopped, pendingAfter = {}, {}, {}
+	ns.SetOption("Helpers", "fishingBear", true)
+	ns.SetOption("Helpers", "fishing", false)
+	ns.SetOption("Helpers", "fishing", true)
+	assert(bear:IsShown() and #played == 0 and #pendingAfter == 0, "fishingBearSound = false stays silent on activation")
 	bear:GetScript("OnUpdate")(bear, 1.5)
+	for _, cmd in ipairs({ "nat", "pagle", "angler", "bär", "anglerbär", "bear", "anglerbear" }) do
+		SlashCmdList.FOREVERPLUS(cmd)
+		assert(bear:IsShown() and bear:GetScript("OnUpdate") ~= nil, "/fp " .. cmd .. " previews Nat Pagle")
+		bear:GetScript("OnUpdate")(bear, 1.5)
+		assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "preview finishes and stops OnUpdate")
+	end
 	previewOpt.func()
-	assert(bear:IsShown(), "settings preview button triggers the angler bear")
+	assert(bear:IsShown() and #played == 0 and #pendingAfter == 0, "settings preview stays silent when fishingBearSound is off")
 	bear:GetScript("OnUpdate")(bear, 1.5)
 
+	ns.SetOption("Helpers", "fishingBearSound", savedBearSoundOpt)
 	ns.SetOption("Helpers", "fishingBear", savedBearOpt)
 	ns.SetOption("Helpers", "fishing", savedFishing)
 	UIParent.w, UIParent.h = savedW, savedH
-	CreateFrame = savedCreate
+	CreateFrame, PlaySoundFile, StopSound, C_Timer.After = savedCreate, savedPlay, savedStop, savedAfter
 	ForeverPlusAnglerBear = savedGlobalBear
 	setuv(ensureBear, "bearFrame", savedBearFrame)
 end)()

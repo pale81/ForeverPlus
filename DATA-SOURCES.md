@@ -38,6 +38,8 @@ Local observation capture remains opt-in (`/fp daten an|aus|löschen`) and store
 
 **Bags-full warning.** The default is the client's quest failure sound `sound/interface/igquestfailed.ogg` (FileDataID 567459), played by `PlaySoundFile`. The client's `SOUNDKIT.RAID_WARNING` is the fallback. Audio stays in the game installation.
 
+**Angler mode activation sounds.** `Modules/Helpers.lua` references native Forever 1.60.1.71037 sounds by FileDataID through `PlaySoundFile` on the SFX channel: fishing cast oneshots `fishing_cast_oneshot_3610663.ogg` (3610663) and `fishing_cast_oneshot_3610665.ogg` (3610665), followed after 0.22 s by bobber splashes `fishingbobber_ver2_1.ogg` (569285), `fishingbobber_ver2_2.ogg` (568970) and `fishingbobber_ver2_3.ogg` (569044). Audio stays in the game installation.
+
 **Portrait dragon.** The RP click areas in `Modules/Visuals.lua` use three 24 × 24 grids from the mirrored alpha channels of the installed WoW Forever client (1.60.1.70938, `UiTextureAtlasMember` and atlas FileDataID 4703662). The mean alpha threshold is 150/255, with 30/255 in the tail region (columns 13–24, rows 18–24, counted from the top left). The game renders its own Blizzard textures.
 
 **Player portrait styles.** The Forever client supplies the portrait mask, class portrait atlases, Alliance and Horde emblems from character creation, and the Zephras Isle emblem for the Skyborne. The other playable races use the client's tournament banner icons (FileDataIDs 255128–255135).

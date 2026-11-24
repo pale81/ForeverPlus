@@ -1048,7 +1048,8 @@ local function RunSlashCommand(msg)
 		ns:GetModule("Tooltip").PrintCompareTrace()
 	elseif msg == "aufwertung" or msg == "upgrade" then
 		ns:GetModule("Items").PreviewUpgrade()
-	elseif msg == "bär" or msg == "baer" or msg == "anglerbär" or msg == "anglerbaer" or msg == "bear" or msg == "anglerbear" then
+	elseif msg == "nat" or msg == "pagle" or msg == "angler"
+		or msg == "bär" or msg == "baer" or msg == "anglerbär" or msg == "anglerbaer" or msg == "bear" or msg == "anglerbear" then
 		ns:GetModule("Helpers").PreviewBear()
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()

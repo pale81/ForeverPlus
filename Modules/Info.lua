@@ -658,7 +658,13 @@ function Info.SpikesText(nilIfEmpty)
 	for _, moment in ipairs(spikeMoments) do
 		if moment.own then
 			local main = moment.calls and moment.calls[1]
-			local fallbackName = UnattributedLabel(moment)
+			local fallbackName
+			if not main then
+				fallbackName = UnattributedLabel(moment)
+			elseif main.total < ns.SLOW_MS then
+				fallbackName = L.INFO_SPIKES_SHORT_CALLS:format(ns.SLOW_MS)
+				main = nil
+			end
 			local key = main and main.name or ("\0" .. fallbackName)
 			local item = ownByCall[key]
 			if not item then

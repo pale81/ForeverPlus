@@ -14,10 +14,16 @@ local teleport
 local MIN_TELEPORT_CAST_MS = 2000
 local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
+local MINIMAP_LEAVE_GRACE = 0.25
 local BAG_KEY_PEEK_SECONDS = 3
 local peek, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
+local lastMinimapHover
 local UpdateHiddenUI, CheckPeek, SyncPeek
 local peekDriverShown
+
+local SetInterfaceVisibility = ns.Measured("Wanderlust: SetUIVisibility", function(visible)
+	SetUIVisibility(visible)
+end)
 
 local function DialogModule()
 	return ns:GetModule("Dialog")
@@ -81,9 +87,16 @@ local function CursorInArea(area)
 end
 
 local function CursorOverMinimap()
-	return Wanderlust.db.minimapMouseover
-		and MinimapCluster and not MinimapCluster:IsForbidden()
-		and CursorInArea(peek and peekKeepArea or peekArea) or false
+	if not Wanderlust.db.minimapMouseover or not MinimapCluster or MinimapCluster:IsForbidden() then
+		lastMinimapHover = nil
+		return false
+	end
+	if CursorInArea(peek and peekKeepArea or peekArea) then
+		lastMinimapHover = GetTime()
+		return true
+	end
+	-- A short excursion outside the rim should not hide and re-show all of UIParent.
+	return peek and lastMinimapHover and GetTime() - lastMinimapHover < MINIMAP_LEAVE_GRACE
 end
 
 local function CursorOverBagsBar()
@@ -119,11 +132,12 @@ end
 
 local function EndPeek(hide)
 	bagKeyUntil = nil
+	lastMinimapHover = nil
 	if not peek then return end
 	local saved = peek
 	peek = nil
 	-- Hide first, then restore the alpha: nothing flashes.
-	if hide and UIParent:IsShown() then SetUIVisibility(false) end
+	if hide and UIParent:IsShown() then SetInterfaceVisibility(false) end
 	UIParent:SetAlpha(saved.alpha)
 	RestoreIgnored(saved.ignored)
 end
@@ -240,7 +254,7 @@ SyncPeek = function()
 				frame:SetIgnoreParentAlpha(true)
 			end
 			UIParent:SetAlpha(0)
-			SetUIVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+			SetInterfaceVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
 		else
 			local removed
 			for frame, orig in pairs(peek.ignored) do
@@ -325,7 +339,7 @@ local function RestoreUI()
 		if not UIParent:IsShown() then
 			-- Use the same native API as the game's Toggle UI binding, including in combat.
 			restoring = true
-			SetUIVisibility(true)
+			SetInterfaceVisibility(true)
 			restoring = nil
 		end
 		-- Keep a focused chat input visible when it returns to UIParent.
@@ -338,7 +352,7 @@ local function HideUI()
 	hidUI = true
 	SavePeekArea()
 	UpdateHiddenChat()
-	SetUIVisibility(false)
+	SetInterfaceVisibility(false)
 	UpdateHiddenUI()
 end
 

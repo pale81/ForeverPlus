@@ -1028,6 +1028,19 @@ end)()
 	SlashCmdList.FOREVERPLUS("spikes")
 	assert(openedKey == "Spikes", "/fp spikes opens spikes window")
 
+	local shortCall = ns.Measured("Minimap: coordinates update", function() clock = clock + 0.2 end)
+	shortCall()
+	now, clockText = 791.6, "19:00:07"
+	perAddon = { [ns.name] = 78.5 }
+	sample()
+	report = info.SpikesText()
+	local shortLabel = ns.L.INFO_SPIKES_SHORT_CALLS:format(ns.SLOW_MS)
+	assert(report:find(ns.L.INFO_SPIKES_TRIGGER_UNATTRIBUTED:format(shortLabel, 1, 78.5), 1, true)
+		and not report:find(ns.L.INFO_SPIKES_TRIGGER_LINE:format("Minimap: coordinates update", 1, 0.2, 78.5), 1, true),
+		"a short call does not get the large frame attributed to it in the summary")
+	assert(report:find("78.5 ms | Minimap: coordinates update (0.2 ms)", 1, true),
+		"the short call is still visible in frame details")
+
 	-- Ring-buffer cap keeps latest 100 moments while tracking total count.
 	for i = 1, 102 do
 		now = 792.0 + i * 0.05
@@ -1035,7 +1048,7 @@ end)()
 		sample()
 	end
 	local capped = info.SpikesText()
-	assert(capped:find(ns.L.INFO_SPIKES_SUMMARY_CAPPED:format(ns.SLOW_MS, 107, 100), 1, true),
+	assert(capped:find(ns.L.INFO_SPIKES_SUMMARY_CAPPED:format(ns.SLOW_MS, 108, 100), 1, true),
 		"cap preserves total count and keeps last 100 moments: " .. capped:sub(1, 80))
 
 	-- Reset button clears moments and session metrics.

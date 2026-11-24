@@ -64,15 +64,19 @@ local function Blocked()
 	return IsSwimming() or IsFlying() or UnitOnTaxi("player") or UnitIsDeadOrGhost("player")
 end
 
+local StepLanding = ns.Measured("Landing", function(falling)
+	local kind = Landing.Step(state, falling, GetTime(), Blocked())
+	if kind then
+		Play(kind)
+	end
+end)
+
 local function OnUpdate()
 	local falling = IsFalling()
 	if not falling and not state.since then
 		return
 	end
-	local kind = Landing.Step(state, falling, GetTime(), Blocked())
-	if kind then
-		Play(kind)
-	end
+	StepLanding(falling)
 end
 
 local watcher
@@ -80,7 +84,7 @@ local watcher
 function Landing:Apply()
 	watcher = watcher or CreateFrame("Frame")
 	state.since = nil
-	ns.SetUpdate(watcher, "Landing", self.db.enabled and OnUpdate or nil)
+	watcher:SetScript("OnUpdate", self.db.enabled and OnUpdate or nil)
 end
 
 function Landing:OnLogin()

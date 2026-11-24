@@ -508,23 +508,27 @@ end
 local catcherElapsed = 0
 local UpdateCatcher
 
+local RunCatcherTick = ns.Measured("Mover: UpdateCatcherTarget", function()
+	if not (catcherOn and Mover.db.enabled and (ctrlDown or AnyWindowUnlocked())) then
+		StopCatcher()
+		return
+	end
+	UpdateCatcherTarget(false)
+end)
+
 local function EnsureCatcherDriver()
 	if catcherDriver then
 		return catcherDriver
 	end
 	catcherDriver = CreateFrame("Frame")
 	catcherDriver:Hide()
-	ns.SetUpdate(catcherDriver, "Mover: UpdateCatcherTarget", function(_, elapsed)
+	catcherDriver:SetScript("OnUpdate", function(_, elapsed)
 		catcherElapsed = catcherElapsed + elapsed
 		if catcherElapsed < 0.1 then
 			return
 		end
 		catcherElapsed = 0
-		if not (catcherOn and Mover.db.enabled and (ctrlDown or AnyWindowUnlocked())) then
-			StopCatcher()
-			return
-		end
-		UpdateCatcherTarget(false)
+		RunCatcherTick()
 	end)
 	return catcherDriver
 end

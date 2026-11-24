@@ -372,37 +372,57 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, 
 		return
 	end
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
-	local ownElapsed
 	local readMetric = C_AddOnProfiler.GetAddOnMetric
+	local ownEntry = sessionMetrics[ns.name]
+	local ownElapsed = ownEntry and (readMetric(ownEntry.name, lastTime) or 0) or nil
+	-- Skip querying every foreign addon on frames where no foreign addon spent meaningful time.
+	local readOverall = C_AddOnProfiler.GetOverallMetric
+	local skipForeign = false
+	if readOverall and ownElapsed then
+		local overall = readOverall(lastTime)
+		if type(overall) == "number" and overall - ownElapsed < 0.05 then
+			skipForeign = true
+		end
+	end
 	for _, entry in ipairs(sampledAddons) do
-		local elapsed = readMetric(entry.name, lastTime) or 0
 		local own = entry.own
+		local elapsed
 		if own then
-			ownElapsed = elapsed
-		end
-		local index = entry.recentIndex
-		if entry.recentCount == 60 then
-			entry.recentTotal = entry.recentTotal - entry.recent[index]
+			elapsed = ownElapsed or 0
+		elseif skipForeign then
+			if entry.recentTotal == 0 and entry.recentCount == 60 then
+				elapsed = nil
+			else
+				elapsed = 0
+			end
 		else
-			entry.recentCount = entry.recentCount + 1
+			elapsed = readMetric(entry.name, lastTime) or 0
 		end
-		entry.recent[index] = elapsed
-		entry.recentTotal = entry.recentTotal + elapsed
-		entry.recentIndex = index % 60 + 1
-		if elapsed > entry.peak then
-			entry.peak = elapsed
-			entry.peakAt = now
-			if own then
-				entry.peakCall, entry.peakCallTime = peakCall, peakCallTime
+		if elapsed then
+			local index = entry.recentIndex
+			if entry.recentCount == 60 then
+				entry.recentTotal = entry.recentTotal - entry.recent[index]
+			else
+				entry.recentCount = entry.recentCount + 1
 			end
-		end
-		if elapsed > ns.SLOW_MS then
-			entry.slow = entry.slow + 1
-			if own and peakCall then
-				entry.slowAt, entry.slowFrame = now, elapsed
-				entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
+			entry.recent[index] = elapsed
+			entry.recentTotal = entry.recentTotal + elapsed
+			entry.recentIndex = index % 60 + 1
+			if elapsed > entry.peak then
+				entry.peak = elapsed
+				entry.peakAt = now
+				if own then
+					entry.peakCall, entry.peakCallTime = peakCall, peakCallTime
+				end
 			end
-			RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime, frameGC)
+			if elapsed > ns.SLOW_MS then
+				entry.slow = entry.slow + 1
+				if own and peakCall then
+					entry.slowAt, entry.slowFrame = now, elapsed
+					entry.slowCall, entry.slowCallTime = peakCall, peakCallTime
+				end
+				RecordSpikeMoment(now, entry, elapsed, frameCalls, frameCounts, frameMax, peakCall, peakCallTime, frameGC)
+			end
 		end
 	end
 	return ownElapsed

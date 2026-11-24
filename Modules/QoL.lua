@@ -53,10 +53,9 @@ driver:Hide()
 
 local elapsedSinceCheck = 0
 local fading = true
-ns.SetUpdate(driver, "QoL: fade update", function(_, elapsed)
-	elapsedSinceCheck = elapsedSinceCheck + elapsed
-	if elapsedSinceCheck >= CHECK_INTERVAL then
-		elapsedSinceCheck = 0
+
+local RunFadeUpdate = ns.Measured("QoL: fade update", function(check, elapsed)
+	if check then
 		-- Edit Mode and (optionally) combat show everything.
 		local forcedShown = ns:IsEditModeActive() or (QoL.db.mouseoverCombat and InCombatLockdown())
 		for frame, state in pairs(fadeTargets) do
@@ -88,6 +87,17 @@ ns.SetUpdate(driver, "QoL: fade update", function(_, elapsed)
 			frame:SetAlpha(alpha)
 			fading = fading or alpha ~= target
 		end
+	end
+end)
+
+driver:SetScript("OnUpdate", function(_, elapsed)
+	elapsedSinceCheck = elapsedSinceCheck + elapsed
+	local check = elapsedSinceCheck >= CHECK_INTERVAL
+	if check then
+		elapsedSinceCheck = 0
+	end
+	if check or fading then
+		RunFadeUpdate(check, elapsed)
 	end
 end)
 

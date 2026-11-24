@@ -14142,6 +14142,31 @@ end)()
 	assert(clearCalls == 2 and setCalls == 2, "Buffs clears wheel override bindings only once")
 	ClearOverrideBindings, SetOverrideBindingClick = savedClearBind, savedSetBind
 
+	-- 13. Info: SampleAddonMetrics skips per-addon queries for foreign addons when GetOverallMetric shows no foreign work.
+	local sampleMetrics = uv(uv(info.UpdatePerformance, "SetupProfilerSampler"), "SampleAddonMetrics")
+	local savedRead, savedOverall = C_AddOnProfiler.GetAddOnMetric, C_AddOnProfiler.GetOverallMetric
+	local savedIgnore = uv(sampleMetrics, "ignoreUntil")
+	local savedReset = uv(sampleMetrics, "resetAt")
+	local savedLoading = uv(sampleMetrics, "loadingScreen")
+	local foreignReads = 0
+	C_AddOnProfiler.GetAddOnMetric = function(name)
+		if name ~= ns.name then foreignReads = foreignReads + 1 end
+		return name == ns.name and 0.4 or 0
+	end
+	C_AddOnProfiler.GetOverallMetric = function() return 0.41 end
+	setuv(sampleMetrics, "ignoreUntil", 0)
+	setuv(sampleMetrics, "resetAt", nil)
+	setuv(sampleMetrics, "loadingScreen", false)
+	sampleMetrics(100, nil, nil, 99, nil, nil, nil, false)
+	assert(foreignReads == 0, "SampleAddonMetrics skips foreign GetAddOnMetric calls on quiet frames: " .. foreignReads)
+	C_AddOnProfiler.GetOverallMetric = function() return 3.5 end
+	sampleMetrics(101, nil, nil, 100, nil, nil, nil, false)
+	assert(foreignReads > 0, "SampleAddonMetrics queries foreign addons when overall time exceeds ForeverPlus")
+	setuv(sampleMetrics, "ignoreUntil", savedIgnore)
+	setuv(sampleMetrics, "resetAt", savedReset)
+	setuv(sampleMetrics, "loadingScreen", savedLoading)
+	C_AddOnProfiler.GetAddOnMetric, C_AddOnProfiler.GetOverallMetric = savedRead, savedOverall
+
 	print("runtime stutter optimizations OK")
 end)()
 dofile("wanderlust.lua")

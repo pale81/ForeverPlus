@@ -5464,11 +5464,14 @@ end)()
 	print("buff range OK")
 end)()
 ;(function()
-	-- Performance table: red only from 5 ms or 20 frames over 5 ms, orange from 1.5 ms or 3 frames.
+	-- Performance table (60 FPS = 16.7 ms budget): Peak red from 15 ms, orange 5-15 ms; session >5 ms rate 1 / 4 per min.
 	local info = ns:GetModule("Info")
 	assert(ns.SLOW_MS == 5, "slow from 5 ms")
-	assert(info.PeakLevel(0.8, 2) == "green" and info.PeakLevel(2, 2) == "orange" and info.PeakLevel(0.8, 3) == "orange", "orange between")
-	assert(info.PeakLevel(5.2, 0) == "red" and info.PeakLevel(1, 20) == "red" and info.PeakLevel(3) == "orange", "red only for real spikes")
+	assert(info.PeakLevel(4.5, 2) == "green" and info.PeakLevel(5.0, 2) == "orange" and info.PeakLevel(4.5, 3) == "orange", "orange between")
+	assert(info.PeakLevel(15.0, 0) == "red" and info.PeakLevel(1, 20) == "red" and info.PeakLevel(12) == "orange", "red only for real spikes")
+	assert(info.SlowRateLevel(0, 60) == "green" and info.SlowRateLevel(19, 41 * 60) == "green", "sparse session spikes stay green")
+	assert(info.SlowRateLevel(6, 180) == "orange" and info.SlowRateLevel(12, 180) == "red", "dense per-minute spikes turn orange/red")
+	assert(info.SlowRateLevel(1, 10) == "orange" and info.SlowRateLevel(4, 10) == "red", "first-minute burst still flags immediately")
 	print("cpu colours OK")
 end)()
 ;(function()
@@ -14468,7 +14471,11 @@ end)()
 	assert(own.slowCall == "Wanderlust: SetUIVisibility" and own.slowFrame == 68.2,
 		"a 0.2 ms call does not overwrite the last real >=5 ms slowCall")
 
-	-- 3. Per-column coloring: low Avg stays green while high Max is red and moderate >5 ms count is orange.
+	-- 3. Per-column coloring: low Avg stays green while high Max is red, and >5 ms scales with session rate (per minute).
+	local savedG, savedO, savedR = GREEN_FONT_COLOR, ORANGE_FONT_COLOR, RED_FONT_COLOR
+	GREEN_FONT_COLOR = { r = 0, g = 1, b = 0, WrapTextInColorCode = function(_, t) return "[G:" .. t .. "]" end }
+	ORANGE_FONT_COLOR = { r = 1, g = 0.5, b = 0, WrapTextInColorCode = function(_, t) return "[O:" .. t .. "]" end }
+	RED_FONT_COLOR = { r = 1, g = 0, b = 0, WrapTextInColorCode = function(_, t) return "[R:" .. t .. "]" end }
 	own.recentTotal, own.recentCount, own.slow = 0.07 * 60, 60, 19
 	local doubleLines, singleLines = {}, {}
 	GameTooltip.AddDoubleLine = function(_, left, right)
@@ -14477,17 +14484,23 @@ end)()
 	GameTooltip.AddLine = function(_, line)
 		singleLines[#singleLines + 1] = tostring(line)
 	end
-	perf:GetScript("OnEnter")(perf)
-
-	local ownRow
-	for _, row in ipairs(doubleLines) do
-		if row.left == own.title then ownRow = row.right break end
+	-- After 41 minutes, 19 spikes (~0.46/min) are green; in a 10-minute session (~1.9/min) they are orange;
+	-- in a 3-minute session (~6.3/min) they are red.
+	local function OwnCpuRow(atNow)
+		wipe(doubleLines)
+		now = atNow
+		perf:GetScript("OnEnter")(perf)
+		for _, row in ipairs(doubleLines) do
+			if row.left == own.title then return row.right end
+		end
 	end
-	local expectedRow = ns.L.INFO_CPU_LINE:format(
-		GREEN_FONT_COLOR:WrapTextInColorCode("0.07"),
-		RED_FONT_COLOR:WrapTextInColorCode("68.2"),
-		ORANGE_FONT_COLOR:WrapTextInColorCode("19×"))
-	assert(ownRow == expectedRow, "CPU table colors Avg, Max and >5 ms independently: " .. tostring(ownRow))
+	assert(OwnCpuRow(3032 + 41 * 60) == ns.L.INFO_CPU_LINE:format("[G:0.07]", "[R:68.2]", "[G:19×]"),
+		"41-minute session keeps sparse >5 ms count green")
+	assert(OwnCpuRow(3032 + 10 * 60) == ns.L.INFO_CPU_LINE:format("[G:0.07]", "[R:68.2]", "[O:19×]"),
+		"10-minute session flags 1.9/min >5 ms rate as orange")
+	assert(OwnCpuRow(3032 + 3 * 60) == ns.L.INFO_CPU_LINE:format("[G:0.07]", "[R:68.2]", "[R:19×]"),
+		"3-minute session flags 6.3/min >5 ms rate as red")
+	GREEN_FONT_COLOR, ORANGE_FONT_COLOR, RED_FONT_COLOR = savedG, savedO, savedR
 
 	local joinedSingle = table.concat(singleLines, "\n")
 	local shortPrefix = ns.L.INFO_SPIKES_SHORT_CALLS:format(ns.SLOW_MS)

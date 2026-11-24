@@ -19,9 +19,10 @@ local PERF_INTERVAL = 1.1 -- staggered slightly off 1.0 s tickers so periodic up
 local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
 local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame on average (total line): green below 0.5, orange 0.5-2, red from 2
--- Rows of the table (highest value, frames over 5 ms): red only for a real spike or many slow frames, orange between.
-local PEAK_ORANGE, PEAK_RED = 1.5, 5
+-- Rows of the table (60 FPS = 16.7 ms budget): green below 5 ms, orange 5-15 ms (borderline), red from 15 ms (dropped frame).
+local PEAK_ORANGE, PEAK_RED = 5, 15
 local SLOW_ORANGE, SLOW_RED = 3, 20
+local SLOW_RATE_ORANGE, SLOW_RATE_RED = 1, 4 -- >5 ms frames per minute over the session
 
 local playerName, playerClass, playerRealm, playerEntry
 
@@ -228,7 +229,7 @@ local profilerSampler
 local sampledAddons = {}
 local tooltipRows = {}
 local sessionMetrics = {}
-local resetAt
+local resetAt, sessionStart
 local MAX_SPIKE_MOMENTS = 100
 local MAX_MOMENT_CALLS = 5
 local TOOLTIP_SPIKE_MOMENTS = 5
@@ -249,6 +250,7 @@ local function ResetSession()
 	wipe(spikeMoments)
 	totalSpikeMoments = 0
 	resetAt = GetTime()
+	sessionStart = nil
 end
 
 local function HigherCallTotal(a, b)
@@ -371,6 +373,7 @@ local function SampleAddonMetrics(now, peakCall, peakCallTime, previousFrameAt, 
 		or not (C_AddOnProfiler and C_AddOnProfiler.IsEnabled()) then
 		return
 	end
+	sessionStart = sessionStart or now
 	local lastTime = Enum.AddOnProfilerMetric.LastTime
 	local readMetric = C_AddOnProfiler.GetAddOnMetric
 	local ownEntry = sessionMetrics[ns.name]
@@ -458,7 +461,7 @@ local function CpuColor(ms)
 	return RED_FONT_COLOR
 end
 
--- "green", "orange" or "red" for a row of the table.
+-- "green", "orange" or "red" for a peak/count (also used for 30 s measurements).
 function Info.PeakLevel(peak, slow)
 	slow = slow or 0
 	if peak >= PEAK_RED or slow >= SLOW_RED then
@@ -469,10 +472,37 @@ function Info.PeakLevel(peak, slow)
 	return "green"
 end
 
-local LEVEL_COLORS = { green = GREEN_FONT_COLOR, orange = ORANGE_FONT_COLOR, red = RED_FONT_COLOR }
+-- Rate of >5 ms frames over the active session (minimum window 1 min, so a fresh burst still flags at once).
+function Info.SlowRateLevel(slow, seconds)
+	slow = slow or 0
+	if slow <= 0 then
+		return "green"
+	end
+	local perMinute = slow / math.max(1, (seconds or 0) / 60)
+	if perMinute >= SLOW_RATE_RED then
+		return "red"
+	elseif perMinute >= SLOW_RATE_ORANGE then
+		return "orange"
+	end
+	return "green"
+end
+
+local function LevelColor(level)
+	if level == "red" then
+		return RED_FONT_COLOR
+	elseif level == "orange" then
+		return ORANGE_FONT_COLOR
+	end
+	return GREEN_FONT_COLOR
+end
 
 local function PeakColor(peak, slow)
-	return LEVEL_COLORS[Info.PeakLevel(peak, slow)]
+	return LevelColor(Info.PeakLevel(peak, slow))
+end
+
+local function SlowRateColor(slow, now)
+	local seconds = sessionStart and math.max(0, now - sessionStart) or 0
+	return LevelColor(Info.SlowRateLevel(slow, seconds))
 end
 
 local function HigherPeak(a, b)
@@ -605,7 +635,7 @@ local function ShowCpuTooltip(owner)
 		local values = L.INFO_CPU_LINE:format(
 			CpuColor(ms):WrapTextInColorCode(("%.2f"):format(ms)),
 			PeakColor(addon.peak, 0):WrapTextInColorCode(("%.1f"):format(addon.peak)),
-			PeakColor(0, addon.slow):WrapTextInColorCode(("%d×"):format(addon.slow)))
+			SlowRateColor(addon.slow, now):WrapTextInColorCode(("%d×"):format(addon.slow)))
 		GameTooltip:AddDoubleLine(addon.title, values,
 			own and NORMAL_FONT_COLOR.r or 1, own and NORMAL_FONT_COLOR.g or 1, own and NORMAL_FONT_COLOR.b or 1,
 			1, 1, 1)

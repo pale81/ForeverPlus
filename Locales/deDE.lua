@@ -845,7 +845,8 @@ L.TOOLTIP_FOOD_BUFF_DESC = "Zeigt den Satt-Bonus und seine Dauer in einer eigene
 L.TOOLTIP_FOOD_BUFF_LINE = "Satt: %s (%s)"
 L.TOOLTIP_FOOD_BUFF_WAIT = "Nach mindestens %s Essen."
 L.TOOLTIP_FOOD_BUFF_TEXT = {
-	pattern = "^(.-)%s+Wenn [Ii]hr mindestens (%d+%s+[%a.]+) mit Essen verbringt, werdet [Ii]hr satt und erhaltet (%d+%s+[%a.]+) lang (%+?%d.-)%.%f[%s%z](.*)$",
+	marker = "satt",
+	pattern = "^(.-) Wenn [Ii]hr mindestens (%d+ [%a.]+) mit Essen verbringt, werdet [Ii]hr satt und erhaltet (%d+ [%a.]+) lang (%+?%d.+)$",
 	durationFirst = true,
 	experience = "(durch Siege erhaltene Erfahrung um %d+%%)",
 }

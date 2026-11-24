@@ -765,7 +765,8 @@ L.TOOLTIP_FOOD_BUFF_DESC = "Shows the well-fed bonus and its duration on a separ
 L.TOOLTIP_FOOD_BUFF_LINE = "Well Fed: %s (%s)"
 L.TOOLTIP_FOOD_BUFF_WAIT = "After at least %s of eating."
 L.TOOLTIP_FOOD_BUFF_TEXT = {
-	pattern = "^(.-)%s+If you spend at least (%d+%s+%a+) eating,? you will become well fed and gain (%+?%d.-) for (%d+%s+%a+%.)%f[%s%z](.*)$",
+	marker = "well fed",
+	pattern = "^(.-) If you spend at least (%d+ %a+) eating,? you will [%a ]-become well fed and gain (%+?%d.-) for (%d+ %a+%.?)%f[%s%z](.*)$",
 	experience = "([Ee]xperience gained from victories by %d+%%)",
 }
 L.LOOT_CRAFTED = "Crafted"

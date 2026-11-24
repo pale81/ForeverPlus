@@ -30,7 +30,6 @@ local Tooltip = ns:NewModule("Tooltip", {
 local CONTAINER_OFFSET_X, CONTAINER_OFFSET_Y = 20, 100 -- corner position without the game's tooltip container
 local BAR_HEIGHT = 6
 local BAR_INSET = 10
-local USE_LINE_TYPE = Enum.TooltipDataLineType.ItemSpellTriggerOnUse
 
 ---------------------------------------------------------------------------
 -- Health bar inside the bottom of the tooltip
@@ -1086,45 +1085,67 @@ local function UpdateCompareArrows(manager)
 	end
 end
 
--- Replace the native use line only when it matches the client's well-fed text.
-local function FormatFoodUseLine(tooltip, line)
-	if not Tooltip.db.foodBuffs or tooltip:IsForbidden() or IsSecretData(line) then
+local function FormatFoodUseText(text, format)
+	local hexColor = "|c%x%x%x%x%x%x%x%x"
+	local namedColor = "|cn[%w_]+:"
+	local color = text:match("^(" .. hexColor .. ")") or text:match("^(" .. namedColor .. ")")
+	text = text:gsub(hexColor, ""):gsub(namedColor, ""):gsub("|r", ""):gsub("|n", " ")
+		:gsub("\194\160", " "):gsub("\226\128\175", " "):gsub("%s+", " ")
+	if text:find("|", 1, true) then
 		return
 	end
-	local text, color, offset = line.leftText, line.leftColor, line.leftOffset
-	if Secret(text) or type(text) ~= "string" or text:find("|", 1, true)
-		or IsSecretData(color) or Secret(offset) or Secret(line.rightText) or line.rightText then
-		return
-	end
-
-	local format = L.TOOLTIP_FOOD_BUFF_TEXT
 	local use, wait, bonus, duration, extra = text:match(format.pattern)
 	if not use then
 		return
 	end
 	if format.durationFirst then
-		bonus, duration = duration, bonus
+		local effect, rest = duration:match("^(.-)%.%f[%s%z](.*)$")
+		bonus, duration, extra = effect or duration, bonus, rest
 	end
 	if bonus:sub(1, 1) ~= "+" then
 		bonus = "+" .. bonus
 	end
 	local orange = ORANGE_FONT_COLOR
-	color = color or NORMAL_FONT_COLOR
-	GameTooltip_AddColoredLine(tooltip, use, color, true, offset)
-	GameTooltip_AddColoredLine(tooltip, L.TOOLTIP_FOOD_BUFF_LINE:format(orange:WrapTextInColorCode(bonus), duration), color, true, offset)
-	GameTooltip_AddColoredLine(tooltip, L.TOOLTIP_FOOD_BUFF_WAIT:format(wait), color, true, offset)
-	extra = extra:match("^%s*(.-)%s*$")
+	local baseColor = color or ""
+	local orangeBonus = orange:WrapTextInColorCode(bonus) .. baseColor
+	local buff = L.TOOLTIP_FOOD_BUFF_LINE:format(orangeBonus, duration)
+	local result = baseColor .. use .. "\n" .. buff .. "\n" .. L.TOOLTIP_FOOD_BUFF_WAIT:format(wait)
+	extra = extra and strtrim(extra) or ""
 	if extra ~= "" then
-		extra = extra:gsub(format.experience, function(effect) return orange:WrapTextInColorCode(effect) end)
-		GameTooltip_AddColoredLine(tooltip, extra, color, true, offset)
+		extra = extra:gsub(format.experience, function(effect) return orange:WrapTextInColorCode(effect) .. baseColor end)
+		result = result .. "\n" .. extra
 	end
-	return true
+	return color and result .. "|r" or result
+end
+
+-- Read the text Blizzard rendered, independent of the client's tooltip line type.
+local function FormatFoodTooltip(tooltip)
+	if not Tooltip.db.foodBuffs then
+		return
+	end
+	local name = tooltip.GetName and tooltip:GetName()
+	if type(name) ~= "string" or Secret(name) then
+		return
+	end
+	local format = L.TOOLTIP_FOOD_BUFF_TEXT
+	for i = 2, ns.Number(tooltip:NumLines(), 0) do
+		local line = _G[name .. "TextLeft" .. i]
+		local text = line and line:GetText()
+		if type(text) == "string" and not Secret(text) and text:find(format.marker, 1, true) then
+			local formatted = FormatFoodUseText(text, format)
+			if formatted then
+				line:SetText(formatted)
+				return
+			end
+		end
+	end
 end
 
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
 	end
+	FormatFoodTooltip(tooltip)
 	ColorBorder(tooltip, data)
 	AddUnitPrice(tooltip, data)
 	local chatItem = IsChatItemTooltip(tooltip)
@@ -1405,7 +1426,6 @@ function Tooltip:OnInitialize()
 	if GameTooltip_OnTooltipAddMoney then
 		hooksecurefunc("GameTooltip_OnTooltipAddMoney", OnTooltipAddMoney)
 	end
-	TooltipDataProcessor.AddLinePreCall(USE_LINE_TYPE, ns.MeasuredReturn("Tooltip: food use", FormatFoodUseLine))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Tooltip: item", OnItemTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Tooltip: unit", OnUnitTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, ns.Measured("Tooltip: object", OnObjectTooltip))

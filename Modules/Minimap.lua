@@ -452,6 +452,7 @@ end
 local emitterWindow, emitterButton
 local previewID, previewHandle
 local allEmittersProvider, emitterFilterTicker
+local emitterBulkInProgress
 local emitterFilterToken, emitterDebounceToken = 0, 0
 local EMITTER_SEARCH_DELAY = 0.12
 local EMITTER_SLICE_BUDGET = 0.5
@@ -468,12 +469,45 @@ local function StopEmitterPreview()
 	if emitterWindow then emitterWindow.StopPreview:Disable() end
 end
 
+local function SetEmitterMuted(id, mute)
+	local muted = MinimapCoords.db.mutedEmitters
+	if (muted[id] == true) == mute then return end
+	if mute then
+		if previewID == id then StopEmitterPreview() end
+		MuteSoundFile(id)
+	else
+		UnmuteSoundFile(id)
+	end
+	muted[id] = mute and true or nil
+end
+
+local function UpdateEmitterBulkButton()
+	local matches = emitterWindow.Matches
+	local button = emitterWindow.BulkMute
+	if emitterBulkInProgress or not matches or #matches == 0 then
+		button:Disable()
+		return
+	end
+	local muted = MinimapCoords.db.mutedEmitters
+	button.mute = false
+	for _, file in ipairs(matches) do
+		if not muted[file[1]] then
+			button.mute = true
+			break
+		end
+	end
+	button:SetText(button.mute and L.MINIMAP_EMITTER_MUTE_ALL or L.MINIMAP_EMITTER_UNMUTE_ALL)
+	button:Enable()
+end
+
 local function CancelEmitterFilter()
 	emitterFilterToken = emitterFilterToken + 1
 	if emitterFilterTicker then
 		emitterFilterTicker:Cancel()
 		emitterFilterTicker = nil
 	end
+	emitterWindow.Matches = nil
+	emitterWindow.BulkMute:Disable()
 end
 
 -- CreateDataProvider(tbl) fires TriggerEvent("OnInsert") per row.
@@ -499,6 +533,8 @@ local function ApplyEmitterMatches(matches, retainScroll)
 		provider = MakeEmitterProvider(matches)
 	end
 	emitterWindow.List:SetDataProvider(provider, retainScroll and ScrollBoxConstants.RetainScrollPosition)
+	emitterWindow.Matches = matches
+	UpdateEmitterBulkButton()
 end
 
 local function EmitterFilesByID()
@@ -695,7 +731,28 @@ local function RefreshEmitters(retainScroll)
 	end, EMITTER_SLICE_BUDGET)
 end
 
+local function ToggleEmitterMatches(button)
+	local matches = emitterWindow.Matches
+	if emitterBulkInProgress or not matches or #matches == 0 then return end
+	local mute = button.mute
+	emitterBulkInProgress = true
+	button:Disable()
+	ns.RunSliced("Minimap: set mute for emitter results", #matches, function(index)
+		SetEmitterMuted(matches[index][1], mute)
+	end, function()
+		emitterBulkInProgress = false
+		if not emitterWindow:IsShown() then return end
+		if emitterWindow.MutedOnly:GetChecked() then
+			RefreshEmitters(true)
+		else
+			emitterWindow.List:ReinitializeFrames()
+			UpdateEmitterBulkButton()
+		end
+	end, EMITTER_SLICE_BUDGET)
+end
+
 local function QueueEmitterSearch()
+	CancelEmitterFilter()
 	emitterDebounceToken = emitterDebounceToken + 1
 	local token = emitterDebounceToken
 	ns.After("Minimap: filter emitters (debounce)", EMITTER_SEARCH_DELAY, function()
@@ -744,18 +801,21 @@ local function InitEmitterRow(row, file)
 		row:SetScript("OnLeave", GameTooltip_Hide)
 		mute:SetScript("OnClick", ns.Measured("Minimap: mute emitter", function(self)
 			local id = row.file[1]
-			local checked = self:GetChecked()
-			if checked then
-				if previewID == id then StopEmitterPreview() end
-				MuteSoundFile(id)
-			else
-				UnmuteSoundFile(id)
+			if emitterBulkInProgress then
+				self:SetChecked(MinimapCoords.db.mutedEmitters[id] == true)
+				return
 			end
-			MinimapCoords.db.mutedEmitters[id] = checked and true or nil
+			local checked = self:GetChecked() == true
+			SetEmitterMuted(id, checked)
 			preview:SetEnabled(not checked)
-			if emitterWindow.MutedOnly:GetChecked() then RefreshEmitters(true) end
+			if emitterWindow.MutedOnly:GetChecked() then
+				RefreshEmitters(true)
+			else
+				UpdateEmitterBulkButton()
+			end
 		end))
 		preview:SetScript("OnClick", ns.Measured("Minimap: preview emitter", function()
+			if emitterBulkInProgress then return end
 			StopEmitterPreview()
 			local id = row.file[1]
 			local played, handle = PlaySoundFile(id, "SFX")
@@ -812,9 +872,19 @@ local function CreateEmitterWindow()
 	local count = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	count:SetPoint("RIGHT", window, "BOTTOMRIGHT", -14, 14)
 	window.Count = count
+	local bulk = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+	bulk:SetSize(158, 20)
+	bulk:SetPoint("BOTTOM", -45, 4)
+	bulk:SetText(L.MINIMAP_EMITTER_MUTE_ALL)
+	bulk:Disable()
+	bulk:SetScript("OnClick", ns.Measured("Minimap: toggle emitter results", ToggleEmitterMatches))
+	window.BulkMute = bulk
+	scope:SetPoint("RIGHT", bulk, "LEFT", -8, 0)
+	scope:SetJustifyH("LEFT")
+	scope:SetWordWrap(false)
 	local stop = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
 	stop:SetSize(82, 20)
-	stop:SetPoint("BOTTOM", 0, 4)
+	stop:SetPoint("LEFT", bulk, "RIGHT", 8, 0)
 	stop:SetText(L.MINIMAP_EMITTER_STOP)
 	stop:Disable()
 	stop:SetScript("OnClick", ns.Measured("Minimap: stop emitter preview", StopEmitterPreview))

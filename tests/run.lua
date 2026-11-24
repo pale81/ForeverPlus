@@ -6903,7 +6903,7 @@ end)()
 		"C_Map", "GetRealZoneText", "GetSubZoneText", "GetInstanceInfo", "IsSubmerged" }
 	local saved = {}
 	for _, key in ipairs(globals) do saved[key] = rawget(_G, key) end
-	local tracking, trigger, initialize, results = NewFrame("DropdownButton")
+	local tracking, trigger, initialize, results, visibleRow = NewFrame("DropdownButton")
 	local muted, playing = {}, nil
 	local currentMap, x, y = 1453, -8990, 478
 	C_Map = setmetatable({
@@ -6930,6 +6930,9 @@ end)()
 	CreateDataProvider = function(entries) return entries end
 	ScrollUtil = { InitScrollBoxListWithScrollBar = function(list)
 		list.SetDataProvider = function(_, entries) results = entries end
+		list.ReinitializeFrames = function()
+			if visibleRow then initialize(visibleRow, visibleRow.file) end
+		end
 	end }
 	UISpecialFrames = {}
 	CreateFrame = function(kind, name, parent)
@@ -6938,6 +6941,8 @@ end)()
 		frame.GetText = function(self) return rawget(self, "text") or "" end
 		frame.SetChecked = function(self, value) self.checked = value end
 		frame.GetChecked = function(self) return rawget(self, "checked") end
+		frame.Enable = function(self) self.enabled = true end
+		frame.Disable = function(self) self.enabled = false end
 		if parent == tracking then
 			trigger = frame
 			frame.RegisterForClicks = function(_, click) assert(click == "RightButtonUp") end
@@ -6979,6 +6984,35 @@ end)()
 	assert(bridge[3]:find("Bridge Wind", 1, true) and bridge[2]:find("ambience/", 1, true),
 		"placement labels identify the source even for reused audio in a different archive folder")
 	assert(not FindSound(7386632) and not FindSound(7139274), "unrelated Retail and Westfall files stay out of the local results")
+	local row = NewFrame("Frame")
+	row.Mute = false
+	visibleRow = row
+	initialize(row, bridge)
+	row.Preview:GetScript("OnClick")(row.Preview)
+	local bulk = window.BulkMute
+	local toggleBulk = bulk:GetScript("OnClick")
+	local windResults = results
+	assert(#windResults > 1 and bulk.enabled and bulk:GetText() == ns.L.MINIMAP_EMITTER_MUTE_ALL)
+	toggleBulk(bulk)
+	assert(not playing and row.Mute:GetChecked() and bulk:GetText() == ns.L.MINIMAP_EMITTER_UNMUTE_ALL)
+	for _, sound in ipairs(windResults) do
+		assert(muted[sound[1]] and module.db.mutedEmitters[sound[1]], "bulk mute saves every result, including off-screen rows")
+	end
+	toggleBulk(bulk)
+	assert(not row.Mute:GetChecked() and bulk:GetText() == ns.L.MINIMAP_EMITTER_MUTE_ALL)
+	for _, sound in ipairs(windResults) do
+		assert(not muted[sound[1]] and not module.db.mutedEmitters[sound[1]], "bulk unmute frees every result")
+	end
+	assert(muted[7079224] and module.db.mutedEmitters[7079224], "bulk actions preserve mutes outside the active search")
+	local runSearch
+	fixture.After = function(_, _, callback) runSearch = callback end
+	Search("no matching sound")
+	assert(not bulk.enabled, "new search input invalidates the old bulk target before debounce ends")
+	toggleBulk(bulk)
+	assert(not muted[bridge[1]], "a pending search cannot mute stale results")
+	runSearch()
+	assert(#results == 0 and not bulk.enabled, "bulk action is unavailable on an empty list")
+	fixture.After = nil
 	x, y = -8600, 860
 	Search("bridge wind")
 	assert(not FindSound(4524098), "a bridge emitter leaves the results when out of range")
@@ -6992,8 +7026,6 @@ end)()
 	assert(FindSound(7139274) and not FindSound(7386632), "the global list includes Forever-linked files and omits unrelated Retail files")
 	Search("  7079224  ")
 	assert(#results == 1 and results[1][1] == 7079224, "search finds an exact FileDataID")
-	local row = NewFrame("Frame")
-	row.Mute = false
 	initialize(row, results[1])
 	assert(row.Mute:GetChecked(), "saved mutes are visibly checked")
 	window.MutedOnly:SetChecked(true)
@@ -7004,9 +7036,8 @@ end)()
 	module.db.mutedEmitters[7386632] = true
 	Search("")
 	assert(#results == 1 and results[1][1] == 7386632, "previously muted files outside the new catalog can still be unmuted")
-	initialize(row, results[1])
-	row.Mute:SetChecked(false)
-	row.Mute:GetScript("OnClick")(row.Mute)
+	toggleBulk(bulk)
+	assert(#results == 0 and not module.db.mutedEmitters[7386632], "bulk unmute refreshes the muted-only list")
 	window.MutedOnly:SetChecked(false)
 	Search("EXT-29_51 LOOPA")
 	assert(FindSound(7139274), "search accepts multiple terms and mixed filename punctuation")

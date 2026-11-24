@@ -8,11 +8,12 @@ local closeSounds = 0
 local panelWindows, specialFrames = {}, {}
 local regenQueue, peekDriver = {}, nil
 local cursorX, cursorY = 0, 0
-local ui = { shown = true, alpha = 0.9 }
+local ui = { shown = true, alpha = 0.9, children = {} }
 function ui:IsShown() return self.shown end
 function ui:GetAlpha() return self.alpha end
 function ui:GetEffectiveScale() return 0.8 end
 function ui:SetAlpha(alpha) self.alpha = alpha end
+function ui:GetChildren() return unpack(self.children) end
 function ui:HookScript(script, fn)
 	assert(script == "OnShow")
 	hooks = hooks + 1
@@ -21,9 +22,13 @@ end
 
 local world = { GetEffectiveScale = function() return 1 end }
 local function ChatFrame(parent, shown, protected)
-	return { parent = parent, shown = shown, GetParent = function(self) return self.parent end,
-		IsShown = function(self) return self.shown end, IsProtected = function() return protected end,
-		IsForbidden = function() return false end }
+	return { parent = parent, shown = shown, alpha = 1,
+		GetParent = function(self) return self.parent end,
+		IsShown = function(self) return self.shown end,
+		IsProtected = function() return protected end,
+		IsForbidden = function() return false end,
+		GetAlpha = function(self) return self.alpha end,
+		SetAlpha = function(self, a) self.alpha = a end }
 end
 local chatDock = ChatFrame(ui, true)
 local chatFrame = ChatFrame(ui, true)
@@ -52,9 +57,12 @@ globals.ToggleBag = BlizzardToggleBags
 
 -- The cluster stays in the interface; only its parent-alpha flag changes.
 local function PeekableFrame(rect)
-	local frame = { ignore = false, shown = false }
+	local frame = { ignore = false, shown = false, alpha = 1, children = {} }
 	function frame:IsForbidden() return false end
 	function frame:IsShown() return self.shown end
+	function frame:GetAlpha() return self.alpha end
+	function frame:SetAlpha(a) self.alpha = a end
+	function frame:GetChildren() return unpack(self.children) end
 	function frame:IsIgnoringParentAlpha() return self.ignore end
 	function frame:SetIgnoreParentAlpha(ignore)
 		assert(not combat, "parent-alpha flags only change outside combat")
@@ -132,6 +140,7 @@ local function SetVisibility(shown)
 end
 
 local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
+	WANDERLUST_SOFT_HIDE = "Soft hide", WANDERLUST_SOFT_HIDE_DESC = "description",
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
 	WANDERLUST_CHAT = "Chat", WANDERLUST_CHAT_DESC = "description",
@@ -142,10 +151,16 @@ local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "descripti
 	WANDERLUST_PROFESSIONS = "Professions", WANDERLUST_PROFESSIONS_DESC = "description" } }
 local hoverDetached = false
 local tooltip = { SetWanderlustHover = function(active) hoverDetached = active end }
+local qolSuppressed, qolShownAlphas = false, {}
+local qolModule = {
+	SetWanderlustSuppressed = function(s) qolSuppressed = s end,
+	ShownAlpha = function(frame) return qolShownAlphas[frame] end,
+}
 function ns:GetModule(name)
 	if name == "Chat" then return self.chat end
 	if name == "Teleports" then return self.teleports end
 	if name == "Dialog" then return dialogModule end
+	if name == "QoL" then return qolModule end
 	assert(name == "Tooltip")
 	return tooltip
 end
@@ -160,7 +175,8 @@ function ns:NewModule(name, spec)
 	end
 	assert(name == "Wanderlust")
 	self.module = spec
-	spec.db = { enabled = spec.defaults.enabled, showOnTarget = spec.defaults.showOnTarget,
+	spec.db = { enabled = spec.defaults.enabled, softHide = spec.defaults.softHide,
+		showOnTarget = spec.defaults.showOnTarget,
 		showProfessions = spec.defaults.showProfessions, minimapMouseover = spec.defaults.minimapMouseover,
 		hoverText = spec.defaults.hoverText, showChat = spec.defaults.showChat,
 		showBags = spec.defaults.showBags, showBubbles = spec.defaults.showBubbles,
@@ -337,7 +353,10 @@ end
 module:OnLogin()
 assert(not module.db.enabled and not next(events) and hooks == 0 and #timers == 0,
 	"disabled by default, with no timer, hook or events")
+assert(module.db.softHide == true, "Wanderlust uses stutter-free soft hide by default")
 assert(module.db.showProfessions == false, "profession abilities are excluded by default")
+-- Exercise classic SetUIVisibility (Alt+Z) mode first, then soft-hide mode below.
+module.db.softHide = false
 assert(module.db.showOnTarget == false, "target selection does not interrupt Wanderlust by default")
 assert(module.db.minimapMouseover == true, "Wanderlust enables minimap mouseover by default")
 assert(module.db.hoverText == true and not hoverDetached, "the default keeps mouseover text only during an automatic hide")
@@ -1139,5 +1158,92 @@ end)()
 	module.db.showBubbles = true
 	dialogState.enabled, dialogState.merchant, dialogState.trainer = false, false, false
 	Enable(false)
+end)()
+;(function()
+	-- Soft-hide mode (default): fades visible HUD children via SetAlpha(0) with zero SetUIVisibility calls.
+	local actionBar = PeekableFrame()
+	actionBar.shown, actionBar.alpha = true, 0.85
+	local hiddenPanel = PeekableFrame()
+	hiddenPanel.shown, hiddenPanel.alpha = false, 1
+	local minimapOverlay = PeekableFrame()
+	minimapOverlay.shown, minimapOverlay.ignore, minimapOverlay.alpha = true, true, 0.9
+	cluster.children = { minimapOverlay }
+	cluster.shown, cluster.alpha = true, 1
+	bagsBar.shown, bagsBar.alpha = true, 0 -- managed by QoL mouseover (idle at 0, visible at 1)
+	qolShownAlphas[bagsBar] = 1
+	local targetFrame = PeekableFrame()
+	targetFrame.shown, targetFrame.alpha = false, 1
+	globals.TargetFrame = targetFrame
+	ui.children = { actionBar, hiddenPanel, cluster, bagsBar, chatFrame, chatDock, gameTooltip }
+
+	module.db.softHide = true
+	Over(false)
+	local visBefore = visibilityCalls
+	Enable(true)
+	Advance(60)
+	assert(ui.shown and ui.alpha == 0.9 and visibilityCalls == visBefore,
+		"soft hide keeps UIParent shown and never calls SetUIVisibility or UIParent:SetAlpha")
+	assert(qolSuppressed, "soft hide pauses QoL mouseover fade writes while active")
+	assert(actionBar.alpha == 0 and targetFrame.alpha == 0 and hiddenPanel.alpha == 1,
+		"visible HUD and transient target frames fade to 0 while hidden panels stay untouched")
+	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0 and bagsBar.alpha == 0,
+		"minimap, independent minimap overlays and bags bar start transparent")
+	assert(chatFrame.alpha == 1 and chatFrame.parent == ui and gameTooltip.alpha == 1,
+		"chat stays in UIParent at full alpha and tooltips stay visible")
+
+	-- Minimap mouseover reveals minimap + independent overlay without touching SetUIVisibility.
+	Over(true)
+	assert(cluster.alpha == 1 and minimapOverlay.alpha == 0.9 and actionBar.alpha == 0 and visibilityCalls == visBefore,
+		"minimap mouseover in soft-hide mode restores minimap and independent overlay with 0 SetUIVisibility calls")
+	Over(false)
+	Advance(0.3)
+	Tick()
+	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0, "leaving minimap hides it again after rim grace")
+
+	-- BagsBar hover uses QoL.ShownAlpha (1) even though BagsBar was idle at alpha 0 before hiding.
+	cursorX, cursorY = 850, 95
+	Tick()
+	assert(bagsBar.alpha == 1 and actionBar.alpha == 0, "hovering BagsBar in soft-hide mode uses QoL shownAlpha")
+	cursorX, cursorY = 500, 500
+	Tick()
+	assert(bagsBar.alpha == 0, "leaving BagsBar fades it back to 0")
+
+	-- Toggling showChat off/on updates chat alpha live while softly hidden.
+	module.db.showChat = false
+	module:OnOptionChanged("showChat", false)
+	assert(chatFrame.alpha == 0 and chatDock.alpha == 0, "disabling showChat fades chat frames in soft-hide mode")
+	module.db.showChat = true
+	module:OnOptionChanged("showChat", true)
+	assert(chatFrame.alpha == 1 and chatDock.alpha == 1, "reenabling showChat restores chat alpha in soft-hide mode")
+
+	-- Combat restores all faded frames to their exact pre-hide alpha (0 for idle QoL BagsBar, no flash!) and resumes QoL.
+	combat = true
+	Fire("PLAYER_REGEN_DISABLED")
+	assert(actionBar.alpha == 0.85 and cluster.alpha == 1 and minimapOverlay.alpha == 0.9
+		and targetFrame.alpha == 1 and bagsBar.alpha == 0 and not qolSuppressed and visibilityCalls == visBefore,
+		"combat restores exact original alphas without flashing idle QoL frames or calling SetUIVisibility")
+	combat = false
+	Fire("PLAYER_REGEN_ENABLED")
+
+	-- Switching softHide off while already hidden cleanly transitions to classic SetUIVisibility(false).
+	Advance(60)
+	assert(actionBar.alpha == 0 and ui.shown, "hides softly again after combat")
+	module.db.softHide = false
+	module:OnOptionChanged("softHide", false)
+	assert(not ui.shown and actionBar.alpha == 0.85 and not qolSuppressed,
+		"turning softHide off while hidden restores frame alphas and enters classic Alt+Z mode")
+	module.db.softHide = true
+	module:OnOptionChanged("softHide", true)
+	assert(ui.shown and actionBar.alpha == 0 and qolSuppressed,
+		"turning softHide back on while hidden restores UIParent and enters soft-hide mode")
+
+	-- Manual Alt+Z while softly hidden hands visibility back to the player with clean frame alphas.
+	SetVisibility(false)
+	Tick()
+	assert(not ui.shown and actionBar.alpha == 0.85 and not qolSuppressed,
+		"manual Alt+Z during soft hide restores frame alphas cleanly")
+	SetVisibility(true)
+	Enable(false)
+	ui.children, cluster.children, globals.TargetFrame, qolShownAlphas[bagsBar] = {}, {}, nil, nil
 end)()
 print("Wanderlust timing, teleports, chat, bags, dialog bubbles, mouseover, abilities, targets, windows and lifecycle OK")

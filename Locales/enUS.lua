@@ -57,6 +57,8 @@ L.ITEMS_UNMARKED = "%s is no longer junk."
 
 L.QOL_MOUSEOVER_HEADER = "Bars"
 L.WANDERLUST_TITLE = "Wanderlust"
+L.WANDERLUST_SOFT_HIDE = "Soft hide (no stutter)"
+L.WANDERLUST_SOFT_HIDE_DESC = "Fades visible UI frames to transparent instead of toggling the entire interface like Alt+Z. Avoids the 30–60 ms hitch on reveal and minimap mouseover; hidden bars remain clickable. Enabled by default."
 L.WANDERLUST_MINIMAP = "Show minimap on mouseover during Wanderlust"
 L.WANDERLUST_MINIMAP_DESC = "While Wanderlust hides the interface, the minimap stays in place and appears when hovered. The rest remains hidden. Combat or restoring the interface returns to your normal minimap settings. Enabled by default."
 L.WANDERLUST_HOVER_TEXT = "Show mouseover text during Wanderlust"

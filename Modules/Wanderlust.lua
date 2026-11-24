@@ -4,7 +4,7 @@ local L = ns.L
 
 local Wanderlust = ns:NewModule("Wanderlust", {
 	title = L.WANDERLUST_TITLE,
-	defaults = { enabled = false, showOnTarget = false, showProfessions = false, minimapMouseover = true,
+	defaults = { enabled = false, softHide = true, showOnTarget = false, showProfessions = false, minimapMouseover = true,
 		hoverText = true, showChat = true, showBags = true, showBubbles = true, hideTeleports = true },
 })
 
@@ -16,7 +16,7 @@ local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
 local MINIMAP_LEAVE_GRACE = 0.25
 local BAG_KEY_PEEK_SECONDS = 3
-local peek, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
+local peek, softHidden, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
 local lastMinimapHover
 local UpdateHiddenUI, CheckPeek, SyncPeek
 local peekDriverShown
@@ -27,6 +27,10 @@ end)
 
 local function DialogModule()
 	return ns:GetModule("Dialog")
+end
+
+local function QoLModule()
+	return ns:GetModule("QoL")
 end
 
 local function DialogActive()
@@ -40,7 +44,8 @@ local function DialogHandlesEvent(event, interactionType)
 end
 
 local function UpdateHiddenChat()
-	local visible = hidUI and Wanderlust.db.enabled and Wanderlust.db.showChat or false
+	-- In soft-hide mode UIParent stays shown, so chat frames stay in place without reparenting.
+	local visible = hidUI and not softHidden and Wanderlust.db.enabled and Wanderlust.db.showChat or false
 	ns:GetModule("Chat").SetWanderlustVisible(visible, visible and (peek and peek.alpha or UIParent:GetAlpha()))
 end
 
@@ -86,12 +91,13 @@ local function CursorOverMinimap()
 		lastMinimapHover = nil
 		return false
 	end
-	if CursorInArea(peek and peekKeepArea or peekArea) then
+	local active = peek ~= nil or (softHidden and softHidden.minimapShown) or false
+	if CursorInArea(active and peekKeepArea or peekArea) then
 		lastMinimapHover = GetTime()
 		return true
 	end
-	-- A short excursion outside the rim should not hide and re-show all of UIParent.
-	return peek and lastMinimapHover and GetTime() - lastMinimapHover < MINIMAP_LEAVE_GRACE
+	-- A short excursion outside the rim should not hide and re-show the minimap.
+	return active and lastMinimapHover and GetTime() - lastMinimapHover < MINIMAP_LEAVE_GRACE or false
 end
 
 local function CursorOverBagsBar()
@@ -215,7 +221,7 @@ local function UpdatePeekDriver()
 		and MinimapCluster and not MinimapCluster:IsForbidden() or false
 	local watchBags = hidden and Wanderlust.db.showBags
 		and BagsBar and not BagsBar:IsForbidden() or false
-	local active = watchMinimap or watchBags or (hidden and peek ~= nil) or false
+	local active = watchMinimap or watchBags or (hidden and (peek ~= nil or softHidden ~= nil)) or false
 	if active and not peekDriver then
 		peekDriver = CreateFrame("Frame")
 		local elapsedSinceCheck = 0
@@ -234,6 +240,211 @@ local function UpdatePeekDriver()
 	end
 end
 
+---------------------------------------------------------------------------
+-- Soft-hide mode: fade visible direct UIParent HUD children via SetAlpha(0)
+-- instead of calling SetUIVisibility(false)/(true), avoiding 30-60 ms stalls.
+---------------------------------------------------------------------------
+local TRANSIENT_HUD_NAMES = {
+	"TargetFrame", "FocusFrame", "PlayerCastingBarFrame", "CastingBarFrame", "PetFrame", "PartyFrame",
+}
+
+local function CanFadeFrame(frame)
+	return frame and (not frame.IsForbidden or not frame:IsForbidden())
+		and frame.GetAlpha and frame.SetAlpha
+end
+
+local function RecordSoftEntry(bucket, frame, qol)
+	if not CanFadeFrame(frame) or bucket[frame] then return end
+	local actual = ns.Number(frame:GetAlpha(), 1)
+	local shown = qol and qol.ShownAlpha and qol.ShownAlpha(frame) or actual
+	if shown <= 0.05 then shown = 1 end
+	bucket[frame] = { restore = actual, show = shown }
+end
+
+local function CollectIndependentOverlays(parent, bucket, visited, qol)
+	if not parent or visited[parent] or (parent.IsForbidden and parent:IsForbidden()) then
+		return
+	end
+	visited[parent] = true
+	if not parent.GetChildren then return end
+	local children = { parent:GetChildren() }
+	for _, child in ipairs(children) do
+		if CanFadeFrame(child) and child.IsIgnoringParentAlpha and child:IsIgnoringParentAlpha() then
+			RecordSoftEntry(bucket, child, qol)
+		end
+		CollectIndependentOverlays(child, bucket, visited, qol)
+	end
+end
+
+local function IsChatFrameObject(frame)
+	if frame == GeneralDockManager then return true end
+	for _, name in ipairs(CHAT_FRAMES or {}) do
+		if frame == _G[name] or frame == _G[name .. "Tab"]
+			or frame == _G[name .. "EditBox"] or frame == _G[name .. "Minimized"] then
+			return true
+		end
+	end
+	return false
+end
+
+local function IsSoftExcluded(frame)
+	if frame == GameTooltip or frame == ShoppingTooltip1 or frame == ShoppingTooltip2 then
+		return true
+	end
+	if Wanderlust.db.showChat and IsChatFrameObject(frame) then
+		return true
+	end
+	if Wanderlust.db.showBags then
+		if frame == ContainerFrameCombinedBags or frame == ContainerFrameContainer or frame == StackSplitFrame then
+			return true
+		end
+		local list = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
+		if list then
+			for _, bagFrame in ipairs(list) do
+				if frame == bagFrame then return true end
+			end
+		end
+	end
+	if Wanderlust.db.showBubbles then
+		local dialog = DialogModule()
+		local bubble = dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame()
+		if frame == bubble then return true end
+	end
+	return false
+end
+
+local function SyncSoftChat()
+	if not softHidden then return end
+	local showChat = Wanderlust.db.showChat
+	if showChat then
+		for frame, orig in pairs(softHidden.frames) do
+			if IsChatFrameObject(frame) then
+				softHidden.frames[frame] = nil
+				if CanFadeFrame(frame) then
+					frame:SetAlpha(orig)
+				end
+			end
+		end
+	else
+		local candidates = { GeneralDockManager }
+		for _, name in ipairs(CHAT_FRAMES or {}) do
+			candidates[#candidates + 1] = _G[name]
+			candidates[#candidates + 1] = _G[name .. "Tab"]
+			candidates[#candidates + 1] = _G[name .. "EditBox"]
+			candidates[#candidates + 1] = _G[name .. "Minimized"]
+		end
+		for _, frame in ipairs(candidates) do
+			if CanFadeFrame(frame) and WindowShown(frame) and softHidden.frames[frame] == nil then
+				softHidden.frames[frame] = ns.Number(frame:GetAlpha(), 1)
+				frame:SetAlpha(0)
+			end
+		end
+	end
+end
+
+local function SyncSoftPeek()
+	if not softHidden then return end
+	if bagKeyUntil and ns.Number(GetTime(), 0) >= bagKeyUntil then
+		bagKeyUntil = nil
+	end
+	local overMinimap = CursorOverMinimap()
+	if overMinimap ~= softHidden.minimapShown then
+		softHidden.minimapShown = overMinimap
+		for frame, info in pairs(softHidden.minimap) do
+			if CanFadeFrame(frame) then
+				frame:SetAlpha(overMinimap and info.show or 0)
+			end
+		end
+	end
+	if softHidden.bags then
+		local bagsOpen = Wanderlust.db.showBags and AnyBagOpen() or false
+		if bagsOpen then bagKeyUntil = nil end
+		local showBagsBar = Wanderlust.db.showBags and (bagsOpen or CursorOverBagsBar() or bagKeyUntil ~= nil) or false
+		if showBagsBar ~= softHidden.bagsShown then
+			softHidden.bagsShown = showBagsBar
+			local bagBar = softHidden.bags.frame
+			if CanFadeFrame(bagBar) then
+				bagBar:SetAlpha(showBagsBar and softHidden.bags.show or 0)
+			end
+		end
+	end
+end
+
+local function EnterSoftHide()
+	if softHidden then return end
+	local qol = QoLModule()
+	if qol and qol.SetWanderlustSuppressed then
+		qol.SetWanderlustSuppressed(true)
+	end
+	local state = { frames = {}, minimap = {}, minimapShown = nil, bags = nil, bagsShown = nil }
+	softHidden = state
+
+	-- Minimap cluster, backdrop and independent overlays toggle together on mouseover.
+	RecordSoftEntry(state.minimap, MinimapCluster, qol)
+	RecordSoftEntry(state.minimap, Minimap, qol)
+	RecordSoftEntry(state.minimap, MinimapBackdrop, qol)
+	local visited = {}
+	CollectIndependentOverlays(MinimapCluster, state.minimap, visited, qol)
+	CollectIndependentOverlays(Minimap, state.minimap, visited, qol)
+
+	-- BagsBar toggles on hover / open bags when showBags is enabled.
+	if CanFadeFrame(BagsBar) then
+		local actual = ns.Number(BagsBar:GetAlpha(), 1)
+		local shown = qol and qol.ShownAlpha and qol.ShownAlpha(BagsBar) or actual
+		if shown <= 0.05 then shown = 1 end
+		state.bags = { frame = BagsBar, restore = actual, show = shown }
+	end
+
+	if UIParent.GetChildren then
+		local children = { UIParent:GetChildren() }
+		for _, child in ipairs(children) do
+			if CanFadeFrame(child) and WindowShown(child)
+				and not state.minimap[child]
+				and (not state.bags or child ~= state.bags.frame)
+				and not IsSoftExcluded(child) then
+				state.frames[child] = ns.Number(child:GetAlpha(), 1)
+				child:SetAlpha(0)
+			end
+		end
+	end
+
+	-- Also keep transient HUD frames (target/focus/castbar) transparent if they appear while hidden.
+	for _, name in ipairs(TRANSIENT_HUD_NAMES) do
+		local frame = _G[name]
+		if CanFadeFrame(frame) and state.frames[frame] == nil and not state.minimap[frame] then
+			state.frames[frame] = ns.Number(frame:GetAlpha(), 1)
+			frame:SetAlpha(0)
+		end
+	end
+
+	SyncSoftPeek()
+end
+
+local function ExitSoftHide()
+	if not softHidden then return end
+	local saved = softHidden
+	softHidden = nil
+	bagKeyUntil = nil
+	lastMinimapHover = nil
+	for frame, orig in pairs(saved.frames) do
+		if CanFadeFrame(frame) then
+			frame:SetAlpha(orig)
+		end
+	end
+	for frame, info in pairs(saved.minimap) do
+		if CanFadeFrame(frame) then
+			frame:SetAlpha(info.restore)
+		end
+	end
+	if saved.bags and CanFadeFrame(saved.bags.frame) then
+		saved.bags.frame:SetAlpha(saved.bags.restore)
+	end
+	local qol = QoLModule()
+	if qol and qol.SetWanderlustSuppressed then
+		qol.SetWanderlustSuppressed(false)
+	end
+end
+
 local function EnterPeek(desired, reveal)
 	peek = { alpha = UIParent:GetAlpha(), ignored = {} }
 	for frame in pairs(desired) do
@@ -247,6 +458,15 @@ local function EnterPeek(desired, reveal)
 end
 
 SyncPeek = function()
+	if softHidden then
+		if not (hidUI and Wanderlust.db.enabled) then
+			ExitSoftHide()
+		elseif not InCombatLockdown() then
+			SyncSoftPeek()
+		end
+		UpdatePeekDriver()
+		return
+	end
 	if InCombatLockdown() then
 		UpdatePeekDriver()
 		return
@@ -361,6 +581,7 @@ end
 local function RestoreUI()
 	ClearTeleport()
 	EndPeek(false)
+	ExitSoftHide()
 	if hidUI then
 		hidUI = nil
 		if not UIParent:IsShown() then
@@ -378,6 +599,11 @@ local function HideUI()
 	-- No open target or window is hidden, so its OnHide cannot play a close sound.
 	hidUI = true
 	SavePeekArea()
+	if Wanderlust.db.softHide then
+		EnterSoftHide()
+		UpdateHiddenUI()
+		return
+	end
 	UpdateHiddenChat()
 	-- If the cursor is already over a peekable area (e.g. Minimap/BagsBar), enter the
 	-- see-through preview directly instead of hiding and immediately re-showing UIParent.
@@ -435,6 +661,14 @@ end
 
 local function RefreshActivity()
 	if not Wanderlust.db.enabled or InCombatLockdown() then return end
+	if softHidden and not UIParent:IsShown() then
+		-- The player manually hid UIParent (Alt+Z): hand visibility ownership back cleanly.
+		ExitSoftHide()
+		ClearTeleport()
+		hidUI = nil
+		UpdateHiddenUI()
+		return
+	end
 	if HardBlocked() then
 		blocked = true
 		if hidUI then Stop() else CancelTimer() end
@@ -446,7 +680,7 @@ local function RefreshActivity()
 			CancelTimer()
 		end
 	elseif hidUI then
-		if peek then SyncPeek() end
+		if peek or softHidden then SyncPeek() end
 	elseif blocked then
 		blocked = false
 		StartTimer()
@@ -456,7 +690,7 @@ end
 CheckPeek = function()
 	bagJustClosed = nil
 	if InCombatLockdown() then return end -- the combat events bring the whole interface back
-	if peek then
+	if peek or softHidden then
 		-- RefreshActivity already synchronizes the preview. Calling it here
 		-- doubled the frame scan and reconciliation on every active mouseover tick.
 		-- A hard blocker must still restore the full interface immediately.
@@ -468,6 +702,7 @@ CheckPeek = function()
 		if not UIParent:IsShown() then
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
 			EndPeek(false)
+			ExitSoftHide()
 			ClearTeleport()
 			hidUI = nil
 			UpdateHiddenUI()
@@ -481,7 +716,16 @@ UpdateHiddenUI = function()
 	local hidden = hidUI and Wanderlust.db.enabled
 	UpdateHiddenChat()
 	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
-	if not hidden or peek then
+	if softHidden then
+		if hidden then
+			SyncSoftChat()
+			SyncSoftPeek()
+			UpdatePeekDriver()
+		else
+			ExitSoftHide()
+			UpdatePeekDriver()
+		end
+	elseif not hidden or peek then
 		SyncPeek()
 	else
 		UpdatePeekDriver()
@@ -771,6 +1015,16 @@ end
 function Wanderlust:OnOptionChanged(key)
 	if key == "hoverText" or key == "showChat" then
 		UpdateHiddenUI()
+	elseif key == "softHide" then
+		if hidUI and self.db.enabled and not InCombatLockdown() then
+			local keepTeleport = teleport
+			teleport = nil
+			RestoreUI()
+			teleport = keepTeleport
+			if not ActivityBlocked() then
+				HideUI()
+			end
+		end
 	else
 		self:Apply()
 	end
@@ -778,6 +1032,7 @@ end
 
 Wanderlust.options = {
 	{ key = "enabled", type = "toggle", name = L.WANDERLUST_TITLE, desc = L.WANDERLUST_DESC },
+	{ key = "softHide", type = "toggle", name = L.WANDERLUST_SOFT_HIDE, desc = L.WANDERLUST_SOFT_HIDE_DESC, parent = "enabled", new = true },
 	{ key = "minimapMouseover", type = "toggle", name = L.WANDERLUST_MINIMAP, desc = L.WANDERLUST_MINIMAP_DESC, parent = "enabled" },
 	{ key = "hoverText", type = "toggle", name = L.WANDERLUST_HOVER_TEXT, desc = L.WANDERLUST_HOVER_TEXT_DESC, parent = "enabled" },
 	{ key = "showChat", type = "toggle", name = L.WANDERLUST_CHAT, desc = L.WANDERLUST_CHAT_DESC, parent = "enabled" },

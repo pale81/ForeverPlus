@@ -56,6 +56,8 @@ L.ITEMS_UNMARKED = "%s ist kein Schrott mehr."
 
 L.QOL_MOUSEOVER_HEADER = "Leisten"
 L.WANDERLUST_TITLE = "Wanderlust"
+L.WANDERLUST_SOFT_HIDE = "Sanft ausblenden (ohne Ruckler)"
+L.WANDERLUST_SOFT_HIDE_DESC = "Blendet sichtbare UI-Rahmen über Transparenz aus statt die gesamte Oberfläche wie mit Alt+Z zu verbergen. Vermeidet die 30–60 ms Verzögerung beim Einblenden und beim Minimap-Mouseover; unsichtbare Leisten bleiben dabei aber klickbar. Standardmäßig an."
 L.WANDERLUST_MINIMAP = "Minimap während Wanderlust bei Mouseover zeigen"
 L.WANDERLUST_MINIMAP_DESC = "Während Wanderlust die Oberfläche ausblendet, bleibt die Minimap an ihrem Platz und erscheint, sobald die Maus darüber ist. Der Rest bleibt ausgeblendet. Bei Kampfbeginn oder beim Einblenden gelten wieder die normalen Minimap-Einstellungen. Standardmäßig an."
 L.WANDERLUST_HOVER_TEXT = "Mouseover-Text während Wanderlust zeigen"

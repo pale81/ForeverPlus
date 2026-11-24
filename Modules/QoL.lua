@@ -53,6 +53,29 @@ driver:Hide()
 
 local elapsedSinceCheck = 0
 local fading = true
+local wanderlustSuppressed = false
+
+local function UpdateFadeDriver()
+	driver:SetShown(not wanderlustSuppressed and next(fadeTargets) ~= nil)
+end
+
+-- Pause mouseover fade writes while Wanderlust softly hides HUD frames via alpha.
+function QoL.SetWanderlustSuppressed(suppressed)
+	suppressed = suppressed and true or false
+	if suppressed == wanderlustSuppressed then
+		return
+	end
+	wanderlustSuppressed = suppressed
+	if not suppressed then
+		fading = true
+	end
+	UpdateFadeDriver()
+end
+
+function QoL.ShownAlpha(frame)
+	local state = fadeTargets[frame]
+	return state and state.shownAlpha or nil
+end
 
 local RunFadeUpdate = ns.Measured("QoL: fade update", function(check, elapsed)
 	if check then
@@ -121,7 +144,7 @@ local function SetFaded(frame, enabled, hoverFrame)
 		fadeTargets[frame] = nil
 		frame:SetAlpha(state.shownAlpha or 1)
 	end
-	driver:SetShown(next(fadeTargets) ~= nil)
+	UpdateFadeDriver()
 end
 
 -- A few minimap pin overlays ignore their parent alpha, so fading Minimap

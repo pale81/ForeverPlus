@@ -402,4 +402,6 @@ read_globals = {
 	"GameEvent", "GetActiveLootRollIDs", "GetLootRollItemInfo", "GetLootRollTimeLeft", "RollOnLoot",
 	"C_Loot", "ColorManager", "NEED", "GREED", "PASS", "ROLL_DISENCHANT", "TRANSMOGRIFICATION",
 	"ShowInspectCursor", "ResetCursor", "CursorOnUpdate", "StackSplitFrame",
+	"GetMirrorTimerProgress", "ERR_FISH_ESCAPED", "ERR_FISH_NOT_HOOKED",
+	"LOOT_ITEM_PUSHED_SELF", "LOOT_ITEM_PUSHED_SELF_MULTIPLE",
 }

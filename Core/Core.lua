@@ -1073,6 +1073,8 @@ local function RunSlashCommand(msg)
 		ns:GetModule("Waypoint").Command(msg)
 	elseif msg == "wind" or msg:find("^wind%s") then
 		ns:GetModule("GuidingWind").Command(msg)
+	elseif msg == "stimme" or msg:find("^stimme%s") or msg == "voice" or msg:find("^voice%s") then
+		ns:GetModule("EmoteVoice").Command(msg)
 	elseif msg:find("^nord") then
 		ns:GetModule("Teleports").Command(msg)
 	elseif msg:find("^bücher") or msg:find("^books") then

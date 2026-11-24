@@ -15534,4 +15534,17 @@ end)()
 end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
+;(function()
+	local voice = ns:GetModule("EmoteVoice")
+	local calls = {}
+	local saved = voice.Command
+	voice.Command = function(msg) calls[#calls + 1] = msg end
+	SlashCmdList.FOREVERPLUS("stimme taverne")
+	SlashCmdList.FOREVERPLUS("voice epic")
+	SlashCmdList.FOREVERPLUS("stimme")
+	SlashCmdList.FOREVERPLUS("voice")
+	voice.Command = saved
+	assert(#calls == 4 and calls[1] == "stimme taverne" and calls[2] == "voice epic"
+		and calls[3] == "stimme" and calls[4] == "voice", "slash commands route to EmoteVoice.Command")
+end)()
 assert(loadfile("emote_voice.lua"))(root, ns)

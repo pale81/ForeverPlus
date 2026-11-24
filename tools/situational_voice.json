@@ -1,0 +1,228 @@
+{
+  "build": "1.60.1.71037",
+  "race_id": 3,
+  "sex_id": 0,
+  "model": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+  "model_revision": "e7dd0585652209fa0d7783659aad4e8a324de11c",
+  "asr_model": "mlx-community/whisper-large-v3-turbo-asr-fp16",
+  "renderer": "mlx-audio 0.6.7",
+  "seed": 2026,
+  "temperature": 0.65,
+  "voice_filter": "asetrate=23040,aresample=24000,atempo=1.0416666667,bass=g=2:f=140:w=0.7,equalizer=f=3000:t=q:w=0.7:g=-1.8,asoftclip=type=tanh:threshold=0.9:oversample=2",
+  "reference_file_ids": [
+    540030,
+    540050
+  ],
+  "locales": {
+    "deDE": {
+      "lang_code": "German",
+      "whisper_language": "de",
+      "reference_text": "Ich hab kein Alkoholproblem. Ich trinke, ich bin betrunken, ich fall hin. Kein Problem. Ich trinke nicht mehr, aber natürlich auch nicht weniger.",
+      "categories": {
+        "INN": [
+          {
+            "key": "INN_1",
+            "text": "Endlich ein warmes Feuer und ein kühles Bier!"
+          },
+          {
+            "key": "INN_2",
+            "text": "Ah, ein Gasthaus, genau das hab ich gebraucht."
+          },
+          {
+            "key": "INN_3",
+            "text": "Hier riecht es nach Malz und Ruhe. Herrlich."
+          }
+        ],
+        "BREATH": [
+          {
+            "key": "BREATH_1",
+            "text": "Puh! Das war verdammt knapp!"
+          },
+          {
+            "key": "BREATH_2",
+            "text": "Luft! Bei den Ahnen, endlich Luft!"
+          },
+          {
+            "key": "BREATH_3",
+            "text": "Ein Zwerg gehört in den Berg, nicht unter Wasser!"
+          }
+        ],
+        "BAGS_FULL": [
+          {
+            "key": "BAGS_FULL_1",
+            "text": "Kein Platz mehr im Rucksack."
+          },
+          {
+            "key": "BAGS_FULL_2",
+            "text": "Bis obenhin voll, ich brauch einen Händler."
+          },
+          {
+            "key": "BAGS_FULL_3",
+            "text": "Hier passt kein Kiesel mehr rein."
+          }
+        ],
+        "FLIGHT_END": [
+          {
+            "key": "FLIGHT_END_1",
+            "text": "Endlich wieder festen Boden unter den Stiefeln!"
+          },
+          {
+            "key": "FLIGHT_END_2",
+            "text": "Nichts geht über ordentlichen Fels unter den Füßen."
+          },
+          {
+            "key": "FLIGHT_END_3",
+            "text": "So schön die Aussicht auch ist, ich bleib lieber unten."
+          }
+        ],
+        "EPIC_LOOT": [
+          {
+            "key": "EPIC_LOOT_1",
+            "text": "Bei meinem Bart, was für ein Prachtstück!"
+          },
+          {
+            "key": "EPIC_LOOT_2",
+            "text": "Na schau dir das mal an! Fein geschmiedet!"
+          },
+          {
+            "key": "EPIC_LOOT_3",
+            "text": "Das ist wahre Meisterarbeit!"
+          }
+        ],
+        "RESURRECT": [
+          {
+            "key": "RESURRECT_1",
+            "text": "Noch nicht mein letzter Gang."
+          },
+          {
+            "key": "RESURRECT_2",
+            "text": "Uff, das merk ich mir."
+          },
+          {
+            "key": "RESURRECT_3",
+            "text": "Mich kriegt man so leicht nicht unter die Erde."
+          }
+        ],
+        "FISHING_DRY": [
+          {
+            "key": "FISHING_DRY_1",
+            "text": "Die Fische lachen mich doch aus!"
+          },
+          {
+            "key": "FISHING_DRY_2",
+            "text": "Zehn Würfe und kein einziger Biss."
+          },
+          {
+            "key": "FISHING_DRY_3",
+            "text": "Wenn jetzt nichts anbeißt, hol ich die Axt."
+          }
+        ]
+      }
+    },
+    "enUS": {
+      "lang_code": "English",
+      "whisper_language": "en",
+      "reference_text": "I don't have a drinking problem. I drink, I get drunk, I fall down. No problem. I don't drink any more. Course I don't drink any less either.",
+      "categories": {
+        "INN": [
+          {
+            "key": "INN_1",
+            "text": "Finally, a warm hearth and a cold ale!"
+          },
+          {
+            "key": "INN_2",
+            "text": "Ah, an inn, just what I needed."
+          },
+          {
+            "key": "INN_3",
+            "text": "Smells like malt and a warm fire. Splendid."
+          }
+        ],
+        "BREATH": [
+          {
+            "key": "BREATH_1",
+            "text": "Phew! That was far too close!"
+          },
+          {
+            "key": "BREATH_2",
+            "text": "Air! By the ancestors, air!"
+          },
+          {
+            "key": "BREATH_3",
+            "text": "A dwarf belongs in stone, not under water!"
+          }
+        ],
+        "BAGS_FULL": [
+          {
+            "key": "BAGS_FULL_1",
+            "text": "Not a scrap of room left in my pack."
+          },
+          {
+            "key": "BAGS_FULL_2",
+            "text": "Full to the brim, I need a merchant."
+          },
+          {
+            "key": "BAGS_FULL_3",
+            "text": "Could not fit another pebble in there."
+          }
+        ],
+        "FLIGHT_END": [
+          {
+            "key": "FLIGHT_END_1",
+            "text": "Solid ground under my boots at last!"
+          },
+          {
+            "key": "FLIGHT_END_2",
+            "text": "Nothing beats good stone beneath your feet."
+          },
+          {
+            "key": "FLIGHT_END_3",
+            "text": "Fine view up there, sure, but I prefer the ground."
+          }
+        ],
+        "EPIC_LOOT": [
+          {
+            "key": "EPIC_LOOT_1",
+            "text": "By my beard, what a fine piece!"
+          },
+          {
+            "key": "EPIC_LOOT_2",
+            "text": "Now look at that! Masterwork!"
+          },
+          {
+            "key": "EPIC_LOOT_3",
+            "text": "Now that is proper craftsmanship!"
+          }
+        ],
+        "RESURRECT": [
+          {
+            "key": "RESURRECT_1",
+            "text": "Not my last march yet."
+          },
+          {
+            "key": "RESURRECT_2",
+            "text": "Ugh, I will remember that one."
+          },
+          {
+            "key": "RESURRECT_3",
+            "text": "Takes more than that to keep a dwarf down."
+          }
+        ],
+        "FISHING_DRY": [
+          {
+            "key": "FISHING_DRY_1",
+            "text": "The fish are laughing at me!"
+          },
+          {
+            "key": "FISHING_DRY_2",
+            "text": "Ten casts and not a single bite."
+          },
+          {
+            "key": "FISHING_DRY_3",
+            "text": "One more dry cast and I fetch my axe."
+          }
+        ]
+      }
+    }
+  }
+}

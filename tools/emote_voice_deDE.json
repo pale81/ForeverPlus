@@ -8,10 +8,10 @@
   "renderer": "mlx-audio 0.6.7",
   "seed": 1981,
   "reference_file_ids": [
-    540077,
-    540072
+    540030,
+    540050
   ],
-  "reference_text": "Wie geht's denn so? Seid gegrüßt!",
+  "reference_text": "Ich hab kein Alkoholproblem. Ich trinke, ich bin betrunken, ich fall hin. Kein Problem. Ich trinke nicht mehr, aber natürlich auch nicht weniger.",
   "lines": {
     "AGREE": "Da habt ihr recht!",
     "AMAZE": "Bei meinem Bart, ist das erstaunlich!",
@@ -230,5 +230,7 @@
     "OOPS": "Hoppla, das war keine Absicht!",
     "MEOW": "Miau!",
     "BOOP": "Ein Stups auf die Nase!"
-  }
+  },
+  "temperature": 0.65,
+  "voice_filter": "asetrate=23040,aresample=24000,atempo=1.0416666667,bass=g=2:f=140:w=0.7,equalizer=f=3000:t=q:w=0.7:g=-1.8,asoftclip=type=tanh:threshold=0.9:oversample=2"
 }

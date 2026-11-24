@@ -77,6 +77,7 @@ def render(manifest, args):
     model = load_model(str(args.model))
     destination = ROOT / "Media" / "EmoteVoice" / "deDE" / "DwarfMale"
     destination.mkdir(parents=True, exist_ok=True)
+    voice_filter = manifest.get("voice_filter", "anull")
     selected = [token for token in manifest["lines"]
                 if not args.only or token in args.only]
     pending = [token for token in selected if args.overwrite or not (destination / f"{token}.mp3").exists()]
@@ -86,11 +87,13 @@ def render(manifest, args):
         for offset in range(0, len(pending), args.batch_size):
             batch = pending[offset:offset + args.batch_size]
             mx.random.seed(manifest["seed"] + offset)
+            # 12 seconds exceeds the 140-token limit at 12.5 frames/second.
+            # Return one complete target-only chunk without decoding the reference again.
             results = model.batch_generate(
                 texts=[manifest["lines"][token] for token in batch],
                 ref_audio=str(args.reference), ref_text=manifest["reference_text"],
-                lang_code="German", max_tokens=140, temperature=0.7,
-                repetition_penalty=1.05, verbose=False,
+                lang_code="German", max_tokens=140, temperature=manifest.get("temperature", 0.7),
+                repetition_penalty=1.05, verbose=False, stream=True, streaming_interval=12.0,
             )
             for result in results:
                 token = batch[result.sequence_idx]
@@ -105,7 +108,7 @@ def render(manifest, args):
                 filters = (
                     "silenceremove=start_periods=1:start_duration=0.015:start_threshold=-45dB,"
                     "areverse,silenceremove=start_periods=1:start_duration=0.015:start_threshold=-45dB,"
-                    "areverse,highpass=f=60,loudnorm=I=-20:TP=-2:LRA=7,"
+                    f"areverse,highpass=f=60,{voice_filter},loudnorm=I=-20:TP=-2:LRA=7,"
                     "afade=t=in:d=0.005,apad=pad_dur=0.08"
                 )
                 subprocess.run([

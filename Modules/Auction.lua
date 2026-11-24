@@ -24,6 +24,7 @@ local Auction = ns:NewModule("Auction", {
 		startTab = "buy",
 		craftPrices = true, -- merchant and last known auction price in the tooltip of what one can make
 		saleSound = true, -- cash register sound on auction sales and unread auction sale mail with gold
+		saleMailSummary = true, -- chat summary of revenue, costs and net profit when looting auction sale mail
 	},
 	charDefaults = {
 		crafted = {}, -- itemID -> true: made by a recipe this character knows (read when a profession is opened)
@@ -114,7 +115,7 @@ local function ShowVendorProfit(cell)
 	GameTooltip:Show()
 end
 
-local function SetCellProfit(cell, itemID, unitPrice, quantity)
+local function SetCellProfit(cell, itemID, unitPrice, quantity, totalPrice)
 	cell.foreverPlusVendorProfit = nil
 	if not Auction.db.vendorProfit or not itemID or not unitPrice then
 		return
@@ -133,11 +134,23 @@ local function SetCellProfit(cell, itemID, unitPrice, quantity)
 		profitHooks[cell] = true
 	end
 	local perItem = vendor - unitPrice
-	quantity = quantity and quantity > 1 and quantity or nil
+	quantity = ns.Number(quantity, 1)
+	quantity = quantity > 1 and floor(quantity) or nil
+	local total
+	if quantity then
+		if type(totalPrice) == "number" and totalPrice > 0 then
+			total = vendor * quantity - totalPrice
+		else
+			total = perItem * quantity
+		end
+		if total <= 0 then
+			total = nil
+		end
+	end
 	cell.foreverPlusVendorProfit = {
 		unit = perItem,
 		quantity = quantity,
-		total = quantity and perItem * quantity or nil,
+		total = total,
 	}
 end
 
@@ -240,15 +253,15 @@ local function OnUnitPriceCell(cell, rowData)
 	local itemID = rowData and ItemIDOf(rowData)
 	local show = Auction.db.vendorWarning and rowData and IsBelowVendor(itemID, rowData.unitPrice)
 	SetCellWarning(cell, show and true or false)
-	SetCellProfit(cell, itemID, rowData and rowData.unitPrice)
+	SetCellProfit(cell, itemID, rowData and rowData.unitPrice, rowData and rowData.quantity)
 end
 
 local function OnMinPriceCell(cell, rowData)
 	local itemID = rowData and ItemIDOf(rowData)
-	local show = Auction.db.vendorWarning and rowData and rowData.totalQuantity ~= 0
-		and IsBelowVendor(itemID, rowData.minPrice)
+	local available = rowData and rowData.totalQuantity ~= 0
+	local show = Auction.db.vendorWarning and available and IsBelowVendor(itemID, rowData.minPrice)
 	SetCellWarning(cell, show and true or false)
-	SetCellProfit(cell, itemID, rowData and rowData.minPrice)
+	SetCellProfit(cell, itemID, available and rowData.minPrice or nil)
 end
 
 local function OnBuyoutCell(cell, rowData)
@@ -258,7 +271,7 @@ local function OnBuyoutCell(cell, rowData)
 		local unitPrice = floor(rowData.buyoutAmount / quantity)
 		local itemID = ItemIDOf(rowData)
 		show = Auction.db.vendorWarning and IsBelowVendor(itemID, unitPrice)
-		SetCellProfit(cell, itemID, unitPrice, quantity)
+		SetCellProfit(cell, itemID, unitPrice, quantity, rowData.buyoutAmount)
 	else
 		SetCellProfit(cell, rowData and ItemIDOf(rowData), nil)
 	end
@@ -902,8 +915,16 @@ local function ShowQuickBuyTooltip(button)
 	GameTooltip:AddLine(L.AUCTION_QUICK_BUY_TOOLTIP:format(count, GetMoneyString(unitPrice, true)), 1, 1, 1, true)
 	local vendor = VendorPrice(itemID)
 	if vendor and vendor > unitPrice then
-		GameTooltip:AddLine(L.AUCTION_QUICK_BUY_PROFIT:format(GetMoneyString((vendor - unitPrice) * count, true)),
-			GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+		local perItem = vendor - unitPrice
+		if count > 1 then
+			GameTooltip:AddLine(L.AUCTION_VENDOR_PROFIT:format(GetMoneyString(perItem, true)),
+				GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+			GameTooltip:AddLine(L.AUCTION_QUICK_BUY_PROFIT_TOTAL:format(count, GetMoneyString(perItem * count, true)),
+				GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+		else
+			GameTooltip:AddLine(L.AUCTION_QUICK_BUY_PROFIT:format(GetMoneyString(perItem, true)),
+				GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b, true)
+		end
 	end
 	GameTooltip:Show()
 end
@@ -952,28 +973,52 @@ end
 ---------------------------------------------------------------------------
 local sellVendorInfo = {}
 
--- What the sell frame shows below the post button: one large line (warning, profit or loss per item) and, for the
--- tooltip, the calculation behind it. nil when nothing is shown.
-function Auction.SellSummary(vendor, unitGross, profitOn, warningOn)
+-- What the sell frame shows below the post button: one large line (warning, profit or loss per item) plus, for
+-- quantities above 1, the total profit or loss; for the tooltip, the full calculation behind it. nil when nothing is shown.
+function Auction.SellSummary(vendor, unitGross, profitOn, warningOn, quantity)
 	if not vendor or not (profitOn or warningOn) then
 		return nil
 	end
+	quantity = ns.Number(quantity, 1)
+	quantity = quantity > 1 and floor(quantity) or 1
+	local multi = quantity > 1
 	local unitNet = NetAuctionPrice(unitGross)
 	local profit = unitNet and (unitNet - vendor) or nil
+	local totalVendor = multi and (vendor * quantity) or nil
+	local totalGross = multi and unitGross and unitGross > 0 and (unitGross * quantity) or nil
+	local totalNet = totalGross and NetAuctionPrice(totalGross) or nil
+	local totalProfit = totalNet and (totalNet - totalVendor) or nil
 	local money = function(value)
 		return GetMoneyString(value, true)
 	end
-	local summary = { lines = {
-		L.AUCTION_SELL_MERCHANT:format(money(vendor)),
-		L.AUCTION_SELL_PRICE:format(unitGross and unitGross > 0 and money(unitGross) or L.AUCTION_SELL_NO_PRICE),
-		L.AUCTION_SELL_NET:format(unitNet and money(unitNet) or L.AUCTION_SELL_NO_PRICE),
-	} }
+	local signed = function(value)
+		return (value >= 0 and "+" or "−") .. money(math.abs(value))
+	end
+	local merchantLine = L.AUCTION_SELL_MERCHANT:format(money(vendor))
+	local priceLine = L.AUCTION_SELL_PRICE:format(unitGross and unitGross > 0 and money(unitGross) or L.AUCTION_SELL_NO_PRICE)
+	local netLine = L.AUCTION_SELL_NET:format(unitNet and money(unitNet) or L.AUCTION_SELL_NO_PRICE)
+	if multi then
+		merchantLine = merchantLine .. L.AUCTION_SELL_STACK_SUFFIX:format(quantity, money(totalVendor))
+		if totalGross then
+			priceLine = priceLine .. L.AUCTION_SELL_STACK_SUFFIX:format(quantity, money(totalGross))
+		end
+		if totalNet then
+			netLine = netLine .. L.AUCTION_SELL_STACK_SUFFIX:format(quantity, money(totalNet))
+		end
+	end
+	local summary = { lines = { merchantLine, priceLine, netLine } }
 	if not profit then
 		summary.text, summary.color = L.AUCTION_SELL_NO_PRICE, { 1, 0.82, 0 }
 		return summary
 	end
-	local amount = (profit >= 0 and "+" or "−") .. money(math.abs(profit))
+	local amount = signed(profit)
 	summary.lines[#summary.lines + 1] = L.AUCTION_SELL_RESULT:format(amount)
+	if totalProfit then
+		local totalAmount = signed(totalProfit)
+		summary.total = totalProfit
+		summary.subtext = L.AUCTION_SELL_TOTAL:format(quantity, totalAmount)
+		summary.lines[#summary.lines + 1] = L.AUCTION_SELL_RESULT_TOTAL:format(quantity, totalAmount)
+	end
 	if warningOn and profit <= 0 then
 		summary.text, summary.color = L.AUCTION_SELL_BELOW:format(amount), { 1, 0.25, 0.25 }
 		summary.lines[#summary.lines + 1] = L.AUCTION_BELOW_VENDOR:format(money(vendor))
@@ -996,6 +1041,9 @@ local function ShowSellTooltip(hover)
 	end
 	GameTooltip:SetOwner(hover, "ANCHOR_TOP")
 	GameTooltip:AddLine(summary.text, unpack(summary.color))
+	if summary.subtext then
+		GameTooltip:AddLine(summary.subtext, unpack(summary.color))
+	end
 	for _, line in ipairs(summary.lines) do
 		GameTooltip:AddLine(line, 1, 1, 1)
 	end
@@ -1015,16 +1063,22 @@ local function UpdateSellWarning(frame, unitPrice)
 	elseif location and C_Item.DoesItemExist(location) then
 		quantity = C_Item.GetStackCount(location) or 1
 	end
-	-- Item auctions enter a total stack price; commodity auctions enter a
-	-- per-item price. Normalize both before comparing with the merchant value.
+	quantity = ns.Number(quantity, 1)
+	quantity = quantity > 1 and floor(quantity) or 1
+	-- Item auctions in multisell enter a per-item price (GetTotalPrice == price * quantity);
+	-- normalize if a stack price (GetTotalPrice == price) is ever given.
 	local unitGross = unitPrice
-	if frame.GetPrice and not frame.GetUnitPrice and quantity > 1 then
-		unitGross = unitPrice and floor(unitPrice / quantity) or nil
+	if frame.GetPrice and not frame.GetUnitPrice and quantity > 1 and unitPrice then
+		local total = frame.GetTotalPrice and ns.Number(frame:GetTotalPrice())
+		if not total or total == unitPrice then
+			unitGross = floor(unitPrice / quantity)
+		end
 	end
 	local info = sellVendorInfo[frame]
 	if not info then
 		info = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		info:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -6)
+		info:SetJustifyH("CENTER")
 		-- A font string takes no mouse: a frame over it carries the tooltip with the calculation.
 		info.hover = CreateFrame("Frame", nil, frame)
 		info.hover:SetAllPoints(info)
@@ -1032,10 +1086,10 @@ local function UpdateSellWarning(frame, unitPrice)
 		info.hover:SetScript("OnLeave", GameTooltip_Hide)
 		sellVendorInfo[frame] = info
 	end
-	local summary = Auction.SellSummary(vendor, unitGross, Auction.db.vendorProfit, Auction.db.vendorWarning)
+	local summary = Auction.SellSummary(vendor, unitGross, Auction.db.vendorProfit, Auction.db.vendorWarning, quantity)
 	info.hover.summary = summary
 	if summary then
-		info:SetText(summary.text)
+		info:SetText(summary.subtext and (summary.text .. "\n" .. summary.subtext) or summary.text)
 		info:SetTextColor(unpack(summary.color))
 		info:Show()
 		info.hover:Show()
@@ -1051,15 +1105,15 @@ end
 local function HookSellFrames()
 	local frame = AuctionHouseFrame
 	if frame.CommoditiesSellFrame and frame.CommoditiesSellFrame.PostButton then
-		hooksecurefunc(frame.CommoditiesSellFrame, "UpdatePostState", function(self)
+		hooksecurefunc(frame.CommoditiesSellFrame, "UpdatePostState", ns.Measured("Auction: sell summary", function(self)
 			UpdateSellWarning(self, self:GetUnitPrice())
-		end)
+		end))
 	end
 	if frame.ItemSellFrame and frame.ItemSellFrame.PostButton then
-		hooksecurefunc(frame.ItemSellFrame, "UpdatePostState", function(self)
+		hooksecurefunc(frame.ItemSellFrame, "UpdatePostState", ns.Measured("Auction: sell summary", function(self)
 			local _, buyout = self:GetPrice()
 			UpdateSellWarning(self, buyout)
-		end)
+		end))
 	end
 end
 
@@ -1488,6 +1542,283 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Auction sale mail summary: revenue, AH cut and net profit per looted sale
+-- mail, plus an overall total line after rapid sequences or on mailbox close.
+-- Read-only (GetInboxHeaderInfo + GetInboxInvoiceInfo only, never GetInboxText)
+-- and taint-safe via hooksecurefunc on TakeInboxMoney and AutoLootMailItem.
+---------------------------------------------------------------------------
+local ApplySaleMailSummary, InstallSaleMailHooks
+do
+	local MAIL_BATCH_WINDOW = 3 -- seconds after the last looted sale mail
+	local PENDING_TIMEOUT = 10 -- seconds before an unconfirmed take expires
+	local mailSummaryOwner = {}
+	local inboxSnapshot = {}
+	local snapshotCounts = {}
+	local pending = {}
+	local batch = nil
+	local batchToken = 0
+	local hooksInstalled = false
+
+	local function ToggleSummaryEvent(event, enabled, fn)
+		if enabled then
+			ns:RegisterEvent(event, mailSummaryOwner, fn)
+		else
+			ns:UnregisterEvent(event, mailSummaryOwner)
+		end
+	end
+
+	local function MoneyText(value)
+		if value < 0 then
+			return "−" .. GetMoneyString(math.abs(value), true)
+		end
+		return GetMoneyString(value, true)
+	end
+
+	-- Read-only inspection of an auction sale mail with gold attached.
+	-- Blizzard computes attached gold as bid + deposit - consignment (MailFrame.lua);
+	-- deposit is refunded (not a cost and not profit), so net proceeds = bid - consignment.
+	function Auction.ReadSaleMail(index)
+		index = ns.Number(index)
+		if not index or index < 1 or not GetInboxHeaderInfo or not GetInboxInvoiceInfo then
+			return nil
+		end
+		local _, _, _, subject, money = GetInboxHeaderInfo(index)
+		subject = Plain(subject)
+		money = ns.Number(money)
+		if not money or money <= 0 then
+			return nil
+		end
+		local invoiceType, itemName, _, bid, buyout, deposit, consignment, _, _, _, count = GetInboxInvoiceInfo(index)
+		invoiceType = Plain(invoiceType)
+		if invoiceType ~= "seller" then
+			return nil
+		end
+		itemName = Plain(itemName)
+		deposit = math.max(0, ns.Number(deposit, 0))
+		consignment = math.max(0, ns.Number(consignment, 0))
+		local revenue = ns.Number(bid, 0)
+		if revenue <= 0 then
+			revenue = ns.Number(buyout, 0)
+		end
+		if revenue <= 0 then
+			revenue = math.max(0, money - deposit + consignment)
+		end
+		count = ns.Number(count, 1)
+		count = count > 1 and floor(count) or 1
+		if type(itemName) ~= "string" or itemName == "" then
+			itemName = (type(subject) == "string" and subject ~= "") and subject or "?"
+		end
+		local net = revenue - consignment
+		local key = ("%s\0%d\0%d\0%d\0%d\0%d"):format(itemName, count, revenue, consignment, deposit, money)
+		return {
+			itemName = itemName,
+			count = count,
+			revenue = revenue,
+			cost = consignment,
+			deposit = deposit,
+			net = net,
+			money = money,
+			key = key,
+		}
+	end
+
+	function Auction.FormatSaleMailLine(info)
+		local label = info.count > 1 and ("%s x%d"):format(info.itemName, info.count) or info.itemName
+		local text = L.AUCTION_SALE_MAIL_LINE:format(label, MoneyText(info.revenue), MoneyText(info.cost), MoneyText(info.net))
+		if info.deposit > 0 then
+			text = text .. L.AUCTION_SALE_MAIL_DEPOSIT:format(MoneyText(info.deposit))
+		end
+		return text
+	end
+
+	function Auction.FormatSaleMailTotal(summary)
+		local text = L.AUCTION_SALE_MAIL_TOTAL:format(summary.count, MoneyText(summary.revenue),
+			MoneyText(summary.cost), MoneyText(summary.net))
+		if summary.deposit > 0 then
+			text = text .. L.AUCTION_SALE_MAIL_DEPOSIT:format(MoneyText(summary.deposit))
+		end
+		return text
+	end
+
+	local function SnapshotSaleMails()
+		local snap, counts = {}, {}
+		local numItems = GetInboxNumItems and ns.Number(GetInboxNumItems(), 0) or 0
+		for index = 1, numItems do
+			local info = Auction.ReadSaleMail(index)
+			if info then
+				snap[index] = info
+				counts[info.key] = (counts[info.key] or 0) + 1
+			end
+		end
+		return snap, counts, numItems
+	end
+
+	local function PrunePending(now)
+		for i = #pending, 1, -1 do
+			if now - pending[i].time > PENDING_TIMEOUT then
+				tremove(pending, i)
+			end
+		end
+	end
+
+	function Auction.FlushSaleMailBatch()
+		batchToken = batchToken + 1
+		local current = batch
+		batch = nil
+		if current and current.count > 1 and Auction.db.saleMailSummary then
+			ns.Print(Auction.FormatSaleMailTotal(current))
+		end
+	end
+
+	local function CommitSaleMail(info)
+		if not Auction.db.saleMailSummary then
+			return
+		end
+		ns.Print(Auction.FormatSaleMailLine(info))
+		if not batch then
+			batch = { count = 0, revenue = 0, cost = 0, deposit = 0, net = 0 }
+		end
+		batch.count = batch.count + 1
+		batch.revenue = batch.revenue + info.revenue
+		batch.cost = batch.cost + info.cost
+		batch.deposit = batch.deposit + info.deposit
+		batch.net = batch.net + info.net
+		batchToken = batchToken + 1
+		local token = batchToken
+		ns.After("Auction: sale mail summary", MAIL_BATCH_WINDOW, function()
+			if token == batchToken then
+				Auction.FlushSaleMailBatch()
+			end
+		end)
+	end
+
+	function Auction.OnTakeSaleMail(index)
+		if not Auction.db.saleMailSummary then
+			return
+		end
+		index = ns.Number(index)
+		if not index or index < 1 then
+			return
+		end
+		local info = Auction.ReadSaleMail(index) or inboxSnapshot[index]
+		if not info then
+			return
+		end
+		local now = GetTime()
+		PrunePending(now)
+		if (snapshotCounts[info.key] or 0) == 0 then
+			snapshotCounts[info.key] = 1
+		end
+		for _, entry in ipairs(pending) do
+			if entry.index == index and entry.info.key == info.key then
+				entry.time = now
+				return
+			end
+		end
+		pending[#pending + 1] = { index = index, info = info, time = now }
+	end
+
+	function Auction.ResetSaleMailSummaryState()
+		inboxSnapshot = {}
+		snapshotCounts = {}
+		pending = {}
+		batch = nil
+		batchToken = batchToken + 1
+	end
+
+	local onMailShow = ns.Measured("Auction: sale mail summary", function()
+		local snap, counts, numItems = SnapshotSaleMails()
+		if numItems > 0 then
+			inboxSnapshot, snapshotCounts = snap, counts
+		end
+	end)
+
+	local onMailInboxUpdate = ns.Measured("Auction: sale mail summary", function()
+		local snap, counts = SnapshotSaleMails()
+		if #pending > 0 then
+			PrunePending(GetTime())
+			for key, prevCount in pairs(snapshotCounts) do
+				local diff = prevCount - (counts[key] or 0)
+				if diff > 0 then
+					local i = 1
+					while diff > 0 and i <= #pending do
+						if pending[i].info.key == key then
+							local entry = tremove(pending, i)
+							CommitSaleMail(entry.info)
+							diff = diff - 1
+						else
+							i = i + 1
+						end
+					end
+				end
+			end
+		end
+		inboxSnapshot, snapshotCounts = snap, counts
+	end)
+
+	local onMailSuccess = ns.Measured("Auction: sale mail summary", function(_, _, itemID)
+		if Plain(itemID) ~= nil or #pending == 0 then
+			return
+		end
+		PrunePending(GetTime())
+		if #pending == 0 then
+			return
+		end
+		local entry = tremove(pending, 1)
+		local key = entry.info.key
+		if snapshotCounts[key] and snapshotCounts[key] > 0 then
+			snapshotCounts[key] = snapshotCounts[key] - 1
+		end
+		CommitSaleMail(entry.info)
+	end)
+
+	local onMailFailed = ns.Measured("Auction: sale mail summary", function()
+		if #pending > 0 then
+			tremove(pending, 1)
+		end
+	end)
+
+	local onMailClosed = ns.Measured("Auction: sale mail summary", function()
+		inboxSnapshot = {}
+		snapshotCounts = {}
+		pending = {}
+		Auction.FlushSaleMailBatch()
+	end)
+
+	InstallSaleMailHooks = function()
+		if hooksInstalled then
+			return
+		end
+		hooksInstalled = true
+		local onTake = ns.Measured("Auction: sale mail take", Auction.OnTakeSaleMail)
+		if TakeInboxMoney then
+			hooksecurefunc("TakeInboxMoney", onTake)
+		end
+		if AutoLootMailItem then
+			hooksecurefunc("AutoLootMailItem", onTake)
+		end
+	end
+
+	ApplySaleMailSummary = function()
+		local enabled = Auction.db.saleMailSummary
+		if not enabled then
+			Auction.ResetSaleMailSummaryState()
+		end
+		ToggleSummaryEvent("MAIL_SHOW", enabled, onMailShow)
+		ToggleSummaryEvent("MAIL_INBOX_UPDATE", enabled, onMailInboxUpdate)
+		ToggleSummaryEvent("MAIL_SUCCESS", enabled, onMailSuccess)
+		ToggleSummaryEvent("MAIL_FAILED", enabled, onMailFailed)
+		ToggleSummaryEvent("MAIL_CLOSED", enabled, onMailClosed)
+		if enabled then
+			local snap, counts, numItems = SnapshotSaleMails()
+			if numItems > 0 then
+				inboxSnapshot, snapshotCounts = snap, counts
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 function Auction:OnLogin()
@@ -1497,6 +1828,8 @@ function Auction:OnLogin()
 	end
 	self:ApplyDuration()
 	ApplySaleSound()
+	InstallSaleMailHooks()
+	ApplySaleMailSummary()
 	-- Auction prices are noted on every look (also with the tooltip line switched off: they are there when it is on).
 	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", OnBrowseResults)
 	self:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", OnBrowseResults)
@@ -1580,6 +1913,8 @@ function Auction:OnOptionChanged(key)
 		ApplyStartTab()
 	elseif key == "saleSound" then
 		ApplySaleSound()
+	elseif key == "saleMailSummary" then
+		ApplySaleMailSummary()
 	elseif key == "vendorBuyFilter" or key == "vendorMinMargin" or key == "vendorProfitSort" or key == "scoreSort"
 		or key == "hideVendorItems" or key == "scoreValueSort" then
 		ApplyBuyFilter()
@@ -1617,4 +1952,5 @@ Auction.options = {
 	{ type = "button", name = L.AUCTION_SALE_SOUND_TEST, text = L.QUESTS_TEST, func = function()
 		Auction.PlaySaleSound(true)
 	end },
+	{ key = "saleMailSummary", type = "toggle", name = L.AUCTION_SALE_MAIL_SUMMARY, desc = L.AUCTION_SALE_MAIL_SUMMARY_DESC, new = true },
 }

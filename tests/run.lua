@@ -15066,6 +15066,318 @@ end)()
 		tooltip.db.hoverLevel, tooltip.db.hoverName, tooltip.db.hoverObjects = unpack(saved, 1, 16)
 	print("hover skull level OK")
 end)()
+-- Auction house: total profit/loss for quantities > 1 (sell summary, cells, quick buy)
+;(function()
+	local A = ns:GetModule("Auction")
+	local savedMoney = GetMoneyString
+	local savedIsCached, savedGetInfo = C_Item.IsItemDataCachedByID, C_Item.GetItemInfo
+	local savedDoesExist, savedGetItemID, savedGetStack = C_Item.DoesItemExist, C_Item.GetItemID, C_Item.GetStackCount
+	local savedAddLine, savedOwner = GameTooltip.AddLine, GameTooltip.SetOwner
+	local savedProfit, savedWarning, savedQty = A.db.vendorProfit, A.db.vendorWarning, A.db.vendorQuickBuyQty
+	GetMoneyString = function(v) return tostring(v) .. "c" end
+
+	-- SellSummary: quantity == 1 stays compact without repetition
+	local s1 = A.SellSummary(306, 400, true, true, 1)
+	assert(s1.text == ns.L.AUCTION_SELL_PROFIT:format("+74c") and s1.subtext == nil and #s1.lines == 4,
+		"quantity 1 remains compact without total line")
+
+	-- SellSummary: quantity > 1 shows per-item + total profit and full stack calculation
+	local s20 = A.SellSummary(306, 400, true, true, 20)
+	assert(s20.text == ns.L.AUCTION_SELL_PROFIT:format("+74c"), "quantity 20 per-item text")
+	assert(s20.subtext == ns.L.AUCTION_SELL_TOTAL:format(20, "+1480c") and s20.total == 1480,
+		"quantity 20 total profit subtext: " .. tostring(s20.subtext))
+	assert(#s20.lines == 5, "quantity 20 tooltip has 5 calculation lines")
+	assert(s20.lines[1]:find("6120c", 1, true), "merchant total in tooltip")
+	assert(s20.lines[2]:find("8000c", 1, true), "gross total in tooltip")
+	assert(s20.lines[3]:find("7600c", 1, true), "net total after 5% cut in tooltip")
+	assert(s20.lines[5] == ns.L.AUCTION_SELL_RESULT_TOTAL:format(20, "+1480c"), "result total line")
+
+	-- 5% fee rounding on total vs per-unit: 10 * 31c = 310c -> floor(310 * 0.95) = 294c, vendor 250c -> +44c
+	local sRound = A.SellSummary(25, 31, true, true, 10)
+	assert(sRound.text == ns.L.AUCTION_SELL_PROFIT:format("+4c"), "unit profit 29-25=+4c")
+	assert(sRound.total == 44 and sRound.subtext == ns.L.AUCTION_SELL_TOTAL:format(10, "+44c"),
+		"total profit uses exact 5% fee on total gross (294 - 250 = 44)")
+
+	-- Below vendor warning with quantity > 1
+	local sWarn = A.SellSummary(306, 300, true, true, 5)
+	assert(sWarn.text == ns.L.AUCTION_SELL_BELOW:format("−21c"), "warning per item")
+	assert(sWarn.subtext == ns.L.AUCTION_SELL_TOTAL:format(5, "−105c") and #sWarn.lines == 6,
+		"warning total loss and below-vendor note")
+
+	-- Loss without warning option and quantity > 1
+	local sLoss = A.SellSummary(306, 300, true, false, 4)
+	assert(sLoss.text == ns.L.AUCTION_SELL_LOSS:format("−21c") and sLoss.subtext == ns.L.AUCTION_SELL_TOTAL:format(4, "−84c"),
+		"loss total without warning option")
+
+	-- No price entered with quantity > 1: still shows total merchant value, no fake total profit
+	local sNoPrice = A.SellSummary(306, nil, true, true, 10)
+	assert(sNoPrice.text == ns.L.AUCTION_SELL_NO_PRICE and sNoPrice.subtext == nil and sNoPrice.lines[1]:find("3060c", 1, true),
+		"no price keeps prompt and shows total merchant value")
+
+	-- Commodity unit price cell & buyout cell: quantity > 1 carries total profit, quantity == 1 does not
+	A.db.vendorProfit, A.db.vendorWarning = true, true
+	local vendors = { [99001] = 300, [99002] = 60 }
+	C_Item.IsItemDataCachedByID = function(id) return vendors[id] ~= nil end
+	C_Item.GetItemInfo = function(id)
+		if vendors[id] then return "Item", nil, nil, nil, nil, nil, nil, nil, nil, nil, vendors[id] end
+	end
+	local onUnit = uv(A.OnLogin, "OnUnitPriceCell")
+	local onMin = uv(A.OnLogin, "OnMinPriceCell")
+	local onBuyout = uv(A.OnLogin, "OnBuyoutCell")
+	local unitCell1 = NewFrame("Frame")
+	onUnit(unitCell1, { itemID = 99001, unitPrice = 200, quantity = 15 })
+	assert(unitCell1.foreverPlusVendorProfit and unitCell1.foreverPlusVendorProfit.unit == 100
+		and unitCell1.foreverPlusVendorProfit.quantity == 15 and unitCell1.foreverPlusVendorProfit.total == 1500,
+		"commodity unit price cell computes total profit for quantity > 1")
+	local unitCellSingle = NewFrame("Frame")
+	onUnit(unitCellSingle, { itemID = 99001, unitPrice = 200, quantity = 1 })
+	assert(unitCellSingle.foreverPlusVendorProfit and unitCellSingle.foreverPlusVendorProfit.unit == 100
+		and unitCellSingle.foreverPlusVendorProfit.total == nil,
+		"commodity unit price cell omits total for quantity == 1")
+	local minCellEmpty = NewFrame("Frame")
+	onMin(minCellEmpty, { itemKey = { itemID = 99001 }, minPrice = 200, totalQuantity = 0 })
+	assert(rawget(minCellEmpty, "foreverPlusVendorProfit") == nil, "min price cell ignores totalQuantity == 0")
+	local buyoutCell = NewFrame("Frame")
+	onBuyout(buyoutCell, { itemKey = { itemID = 99002 }, buyoutAmount = 101, quantity = 2 })
+	assert(buyoutCell.foreverPlusVendorProfit and buyoutCell.foreverPlusVendorProfit.unit == 10
+		and buyoutCell.foreverPlusVendorProfit.total == 19,
+		"buyout cell uses exact total (2*60 - 101 = 19)")
+
+	-- Quick buy tooltip: count == 1 stays single profit line, count > 1 adds per-item and total
+	local tipLines = {}
+	GameTooltip.SetOwner = function() wipe(tipLines) end
+	GameTooltip.AddLine = function(_, line) tipLines[#tipLines + 1] = tostring(line) end
+	local onQuickCell = uv(A.OnLogin, "OnQuickBuyCell")
+	local showQuickTip = uv(onQuickCell, "ShowQuickBuyTooltip")
+	A.db.vendorQuickBuyQty = 1
+	showQuickTip({ rowData = { itemKey = { itemID = 99001 }, minPrice = 200, totalQuantity = 10 } })
+	assert(#tipLines == 2 and tipLines[2] == ns.L.AUCTION_QUICK_BUY_PROFIT:format("100c"),
+		"quick buy qty 1 shows compact single profit line")
+	A.db.vendorQuickBuyQty = 5
+	showQuickTip({ rowData = { itemKey = { itemID = 99001 }, minPrice = 200, totalQuantity = 10 } })
+	assert(#tipLines == 3 and tipLines[2] == ns.L.AUCTION_VENDOR_PROFIT:format("100c")
+		and tipLines[3] == ns.L.AUCTION_QUICK_BUY_PROFIT_TOTAL:format(5, "500c"),
+		"quick buy qty > 1 shows per-item and total profit")
+
+	-- UpdateSellWarning on multisell ItemSellFrame (GetTotalPrice == price * quantity) keeps per-item price
+	local updateSell = uv(uv(A.OnLogin, "HookSellFrames"), "UpdateSellWarning")
+	C_Item.DoesItemExist = function() return true end
+	C_Item.GetItemID = function() return 99001 end
+	C_Item.GetStackCount = function() return 1 end
+	local itemSellFrame = NewFrame("Frame")
+	itemSellFrame.PostButton = NewFrame("Button")
+	itemSellFrame.GetItem = function() return {} end
+	itemSellFrame.GetQuantity = function() return 3 end
+	itemSellFrame.GetPrice = function() return nil, 400 end
+	itemSellFrame.GetTotalPrice = function() return 1200 end
+	local shownText
+	itemSellFrame.CreateFontString = function()
+		local fs = NewFrame("FontString")
+		fs.SetText = function(_, t) shownText = t end
+		return fs
+	end
+	updateSell(itemSellFrame, 400)
+	assert(shownText and shownText:find("+80c", 1, true) and shownText:find("+240c", 1, true),
+		"multisell item frame preserves unit price and displays per-item + total: " .. tostring(shownText))
+
+	GetMoneyString = savedMoney
+	C_Item.IsItemDataCachedByID, C_Item.GetItemInfo = savedIsCached, savedGetInfo
+	C_Item.DoesItemExist, C_Item.GetItemID, C_Item.GetStackCount = savedDoesExist, savedGetItemID, savedGetStack
+	GameTooltip.AddLine, GameTooltip.SetOwner = savedAddLine, savedOwner
+	A.db.vendorProfit, A.db.vendorWarning, A.db.vendorQuickBuyQty = savedProfit, savedWarning, savedQty
+	print("auction stack profit OK")
+end)()
+-- Auction house: mailbox sale summary (revenue, costs, net profit, refunded deposit, batch total)
+;(function()
+	local A = ns:GetModule("Auction")
+	local saved = {
+		GetMoneyString, GetTime, GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo,
+		C_Timer.After, ns.Print, PlaySoundFile, issecretvalue,
+		A.db.saleMailSummary, A.db.saleSound, ns.db.quiet,
+	}
+	local now, messages, timers, soundPlays = 200, {}, {}, 0
+	GetMoneyString = function(v) return tostring(v) .. "c" end
+	GetTime = function() return now end
+	PlaySoundFile = function() soundPlays = soundPlays + 1 return true end
+	C_Timer.After = function(delay, fn)
+		timers[#timers + 1] = { delay = delay, fn = fn }
+	end
+	ns.Print = function(msg, ...)
+		if ns.db and ns.db.quiet then
+			return
+		end
+		if select("#", ...) > 0 then
+			msg = msg:format(...)
+		end
+		messages[#messages + 1] = tostring(msg)
+	end
+
+	local inbox = {}
+	GetInboxNumItems = function() return #inbox, #inbox end
+	GetInboxHeaderInfo = function(index)
+		local m = inbox[index]
+		if not m then return nil end
+		return nil, nil, m.sender, m.subject, m.money, 0, 29, m.items, m.wasRead
+	end
+	GetInboxInvoiceInfo = function(index)
+		local m = inbox[index]
+		if not m then return nil end
+		return m.invoiceType, m.itemName, m.playerName, m.bid, m.buyout, m.deposit, m.consignment, nil, nil, nil, m.count
+	end
+
+	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function Fire(event, ...)
+		eventFrame:GetScript("OnEvent")(eventFrame, event, ...)
+	end
+
+	ns.db.quiet = false
+	A.db.saleMailSummary = true
+	A.db.saleSound = false
+	A:OnOptionChanged("saleSound")
+	A:OnOptionChanged("saleMailSummary")
+	A.ResetSaleMailSummaryState()
+
+	-- ReadSaleMail: distinguishes seller mail from buyer/temp/regular mail and separates deposit from costs/net
+	inbox = {
+		{ subject = "Auktion erfolgreich: Kupfererz", money = 190100, invoiceType = "seller", itemName = "Kupfererz", bid = 200000, deposit = 100, consignment = 10000, count = 20 },
+		{ subject = "Auktion gewonnen: Leinenstoff", money = 0, invoiceType = "buyer", itemName = "Leinenstoff", bid = 1200 },
+		{ subject = "Auktion erfolgreich: Seidenstoff", money = 0, invoiceType = "seller_temp_invoice", itemName = "Seidenstoff", bid = 3000 },
+		{ subject = "Gold von Freund", money = 50000 },
+	}
+	local m1 = A.ReadSaleMail(1)
+	assert(m1 and m1.itemName == "Kupfererz" and m1.count == 20 and m1.revenue == 200000
+		and m1.cost == 10000 and m1.deposit == 100 and m1.net == 190000,
+		"ReadSaleMail parses seller invoice fields and separates refunded deposit from net profit")
+	assert(A.ReadSaleMail(2) == nil and A.ReadSaleMail(3) == nil and A.ReadSaleMail(4) == nil,
+		"ReadSaleMail ignores buyer, temp invoice and non-auction mail")
+
+	-- Single sale mail: prints one line, no total line when timer expires
+	Fire("MAIL_SHOW")
+	A.OnTakeSaleMail(1)
+	-- Double-click before server response must not duplicate
+	A.OnTakeSaleMail(1)
+	table.remove(inbox, 1)
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 1, "single loot prints one chat line")
+	assert(messages[1]:find("Kupfererz x20", 1, true) and messages[1]:find("200000c", 1, true)
+		and messages[1]:find("10000c", 1, true) and messages[1]:find("190000c", 1, true)
+		and messages[1]:find("100c", 1, true),
+		"single line contains item+count, revenue, cost, net and separate refunded deposit: " .. messages[1])
+	assert(#timers == 1, "batch timer scheduled")
+	timers[1].fn()
+	assert(#messages == 1, "single mail does not print a redundant total line")
+
+	-- MAIL_FAILED cancels pending take without printing
+	wipe(messages); wipe(timers)
+	inbox = {
+		{ subject = "Auktion erfolgreich: Eisenschwert", money = 490000, invoiceType = "seller", itemName = "Eisenschwert", bid = 500000, deposit = 15000, consignment = 25000, count = 1 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	A.OnTakeSaleMail(1)
+	Fire("MAIL_FAILED")
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 0, "failed take prints nothing")
+
+	-- MAIL_SUCCESS before MAIL_INBOX_UPDATE reports once (no double report on subsequent MAIL_INBOX_UPDATE)
+	A.OnTakeSaleMail(1)
+	Fire("MAIL_SUCCESS", nil)
+	table.remove(inbox, 1)
+	Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 1 and messages[1]:find("Eisenschwert", 1, true) and not messages[1]:find("x1", 1, true),
+		"MAIL_SUCCESS before MAIL_INBOX_UPDATE prints once without x1 suffix")
+	timers[#timers].fn()
+	assert(#messages == 1, "still no total line for 1 mail")
+
+	-- Rapid sequence of 3 sale mails (including 2 identical, like OpenAllMail): individual lines + total line
+	wipe(messages); wipe(timers)
+	inbox = {
+		{ subject = "Auktion erfolgreich: Kupfererz", money = 9500, invoiceType = "seller", itemName = "Kupfererz", bid = 10000, deposit = 0, consignment = 500, count = 5 },
+		{ subject = "Auktion erfolgreich: Kupfererz", money = 9500, invoiceType = "seller", itemName = "Kupfererz", bid = 10000, deposit = 0, consignment = 500, count = 5 },
+		{ subject = "Auktion erfolgreich: Silbererz", money = 19200, invoiceType = "seller", itemName = "Silbererz", bid = 20000, deposit = 200, consignment = 1000, count = 1 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	for step = 1, 3 do
+		now = now + 0.2
+		A.OnTakeSaleMail(1)
+		table.remove(inbox, 1)
+		Fire("MAIL_INBOX_UPDATE")
+		Fire("MAIL_SUCCESS", nil)
+	end
+	assert(#messages == 3, "three individual lines printed during rapid sequence")
+	-- Stale earlier timers must not flush early
+	timers[1].fn()
+	timers[2].fn()
+	assert(#messages == 3, "earlier superseded timers do not flush")
+	-- Final timer flushes the total line
+	timers[3].fn()
+	assert(#messages == 4, "final timer prints total summary line")
+	assert(messages[4]:find("3", 1, true) and messages[4]:find("40000c", 1, true)
+		and messages[4]:find("2000c", 1, true) and messages[4]:find("38000c", 1, true)
+		and messages[4]:find("200c", 1, true),
+		"total line sums count, revenue, costs, net and refunded deposit: " .. messages[4])
+
+	-- Closing mailbox flushes active batch immediately and prevents duplicate print when timer later fires
+	wipe(messages); wipe(timers)
+	inbox = {
+		{ subject = "Auktion erfolgreich: Wollstoff", money = 4750, invoiceType = "seller", itemName = "Wollstoff", bid = 5000, deposit = 0, consignment = 250, count = 10 },
+		{ subject = "Auktion erfolgreich: Seidenstoff", money = 9500, invoiceType = "seller", itemName = "Seidenstoff", bid = 10000, deposit = 0, consignment = 500, count = 10 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	A.OnTakeSaleMail(1); table.remove(inbox, 1); Fire("MAIL_INBOX_UPDATE")
+	A.OnTakeSaleMail(1); table.remove(inbox, 1); Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 2, "two lines printed before MAIL_CLOSED")
+	Fire("MAIL_CLOSED")
+	assert(#messages == 3 and messages[3]:find("15000c", 1, true) and messages[3]:find("750c", 1, true)
+		and messages[3]:find("14250c", 1, true),
+		"MAIL_CLOSED flushes total line immediately without deposit suffix when deposit == 0")
+	timers[#timers].fn()
+	assert(#messages == 3, "timer firing after MAIL_CLOSED does not duplicate total line")
+
+	-- Respects ns.db.quiet ("mute all messages")
+	wipe(messages); wipe(timers)
+	ns.db.quiet = true
+	inbox = {
+		{ subject = "Auktion erfolgreich: Kupfererz", money = 9500, invoiceType = "seller", itemName = "Kupfererz", bid = 10000, deposit = 0, consignment = 500, count = 1 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	A.OnTakeSaleMail(1); table.remove(inbox, 1); Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 0, "ns.db.quiet silences sale mail summary")
+	ns.db.quiet = false
+
+	-- Option independence: disabling saleSound keeps saleMailSummary working, and vice versa
+	wipe(messages); wipe(timers); soundPlays = 0
+	A.db.saleSound = true
+	A:OnOptionChanged("saleSound")
+	A.ResetSaleMailState()
+	A.db.saleMailSummary = false
+	A:OnOptionChanged("saleMailSummary")
+	inbox = {
+		{ sender = "AH", subject = "Auktion erfolgreich: Golderz", money = 9500, wasRead = false, invoiceType = "seller", itemName = "Golderz", bid = 10000, deposit = 0, consignment = 500, count = 1 },
+	}
+	Fire("MAIL_INBOX_UPDATE")
+	assert(soundPlays == 1, "disabling saleMailSummary leaves saleSound MAIL_INBOX_UPDATE active")
+	A.OnTakeSaleMail(1); table.remove(inbox, 1); Fire("MAIL_INBOX_UPDATE")
+	assert(#messages == 0, "saleMailSummary off prints nothing")
+
+	-- Secret values in inbox data are skipped safely without error
+	local secretTag = {}
+	issecretvalue = function(v) return v == secretTag end
+	inbox = {
+		{ subject = "Auktion", money = secretTag, invoiceType = "seller", itemName = "Erz", bid = 1000, deposit = 0, consignment = 50, count = 1 },
+		{ subject = "Auktion", money = 950, invoiceType = secretTag, itemName = "Erz", bid = 1000, deposit = 0, consignment = 50, count = 1 },
+	}
+	assert(A.ReadSaleMail(1) == nil and A.ReadSaleMail(2) == nil, "ReadSaleMail skips secret values safely")
+	issecretvalue = saved[9]
+
+	GetMoneyString, GetTime, GetInboxNumItems, GetInboxHeaderInfo, GetInboxInvoiceInfo = unpack(saved, 1, 5)
+	C_Timer.After, ns.Print, PlaySoundFile, issecretvalue = unpack(saved, 6, 9)
+	A.db.saleMailSummary, A.db.saleSound, ns.db.quiet = unpack(saved, 10, 12)
+	A:OnOptionChanged("saleSound")
+	A:OnOptionChanged("saleMailSummary")
+	A.ResetSaleMailState()
+	A.ResetSaleMailSummaryState()
+	print("auction sale mail summary OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
 assert(loadfile("emote_voice.lua"))(root, ns)

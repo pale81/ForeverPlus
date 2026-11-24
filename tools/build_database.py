@@ -93,11 +93,11 @@ def fetch_everything_quests(filename: str) -> bytes:
 
 
 def decode_packed_point(map_id: int, packed: int) -> list:
-    # Everything Quests' packed objective coordinate: map is the table key;
-    # x and y occupy four decimal places in the low eight digits.
+    # The low eight digits hold two four-digit fractions of the map.
+    # ForeverPlus's quest consumers expect zone percentages (0–100).
     rest = packed % 100_000_000
-    x = (rest // 10_000) / 10_000
-    y = (rest % 10_000) / 10_000
+    x = (rest // 10_000) / 100
+    y = (rest % 10_000) / 100
     if map_id <= 0 or not (0 <= x <= 100 and 0 <= y <= 100):
         raise RuntimeError(f"invalid Everything Quests coordinate: map={map_id}, value={packed}")
     return [map_id, x, y]
@@ -163,9 +163,7 @@ def parse_quest_starts(payload: bytes) -> dict[int, list]:
         for map_match in re.finditer(r"\[(\d+)\]\s*=\s*\{([^{}]*)\}", quest_match.group(2)):
             map_id = int(map_match.group(1))
             for packed_text in re.findall(r"\d+", map_match.group(2)):
-                packed = int(packed_text)
-                rest = packed % 100_000_000
-                point = decode_packed_point(map_id, rest)
+                point = decode_packed_point(map_id, int(packed_text))
                 if point not in points:
                     points.append(point)
         if points:

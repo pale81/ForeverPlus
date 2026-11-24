@@ -9,10 +9,14 @@ LibQuestieDB = nil
 assert(ns.QuestieDB.Get() == ns.BundledDatabaseAPI, "the adapter falls back to the shipped data without QuestieDB")
 local quest = ns.BundledDatabaseAPI.Quest
 assert(quest.Exists(2), "quest row with waypoints")
-local point = quest.Get(2, "previewPoint")
-point = point and point[1]
-assert(type(point) == "table" and type(point[1]) == "number" and type(point[2]) == "number" and type(point[3]) == "number",
-	"a waypoint is { map, x, y }")
+-- Plainstrider Menace in the Barrens, as recorded in the three pinned source tables.
+local function CheckPoint(field, x, y)
+	local point = quest.Get(844, field)[1]
+	assert(point[1] == 1413 and point[2] == x and point[3] == y, field .. " must use zone percentages")
+end
+CheckPoint("startPoints", 52.23, 31.01)
+CheckPoint("previewPoint", 51.38, 28.01)
+CheckPoint("turnInPoint", 52.23, 31.01)
 assert(ns.QuestieDB.Bundled() == ns.BundledDatabaseAPI, "bundled-only fields stay reachable")
 assert(not quest.Exists(99999999), "unknown quests stay unknown")
 assert(not ns.BundledDatabaseAPI.Npc.Exists(523), "no NPC facts are shipped")

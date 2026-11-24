@@ -341,7 +341,7 @@ read_globals = {
 	"UiMapPoint",
 	"UnitClass",
 	"UnitFactionGroup",
-	"GetRealZoneText",
+	"GetRealZoneText", "GetSubZoneText", "IsSubmerged",
 	"QuestMapFrame_OpenToQuestDetails",
 	"SpellBookItemMixin",
 	"BankFrame",

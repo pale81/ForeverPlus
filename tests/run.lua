@@ -6899,11 +6899,22 @@ end)()
 end)()
 ;(function()
 	local globals = { "CreateFrame", "MinimapCluster", "MuteSoundFile", "UnmuteSoundFile", "PlaySoundFile", "StopSound",
-		"CreateScrollBoxListLinearView", "CreateDataProvider", "ScrollUtil", "UISpecialFrames", "ForeverPlusEmitterSounds" }
+		"CreateScrollBoxListLinearView", "CreateDataProvider", "ScrollUtil", "UISpecialFrames", "ForeverPlusEmitterSounds",
+		"C_Map", "GetRealZoneText", "GetSubZoneText", "GetInstanceInfo", "IsSubmerged" }
 	local saved = {}
 	for _, key in ipairs(globals) do saved[key] = rawget(_G, key) end
 	local tracking, trigger, initialize, results = NewFrame("DropdownButton")
 	local muted, playing = {}, nil
+	local currentMap, x, y = 1453, -8990, 478
+	C_Map = setmetatable({
+		GetBestMapForUnit = function() return currentMap end,
+		GetPlayerMapPosition = function() return { GetXY = function() return 0.3, 0.4 end } end,
+		GetWorldPosFromMapPos = function() return 0, { GetXY = function() return x, y end } end,
+	}, { __index = saved.C_Map })
+	GetRealZoneText = function() return "Stormwind" end
+	GetSubZoneText = function() return "" end
+	GetInstanceInfo = function() return "", "none" end
+	IsSubmerged = function() return false end
 	MinimapCluster = { Tracking = { Button = tracking } }
 	MuteSoundFile = function(id) muted[id] = true end
 	UnmuteSoundFile = function(id) muted[id] = nil end
@@ -6952,9 +6963,34 @@ end)()
 	assert(trigger:IsShown() and muted[7079224], "login installs the right-click trigger and reapplies saved mutes")
 	trigger:GetScript("OnClick")(trigger, "RightButton")
 	local window = ForeverPlusEmitterSounds
-	assert(window:IsShown() and #results > 2500, "right-click opens the catalog")
-	window.Search:SetText("  7079224  ")
-	window.Search:GetScript("OnTextChanged")(window.Search)
+	local function FindSound(id)
+		for _, sound in ipairs(results) do
+			if sound[1] == id then return sound end
+		end
+	end
+	local function Search(query)
+		window.Search:SetText(query)
+		window.Search:GetScript("OnTextChanged")(window.Search)
+	end
+	assert(window:IsShown() and window.Nearby:GetChecked() and #results > 0 and #results < 600,
+		"right-click opens a short list of local sources and ambience")
+	Search("wind")
+	local bridge = assert(FindSound(4524098), "wind near the Stormwind entrance includes the bridge source")
+	assert(bridge[3]:find("Bridge Wind", 1, true) and bridge[2]:find("ambience/", 1, true),
+		"placement labels identify the source even for reused audio in a different archive folder")
+	assert(not FindSound(7386632) and not FindSound(7139274), "unrelated Retail and Westfall files stay out of the local results")
+	x, y = -8600, 860
+	Search("bridge wind")
+	assert(not FindSound(4524098), "a bridge emitter leaves the results when out of range")
+	currentMap, x, y = 1429, -9462, 60
+	Search("")
+	local forest = assert(FindSound(539108), "the current zone's background plays outside the emitters folder")
+	assert(forest[4] == ns.L.MINIMAP_EMITTER_AMBIENCE, "the list identifies the source as zone background")
+	window.Nearby:SetChecked(false)
+	window.Nearby:GetScript("OnClick")(window.Nearby)
+	Search("")
+	assert(FindSound(7139274) and not FindSound(7386632), "the global list includes Forever-linked files and omits unrelated Retail files")
+	Search("  7079224  ")
 	assert(#results == 1 and results[1][1] == 7079224, "search finds an exact FileDataID")
 	local row = NewFrame("Frame")
 	row.Mute = false
@@ -6965,19 +7001,28 @@ end)()
 	row.Mute:GetScript("OnClick")(row.Mute)
 	assert(not muted[7079224] and next(module.db.mutedEmitters) == nil and #results == 0,
 		"unmuting updates the client, saved selection and muted-only list")
+	module.db.mutedEmitters[7386632] = true
+	Search("")
+	assert(#results == 1 and results[1][1] == 7386632, "previously muted files outside the new catalog can still be unmuted")
+	initialize(row, results[1])
+	row.Mute:SetChecked(false)
+	row.Mute:GetScript("OnClick")(row.Mute)
 	window.MutedOnly:SetChecked(false)
-	window.Search:SetText("RIVER_SMALLA_01")
-	window.Search:GetScript("OnTextChanged")(window.Search)
-	assert(#results == 1 and results[1][1] == 567231, "search accepts case-insensitive filenames")
+	Search("EXT-29_51 LOOPA")
+	assert(FindSound(7139274), "search accepts multiple terms and mixed filename punctuation")
+	Search("7139274")
 	initialize(row, results[1])
 	row.Preview:GetScript("OnClick")(row.Preview)
-	assert(playing == 567231, "reused rows preview the current file")
+	assert(playing == 7139274, "reused rows preview the current file")
+	window.StopPreview:GetScript("OnClick")(window.StopPreview)
+	assert(not playing, "the stop button ends the audition")
+	row.Preview:GetScript("OnClick")(row.Preview)
 	row.Mute:SetChecked(true)
 	row.Mute:GetScript("OnClick")(row.Mute)
-	assert(not playing and muted[567231] and module.db.mutedEmitters[567231], "muting stops the preview and saves the selected file")
+	assert(not playing and muted[7139274] and module.db.mutedEmitters[7139274], "muting stops the preview and saves the selected file")
 	module.db.emitterSoundMenu = false
 	module:OnOptionChanged("emitterSoundMenu")
-	assert(not trigger:IsShown() and not window:IsShown() and muted[567231], "disabling the menu keeps active mutes")
+	assert(not trigger:IsShown() and not window:IsShown() and muted[7139274], "disabling the menu keeps active mutes")
 	for _, key in ipairs(globals) do _G[key] = saved[key] end
 	print("emitter sounds OK")
 end)()

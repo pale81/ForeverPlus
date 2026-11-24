@@ -12,6 +12,7 @@ local MinimapCoords = ns:NewModule("Minimap", {
 		trackingIcons = true,
 		trackingEntries = true,
 		emitterSoundMenu = true,
+		nearbyEmitters = true,
 		mutedEmitters = {},
 		campfires = false,
 		symbolScale = 100,
@@ -454,6 +455,8 @@ local allEmittersProvider, emitterFilterTicker
 local emitterFilterToken, emitterDebounceToken = 0, 0
 local EMITTER_SEARCH_DELAY = 0.12
 local EMITTER_SLICE_BUDGET = 0.5
+local EMITTER_DISTANCE_MARGIN = 100
+local emitterFilesByID
 
 local function CanMuteEmitters()
 	return type(MuteSoundFile) == "function" and type(UnmuteSoundFile) == "function"
@@ -462,6 +465,7 @@ end
 local function StopEmitterPreview()
 	if previewHandle then StopSound(previewHandle) end
 	previewID, previewHandle = nil, nil
+	if emitterWindow then emitterWindow.StopPreview:Disable() end
 end
 
 local function CancelEmitterFilter()
@@ -472,7 +476,7 @@ local function CancelEmitterFilter()
 	end
 end
 
--- CreateDataProvider(tbl) fires TriggerEvent("OnInsert") per row (2600x here).
+-- CreateDataProvider(tbl) fires TriggerEvent("OnInsert") per row.
 -- Attach the pre-built array directly to a fresh unsubscribed provider instead.
 local function MakeEmitterProvider(entries)
 	local provider = CreateDataProvider()
@@ -486,6 +490,7 @@ end
 local function ApplyEmitterMatches(matches, retainScroll)
 	if not emitterWindow then return end
 	emitterWindow.Empty:SetShown(#matches == 0)
+	emitterWindow.Count:SetText(L.MINIMAP_EMITTER_COUNT:format(#matches))
 	local provider
 	if matches == ns.EmitterSounds then
 		allEmittersProvider = allEmittersProvider or MakeEmitterProvider(ns.EmitterSounds)
@@ -496,32 +501,197 @@ local function ApplyEmitterMatches(matches, retainScroll)
 	emitterWindow.List:SetDataProvider(provider, retainScroll and ScrollBoxConstants.RetainScrollPosition)
 end
 
+local function EmitterFilesByID()
+	if not emitterFilesByID then
+		emitterFilesByID = {}
+		for _, file in ipairs(ns.EmitterSounds) do emitterFilesByID[file[1]] = file end
+	end
+	return emitterFilesByID
+end
+
+local function EmitterFileTitle(file)
+	return file[3] or (file[2] and file[2]:match("[^/]+$")) or L.MINIMAP_EMITTER_UNKNOWN
+end
+
+local function NormalizeEmitterText(value)
+	return ns.LowerCommand(value):gsub("[%s/_.%-]+", " ")
+end
+
+local function MatchesEmitter(file, words)
+	if #words == 0 then return true end
+	local haystack = " " .. NormalizeEmitterText((file[2] or "") .. " " .. EmitterFileTitle(file) .. " " .. (file[4] or ""))
+	for _, word in ipairs(words) do
+		if word == "wind" then
+			if not (haystack:find(" wind", 1, true) or haystack:find(" breeze", 1, true) or haystack:find(" gust", 1, true)) then
+				return false
+			end
+		elseif not haystack:find(word, 1, true) then
+			return false
+		end
+	end
+	return true
+end
+
+local function EmitterPlayerLocation()
+	local map = C_Map.GetBestMapForUnit("player")
+	if ns.Secret(map) then return end
+	local zone = map
+	local assignment
+	for _ = 1, 8 do
+		if not zone then break end
+		assignment = ns.EmitterMapAreas[zone]
+		if assignment then break end
+		local info = C_Map.GetMapInfo(zone)
+		zone = type(info) == "table" and ns.Number(info.parentMapID) or nil
+	end
+	local _, instanceType, _, _, _, _, _, instanceMap = GetInstanceInfo()
+	local inInstance = not ns.Secret(instanceType) and type(instanceType) == "string" and instanceType ~= "none"
+	local worldMap = assignment and assignment[1] or (inInstance and ns.Number(instanceMap))
+	local position = map and C_Map.GetPlayerMapPosition(map, "player")
+	local x, y
+	if not ns.Secret(position) and position and worldMap then
+		local positionMap, world = C_Map.GetWorldPosFromMapPos(map, position)
+		if not ns.Secret(world) and world and not ns.Secret(positionMap) and positionMap == worldMap then
+			x, y = world:GetXY()
+			x, y = ns.Number(x), ns.Number(y)
+		end
+	end
+	return assignment and assignment[2], worldMap, x, y, inInstance
+end
+
+local function EmitterDistance(x, y, coords)
+	local startX, startY = coords[1], coords[2]
+	local closest = (startX - x)^2 + (startY - y)^2
+	for i = 3, #coords, 2 do
+		local nextX, nextY = coords[i], coords[i + 1]
+		local dx, dy = nextX - startX, nextY - startY
+		local lengthSquared = dx * dx + dy * dy
+		if lengthSquared > 0 then
+			local fraction = max(0, min(1, ((x - startX) * dx + (y - startY) * dy) / lengthSquared))
+			closest = min(closest, (startX + fraction * dx - x)^2 + (startY + fraction * dy - y)^2)
+		end
+		startX, startY = nextX, nextY
+	end
+	return math.sqrt(closest)
+end
+
+local function CollectZoneAmbience(root, add)
+	local areas = root and ns.EmitterAmbience[root]
+	if not areas then return end
+	local area = root
+	local subzone = GetSubZoneText()
+	if not ns.Secret(subzone) and type(subzone) == "string" and subzone ~= "" then
+		for id in pairs(areas) do
+			local name = C_Map.GetAreaInfo(id)
+			if not ns.Secret(name) and name == subzone then
+				area = id
+				break
+			end
+		end
+	end
+	local submerged = IsSubmerged()
+	submerged = not ns.Secret(submerged) and submerged == true
+	local function AddArea(id, offset)
+		local data = ns.EmitterAmbienceFiles[areas[id][submerged and 2 or 1]]
+		if not data then return end
+		for _, fileID in ipairs(data[1]) do
+			add(fileID, 400 + offset, false, L.MINIMAP_EMITTER_AMBIENCE)
+		end
+		for _, fileID in ipairs(data[2]) do
+			add(fileID, 2000 + offset, false, L.MINIMAP_EMITTER_AMBIENCE_DETAIL)
+		end
+	end
+	AddArea(area, 0)
+	if area ~= root then AddArea(root, 1) end
+end
+
 local function RefreshEmitters(retainScroll)
 	if not emitterWindow then return end
 	CancelEmitterFilter()
-	local query = emitterWindow.Search:GetText():lower():match("^%s*(.-)%s*$")
+	local query = emitterWindow.Search:GetText():match("^%s*(.-)%s*$")
 	local id = tonumber(query)
+	if id and (id <= 0 or id > 2147483647 or id ~= floor(id)) then id = nil end
 	local mutedOnly = emitterWindow.MutedOnly:GetChecked()
-	if query == "" and not mutedOnly then
+	local nearbyOnly = MinimapCoords.db.nearbyEmitters and not mutedOnly and not id
+	local muted = MinimapCoords.db.mutedEmitters
+	emitterWindow.Nearby:SetEnabled(not mutedOnly)
+	local zoneName = nearbyOnly and GetRealZoneText()
+	emitterWindow.Scope:SetText(not ns.Secret(zoneName) and type(zoneName) == "string" and zoneName or L.MINIMAP_EMITTER_FOREVER)
+	emitterWindow.Empty:SetText(nearbyOnly and L.MINIMAP_EMITTER_EMPTY_HERE or L.MINIMAP_EMITTER_EMPTY)
+	if query == "" and not mutedOnly and not nearbyOnly then
 		ApplyEmitterMatches(ns.EmitterSounds, retainScroll)
 		return
 	end
-	local muted = MinimapCoords.db.mutedEmitters
-	local files = ns.EmitterSounds
-	local matches = {}
-	local token = emitterFilterToken
-	emitterFilterTicker = ns.RunSliced("Minimap: filter emitters", #files, function(index)
-		if token ~= emitterFilterToken then return end
-		local file = files[index]
-		local matchesQuery = id and file[1] == id or not id and file[2]:find(query, 1, true)
-		if matchesQuery and (not mutedOnly or muted[file[1]]) then
-			matches[#matches + 1] = file
+	local byID = EmitterFilesByID()
+	if id then
+		local files = {}
+		if byID[id] or muted[id] then
+			if not mutedOnly or muted[id] then files[1] = byID[id] or { id } end
 		end
-	end, function()
+		ApplyEmitterMatches(files, retainScroll)
+		return
+	end
+	local words = {}
+	for word in NormalizeEmitterText(query):gmatch("%S+") do words[#words + 1] = word end
+	local matches = {}
+	if mutedOnly then
+		for fileID, isMuted in pairs(muted) do
+			if isMuted then
+				local file = byID[fileID] or { fileID }
+				if MatchesEmitter(file, words) then matches[#matches + 1] = file end
+			end
+		end
+		table.sort(matches, function(a, b) return a[1] < b[1] end)
+		ApplyEmitterMatches(matches, retainScroll)
+		return
+	end
+
+	local token = emitterFilterToken
+	local function Done()
 		emitterFilterTicker = nil
 		if token == emitterFilterToken and emitterWindow and emitterWindow:IsShown() then
 			ApplyEmitterMatches(matches, retainScroll)
 		end
+	end
+	if not nearbyOnly then
+		emitterFilterTicker = ns.RunSliced("Minimap: filter emitters", #ns.EmitterSounds, function(index)
+			local file = ns.EmitterSounds[index]
+			if MatchesEmitter(file, words) then matches[#matches + 1] = file end
+		end, Done, EMITTER_SLICE_BUDGET)
+		return
+	end
+
+	local root, map, x, y, inInstance = EmitterPlayerLocation()
+	local placements = (x and y or inInstance) and ns.EmitterLocations[map] or {}
+	local candidates = {}
+	local function AddCandidate(fileID, rank, title, source)
+		local file = byID[fileID]
+		local existing = candidates[fileID]
+		if file and (not existing or rank < existing[5]) then
+			local candidate = { fileID, file[2], title, source, rank }
+			if MatchesEmitter(candidate, words) then candidates[fileID] = candidate end
+		end
+	end
+	CollectZoneAmbience(root, AddCandidate)
+	emitterFilterTicker = ns.RunSliced("Minimap: find nearby emitters", #placements, function(index)
+		if token ~= emitterFilterToken then return end
+		local placement = placements[index]
+		local distance = x and y and EmitterDistance(x, y, placement[4])
+		if not distance or distance <= placement[2] + EMITTER_DISTANCE_MARGIN then
+			local detail = distance and L.MINIMAP_EMITTER_DISTANCE:format(floor(distance + 0.5)) or L.MINIMAP_EMITTER_PLACED
+			for _, fileID in ipairs(ns.EmitterKitFiles[placement[3]]) do
+				AddCandidate(fileID, distance or 0, placement[1], detail)
+			end
+		end
+	end, function()
+		for _, file in pairs(candidates) do matches[#matches + 1] = file end
+		table.sort(matches, function(a, b)
+			if a[5] ~= b[5] then return a[5] < b[5] end
+			local first, second = EmitterFileTitle(a), EmitterFileTitle(b)
+			if first ~= second then return first < second end
+			return a[1] < b[1]
+		end)
+		Done()
 	end, EMITTER_SLICE_BUDGET)
 end
 
@@ -549,16 +719,26 @@ local function InitEmitterRow(row, file)
 		row.Preview = preview
 
 		local name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-		name:SetPoint("LEFT", mute, "RIGHT", 2, 0)
-		name:SetPoint("RIGHT", preview, "LEFT", -6, 0)
+		name:SetPoint("LEFT", mute, "RIGHT", 2, 7)
+		name:SetPoint("RIGHT", preview, "LEFT", -6, 7)
 		name:SetJustifyH("LEFT")
 		name:SetWordWrap(false)
 		row.Label = name
+
+		local detail = row:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+		detail:SetPoint("LEFT", mute, "RIGHT", 2, -7)
+		detail:SetPoint("RIGHT", preview, "LEFT", -6, -7)
+		detail:SetJustifyH("LEFT")
+		detail:SetWordWrap(false)
+		row.Detail = detail
 		row:EnableMouse(true)
 		row:SetMouseClickEnabled(false)
 		row:SetScript("OnEnter", ns.Measured("Minimap: emitter file tooltip", function()
 			GameTooltip:SetOwner(row, "ANCHOR_LEFT")
-			GameTooltip:SetText("sound/emitters/" .. row.file[2], 1, 0.82, 0, 1, true)
+			local sound = row.file
+			GameTooltip:SetText(EmitterFileTitle(sound), 1, 0.82, 0, 1, true)
+			GameTooltip:AddLine(("FileDataID %d"):format(sound[1]))
+			if sound[2] then GameTooltip:AddLine(sound[2], 1, 1, 1, true) end
 			GameTooltip:Show()
 		end))
 		row:SetScript("OnLeave", GameTooltip_Hide)
@@ -581,11 +761,15 @@ local function InitEmitterRow(row, file)
 			local played, handle = PlaySoundFile(id, "SFX")
 			if played then
 				previewID, previewHandle = id, handle
+				if handle then emitterWindow.StopPreview:Enable() end
 			end
 		end))
 	end
 	row.file = file
-	row.Label:SetText(("[%d] %s"):format(file[1], file[2]))
+	row.Label:SetText(EmitterFileTitle(file))
+	local filename = file[2] and file[2]:match("[^/]+$")
+	local source = file[4] or (file[3] and filename)
+	row.Detail:SetText(source and ("%s   ·   %d"):format(source, file[1]) or tostring(file[1]))
 	local muted = MinimapCoords.db.mutedEmitters[file[1]]
 	row.Mute:SetChecked(muted == true)
 	row.Preview:SetEnabled(not muted)
@@ -595,7 +779,7 @@ local function CreateEmitterWindow()
 	local window = CreateFrame("Frame", "ForeverPlusEmitterSounds", UIParent, "ButtonFrameTemplate")
 	ButtonFrameTemplate_HidePortrait(window)
 	window:SetTitle(L.MINIMAP_EMITTER_TITLE)
-	window:SetSize(535, 370)
+	window:SetSize(595, 414)
 	window:SetFrameStrata("DIALOG")
 	window:SetToplevel(true)
 	window:SetClampedToScreen(true)
@@ -604,16 +788,37 @@ local function CreateEmitterWindow()
 	tinsert(UISpecialFrames, window:GetName())
 
 	local search = CreateFrame("EditBox", nil, window, "SearchBoxTemplate")
-	search:SetSize(248, 24)
+	search:SetSize(235, 24)
 	search:SetPoint("TOPLEFT", 16, -29)
 	search:SetMaxLetters(100)
 	window.Search = search
 
+	local nearby = CreateFrame("CheckButton", nil, window, "UICheckButtonTemplate")
+	nearby:SetSize(26, 26)
+	nearby:SetPoint("LEFT", search, "RIGHT", 10, 0)
+	nearby.Text:SetText(L.MINIMAP_EMITTER_NEARBY)
+	nearby:SetChecked(MinimapCoords.db.nearbyEmitters)
+	window.Nearby = nearby
+
 	local mutedOnly = CreateFrame("CheckButton", nil, window, "UICheckButtonTemplate")
 	mutedOnly:SetSize(26, 26)
-	mutedOnly:SetPoint("LEFT", search, "RIGHT", 12, 0)
+	mutedOnly:SetPoint("LEFT", nearby, "LEFT", 126, 0)
 	mutedOnly.Text:SetText(L.MINIMAP_EMITTER_MUTED_ONLY)
 	window.MutedOnly = mutedOnly
+
+	local scope = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	scope:SetPoint("LEFT", window, "BOTTOMLEFT", 14, 14)
+	window.Scope = scope
+	local count = window:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	count:SetPoint("RIGHT", window, "BOTTOMRIGHT", -14, 14)
+	window.Count = count
+	local stop = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
+	stop:SetSize(82, 20)
+	stop:SetPoint("BOTTOM", 0, 4)
+	stop:SetText(L.MINIMAP_EMITTER_STOP)
+	stop:Disable()
+	stop:SetScript("OnClick", ns.Measured("Minimap: stop emitter preview", StopEmitterPreview))
+	window.StopPreview = stop
 
 	local list = CreateFrame("Frame", nil, window, "WowScrollBoxList")
 	list:SetPoint("TOPLEFT", window.Inset, "TOPLEFT", 4, -3)
@@ -623,7 +828,7 @@ local function CreateEmitterWindow()
 	scrollbar:SetPoint("BOTTOMLEFT", list, "BOTTOMRIGHT", 5, 0)
 	scrollbar:SetHideIfUnscrollable(true)
 	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtent(24)
+	view:SetElementExtent(33)
 	view:SetElementInitializer("Frame", ns.Measured("Minimap: init emitter row", InitEmitterRow))
 	ScrollUtil.InitScrollBoxListWithScrollBar(list, scrollbar, view)
 	window.List = list
@@ -635,7 +840,23 @@ local function CreateEmitterWindow()
 	local refresh = ns.Measured("Minimap: filter emitters", function() RefreshEmitters(false) end)
 	search:HookScript("OnTextChanged", QueueEmitterSearch)
 	mutedOnly:SetScript("OnClick", refresh)
+	nearby:SetScript("OnClick", ns.Measured("Minimap: toggle nearby sounds", function(self)
+		MinimapCoords.db.nearbyEmitters = self:GetChecked() == true
+		RefreshEmitters(false)
+	end))
+	window:HookScript("OnShow", ns.Measured("Minimap: watch emitter location", function(self)
+		self:RegisterEvent("ZONE_CHANGED")
+		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+		self:RegisterEvent("ZONE_CHANGED_INDOORS")
+		self:RegisterEvent("PLAYER_STOPPED_MOVING")
+	end))
+	window:SetScript("OnEvent", ns.Measured("Minimap: refresh emitter location", function()
+		if MinimapCoords.db.nearbyEmitters and not mutedOnly:GetChecked() and not tonumber(search:GetText()) then
+			QueueEmitterSearch()
+		end
+	end))
 	window:HookScript("OnHide", ns.Measured("Minimap: stop emitter preview", function()
+		window:UnregisterAllEvents()
 		CancelEmitterFilter()
 		emitterDebounceToken = emitterDebounceToken + 1
 		search:ClearFocus()

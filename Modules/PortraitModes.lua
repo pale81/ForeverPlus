@@ -1275,6 +1275,8 @@ local function ShowPortraitTooltip()
 	end
 	local checkMark = AtlasIcon("common-icon-checkmark", 12)
 	local crossMark = AtlasIcon("common-icon-redx", 11)
+	local subCheck = AtlasIcon("common-icon-checkmark", 10)
+	local subCross = AtlasIcon("common-icon-redx", 9)
 	GameTooltip:SetOwner(portraitWheel, "ANCHOR_RIGHT")
 	GameTooltip_SetTitle(GameTooltip, ("%s (%s)"):format(mode.name, StatusText(mode.key)))
 	local features = ModeFeatures(mode.key)
@@ -1294,6 +1296,25 @@ local function ShowPortraitTooltip()
 				prefix = crossMark ~= "" and (crossMark .. " ") or "- "
 			end
 			GameTooltip_AddColoredLine(GameTooltip, prefix .. feature.name, color)
+			if not feature.isSub then
+				local subs = FeatureSubOptions(feature, mode.key)
+				if subs then
+					for _, sub in ipairs(subs) do
+						local subOn = sub.isOn()
+						local subColor = not selected and GRAY_FONT_COLOR
+							or (subOn and (on and GREEN_FONT_COLOR or HIGHLIGHT_FONT_COLOR) or GRAY_FONT_COLOR)
+						local subPrefix
+						if not selected then
+							subPrefix = "   - "
+						elseif subOn then
+							subPrefix = "   " .. (subCheck ~= "" and (subCheck .. " ") or "+ ")
+						else
+							subPrefix = "   " .. (subCross ~= "" and (subCross .. " ") or "- ")
+						end
+						GameTooltip_AddColoredLine(GameTooltip, subPrefix .. sub.name, subColor)
+					end
+				end
+			end
 		end
 	end
 	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_LEFT)

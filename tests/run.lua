@@ -11243,15 +11243,19 @@ end)()
 	-- Right-click opens the WoW-style PortraitFrameTemplate mode menu on the current mode tab.
 	click(wheel, "RightButton")
 	assert(menuFrame and menuFrame:IsShown(), "right-click opens the portrait mode menu")
-	-- Tooltip uses WoW atlas markup instead of unsupported Unicode glyphs.
+	-- Tooltip uses WoW atlas markup instead of unsupported Unicode glyphs and lists sub-options indented.
 	local tooltipLines = {}
 	local oldAddColored = GameTooltip_AddColoredLine
 	GameTooltip_AddColoredLine = function(_, text) tooltipLines[#tooltipLines + 1] = text end
 	wheel:GetScript("OnEnter")(wheel)
 	GameTooltip_AddColoredLine = oldAddColored
+	local sawSubSound, sawSubEffect = false, false
 	for _, line in ipairs(tooltipLines) do
 		assert(not line:find("\226\156\147") and not line:find("\226\151\139"), "tooltip avoids missing glyph symbols")
+		if line:sub(1, 3) == "   " and line:find(ns.L.SOLO_PARTY_SOUNDS, 1, true) then sawSubSound = true end
+		if line:sub(1, 3) == "   " and line:find(ns.L.SOLO_PARTY_EFFECTS, 1, true) then sawSubEffect = true end
 	end
+	assert(#tooltipLines == 5 and sawSubSound and sawSubEffect, "portrait tooltip includes indented sub-options")
 	local landingRow
 	for _, row in ipairs(menuFrame.rows) do
 		if row:IsShown() and row.entry and row.entry.kind == "feature" and row.entry.feature.key == "landing" then

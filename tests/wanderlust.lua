@@ -390,6 +390,7 @@ assert(ui.shown, "combat never hides the interface")
 combat = false
 Fire("PLAYER_REGEN_ENABLED")
 assert(not cluster.ignore, "the minimap's parent-alpha flag is restored once combat ends")
+Over(false)
 Advance(30)
 local interrupted = timers[#timers]
 combat = true
@@ -916,6 +917,7 @@ Over(true)
 Enable(false)
 assert(ui.shown and ui.alpha == 0.9 and not cluster.ignore and not peekDriver.shown,
 	"disabling during the minimap view restores the interface")
+Over(false)
 ;(function()
 	globals.BankFrame = bank
 	Enable(true)
@@ -961,6 +963,21 @@ end)()
 	Advance(0.3)
 	Tick()
 	assert(not Peeking() and not ui.shown and visibilityCalls == before + 2, "leaving the full cluster hides again")
+	Enable(false)
+
+	-- If the cursor is already over the minimap when the 60 s timer expires, enter peek directly
+	-- without a SetUIVisibility(false) -> SetUIVisibility(true) round-trip.
+	Enable(true)
+	cursorX, cursorY = 840, 520 -- inside Minimap
+	local beforeDirect = visibilityCalls
+	Advance(60)
+	assert(Peeking() and visibilityCalls == beforeDirect,
+		"hiding while cursor is over the minimap enters see-through peek without toggling SetUIVisibility")
+	cursorX, cursorY = 700, 520
+	Advance(0.3)
+	Tick()
+	assert(not Peeking() and not ui.shown and visibilityCalls == beforeDirect + 1,
+		"leaving the minimap after a direct peek hides the interface once")
 	Enable(false)
 	cluster.GetRect, cluster.GetEffectiveScale = nil, nil
 end)()

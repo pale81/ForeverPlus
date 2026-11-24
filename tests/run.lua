@@ -14206,6 +14206,26 @@ end)()
 	assert(indentTimers == 2, "ChatIndent still re-wraps when chat width changes: " .. indentTimers)
 	C_Timer.After, indentMod.db.enabled = savedAfterIndent, savedIndentEnabled
 
+	-- 15. GroupFinder: QueueLogUpdate coalesces bursts of QuestLogQuests_Update into one deferred pass.
+	local gfMod = ns:GetModule("GroupFinder")
+	local queueLog = uv(gfMod.OnLogin, "QueueLogUpdate")
+	local savedAfterGF = C_Timer.After
+	local gfQueued, gfTimers = nil, 0
+	C_Timer.After = function(_, fn) gfQueued, gfTimers = fn, gfTimers + 1 end
+	queueLog()
+	queueLog()
+	queueLog()
+	assert(gfTimers == 1 and gfQueued ~= nil, "GroupFinder coalesces multiple QuestLogQuests_Update calls into one timer")
+	gfQueued()
+	queueLog()
+	assert(gfTimers == 2, "GroupFinder accepts a new coalesced pass after the previous one runs")
+	gfQueued()
+	C_Timer.After = savedAfterGF
+
+	-- 16. MapSymbols: DRAW_SYNC_LIMIT stays compact (<= 10) to avoid >5 ms synchronous bursts on map open.
+	local drawFn = uv(ns.MapSymbols.Refresh, "Draw")
+	assert(uv(drawFn, "DRAW_SYNC_LIMIT") <= 10, "MapSymbols keeps synchronous initial draw batch <= 10 symbols")
+
 	print("runtime stutter optimizations OK")
 end)()
 dofile("wanderlust.lua")

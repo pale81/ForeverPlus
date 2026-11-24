@@ -1061,7 +1061,7 @@ local function Collect(mapID)
 end
 
 local drawTicker
-local DRAW_SYNC_LIMIT, DRAW_BUDGET = 25, 0.8
+local DRAW_SYNC_LIMIT, DRAW_BUDGET = 10, 0.8
 
 local function CancelDraw()
 	if drawTicker then
@@ -1202,8 +1202,22 @@ function Symbols.Setup()
 		layer:SetFrameLevel(level)
 	end
 	local position = ns.Measured("Map symbols: position", Position)
+	local refreshQueued = false
+	-- OnShow and OnMapChanged fire together when opening the world map; coalesce into one next-frame draw.
+	local function QueueRefresh()
+		if refreshQueued then
+			return
+		end
+		refreshQueued = true
+		ns.After("Map symbols: refresh", 0, function()
+			refreshQueued = false
+			if WorldMapFrame:IsShown() then
+				Symbols.Refresh()
+			end
+		end)
+	end
 	local hooks = {
-		OnMapChanged = ns.Measured("Map symbols", Symbols.Refresh),
+		OnMapChanged = QueueRefresh,
 		OnCanvasScaleChanged = position,
 		OnCanvasSizeChanged = position,
 	}
@@ -1212,7 +1226,7 @@ function Symbols.Setup()
 			hooksecurefunc(WorldMapFrame, method, fn)
 		end
 	end
-	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: show", Symbols.Refresh))
+	WorldMapFrame:HookScript("OnShow", QueueRefresh)
 	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: area label", HookAreaLabel))
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")

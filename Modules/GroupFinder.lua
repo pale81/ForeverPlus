@@ -608,7 +608,10 @@ local function UpdateTracker()
 	end)
 end
 
+local logUpdateQueued = false
+
 local function UpdateLog()
+	logUpdateQueued = false
 	local pool = QuestScrollFrame and QuestScrollFrame.titleFramePool
 	if not pool then
 		return
@@ -617,6 +620,14 @@ local function UpdateLog()
 	for title in pool:EnumerateActive() do
 		ShowQuestButton(title, title.questID, facts, "RIGHT", -22, 0)
 	end
+end
+
+local function QueueLogUpdate()
+	if logUpdateQueued then
+		return
+	end
+	logUpdateQueued = true
+	ns.After("GroupFinder: quest buttons (log)", 0, UpdateLog)
 end
 
 function GroupFinder:OnLogin()
@@ -639,7 +650,7 @@ function GroupFinder:OnLogin()
 		end
 	end)
 	if QuestLogQuests_Update then
-		hooksecurefunc("QuestLogQuests_Update", ns.Measured("GroupFinder: quest buttons (log)", UpdateLog))
+		hooksecurefunc("QuestLogQuests_Update", QueueLogUpdate)
 	end
 end
 

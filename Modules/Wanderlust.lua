@@ -234,6 +234,18 @@ local function UpdatePeekDriver()
 	end
 end
 
+local function EnterPeek(desired, reveal)
+	peek = { alpha = UIParent:GetAlpha(), ignored = {} }
+	for frame in pairs(desired) do
+		peek.ignored[frame] = frame:IsIgnoringParentAlpha()
+		frame:SetIgnoreParentAlpha(true)
+	end
+	UIParent:SetAlpha(0)
+	if reveal then
+		SetInterfaceVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+	end
+end
+
 SyncPeek = function()
 	if InCombatLockdown() then
 		UpdatePeekDriver()
@@ -248,13 +260,7 @@ SyncPeek = function()
 	if next(desired) then
 		if not peek then
 			if UIParent:IsShown() then return end
-			peek = { alpha = UIParent:GetAlpha(), ignored = {} }
-			for frame in pairs(desired) do
-				peek.ignored[frame] = frame:IsIgnoringParentAlpha()
-				frame:SetIgnoreParentAlpha(true)
-			end
-			UIParent:SetAlpha(0)
-			SetInterfaceVisibility(true) -- OnUIShown leaves this reveal alone while peek is set
+			EnterPeek(desired, true)
 		else
 			local removed
 			for frame, orig in pairs(peek.ignored) do
@@ -373,7 +379,14 @@ local function HideUI()
 	hidUI = true
 	SavePeekArea()
 	UpdateHiddenChat()
-	SetInterfaceVisibility(false)
+	-- If the cursor is already over a peekable area (e.g. Minimap/BagsBar), enter the
+	-- see-through preview directly instead of hiding and immediately re-showing UIParent.
+	local desired = DesiredPeekFrames()
+	if next(desired) then
+		EnterPeek(desired, false)
+	else
+		SetInterfaceVisibility(false)
+	end
 	UpdateHiddenUI()
 end
 

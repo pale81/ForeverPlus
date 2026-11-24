@@ -15,7 +15,7 @@ local Info = ns:NewModule("Info", {
 	},
 })
 
-local PERF_INTERVAL = 1
+local PERF_INTERVAL = 1.1 -- staggered slightly off 1.0 s tickers so periodic updates do not collide in one frame
 local CPU_TOOLTIP_INTERVAL = 2
 local PLAYED_TIMEOUT = 10
 local CPU_LOW, CPU_HIGH = 0.5, 2 -- ms per frame on average (total line): green below 0.5, orange 0.5-2, red from 2
@@ -626,7 +626,7 @@ local function ValueColor(value, poor, bad, lowIsBad)
 end
 
 local RefreshCpuTooltip = ns.Measured("Info: CPU tooltip", ShowCpuTooltip)
-local lastFPS, lastMS, lastColorSetting
+local lastFPS, lastMS, lastColorSetting, lastPerfW, lastPerfH
 
 local function HigherTriggerCount(a, b)
 	if a.count == b.count then
@@ -760,7 +760,12 @@ local function UpdatePerformance()
 		perfFrame.Text:SetFormattedText("%s %s   %s %s",
 			label:WrapTextInColorCode("FPS"), ValueColor(fps, FPS_POOR, FPS_BAD, true):WrapTextInColorCode(("%d"):format(fps)),
 			label:WrapTextInColorCode("MS"), ValueColor(ms, MS_POOR, MS_BAD, false):WrapTextInColorCode(("%d"):format(ms)))
-		perfFrame:SetSize(perfFrame.Text:GetStringWidth() + 6, perfFrame.Text:GetStringHeight() + 4)
+		local width = math.floor(perfFrame.Text:GetStringWidth() + 6.5)
+		local height = math.floor(perfFrame.Text:GetStringHeight() + 4.5)
+		if not lastPerfW or math.abs(width - lastPerfW) > 2 or height ~= lastPerfH then
+			lastPerfW, lastPerfH = width, height
+			perfFrame:SetSize(width, height)
+		end
 	end
 	if GameTooltip:GetOwner() == perfFrame and GetTime() - lastCpuTooltipUpdate >= CPU_TOOLTIP_INTERVAL then
 		RefreshCpuTooltip(perfFrame)
@@ -796,7 +801,7 @@ end
 function Info:UpdateFont()
 	if perfFrame then
 		perfFrame.Text:SetFont(ns.GetFontFace(), 12, "OUTLINE")
-		lastFPS = nil -- measure the new font on the next update
+		lastFPS, lastPerfW, lastPerfH = nil, nil, nil -- measure the new font on the next update
 	end
 end
 

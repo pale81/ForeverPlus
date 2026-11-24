@@ -139,7 +139,8 @@ local function ScanQuests()
 	if (completed or progressed) and (Quests.db.trackerSort == "progress" or Quests.db.readyOnly) then
 		Quests:QueueTrackerSort()
 	end
-	Quests:RefreshNameplates()
+	-- Decouple nameplate tooltip scans from the quest log scan so both do not stack in one frame.
+	Quests:QueueNameplateRefresh()
 end
 
 local function QueueScan()
@@ -367,6 +368,19 @@ local function UpdateNameplate(unit)
 	elseif markers[nameplate] then
 		markers[nameplate]:Hide()
 	end
+end
+
+local nameplatesPending = false
+
+function Quests:QueueNameplateRefresh()
+	if nameplatesPending or (not self.db.nameplateIcons and not next(markers)) then
+		return
+	end
+	nameplatesPending = true
+	ns.After("Quests: refresh nameplates", 0, function()
+		nameplatesPending = false
+		Quests:RefreshNameplates()
+	end)
 end
 
 function Quests:RefreshNameplates()

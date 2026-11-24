@@ -34,11 +34,6 @@ local function DialogActive()
 	return dialog and dialog.IsBubbleActive and dialog.IsBubbleActive() or false
 end
 
-local function DialogOwnsWindow(frame)
-	local dialog = Wanderlust.db.showBubbles and DialogModule()
-	return dialog and dialog.OwnsWindow and dialog.OwnsWindow(frame) or false
-end
-
 local function DialogHandlesEvent(event, interactionType)
 	local dialog = Wanderlust.db.showBubbles and DialogModule()
 	return dialog and dialog.HandlesEvent and dialog.HandlesEvent(event, interactionType) or false
@@ -148,6 +143,11 @@ local WINDOW_NAMES = {
 	"MailFrame", "LootFrame", "TradeFrame", "TaxiFrame", "FlightMapFrame", "ForeverPlusReadable",
 	"StaticPopup1", "StaticPopup2", "StaticPopup3", "StaticPopup4",
 }
+local WINDOW_NAME_SET = {}
+for _, name in ipairs(WINDOW_NAMES) do
+	WINDOW_NAME_SET[name] = true
+end
+local lastOpenWindow
 
 local function WindowShown(frame)
 	return frame and (not frame.IsForbidden or not frame:IsForbidden()) and frame:IsShown()
@@ -283,18 +283,39 @@ local function InteractionOpen()
 		or ns:IsEditModeActive() or WindowShown(ChatEdit_GetActiveWindow()) then
 		return true
 	end
+	local dialog = Wanderlust.db.showBubbles and DialogModule()
+	local ownsWindow = dialog and dialog.OwnsWindow
+	if lastOpenWindow then
+		if WindowShown(lastOpenWindow) and not (ownsWindow and ownsWindow(lastOpenWindow)) then
+			return true
+		end
+		lastOpenWindow = nil
+	end
 	for _, name in ipairs(WINDOW_NAMES) do
 		local frame = _G[name]
-		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
+		if WindowShown(frame) and not (ownsWindow and ownsWindow(frame)) then
+			lastOpenWindow = frame
+			return true
+		end
 	end
 	-- Include panels loaded later and addon windows registered for Escape.
 	for name in pairs(UIPanelWindows) do
-		local frame = _G[name]
-		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
+		if not WINDOW_NAME_SET[name] then
+			local frame = _G[name]
+			if WindowShown(frame) and not (ownsWindow and ownsWindow(frame)) then
+				lastOpenWindow = frame
+				return true
+			end
+		end
 	end
 	for _, name in ipairs(UISpecialFrames) do
-		local frame = _G[name]
-		if WindowShown(frame) and not DialogOwnsWindow(frame) then return true end
+		if not WINDOW_NAME_SET[name] then
+			local frame = _G[name]
+			if WindowShown(frame) and not (ownsWindow and ownsWindow(frame)) then
+				lastOpenWindow = frame
+				return true
+			end
+		end
 	end
 	return false
 end

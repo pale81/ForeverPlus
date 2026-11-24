@@ -42,7 +42,7 @@ end
 
 local QUEST_COLOR = { 0.4, 0.24, 0.09 } -- a dark, muted orange: apart from the purple fill and the blue of the rested bonus, but not in front
 local QUEST_ALPHA = 0.6 -- see-through, so the bar below shows a little
-local SCAN_DELAY = 0.3
+local SCAN_DELAY = 0.45 -- staggered from Quests: quest log scan (0.3 s) so both do not land in one frame
 
 local expBars = {}
 local overlays = {}
@@ -226,8 +226,10 @@ local function ScanQuestXP()
 	scanPending = false
 	local total = 0
 	if not XPBar.db.questXP then
-		questXP = 0 -- no scan of the quest log while the option is off
-		UpdateBars()
+		if questXP ~= 0 then
+			questXP = 0 -- no scan of the quest log while the option is off
+			UpdateBars()
+		end
 		return
 	end
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
@@ -236,8 +238,10 @@ local function ScanQuestXP()
 			total = total + (GetQuestLogRewardXP(info.questID) or 0)
 		end
 	end
-	questXP = total
-	UpdateBars()
+	if total ~= questXP then
+		questXP = total
+		UpdateBars()
+	end
 end
 
 local function QueueScan()

@@ -450,6 +450,10 @@ end
 ---------------------------------------------------------------------------
 local emitterWindow, emitterButton
 local previewID, previewHandle
+local allEmittersProvider, emitterFilterTicker
+local emitterFilterToken, emitterDebounceToken = 0, 0
+local EMITTER_SEARCH_DELAY = 0.12
+local EMITTER_SLICE_BUDGET = 0.5
 
 local function CanMuteEmitters()
 	return type(MuteSoundFile) == "function" and type(UnmuteSoundFile) == "function"
@@ -460,20 +464,75 @@ local function StopEmitterPreview()
 	previewID, previewHandle = nil, nil
 end
 
+local function CancelEmitterFilter()
+	emitterFilterToken = emitterFilterToken + 1
+	if emitterFilterTicker then
+		emitterFilterTicker:Cancel()
+		emitterFilterTicker = nil
+	end
+end
+
+-- CreateDataProvider(tbl) fires TriggerEvent("OnInsert") per row (2600x here).
+-- Attach the pre-built array directly to a fresh unsubscribed provider instead.
+local function MakeEmitterProvider(entries)
+	local provider = CreateDataProvider()
+	if type(provider) == "table" and type(provider.collection) == "table" then
+		provider.collection = entries
+		return provider
+	end
+	return CreateDataProvider(entries)
+end
+
+local function ApplyEmitterMatches(matches, retainScroll)
+	if not emitterWindow then return end
+	emitterWindow.Empty:SetShown(#matches == 0)
+	local provider
+	if matches == ns.EmitterSounds then
+		allEmittersProvider = allEmittersProvider or MakeEmitterProvider(ns.EmitterSounds)
+		provider = allEmittersProvider
+	else
+		provider = MakeEmitterProvider(matches)
+	end
+	emitterWindow.List:SetDataProvider(provider, retainScroll and ScrollBoxConstants.RetainScrollPosition)
+end
+
 local function RefreshEmitters(retainScroll)
+	if not emitterWindow then return end
+	CancelEmitterFilter()
 	local query = emitterWindow.Search:GetText():lower():match("^%s*(.-)%s*$")
 	local id = tonumber(query)
 	local mutedOnly = emitterWindow.MutedOnly:GetChecked()
+	if query == "" and not mutedOnly then
+		ApplyEmitterMatches(ns.EmitterSounds, retainScroll)
+		return
+	end
 	local muted = MinimapCoords.db.mutedEmitters
+	local files = ns.EmitterSounds
 	local matches = {}
-	for _, file in ipairs(ns.EmitterSounds) do
+	local token = emitterFilterToken
+	emitterFilterTicker = ns.RunSliced("Minimap: filter emitters", #files, function(index)
+		if token ~= emitterFilterToken then return end
+		local file = files[index]
 		local matchesQuery = id and file[1] == id or not id and file[2]:find(query, 1, true)
 		if matchesQuery and (not mutedOnly or muted[file[1]]) then
 			matches[#matches + 1] = file
 		end
-	end
-	emitterWindow.Empty:SetShown(#matches == 0)
-	emitterWindow.List:SetDataProvider(CreateDataProvider(matches), retainScroll and ScrollBoxConstants.RetainScrollPosition)
+	end, function()
+		emitterFilterTicker = nil
+		if token == emitterFilterToken and emitterWindow and emitterWindow:IsShown() then
+			ApplyEmitterMatches(matches, retainScroll)
+		end
+	end, EMITTER_SLICE_BUDGET)
+end
+
+local function QueueEmitterSearch()
+	emitterDebounceToken = emitterDebounceToken + 1
+	local token = emitterDebounceToken
+	ns.After("Minimap: filter emitters (debounce)", EMITTER_SEARCH_DELAY, function()
+		if token == emitterDebounceToken and emitterWindow and emitterWindow:IsShown() then
+			RefreshEmitters(false)
+		end
+	end)
 end
 
 local function InitEmitterRow(row, file)
@@ -574,9 +633,11 @@ local function CreateEmitterWindow()
 	empty:SetText(L.MINIMAP_EMITTER_EMPTY)
 	window.Empty = empty
 	local refresh = ns.Measured("Minimap: filter emitters", function() RefreshEmitters(false) end)
-	search:HookScript("OnTextChanged", refresh)
+	search:HookScript("OnTextChanged", QueueEmitterSearch)
 	mutedOnly:SetScript("OnClick", refresh)
 	window:HookScript("OnHide", ns.Measured("Minimap: stop emitter preview", function()
+		CancelEmitterFilter()
+		emitterDebounceToken = emitterDebounceToken + 1
 		search:ClearFocus()
 		StopEmitterPreview()
 	end))
@@ -602,11 +663,21 @@ local function UpdateEmitterButton()
 				emitterWindow:Hide()
 				return
 			end
+			local created = not emitterWindow
 			emitterWindow = emitterWindow or CreateEmitterWindow()
 			emitterWindow:ClearAllPoints()
 			emitterWindow:SetPoint("TOPRIGHT", self, "BOTTOMLEFT", -4, -4)
-			RefreshEmitters(false)
 			emitterWindow:Show()
+			if created then
+				-- Split initial ScrollBox population from window creation so both do not land in one frame.
+				ns.After("Minimap: populate emitters", 0, function()
+					if emitterWindow and emitterWindow:IsShown() then
+						RefreshEmitters(false)
+					end
+				end)
+			else
+				RefreshEmitters(false)
+			end
 		end))
 	end
 	if emitterButton then emitterButton:SetShown(enabled) end

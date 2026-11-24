@@ -14028,6 +14028,62 @@ end)()
 		wheelFrame.EnableMouseWheel = savedEnableWheel
 	end
 
+	-- 6. Visuals: UpdateImbues skips C_TooltipInfo.GetInventoryItem when weapon enchant signature is unchanged.
+	local visuals = ns:GetModule("Visuals")
+	local updateActiveAuras = uv(uv(uv(visuals.OnLogin, "UpdateAuraWatch"), "QueueAuraUpdate"), "UpdateActiveAuras")
+	local updateImbues = uv(updateActiveAuras, "UpdateImbues")
+	local scanImbues = uv(updateImbues, "ScanImbues")
+	local savedWeaponEnchant, savedWeaponSlot, savedInvTip = C_Item.GetWeaponEnchantInfo, Enum.WeaponSlot, C_TooltipInfo.GetInventoryItem
+	local invTipCalls = 0
+	Enum.WeaponSlot = { MainHand = 1, OffHand = 2 }
+	C_Item.GetWeaponEnchantInfo = function(slot)
+		if slot == 1 then return { { hasEnchant = true, enchantID = 29 } } end
+		return {}
+	end
+	C_TooltipInfo.GetInventoryItem = function()
+		invTipCalls = invTipCalls + 1
+		return { lines = { { leftText = "Felsbeißer 3 (30 Min.)" } } }
+	end
+	setuv(scanImbues, "lastImbueSig", nil)
+	updateImbues(false)
+	assert(invTipCalls == 1, "first UpdateImbues reads weapon tooltip once")
+	updateImbues(false)
+	assert(invTipCalls == 1, "unchanged weapon enchants skip C_TooltipInfo.GetInventoryItem on UNIT_AURA")
+	updateImbues(true)
+	assert(invTipCalls == 2, "forced UpdateImbues (UNIT_INVENTORY_CHANGED) rescans weapon tooltip")
+	C_Item.GetWeaponEnchantInfo, Enum.WeaponSlot, C_TooltipInfo.GetInventoryItem = savedWeaponEnchant, savedWeaponSlot, savedInvTip
+
+	-- 7. Quests: ScanQuests defers RefreshNameplates off the quest log scan frame.
+	local scanQuests = uv(uv(quests.OnLogin, "QueueScan"), "ScanQuests")
+	local savedAfter, savedRefreshPlates, savedNumEntries = C_Timer.After, quests.RefreshNameplates, C_QuestLog.GetNumQuestLogEntries
+	local deferredPlates, plateRefreshes = {}, 0
+	C_Timer.After = function(_, fn) deferredPlates[#deferredPlates + 1] = fn end
+	quests.RefreshNameplates = function() plateRefreshes = plateRefreshes + 1 end
+	C_QuestLog.GetNumQuestLogEntries = function() return 0 end
+	quests.db.nameplateIcons = true
+	scanQuests()
+	assert(plateRefreshes == 0 and #deferredPlates == 1, "ScanQuests defers RefreshNameplates to the next frame")
+	deferredPlates[1]()
+	assert(plateRefreshes == 1, "deferred nameplate refresh runs on the next tick")
+	C_Timer.After, quests.RefreshNameplates, C_QuestLog.GetNumQuestLogEntries = savedAfter, savedRefreshPlates, savedNumEntries
+
+	-- 8. Minimap: MakeEmitterProvider attaches collection directly without InsertTable per row.
+	local minimap = ns:GetModule("Minimap")
+	local updateEmitterBtn = uv(minimap.OnOptionChanged, "UpdateEmitterButton")
+	local refreshEmitters = uv(updateEmitterBtn, "RefreshEmitters")
+	local applyMatches = uv(refreshEmitters, "ApplyEmitterMatches")
+	local makeProvider = uv(applyMatches, "MakeEmitterProvider")
+	local savedCreateDP = CreateDataProvider
+	local insertCalls = 0
+	CreateDataProvider = function(tbl)
+		if tbl then insertCalls = insertCalls + #tbl end
+		return { collection = tbl or {} }
+	end
+	local sample = { { 1, "a" }, { 2, "b" } }
+	local dp = makeProvider(sample)
+	assert(dp.collection == sample and insertCalls == 0, "MakeEmitterProvider attaches entries directly without per-row InsertTable")
+	CreateDataProvider = savedCreateDP
+
 	print("runtime stutter optimizations OK")
 end)()
 dofile("wanderlust.lua")

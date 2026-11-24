@@ -581,9 +581,12 @@ end
 
 -- Kinds of imbue and enchant lines currently on the weapons. In combat the data may be
 -- unreadable: the last known set is kept then.
-local function ScanImbues()
-	local kinds, lines = {}, {}
-	for _, slot in ipairs(WEAPON_SLOTS) do
+local lastImbueSig
+
+local function ScanImbues(force)
+	local kinds, sigParts = {}, {}
+	local enchantedSlots = {}
+	for slotIndex, slot in ipairs(WEAPON_SLOTS) do
 		local list = C_Item.GetWeaponEnchantInfo(Enum.WeaponSlot[slot[1]])
 		if ns.Secret(list) then
 			return nil
@@ -595,17 +598,28 @@ local function ScanImbues()
 			end
 			if enchant.hasEnchant then
 				enchanted = true
-				local imbue = (ns.WeaponImbues or {})[ns.Number(enchant.enchantID)]
+				local enchantID = ns.Number(enchant.enchantID)
+				sigParts[#sigParts + 1] = slotIndex .. ":" .. tostring(enchantID or 0)
+				local imbue = (ns.WeaponImbues or {})[enchantID]
 				if imbue then
 					kinds[imbue.kind] = true
 				end
 			end
 		end
-		if enchanted then
+		enchantedSlots[slotIndex] = enchanted
+	end
+	local sig = table.concat(sigParts, ",")
+	-- Skip C_TooltipInfo.GetInventoryItem when weapon enchants have not changed since the last scan.
+	if not force and sig == lastImbueSig then
+		return nil, nil, true
+	end
+	local lines = {}
+	for slotIndex, slot in ipairs(WEAPON_SLOTS) do
+		if enchantedSlots[slotIndex] then
 			EnchantLines(slot[2], lines)
 		end
 	end
-	return kinds, lines
+	return kinds, lines, false, sig
 end
 
 local function SameSet(a, b)
@@ -622,14 +636,15 @@ local function SameSet(a, b)
 	return true
 end
 
-local function UpdateImbues()
+local function UpdateImbues(force)
 	if not (C_Item and C_Item.GetWeaponEnchantInfo and Enum.WeaponSlot) then
 		return
 	end
-	local ok, kinds, lines = pcall(ScanImbues)
-	if not ok or not kinds then
+	local ok, kinds, lines, unchanged, sig = pcall(ScanImbues, force)
+	if not ok or unchanged or not kinds then
 		return
 	end
+	lastImbueSig = sig
 	if not (SameSet(kinds, activeImbues) and SameSet(lines, activeEnchantLines)) then
 		activeImbues, activeEnchantLines = kinds, lines
 		RecolorBuffButtons()
@@ -1178,6 +1193,8 @@ local function UpdateCombatBuffWatch()
 					refreshCombatButtons = refreshCombatButtons or event == "PLAYER_REGEN_DISABLED"
 				elseif event ~= "ACTION_USABLE_CHANGED" and event ~= "ACTIONBAR_UPDATE_USABLE" then
 					refreshCombatButtons = true
+				elseif not (refreshCombatChoice or refreshCombatAuras or refreshCombatButtons or next(combatBuffButtons)) then
+					return
 				end
 				if not combatBuffPending then
 					combatBuffPending = true
@@ -1567,7 +1584,7 @@ local function UpdateAuraWatch()
 		auraWatcher = CreateFrame("Frame")
 		auraWatcher:SetScript("OnEvent", ns.Measured("Visuals: active buffs", function(_, event, _, updateInfo)
 			if event == "UNIT_INVENTORY_CHANGED" then
-				UpdateImbues()
+				UpdateImbues(true)
 			end
 			if AurasAreSecret() then
 				if event == "UNIT_AURA" then
@@ -1602,7 +1619,7 @@ local function UpdateAuraWatch()
 			auraReadable = false
 			wipe(activeAuras)
 			wipe(auraIDs)
-			activeImbues, activeEnchantLines = {}, {}
+			activeImbues, activeEnchantLines, lastImbueSig = {}, {}, nil
 		end
 		if paladinEnabled then
 			auraWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")

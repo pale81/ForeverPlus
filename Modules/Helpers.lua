@@ -18,6 +18,7 @@ local Helpers = ns:NewModule("Helpers", {
 		fishingRestore = true,
 		fishingHideUI = false,
 		fishingSound = false,
+		fishingBear = true,
 		knownRecipes = true,
 	},
 	charDefaults = { fishingWeapons = {} },
@@ -393,6 +394,7 @@ local FISHING_OPTIONS = {
 	{ key = "fishingRestore", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing" },
 	{ key = "fishingHideUI", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC, parent = "fishing", new = true },
 	{ key = "fishingSound", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC, parent = "fishing", new = true },
+	{ key = "fishingBear", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, parent = "fishing", new = true },
 }
 local ROD_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerRod]]
 local ROD_SIZE = 28
@@ -507,6 +509,108 @@ local function CreateFishingMenu()
 	EventRegistry:RegisterCallback("EditMode.Exit", ns.Measured("Helpers: show fishing menu", function()
 		frame:SetShown(Helpers.db.fishingMenu)
 	end), Helpers)
+end
+
+---------------------------------------------------------------------------
+-- Angler mode activation bear flash
+---------------------------------------------------------------------------
+local BEAR_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerBear.tga]]
+local BEAR_MAX_ALPHA = 0.50
+local BEAR_FADE_IN = 0.15
+local BEAR_HOLD = 0.30
+local BEAR_SHRINK = 0.55
+local BEAR_TOTAL = BEAR_FADE_IN + BEAR_HOLD + BEAR_SHRINK
+local BEAR_START_SCALE = 0.94
+local BEAR_MIN_SCALE = 0.04
+local bearFrame, bearElapsed, bearBaseSize, lastFishing
+
+local function BearSize()
+	local width = ns.Number(UIParent and UIParent:GetWidth(), 1280)
+	local height = ns.Number(UIParent and UIParent:GetHeight(), 720)
+	local size = math.min(width, height) * 0.96
+	return size > 0 and size or 720
+end
+
+local function ApplyAnglerBearFrame(t)
+	local alpha, scale
+	if t < BEAR_FADE_IN then
+		local p = t / BEAR_FADE_IN
+		local eased = 1 - (1 - p) * (1 - p)
+		alpha = BEAR_MAX_ALPHA * eased
+		scale = BEAR_START_SCALE + (1 - BEAR_START_SCALE) * eased
+	elseif t < BEAR_FADE_IN + BEAR_HOLD then
+		alpha = BEAR_MAX_ALPHA
+		scale = 1
+	else
+		local p = (t - BEAR_FADE_IN - BEAR_HOLD) / BEAR_SHRINK
+		if p > 1 then
+			p = 1
+		end
+		local eased = p * p * (0.4 + 0.6 * p)
+		scale = 1 - (1 - BEAR_MIN_SCALE) * eased
+		alpha = BEAR_MAX_ALPHA * (1 - p * p)
+	end
+	local size = bearBaseSize * scale
+	bearFrame:SetSize(size, size)
+	bearFrame:SetAlpha(alpha)
+end
+
+local function StopAnglerBear()
+	bearElapsed = nil
+	if bearFrame then
+		ns.SetUpdate(bearFrame, "Helpers: angler bear", nil)
+		bearFrame:SetAlpha(0)
+		if bearFrame:IsShown() then
+			bearFrame:Hide()
+		end
+	end
+end
+
+local function UpdateAnglerBear(_, delta)
+	if not bearElapsed then
+		StopAnglerBear()
+		return
+	end
+	bearElapsed = bearElapsed + (delta or 0)
+	if bearElapsed >= BEAR_TOTAL then
+		StopAnglerBear()
+		return
+	end
+	ApplyAnglerBearFrame(bearElapsed)
+end
+
+local function EnsureAnglerBearFrame()
+	if bearFrame then
+		return bearFrame
+	end
+	local frame = CreateFrame("Frame", "ForeverPlusAnglerBear", UIParent)
+	frame:SetFrameStrata("FULLSCREEN_DIALOG")
+	frame:SetFrameLevel(100)
+	frame:EnableMouse(false)
+	if frame.SetIgnoreParentAlpha then
+		frame:SetIgnoreParentAlpha(true)
+	end
+	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	frame.art = frame:CreateTexture(nil, "OVERLAY")
+	frame.art:SetAllPoints()
+	frame.art:SetTexture(BEAR_ART)
+	frame:SetScript("OnHide", ns.Measured("Helpers: angler bear hide", StopAnglerBear))
+	frame:Hide()
+	bearFrame = frame
+	return frame
+end
+
+local function ShowAnglerBear()
+	local frame = EnsureAnglerBearFrame()
+	bearBaseSize = BearSize()
+	bearElapsed = 0
+	ApplyAnglerBearFrame(0)
+	frame:Show()
+	ns.SetUpdate(frame, "Helpers: angler bear", UpdateAnglerBear)
+end
+
+function Helpers.PreviewBear()
+	ShowAnglerBear()
 end
 
 ---------------------------------------------------------------------------
@@ -943,6 +1047,7 @@ function Helpers:Update()
 	UpdateOpenButton()
 	RefreshFishingMenu()
 	RefreshFishingPresentation()
+	lastFishing = db.fishing and true or false
 end
 
 function Helpers:OnLogin()
@@ -993,9 +1098,16 @@ function Helpers:OnOptionChanged(key)
 	if key == "openButtonMute" and not self.db.openButtonMute then
 		self.cdb.openButtonMutedUntil = nil
 	end
+	local playBear = key == "fishing" and self.db.fishing and lastFishing == false and self.db.fishingBear
+	if (key == "fishing" and not self.db.fishing) or (key == "fishingBear" and not self.db.fishingBear) then
+		StopAnglerBear()
+	end
 	self:Update()
 	if key == "fishing" or key == "fishingRestore" then
 		RememberFishingWeapons()
+	end
+	if playBear then
+		ShowAnglerBear()
 	end
 end
 
@@ -1007,4 +1119,7 @@ Helpers.options = {
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },
 	{ type = "header", name = L.HELPERS_FISHING_MODE },
 	{ key = "fishingMenu", type = "toggle", name = L.HELPERS_FISHING_MENU, desc = L.HELPERS_FISHING_MENU_DESC, new = true },
+	{ key = "fishingBear", type = "toggle", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, new = true },
+	{ type = "button", name = L.HELPERS_FISHING_BEAR_PREVIEW, text = L.HELPERS_FISHING_BEAR_PREVIEW_BUTTON,
+		desc = L.HELPERS_FISHING_BEAR_PREVIEW_DESC, func = Helpers.PreviewBear },
 }

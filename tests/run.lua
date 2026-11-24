@@ -2242,15 +2242,16 @@ print("helpers OK")
 			fishingSettings[#fishingSettings + 1] = option.key
 		end
 	end
-	assert(table.concat(fishingSettings) == "fishingMenu", "settings only expose the rod visibility")
+	assert(table.concat(fishingSettings, ",") == "fishingMenu,fishingBear", "settings expose rod visibility and angler bear")
 	local click = firstHit:GetScript("OnClick")
 	click(firstHit)
 	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")
 	local mode, equip, restore = rows[ns.L.HELPERS_FISHING], rows[ns.L.HELPERS_FISHING_EQUIP], rows[ns.L.HELPERS_FISHING_RESTORE]
 	assert(mode.checked() and equip.enabled() and restore.enabled(), "all three fishing settings are available from the same menu")
-	local hide, sound = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND]
-	assert(not hide.checked() and not sound.checked() and hide.text:find(ns.L.SETTINGS_NEW, 1, true)
-		and sound.text:find(ns.L.SETTINGS_NEW, 1, true), "presentation options start off and are marked NEW")
+	local hide, sound, bear = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND], rows[ns.L.HELPERS_FISHING_BEAR]
+	assert(not hide.checked() and not sound.checked() and bear.checked() and bear.enabled()
+		and hide.text:find(ns.L.SETTINGS_NEW, 1, true) and sound.text:find(ns.L.SETTINGS_NEW, 1, true)
+		and bear.text:find(ns.L.SETTINGS_NEW, 1, true), "presentation and bear options are marked NEW")
 	mode.toggle()
 	assert(not helpers.db.fishing and not equip.enabled() and menu:IsShown(), "turning off fishing leaves the menu available to turn it back on")
 	mode.toggle()
@@ -2306,6 +2307,116 @@ end)()
 	ns.SetOption("Helpers", "fishingSound", false)
 	UIParent:SetShown(originalVisibility)
 	UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar = savedChannel, savedVisibility, savedGet, savedSet
+end)()
+;(function()
+	-- Angler mode bear flash: trigger on off -> on transition, geometry/animation, 0-CPU idle, options and preview.
+	local showBear = uv(helpers.PreviewBear, "ShowAnglerBear")
+	local ensureBear = uv(showBear, "EnsureAnglerBearFrame")
+	local savedBearFrame = uv(ensureBear, "bearFrame")
+	local savedGlobalBear = ForeverPlusAnglerBear
+	local savedCreate = CreateFrame
+	local savedW, savedH = UIParent.w, UIParent.h
+	local savedFishing, savedBearOpt = helpers.db.fishing, helpers.db.fishingBear
+	local bear, strata, mouseEnabled, ignoreAlpha, texturePath, anchorPoint
+	UIParent.w, UIParent.h = 1920, 1080
+	setuv(ensureBear, "bearFrame", nil)
+	CreateFrame = function(kind, name, parent)
+		local frame = savedCreate(kind, name, parent)
+		if name == "ForeverPlusAnglerBear" then
+			bear = frame
+			frame.SetFrameStrata = function(_, value) strata = value end
+			frame.EnableMouse = function(_, value) mouseEnabled = value end
+			frame.SetIgnoreParentAlpha = function(_, value) ignoreAlpha = value end
+			frame.SetPoint = function(_, point, relative) anchorPoint = { point, relative } end
+			frame.SetSize = function(self, width, height) self.w, self.h = width, height end
+			local origCreateTexture = frame.CreateTexture
+			frame.CreateTexture = function(self, ...)
+				local tex = origCreateTexture(self, ...)
+				tex.SetTexture = function(_, path) texturePath = path end
+				return tex
+			end
+		end
+		return frame
+	end
+
+	-- Settings expose fishingBear with new = true and a preview button; PortraitModes lists fishingBear under angler.
+	local bearOpt, previewOpt
+	for _, opt in ipairs(helpers.options) do
+		if opt.key == "fishingBear" then bearOpt = opt end
+		if opt.type == "button" and opt.name == ns.L.HELPERS_FISHING_BEAR_PREVIEW then previewOpt = opt end
+	end
+	assert(bearOpt and bearOpt.new == true and helpers.db.fishingBear == true, "fishingBear option defaults on and is marked NEW")
+	assert(previewOpt and type(previewOpt.func) == "function", "angler bear preview button is present in settings")
+	local pmSubFound = false
+	for _, feature in ipairs(ns.PortraitModes.FEATURES) do
+		if feature.key == "angler" then
+			for _, sub in ipairs(feature.subOptions or {}) do
+				if sub.module == "Helpers" and sub.key == "fishingBear" then pmSubFound = true end
+			end
+		end
+	end
+	assert(pmSubFound, "PortraitModes angler sub-options include fishingBear")
+
+	-- Staying on or turning off does not flash the bear.
+	ns.SetOption("Helpers", "fishing", true)
+	assert(not bear, "re-enabling an already active fishing mode does not trigger the bear")
+	ns.SetOption("Helpers", "fishing", false)
+	assert(not bear, "disabling fishing mode does not trigger the bear")
+
+	-- Turning off -> on triggers the bear overlay with proper attributes and animation.
+	ns.SetOption("Helpers", "fishing", true)
+	assert(bear and bear:IsShown(), "off -> on fishing transition shows the angler bear")
+	assert(strata == "FULLSCREEN_DIALOG" and mouseEnabled == false and ignoreAlpha == true,
+		"angler bear uses non-interactive fullscreen overlay ignoring parent alpha")
+	assert(anchorPoint and anchorPoint[1] == "CENTER" and anchorPoint[2] == UIParent, "angler bear is centered on UIParent")
+	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\AnglerBear.tga]], "angler bear loads AnglerBear.tga")
+	local update = bear:GetScript("OnUpdate")
+	assert(type(update) == "function", "angler bear starts an OnUpdate handler while active")
+	update(bear, 0.25)
+	local holdSize, holdAlpha = bear:GetWidth(), bear:GetAlpha()
+	assert(holdSize > 900 and math.abs(holdAlpha - 0.50) < 0.01, "during hold the bear fills screen height at half transparency")
+	update(bear, 0.50)
+	local midSize, midAlpha = bear:GetWidth(), bear:GetAlpha()
+	assert(midSize < holdSize and midAlpha < holdAlpha, "during shrink the bear starts shrinking and fading")
+	update(bear, 0.20)
+	assert(bear:GetWidth() < holdSize * 0.35 and bear:GetWidth() < midSize and bear:GetAlpha() < midAlpha,
+		"accelerated in-easing rapidly shrinks the bear toward the screen center")
+	update(bear, 0.10)
+	assert(not bear:IsShown() and bear:GetAlpha() == 0 and bear:GetScript("OnUpdate") == nil,
+		"after completion the bear hides cleanly and stops OnUpdate (0 CPU idle)")
+
+	-- PortraitModes ToggleMode off -> on also triggers the bear.
+	ns.PortraitModes.ToggleMode("angler")
+	assert(not helpers.db.fishing and not bear:IsShown(), "PortraitModes turns angler mode off")
+	ns.PortraitModes.ToggleMode("angler")
+	assert(helpers.db.fishing and bear:IsShown() and bear:GetScript("OnUpdate") ~= nil,
+		"PortraitModes off -> on transition plays the angler bear")
+
+	-- Turning fishingBear off stops an active animation and suppresses future activations.
+	ns.SetOption("Helpers", "fishingBear", false)
+	assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "disabling fishingBear stops an active flash")
+	ns.SetOption("Helpers", "fishing", false)
+	ns.SetOption("Helpers", "fishing", true)
+	assert(not bear:IsShown(), "fishingBear = false suppresses the flash on activation")
+
+	-- Slash commands and preview button still preview the bear regardless of option state.
+	SlashCmdList.FOREVERPLUS("bär")
+	assert(bear:IsShown() and bear:GetScript("OnUpdate") ~= nil, "/fp bär previews the angler bear")
+	bear:GetScript("OnUpdate")(bear, 1.5)
+	assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "preview finishes and stops OnUpdate")
+	SlashCmdList.FOREVERPLUS("anglerbär")
+	assert(bear:IsShown(), "/fp anglerbär previews the angler bear")
+	bear:GetScript("OnUpdate")(bear, 1.5)
+	previewOpt.func()
+	assert(bear:IsShown(), "settings preview button triggers the angler bear")
+	bear:GetScript("OnUpdate")(bear, 1.5)
+
+	ns.SetOption("Helpers", "fishingBear", savedBearOpt)
+	ns.SetOption("Helpers", "fishing", savedFishing)
+	UIParent.w, UIParent.h = savedW, savedH
+	CreateFrame = savedCreate
+	ForeverPlusAnglerBear = savedGlobalBear
+	setuv(ensureBear, "bearFrame", savedBearFrame)
 end)()
 print("ttd OK")
 -- Junk marks tell random suffixes apart

@@ -116,6 +116,7 @@ local FEATURES = {
 			{ module = "Helpers", key = "fishingRestore", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC },
 			{ module = "Helpers", key = "fishingHideUI", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC },
 			{ module = "Helpers", key = "fishingSound", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC },
+			{ module = "Helpers", key = "fishingBear", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC },
 		},
 	},
 	{

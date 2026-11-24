@@ -841,12 +841,13 @@ L.TOOLTIP_STACK_SIZE = "Stapelgröße"
 L.TOOLTIP_STACK_SIZE_OPT = "Stapelgröße anzeigen"
 L.TOOLTIP_STACK_SIZE_DESC = "Zeigt bei stapelbaren Gegenständen, wie viele auf einen Stapel passen."
 L.TOOLTIP_FOOD_BUFF_OPT = "Essensbuffs hervorheben"
-L.TOOLTIP_FOOD_BUFF_DESC = "Zeigt den Satt-Bonus und seine Dauer in einer eigenen Zeile. Der Effekt und sein Wert erscheinen in Orange."
+L.TOOLTIP_FOOD_BUFF_DESC = "Hebt den Satt-Bonus und seine Dauer in Orange hervor."
 L.TOOLTIP_FOOD_BUFF_LINE = "Satt: %s (%s)"
 L.TOOLTIP_FOOD_BUFF_WAIT = "Nach mindestens %s Essen."
 L.TOOLTIP_FOOD_BUFF_TEXT = {
 	marker = "satt",
 	pattern = "^(.-) Wenn [Ii]hr mindestens (%d+ [%a.]+) mit Essen verbringt, werdet [Ii]hr satt und erhaltet (%d+ [%a.]+) lang (%+?%d.+)$",
+	standardWait = "^10 Sek%a*%.?$",
 	durationFirst = true,
 	experience = "(durch Siege erhaltene Erfahrung um %d+%%)",
 }

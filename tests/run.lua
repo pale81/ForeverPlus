@@ -326,18 +326,20 @@ print("OK: " .. #ns.modules .. " modules initialised")
 		return text
 	end
 	local plain = use .. " " .. buff .. " " .. extra
-	local expectedBonus = german and "Satt: <+3 Angelfertigkeit> (15 Min.)" or "Well Fed: <+3 Fishing Skill> (15 min.)"
-	local expectedWait = german and "Nach mindestens 10 Sek. Essen." or "After at least 10 seconds of eating."
+	local expectedBonus = german and "Satt: <+3 Angelfertigkeit> (<15 Min.>)" or "Well Fed: <+3 Fishing Skill> (<15 min.>)"
 	local expectedExtra = german and "Außerdem wird die <durch Siege erhaltene Erfahrung um 5%> erhöht. (1 Sek. Abklingzeit)"
 		or "Also increases <experience gained from victories by 5%>. (1 Sec Cooldown)"
-	assert(Render(plain) == table.concat({ use, expectedBonus, expectedWait, expectedExtra }, "\n"),
-		"item callback formats the displayed buff even without a typed use line in the data")
+	assert(Render(plain) == table.concat({ use, expectedBonus, expectedExtra }, "\n"),
+		"item callback highlights the displayed buff and its duration, omitting the standard eating time")
+	local customWait = german and "Nach mindestens 20 Sek. Essen." or "After at least 20 seconds of eating."
+	assert(Render(use .. " " .. buff:gsub("10 ", "20 ")) == table.concat({ use, expectedBonus, customWait }, "\n"),
+		"an unusual eating time remains visible")
 	local green = "|cnGREEN_FONT_COLOR:"
 	local marked = green .. use .. "|n" .. buff:gsub("10 ", "10\194\160"):gsub("15 ", "15\226\128\175") .. "|r"
-	local markedResult = green .. use .. "\n" .. expectedBonus:gsub(">", ">" .. green) .. "\n" .. expectedWait .. "|r"
+	local markedResult = green .. use .. "\n" .. expectedBonus:gsub(">", ">" .. green) .. "|r"
 	assert(Render(marked) == markedResult, "named colour, encoded newline and nonbreaking spaces do not prevent formatting")
 	local hex = "|cff00ff00"
-	assert(Render(hex .. use .. " " .. buff:gsub("%.$", "") .. "|r") == markedResult:gsub(green, hex):gsub("(min)%.%)", "%1)"),
+	assert(Render(hex .. use .. " " .. buff:gsub("%.$", "") .. "|r") == markedResult:gsub(green, hex):gsub("(min)%.", "%1"),
 		"hex colour and food text without final punctuation are supported")
 	assert(Render(use) == use, "plain recovery stays with the native tooltip")
 	tooltip.db.foodBuffs = false

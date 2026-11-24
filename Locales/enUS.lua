@@ -761,12 +761,13 @@ L.TOOLTIP_STACK_SIZE = "Stack size"
 L.TOOLTIP_STACK_SIZE_OPT = "Show stack size"
 L.TOOLTIP_STACK_SIZE_DESC = "Shows how many of a stackable item fit in one stack."
 L.TOOLTIP_FOOD_BUFF_OPT = "Highlight food buffs"
-L.TOOLTIP_FOOD_BUFF_DESC = "Shows the well-fed bonus and its duration on a separate line. The effect and its value appear in orange."
+L.TOOLTIP_FOOD_BUFF_DESC = "Highlights the well-fed bonus and its duration in orange."
 L.TOOLTIP_FOOD_BUFF_LINE = "Well Fed: %s (%s)"
 L.TOOLTIP_FOOD_BUFF_WAIT = "After at least %s of eating."
 L.TOOLTIP_FOOD_BUFF_TEXT = {
 	marker = "well fed",
-	pattern = "^(.-) If you spend at least (%d+ %a+) eating,? you will [%a ]-become well fed and gain (%+?%d.-) for (%d+ %a+%.?)%f[%s%z](.*)$",
+	pattern = "^(.-) If you spend at least (%d+ %a+%.?) eating,? you will [%a ]-become well fed and gain (%+?%d.-) for (%d+ %a+%.?)%f[%s%z](.*)$",
+	standardWait = "^10 sec%a*%.?$",
 	experience = "([Ee]xperience gained from victories by %d+%%)",
 }
 L.LOOT_CRAFTED = "Crafted"

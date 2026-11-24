@@ -1108,8 +1108,12 @@ local function FormatFoodUseText(text, format)
 	local orange = ORANGE_FONT_COLOR
 	local baseColor = color or ""
 	local orangeBonus = orange:WrapTextInColorCode(bonus) .. baseColor
-	local buff = L.TOOLTIP_FOOD_BUFF_LINE:format(orangeBonus, duration)
-	local result = baseColor .. use .. "\n" .. buff .. "\n" .. L.TOOLTIP_FOOD_BUFF_WAIT:format(wait)
+	local orangeDuration = orange:WrapTextInColorCode(duration) .. baseColor
+	local buff = L.TOOLTIP_FOOD_BUFF_LINE:format(orangeBonus, orangeDuration)
+	local result = baseColor .. use .. "\n" .. buff
+	if not wait:match(format.standardWait) then
+		result = result .. "\n" .. L.TOOLTIP_FOOD_BUFF_WAIT:format(wait)
+	end
 	extra = extra and strtrim(extra) or ""
 	if extra ~= "" then
 		extra = extra:gsub(format.experience, function(effect) return orange:WrapTextInColorCode(effect) .. baseColor end)

@@ -98,7 +98,11 @@ GetFonts = function() return { "GameFontNormal", "GameFontNormalSmall", "GameFon
 PixelUtil = { GetNearestPixelSize = function(s) return s end }
 MenuResponse = { Refresh = 2, CloseAll = 4 }
 local postCalls = {}
-TooltipDataProcessor = { AddTooltipPostCall = function(t, fn) postCalls[#postCalls + 1] = fn end }
+TooltipDataProcessor = {
+	linePreCalls = {},
+	AddLinePreCall = function(t, fn) TooltipDataProcessor.linePreCalls[t] = fn end,
+	AddTooltipPostCall = function(t, fn) postCalls[#postCalls + 1] = fn end,
+}
 _G.TEST_POSTCALLS = postCalls
 CHAT_FRAMES = { "ChatFrame1" }
 ChatFrame1 = NewFrame("ScrollingMessageFrame", "ChatFrame1")
@@ -148,7 +152,7 @@ C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true en
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
 C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end,
 	GetUnit = function() return { lines = {} } end }
-Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45, ItemSpellTriggerOnProc = 46 }
+Enum.TooltipDataLineType = { ItemSpellTriggerOnUse = 44, ItemSpellTriggerOnEquip = 45, ItemSpellTriggerOnProc = 46 }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
 GetCVar = function() return "1" end
@@ -296,6 +300,39 @@ for _, m in ipairs(ns.modules) do
 	end
 end
 print("OK: " .. #ns.modules .. " modules initialised")
+;(function()
+	local tooltip = ns:GetModule("Tooltip")
+	local formatFood = TooltipDataProcessor.linePreCalls[Enum.TooltipDataLineType.ItemSpellTriggerOnUse]
+	local savedAdd = rawget(_G, "GameTooltip_AddColoredLine")
+	local german = GetLocale() == "deDE"
+	local use = german and "Benutzen: Stellt im Verlauf von 18 Sek. 58 Punkt(e) Gesundheit wieder her. Ihr müsst beim Essen sitzen bleiben."
+		or "Use: Restores 58 health over 18 sec. Must remain seated while eating."
+	local buff = german and "Wenn Ihr mindestens 10 Sek. mit Essen verbringt, werdet Ihr satt und erhaltet 15 Min. lang 3 Angelfertigkeit."
+		or "If you spend at least 10 seconds eating, you will become well fed and gain 3 Fishing Skill for 15 min."
+	local extra = german and "Außerdem wird die durch Siege erhaltene Erfahrung um 5% erhöht. (1 Sek. Abklingzeit)"
+		or "Also increases experience gained from victories by 5%. (1 Sec Cooldown)"
+	local lines = {}
+	GameTooltip_AddColoredLine = function(_, text, color, wrap, offset)
+		assert(color == GREEN_FONT_COLOR and wrap and offset == 2, "food lines retain the source style and wrap")
+		lines[#lines + 1] = text
+	end
+	local source = { leftText = use .. " " .. buff .. " " .. extra, leftColor = GREEN_FONT_COLOR, leftOffset = 2 }
+	assert(formatFood(GameTooltip, source), "well-fed use line replaced")
+	assert(#lines == 4 and lines[1] == use and lines[2] == (german and "Satt: <+3 Angelfertigkeit> (15 Min.)"
+		or "Well Fed: <+3 Fishing Skill> (15 min.)"), "bonus has a separate line, with its value and stat in orange")
+	assert(lines[3] == (german and "Nach mindestens 10 Sek. Essen." or "After at least 10 seconds of eating."), "eating requirement retained")
+	assert(lines[4] == (german and "Außerdem wird die <durch Siege erhaltene Erfahrung um 5%> erhöht. (1 Sek. Abklingzeit)"
+		or "Also increases <experience gained from victories by 5%>. (1 Sec Cooldown)"), "secondary experience effect and cooldown retained")
+	lines = {}
+	source.leftText = use .. " " .. buff
+	assert(formatFood(GameTooltip, source) and #lines == 3, "well-fed effect at the end of the use line is also recognised")
+	assert(not formatFood(GameTooltip, { leftText = use }), "plain recovery stays with the native tooltip")
+	tooltip.db.foodBuffs = false
+	assert(not formatFood(GameTooltip, source) and #lines == 3, "setting disables the replacement")
+	tooltip.db.foodBuffs = true
+	GameTooltip_AddColoredLine = savedAdd
+	print("food tooltip layout OK")
+end)()
 -- Exercise minimap pin positioning with a player position in Stormwind.
 C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.45, 0.6 end } end
 GetPlayerFacing = function() return 1.0 end

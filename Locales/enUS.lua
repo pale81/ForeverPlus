@@ -760,6 +760,14 @@ L.ITEMS_SELL_BUTTON_COUNT = "%d items"
 L.TOOLTIP_STACK_SIZE = "Stack size"
 L.TOOLTIP_STACK_SIZE_OPT = "Show stack size"
 L.TOOLTIP_STACK_SIZE_DESC = "Shows how many of a stackable item fit in one stack."
+L.TOOLTIP_FOOD_BUFF_OPT = "Highlight food buffs"
+L.TOOLTIP_FOOD_BUFF_DESC = "Shows the well-fed bonus and its duration on a separate line. The effect and its value appear in orange."
+L.TOOLTIP_FOOD_BUFF_LINE = "Well Fed: %s (%s)"
+L.TOOLTIP_FOOD_BUFF_WAIT = "After at least %s of eating."
+L.TOOLTIP_FOOD_BUFF_TEXT = {
+	pattern = "^(.-)%s+If you spend at least (%d+%s+%a+) eating,? you will become well fed and gain (%+?%d.-) for (%d+%s+%a+%.)%f[%s%z](.*)$",
+	experience = "([Ee]xperience gained from victories by %d+%%)",
+}
 L.LOOT_CRAFTED = "Crafted"
 L.WHEEL_CHECK_START = "Mouse wheel check for %d s: put the mouse where you page, hold Shift and scroll."
 L.WHEEL_CHECK_FRAME = "This element under the mouse takes the wheel: %s"

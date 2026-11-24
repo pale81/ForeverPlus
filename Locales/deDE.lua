@@ -840,6 +840,15 @@ L.ITEMS_SELL_BUTTON_COUNT = "%d Gegenstände"
 L.TOOLTIP_STACK_SIZE = "Stapelgröße"
 L.TOOLTIP_STACK_SIZE_OPT = "Stapelgröße anzeigen"
 L.TOOLTIP_STACK_SIZE_DESC = "Zeigt bei stapelbaren Gegenständen, wie viele auf einen Stapel passen."
+L.TOOLTIP_FOOD_BUFF_OPT = "Essensbuffs hervorheben"
+L.TOOLTIP_FOOD_BUFF_DESC = "Zeigt den Satt-Bonus und seine Dauer in einer eigenen Zeile. Der Effekt und sein Wert erscheinen in Orange."
+L.TOOLTIP_FOOD_BUFF_LINE = "Satt: %s (%s)"
+L.TOOLTIP_FOOD_BUFF_WAIT = "Nach mindestens %s Essen."
+L.TOOLTIP_FOOD_BUFF_TEXT = {
+	pattern = "^(.-)%s+Wenn [Ii]hr mindestens (%d+%s+[%a.]+) mit Essen verbringt, werdet [Ii]hr satt und erhaltet (%d+%s+[%a.]+) lang (%+?%d.-)%.%f[%s%z](.*)$",
+	durationFirst = true,
+	experience = "(durch Siege erhaltene Erfahrung um %d+%%)",
+}
 L.LOOT_CRAFTED = "Hergestellt"
 L.WHEEL_CHECK_START = "Mausrad-Test für %d s: Maus dorthin, wo du blätterst, Shift halten und scrollen."
 L.WHEEL_CHECK_FRAME = "Unter der Maus nimmt dieses Element das Mausrad an: %s"

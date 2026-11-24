@@ -9,6 +9,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 		shiftInfo = false,
 		unitPrice = true,
 		stackSize = true,
+		foodBuffs = true,
 		trainerCompare = true,
 		chatItemLinks = true,
 		chatQuestLinks = true,
@@ -29,6 +30,7 @@ local Tooltip = ns:NewModule("Tooltip", {
 local CONTAINER_OFFSET_X, CONTAINER_OFFSET_Y = 20, 100 -- corner position without the game's tooltip container
 local BAR_HEIGHT = 6
 local BAR_INSET = 10
+local USE_LINE_TYPE = Enum.TooltipDataLineType.ItemSpellTriggerOnUse
 
 ---------------------------------------------------------------------------
 -- Health bar inside the bottom of the tooltip
@@ -1084,6 +1086,41 @@ local function UpdateCompareArrows(manager)
 	end
 end
 
+-- Replace the native use line only when it matches the client's well-fed text.
+local function FormatFoodUseLine(tooltip, line)
+	if not Tooltip.db.foodBuffs or tooltip:IsForbidden() or IsSecretData(line) then
+		return
+	end
+	local text, color, offset = line.leftText, line.leftColor, line.leftOffset
+	if Secret(text) or type(text) ~= "string" or text:find("|", 1, true)
+		or IsSecretData(color) or Secret(offset) or Secret(line.rightText) or line.rightText then
+		return
+	end
+
+	local format = L.TOOLTIP_FOOD_BUFF_TEXT
+	local use, wait, bonus, duration, extra = text:match(format.pattern)
+	if not use then
+		return
+	end
+	if format.durationFirst then
+		bonus, duration = duration, bonus
+	end
+	if bonus:sub(1, 1) ~= "+" then
+		bonus = "+" .. bonus
+	end
+	local orange = ORANGE_FONT_COLOR
+	color = color or NORMAL_FONT_COLOR
+	GameTooltip_AddColoredLine(tooltip, use, color, true, offset)
+	GameTooltip_AddColoredLine(tooltip, L.TOOLTIP_FOOD_BUFF_LINE:format(orange:WrapTextInColorCode(bonus), duration), color, true, offset)
+	GameTooltip_AddColoredLine(tooltip, L.TOOLTIP_FOOD_BUFF_WAIT:format(wait), color, true, offset)
+	extra = extra:match("^%s*(.-)%s*$")
+	if extra ~= "" then
+		extra = extra:gsub(format.experience, function(effect) return orange:WrapTextInColorCode(effect) end)
+		GameTooltip_AddColoredLine(tooltip, extra, color, true, offset)
+	end
+	return true
+end
+
 local function OnItemTooltip(tooltip, data)
 	if tooltip:IsForbidden() then
 		return
@@ -1324,6 +1361,9 @@ function Tooltip:OnOptionChanged(key)
 		end
 		ns.RefreshGameTooltip()
 	end
+	if key == "foodBuffs" then
+		ns.RefreshGameTooltip()
+	end
 	if (key == "chatItemLinks" and not self.db.chatItemLinks) or (key == "chatQuestLinks" and not self.db.chatQuestLinks) then
 		HideChatItemTooltip()
 	end
@@ -1365,6 +1405,7 @@ function Tooltip:OnInitialize()
 	if GameTooltip_OnTooltipAddMoney then
 		hooksecurefunc("GameTooltip_OnTooltipAddMoney", OnTooltipAddMoney)
 	end
+	TooltipDataProcessor.AddLinePreCall(USE_LINE_TYPE, ns.MeasuredReturn("Tooltip: food use", FormatFoodUseLine))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Tooltip: item", OnItemTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, ns.Measured("Tooltip: unit", OnUnitTooltip))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, ns.Measured("Tooltip: object", OnObjectTooltip))
@@ -1386,6 +1427,7 @@ Tooltip.options = {
 	{ key = "shiftInfo", type = "toggle", name = L.TOOLTIP_SHIFT_INFO, desc = L.TOOLTIP_SHIFT_INFO_DESC },
 	{ key = "unitPrice", type = "toggle", name = L.TOOLTIP_UNIT_PRICE_OPT, desc = L.TOOLTIP_UNIT_PRICE_DESC },
 	{ key = "stackSize", type = "toggle", name = L.TOOLTIP_STACK_SIZE_OPT, desc = L.TOOLTIP_STACK_SIZE_DESC },
+	{ key = "foodBuffs", type = "toggle", name = L.TOOLTIP_FOOD_BUFF_OPT, desc = L.TOOLTIP_FOOD_BUFF_DESC },
 	{ key = "trainerCompare", type = "toggle", name = L.TOOLTIP_TRAINER_COMPARE, desc = L.TOOLTIP_TRAINER_COMPARE_DESC },
 	{ key = "chatItemLinks", type = "toggle", name = L.TOOLTIP_CHAT_ITEM_LINKS, desc = L.TOOLTIP_CHAT_ITEM_LINKS_DESC },
 	{ key = "chatQuestLinks", type = "toggle", name = L.TOOLTIP_CHAT_QUEST_LINKS, desc = L.TOOLTIP_CHAT_QUEST_LINKS_DESC, new = true },

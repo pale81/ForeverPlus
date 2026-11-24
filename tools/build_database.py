@@ -44,7 +44,8 @@ ENTITY_FIELDS = {
               "preQuestSingle", "preQuestGroup", "nextQuestInChain", "breadcrumbForQuestId",
               "exclusiveTo", "objectives", "triggerEnd", "finishedBy", "questLevel",
               "previewPoint", "turnInPoint", "startPoints", "startGate", "startRequiresAny",
-              "startRequiresAll", "startExcluded", "startBlockedBy", "startParent"],
+              "startRequiresAll", "startExcluded", "startBlockedBy", "startParent",
+              "startSkill", "startMaxLevel"],
     "Npc": ["name", "subName", "spawns", "friendlyToFaction", "npcFlags", "questStarts", "questEnds"],
     "Item": ["name", "class", "subClass", "vendors", "npcDrops", "objectDrops", "itemDrops",
              "questRewards", "startQuest", "quality", "itemLevel", "requiredLevel", "icon", "equipLoc"],
@@ -143,7 +144,7 @@ def table_section(text: str, name: str) -> str:
     if start < 0:
         raise RuntimeError(f"QuestAvailable_Forever.lua has no {name} table")
     start += len(marker)
-    next_section = re.search(r"\n(?:gates|names|pre|preAll|excl|chain|parent|skill|minRep|maxRep) = \{", text[start:])
+    next_section = re.search(r"\n(?:gates|names|pre|preAll|excl|chain|parent|skill|minRep|maxRep|maxLevel) = \{", text[start:])
     end = start + next_section.start() if next_section else text.find("\n}", start)
     if end < start:
         raise RuntimeError(f"could not delimit {name} table")
@@ -160,10 +161,21 @@ def parse_quest_starts(payload: bytes) -> dict[int, list]:
             continue
         quest_id = int(quest_match.group(1))
         points = []
+        seen_sources: set[tuple[int, int, int]] = set()
         for map_match in re.finditer(r"\[(\d+)\]\s*=\s*\{([^{}]*)\}", quest_match.group(2)):
             map_id = int(map_match.group(1))
             for packed_text in re.findall(r"\d+", map_match.group(2)):
-                point = decode_packed_point(map_id, int(packed_text))
+                packed = int(packed_text)
+                kind = (packed // 100_000_000) % 10
+                # kind 1 = NPC, 2 = object, 3 = item drop from mobs (up to ~1900 spawns per quest).
+                if kind not in (1, 2):
+                    continue
+                source_key = (map_id, packed // 1_000_000_000, kind)
+                # Entries are ordered densest first: keep one primary point per distinct giver on a map.
+                if source_key in seen_sources:
+                    continue
+                seen_sources.add(source_key)
+                point = decode_packed_point(map_id, packed)
                 if point not in points:
                     points.append(point)
         if points:
@@ -281,6 +293,8 @@ def main() -> int:
         "startExcluded": parse_quest_values(available_payload, "excl", lists=True),
         "startBlockedBy": parse_quest_values(available_payload, "chain"),
         "startParent": parse_quest_values(available_payload, "parent"),
+        "startSkill": parse_quest_values(available_payload, "skill"),
+        "startMaxLevel": parse_quest_values(available_payload, "maxLevel"),
     }
     for field, values in availability.items():
         for quest_id, value in values.items():

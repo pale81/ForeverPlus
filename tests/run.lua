@@ -15378,6 +15378,84 @@ end)()
 	A.ResetSaleMailSummaryState()
 	print("auction sale mail summary OK")
 end)()
+;(function()
+	-- World map quest starts: profession skill & max-level filtering, nearby pin grouping and combined tooltip.
+	local symbols = ns.MapSymbols
+	local wm = ns:GetModule("WorldMap")
+	local collect = uv(symbols.Count, "Collect")
+	local questSource
+	for _, source in ipairs(uv(collect, "sources")) do
+		if uv(source, "QuestStartAvailable") then questSource = source end
+	end
+	assert(questSource, "quest start source registered")
+	local savedStarts, savedLib = uv(questSource, "questStarts"), ns.QuestieDB.Get
+	local savedComplete, savedActive, savedTitle = C_QuestLog.IsQuestFlaggedCompleted, C_QuestLog.GetLogIndexForQuestID, C_QuestLog.GetTitleForQuestID
+	local savedLevel, savedProfs, savedProfInfo = UnitLevel, GetProfessions, GetProfessionInfo
+	local savedOption, savedDisc = wm.db.questStarts, wm.db.discoveries
+
+	C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+	C_QuestLog.GetLogIndexForQuestID = function() return nil end
+	C_QuestLog.GetTitleForQuestID = function() return nil end
+	ns.QuestieDB.Get = function() return { Quest = { Get = function() return nil end } } end
+	wm.db.questStarts, wm.db.discoveries = true, false
+	UnitLevel = function() return 10 end
+	-- Player knows Alchemy (171) at rank 50 only; nil hole in slot 1 verifies select() handling.
+	GetProfessions = function() return nil, 2 end
+	GetProfessionInfo = function(i)
+		if i == 2 then return "Alchemie", 1, 50, 75, 0, 0, 171 end
+	end
+
+	setuv(questSource, "questStarts", {
+		[1429] = {
+			-- Two quests on the same NPC + one slightly offset within 0.8% -> merged into 1 pin, duplicate ID deduped.
+			{ x = 42.1, y = 65.9, data = { id = 1001, name = "Alpha Quest" } },
+			{ x = 42.1, y = 65.9, data = { id = 1002, name = "Beta Quest" } },
+			{ x = 42.5, y = 66.1, data = { id = 1001, name = "Alpha Quest" } },
+			-- Profession quest met (Alchemy 1) and unmet (Blacksmithing 1, Alchemy 75).
+			{ x = 42.2, y = 65.9, data = { id = 1003, name = "Alchemy Intro", skill = 1710001 } },
+			{ x = 42.2, y = 65.9, data = { id = 1004, name = "Smithing Intro", skill = 1640001 } },
+			{ x = 42.2, y = 65.9, data = { id = 1005, name = "Alchemy Expert", skill = 1710075 } },
+			-- Max-level gate: maxLevel 8 hidden at level 10, maxLevel 10 allowed at level 10.
+			{ x = 42.2, y = 65.9, data = { id = 1006, name = "Too High", maxLevel = 8 } },
+			{ x = 42.2, y = 65.9, data = { id = 1007, name = "Just In Time", maxLevel = 10 } },
+			-- Separate location >0.8% away -> second pin.
+			{ x = 48.9, y = 41.6, data = { id = 1008, name = "Northshire Quest" } },
+		},
+	})
+
+	local pins = {}
+	questSource(1429, function(x, y, symbol)
+		pins[#pins + 1] = { x = x, y = y, symbol = symbol }
+	end)
+	assert(#pins == 2, "nearby starts merge into one pin while distant ones stay separate (got " .. #pins .. ")")
+	assert(#pins[1].symbol.data == 4, "group keeps 4 eligible unique quests (1001, 1002, 1003, 1007)")
+	assert(#pins[2].symbol.data == 1 and pins[2].symbol.data[1].id == 1008, "single distant quest stays standalone")
+
+	-- Verify tooltip formatting for single, grouped and >15 capped groups.
+	local lines = {}
+	local tip = { AddLine = function(_, text) lines[#lines + 1] = text end }
+	pins[2].symbol.tooltip(tip, pins[2].symbol)
+	assert(lines[1] == "Northshire Quest" and lines[2] == ns.L.WORLDMAP_QUEST_START, "single quest tooltip format")
+	lines = {}
+	pins[1].symbol.tooltip(tip, pins[1].symbol)
+	assert(lines[1] == ns.L.WORLDMAP_QUEST_START_GROUP:format(4), "grouped tooltip header shows count")
+	assert(lines[2] == "Alchemy Intro" and lines[3] == "Alpha Quest" and lines[4] == "Beta Quest" and lines[5] == "Just In Time",
+		"grouped tooltip sorts titles alphabetically")
+
+	local many = {}
+	for i = 1, 18 do many[i] = { id = 2000 + i, name = ("Quest %02d"):format(i) } end
+	lines = {}
+	pins[1].symbol.tooltip(tip, { data = many })
+	assert(lines[1] == ns.L.WORLDMAP_QUEST_START_GROUP:format(18) and lines[17] == ns.L.WORLDMAP_QUEST_START_MORE:format(3),
+		"large group tooltips cap lines and show remainder count")
+
+	setuv(questSource, "questStarts", savedStarts)
+	ns.QuestieDB.Get, C_QuestLog.IsQuestFlaggedCompleted, C_QuestLog.GetLogIndexForQuestID, C_QuestLog.GetTitleForQuestID =
+		savedLib, savedComplete, savedActive, savedTitle
+	UnitLevel, GetProfessions, GetProfessionInfo = savedLevel, savedProfs, savedProfInfo
+	wm.db.questStarts, wm.db.discoveries = savedOption, savedDisc
+	print("quest start filtering & grouping OK")
+end)()
 dofile("wanderlust.lua")
 dofile("bundled.lua")
 assert(loadfile("emote_voice.lua"))(root, ns)

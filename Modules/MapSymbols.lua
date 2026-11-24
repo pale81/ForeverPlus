@@ -11,6 +11,7 @@ ns.MapSymbols = Symbols
 
 local ENTRANCE_SIZE, FLIGHT_SIZE, INN_SIZE = 22, 16, 15
 local MERGE_DISTANCE = 1 -- entrances closer than this (map percent) share a symbol
+local QUEST_START_MERGE, QUEST_START_TOOLTIP_LIMIT = 0.008, 15 -- canvas fraction; max quest lines per tooltip
 -- npcFlags bits in QuestieDB's Forever data (checked on known flight masters
 -- and innkeepers); the inn flag also marks some mount vendors, so innkeepers
 -- are recognised by their base title as well.
@@ -295,7 +296,8 @@ local function BuildQuestStarts(lib, onDone)
 				id = id, gate = quest.Get(id, "startGate"),
 				any = quest.Get(id, "startRequiresAny"), all = quest.Get(id, "startRequiresAll"),
 				excluded = quest.Get(id, "startExcluded"), blockedBy = quest.Get(id, "startBlockedBy"),
-				parent = quest.Get(id, "startParent"), name = quest.Get(id, "name"),
+				parent = quest.Get(id, "startParent"), skill = quest.Get(id, "startSkill"),
+				maxLevel = quest.Get(id, "startMaxLevel"), name = quest.Get(id, "name"),
 			}
 			for _, point in ipairs(points) do
 				if type(point) == "table" and type(point[1]) == "number"
@@ -429,6 +431,20 @@ local function CompletedOrActive(questID)
 	return C_QuestLog.IsQuestFlaggedCompleted(questID) or C_QuestLog.GetLogIndexForQuestID(questID) ~= nil
 end
 
+local function CollectSkills(skills, ...)
+	for i = 1, select("#", ...) do
+		local index = select(i, ...)
+		if index then
+			local _, _, rank, _, _, _, skillLine = GetProfessionInfo(index)
+			skillLine = ns.Number(skillLine)
+			if skillLine then
+				skills[skillLine] = ns.Number(rank, 0)
+			end
+		end
+	end
+	return skills
+end
+
 local function PlayerQuestCriteria(lib)
 	local level = UnitLevel("player")
 	local _, _, classID = UnitClass("player")
@@ -437,20 +453,25 @@ local function PlayerQuestCriteria(lib)
 	local raceMask = type(enum) == "table" and type(enum.raceMaskById) == "table" and enum.raceMaskById[raceID]
 	if not raceMask and raceID then raceMask = 2 ^ (raceID - 1) end
 	local classMask = classID and 2 ^ (classID - 1)
-	return level, raceMask, classMask
+	local skills = type(GetProfessions) == "function" and type(GetProfessionInfo) == "function"
+		and CollectSkills({}, GetProfessions()) or nil
+	return level, raceMask, classMask, skills
 end
 
-local function QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask)
+local function QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask, playerSkills)
 	local quest = entry.data or entry
 	if CompletedOrActive(quest.id) then
 		return false
 	end
 	if playerLevel == nil then
-		playerLevel, playerRaceMask, playerClassMask = PlayerQuestCriteria(lib)
+		playerLevel, playerRaceMask, playerClassMask, playerSkills = PlayerQuestCriteria(lib)
 	end
 	local gate = type(quest.gate) == "number" and quest.gate or 0
 	local requiredLevel = math.floor(gate / 100000000000)
 	if requiredLevel > 0 and playerLevel < requiredLevel then
+		return false
+	end
+	if type(quest.maxLevel) == "number" and quest.maxLevel > 0 and playerLevel > quest.maxLevel then
 		return false
 	end
 	local raceMask = math.floor((gate % 100000000) / 10000)
@@ -460,6 +481,13 @@ local function QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, play
 	end
 	if classMask ~= 0 and playerClassMask and not HasMaskBit(classMask, playerClassMask) then
 		return false
+	end
+	if type(quest.skill) == "number" and quest.skill > 0 and playerSkills then
+		local skillLine = math.floor(quest.skill / 10000)
+		local requiredSkill = quest.skill % 10000
+		if (playerSkills[skillLine] or 0) < requiredSkill then
+			return false
+		end
 	end
 	if quest.any then
 		local anyFound, anyCompleted = false, false
@@ -488,10 +516,28 @@ local function QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, play
 end
 
 local function QuestStartTooltip(tooltip, symbol)
-	local entry, lib = symbol.data, ns.QuestieDB.Get()
-	local title = ns.QuestieDB.QuestName(lib, entry.id) or entry.name or L.JOURNAL_QUEST_ID:format(entry.id)
-	tooltip:AddLine(title, 1, 1, 1, true)
-	tooltip:AddLine(L.WORLDMAP_QUEST_START, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	local entries, lib = symbol.data, ns.QuestieDB.Get()
+	if entries.id then
+		entries = { entries }
+	end
+	local titles = {}
+	for _, entry in ipairs(entries) do
+		titles[#titles + 1] = ns.QuestieDB.QuestName(lib, entry.id) or entry.name or L.JOURNAL_QUEST_ID:format(entry.id)
+	end
+	if #titles == 1 then
+		tooltip:AddLine(titles[1], 1, 1, 1, true)
+		tooltip:AddLine(L.WORLDMAP_QUEST_START, NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+	else
+		table.sort(titles)
+		tooltip:AddLine(L.WORLDMAP_QUEST_START_GROUP:format(#titles), NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+		local shown = math.min(#titles, QUEST_START_TOOLTIP_LIMIT)
+		for i = 1, shown do
+			tooltip:AddLine(titles[i], 1, 1, 1, true)
+		end
+		if #titles > shown then
+			tooltip:AddLine(L.WORLDMAP_QUEST_START_MORE:format(#titles - shown), 0.8, 0.8, 0.8)
+		end
+	end
 	tooltip:AddLine(L.WORLDMAP_QUEST_START_REQUIREMENTS, 0.8, 0.8, 0.8, true)
 end
 
@@ -502,7 +548,7 @@ Symbols.AddSource(function(mapID, add)
 	end
 	local lib = ns.QuestieDB.Get()
 	if not lib then return end
-	local playerLevel, playerRaceMask, playerClassMask = PlayerQuestCriteria(lib)
+	local playerLevel, playerRaceMask, playerClassMask, playerSkills = PlayerQuestCriteria(lib)
 	local availability = {}
 	-- The discovery marker already shows these quest starts on the zone map.
 	local discoveries = db.discoveries and ns.MapDiscoveries[mapID]
@@ -516,20 +562,38 @@ Symbols.AddSource(function(mapID, add)
 			end
 		end
 	end
+	local groups = {}
 	ForZones(mapID, function(zoneMapID, toMap)
 		for _, entry in ipairs(questStarts[zoneMapID] or {}) do
 			local id = entry.data.id
 			local isAvailable = availability[id]
 			if isAvailable == nil then
-				isAvailable = QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask)
+				isAvailable = QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask, playerSkills)
 				availability[id] = isAvailable
 			end
 			if isAvailable then
 				local x, y = toMap(entry.x, entry.y)
-				add(x, y, { kind = "questStart", atlas = "QuestNormal", size = 16, data = entry.data, tooltip = QuestStartTooltip })
+				local group
+				for _, existing in ipairs(groups) do
+					if math.abs(existing.x - x) < QUEST_START_MERGE and math.abs(existing.y - y) < QUEST_START_MERGE then
+						group = existing
+						break
+					end
+				end
+				if not group then
+					group = { x = x, y = y, entries = {}, quests = {} }
+					groups[#groups + 1] = group
+				end
+				if not group.quests[id] then
+					group.quests[id] = true
+					group.entries[#group.entries + 1] = entry.data
+				end
 			end
 		end
 	end)
+	for _, group in ipairs(groups) do
+		add(group.x, group.y, { kind = "questStart", atlas = "QuestNormal", size = 16, data = group.entries, tooltip = QuestStartTooltip })
+	end
 end)
 
 local function DiscoveryMarks()
@@ -1233,11 +1297,15 @@ function Symbols.Setup()
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
 	events:RegisterEvent("QUEST_POI_UPDATE")
 	events:RegisterEvent("CVAR_UPDATE")
+	events:RegisterEvent("SKILL_LINES_CHANGED")
 	-- The quest log changes in bursts: one refresh after the last change, not one per event.
 	local queued = false
 	events:SetScript("OnEvent", ns.Measured("Map symbols: quest event", function(_, event, cvar)
 		if (event == "QUEST_POI_UPDATE" or event == "CVAR_UPDATE")
 			and (not Options().questTurnIns or (event == "CVAR_UPDATE" and cvar ~= "questPOI")) then
+			return
+		end
+		if event == "SKILL_LINES_CHANGED" and not Options().questStarts then
 			return
 		end
 		if queued or not WorldMapFrame:IsShown() then

@@ -670,6 +670,9 @@ local function EnsureAnglerBearFrame()
 end
 
 local function ShowAnglerBear()
+	if ns.PortraitModes and ns.PortraitModes.StopFlash then
+		ns.PortraitModes.StopFlash()
+	end
 	local frame = EnsureAnglerBearFrame()
 	bearBaseSize = BearSize()
 	bearElapsed = 0
@@ -677,6 +680,10 @@ local function ShowAnglerBear()
 	frame:Show()
 	ns.SetUpdate(frame, "Helpers: angler bear", UpdateAnglerBear)
 	PlayAnglerBearSounds()
+end
+
+function Helpers.StopBearFlash()
+	StopAnglerBear()
 end
 
 function Helpers.PreviewBear()

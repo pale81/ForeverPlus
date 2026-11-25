@@ -29,6 +29,8 @@ local Visuals = ns:NewModule("Visuals", {
 		activeBuffExceptions = {}, -- spell name -> true: never greyed out
 		unitBars = true,
 		playerPortraitWheel = true,
+		portraitModeFlash = true,
+		portraitModeFlashSound = true,
 		portraitModeAssignments = {},
 		portraitModeDisabled = {},
 		portraitModeIcons = {},
@@ -2281,6 +2283,14 @@ function Visuals:OnOptionChanged(key)
 		if ns.PortraitModes then
 			ns.PortraitModes.Refresh()
 		end
+	elseif key == "portraitModeFlash" and not self.db.portraitModeFlash then
+		if ns.PortraitModes and ns.PortraitModes.StopFlash then
+			ns.PortraitModes.StopFlash()
+		end
+	elseif key == "portraitModeFlashSound" and not self.db.portraitModeFlashSound then
+		if ns.PortraitModes and ns.PortraitModes.StopFlashSounds then
+			ns.PortraitModes.StopFlashSounds()
+		end
 	elseif key == "playerDragon" or key == "dragonScale" then
 		Visuals.ApplyPlayerDragon()
 	elseif key == "castsLeft" then
@@ -2347,6 +2357,10 @@ Visuals.options = {
 	end },
 	{ type = "header", name = L.VISUALS_PORTRAIT_HEADER },
 	{ key = "playerPortraitWheel", type = "toggle", name = L.VISUALS_PORTRAIT_WHEEL, desc = L.VISUALS_PORTRAIT_WHEEL_DESC, new = true },
+	{ key = "portraitModeFlash", type = "toggle", name = L.VISUALS_PORTRAIT_FLASH, desc = L.VISUALS_PORTRAIT_FLASH_DESC,
+		parent = "playerPortraitWheel", new = true },
+	{ key = "portraitModeFlashSound", type = "toggle", name = L.VISUALS_PORTRAIT_FLASH_SOUND, desc = L.VISUALS_PORTRAIT_FLASH_SOUND_DESC,
+		parent = "portraitModeFlash", new = true },
 	{ key = "playerDragon", type = "dropdown", name = L.VISUALS_DRAGON, desc = L.VISUALS_DRAGON_DESC, values = {
 		{ "none", L.VISUALS_DRAGON_NONE }, { "gold", L.VISUALS_DRAGON_GOLD }, { "goldWinged", L.VISUALS_DRAGON_GOLD_WINGED },
 		{ "silver", L.VISUALS_DRAGON_SILVER }, { "silverWinged", L.VISUALS_DRAGON_SILVER_WINGED },

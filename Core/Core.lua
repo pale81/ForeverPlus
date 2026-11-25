@@ -1051,6 +1051,16 @@ local function RunSlashCommand(msg)
 	elseif msg == "nat" or msg == "pagle" or msg == "angler"
 		or msg == "bär" or msg == "baer" or msg == "anglerbär" or msg == "anglerbaer" or msg == "bear" or msg == "anglerbear" then
 		ns:GetModule("Helpers").PreviewBear()
+	elseif msg == "brann" or msg == "wander" or msg == "wanderlust" then
+		ns.PortraitModes.PreviewFlash("wanderlust")
+	elseif msg == "chromie" or msg == "rpmodus" then
+		ns.PortraitModes.PreviewFlash("rp")
+	elseif msg == "berserker" then
+		ns.PortraitModes.PreviewFlash("berserker")
+	elseif msg == "muradin" then
+		ns.PortraitModes.PreviewFlash("berserker", "muradin")
+	elseif msg == "grommash" or msg == "grom" then
+		ns.PortraitModes.PreviewFlash("berserker", "grommash")
 	elseif msg == "junk" or msg == "schrott" then
 		ns:GetModule("Items"):ShowJunkMenu()
 	elseif msg == "export" then

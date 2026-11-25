@@ -15629,4 +15629,213 @@ dofile("bundled.lua")
 	assert(#calls == 4 and calls[1] == "stimme taverne" and calls[2] == "voice epic"
 		and calls[3] == "stimme" and calls[4] == "voice", "slash commands route to EmoteVoice.Command")
 end)()
+;(function()
+	-- Portrait mode activation flashes & natural-decay client sounds: Wanderlust (Brann), RP (Chromie), Berserker (Muradin/Grommash).
+	local pm = ns.PortraitModes
+	local visuals = ns:GetModule("Visuals")
+	local helpers = ns:GetModule("Helpers")
+	local flash = uv(pm.StopFlash, "Flash")
+	assert(pm and visuals and helpers and flash, "PortraitModes Flash subsystem loaded")
+
+	-- All four new TGA assets exist on disk.
+	for _, file in ipairs({ "ModeBrann.tga", "ModeChromie.tga", "ModeMuradin.tga", "ModeGrommash.tga" }) do
+		local f = io.open(root .. "/Media/" .. file, "rb")
+		assert(f, "missing mode flash texture: " .. file)
+		local header = f:read(18)
+		f:close()
+		assert(header and #header == 18, "valid TGA header for " .. file)
+	end
+
+	-- Visuals options expose portraitModeFlash and portraitModeFlashSound with new = true and sensible defaults.
+	local flashOpt, soundOpt
+	for _, opt in ipairs(visuals.options) do
+		if opt.key == "portraitModeFlash" then flashOpt = opt end
+		if opt.key == "portraitModeFlashSound" then soundOpt = opt end
+	end
+	assert(flashOpt and flashOpt.new == true and flashOpt.parent == "playerPortraitWheel" and visuals.db.portraitModeFlash == true,
+		"portraitModeFlash defaults on, is child of playerPortraitWheel and marked NEW")
+	assert(soundOpt and soundOpt.new == true and soundOpt.parent == "portraitModeFlash" and visuals.db.portraitModeFlashSound == true,
+		"portraitModeFlashSound defaults on, is child of portraitModeFlash and marked NEW")
+
+	local savedFlashOpt, savedSoundOpt = visuals.db.portraitModeFlash, visuals.db.portraitModeFlashSound
+	local savedCreate, savedPlay, savedPlayFile, savedStop, savedAfter, savedTicker =
+		CreateFrame, PlaySound, PlaySoundFile, StopSound, C_Timer.After, C_Timer.NewTicker
+	local savedFaction, savedSecret = rawget(_G, "UnitFactionGroup"), rawget(_G, "issecretvalue")
+	local savedW, savedH = UIParent.w, UIParent.h
+	local savedFrame = flash.frame
+	local savedGlobal = rawget(_G, "ForeverPlusModeFlash")
+
+	local WIND_IDS = { [982361] = true, [982363] = true, [982365] = true, [982367] = true }
+	local IMPACT_IDS = { [567634] = true, [1324858] = true, [1324859] = true }
+	local flashFrame, texturePath, strata, mouseEnabled, ignoreAlpha
+	local playedKits, playedFiles, stopped, pendingAfter = {}, {}, {}, {}
+	local nextHandle = 400
+	local factionValue, secretToken = "Alliance", nil
+
+	UIParent.w, UIParent.h = 1600, 900
+	flash.frame = nil
+	ForeverPlusModeFlash = nil
+	UnitFactionGroup = function() return factionValue end
+	issecretvalue = function(v) return secretToken ~= nil and v == secretToken end
+	PlaySound = function(kit, channel)
+		nextHandle = nextHandle + 1
+		playedKits[#playedKits + 1] = { kit = kit, channel = channel, handle = nextHandle }
+		return true, nextHandle
+	end
+	PlaySoundFile = function(id, channel)
+		nextHandle = nextHandle + 1
+		playedFiles[#playedFiles + 1] = { id = id, channel = channel, handle = nextHandle }
+		return true, nextHandle
+	end
+	StopSound = function(handle) stopped[#stopped + 1] = handle end
+	C_Timer.After = function(delay, fn) pendingAfter[#pendingAfter + 1] = { delay = delay, fn = fn } end
+	C_Timer.NewTicker = function() return { Cancel = function() end } end
+	CreateFrame = function(kind, name, parent, template)
+		local f = savedCreate(kind, name, parent, template)
+		if name == "ForeverPlusModeFlash" then
+			flashFrame = f
+			local origStrata = f.SetFrameStrata
+			f.SetFrameStrata = function(self, s) strata = s; return origStrata(self, s) end
+			local origMouse = f.EnableMouse
+			f.EnableMouse = function(self, on) mouseEnabled = on; return origMouse(self, on) end
+			f.SetIgnoreParentAlpha = function(_, on) ignoreAlpha = on end
+			f.SetSize = function(self, w, h) self.w, self.h = w, h end
+			local origCreateTex = f.CreateTexture
+			f.CreateTexture = function(self, ...)
+				local tex = origCreateTex(self, ...)
+				local origSetTex = tex.SetTexture
+				tex.SetTexture = function(t, path) texturePath = path; return origSetTex(t, path) end
+				return tex
+			end
+		end
+		return f
+	end
+
+	-- 1. Wanderlust off -> on triggers Brann Bronzebeard, map open sound, delayed wind gust, natural decay on finish.
+	local wander = ns:GetModule("Wanderlust")
+	local savedWanderOn = wander.db.enabled
+	if pm.IsModeActive("wanderlust") then pm.ToggleMode("wanderlust") end
+	playedKits, playedFiles, stopped, pendingAfter = {}, {}, {}, {}
+	pm.ToggleMode("wanderlust")
+	assert(pm.IsModeActive("wanderlust") and flashFrame and flashFrame:IsShown(), "activating Wanderlust shows Brann")
+	assert(strata == "FULLSCREEN_DIALOG" and mouseEnabled == false and ignoreAlpha == true,
+		"mode flash uses non-interactive fullscreen overlay ignoring parent alpha")
+	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeBrann.tga]], "Wanderlust shows ModeBrann.tga")
+	assert(#playedKits == 1 and playedKits[1].kit == (SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 844) and playedKits[1].channel == "SFX",
+		"Wanderlust plays map/quest log open sound immediately on SFX")
+	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.22) < 0.001, "Wanderlust schedules wind gust 0.22 s later")
+	pendingAfter[1].fn()
+	assert(#playedFiles == 1 and WIND_IDS[playedFiles[1].id] and playedFiles[1].channel == "SFX",
+		"delayed Wanderlust timer plays verified wind gust on SFX")
+	local update = flashFrame:GetScript("OnUpdate")
+	assert(type(update) == "function", "mode flash runs OnUpdate while animating")
+	update(flashFrame, 0.40)
+	local holdW, holdA = flashFrame:GetWidth(), flashFrame:GetAlpha()
+	assert(holdW > 700 and math.abs(holdW - flash.baseSize) < 1 and math.abs(holdA - 0.50) < 0.01,
+		"Brann fills screen height at half alpha during hold")
+	update(flashFrame, 1.35)
+	assert(not flashFrame:IsShown() and flashFrame:GetAlpha() == 0 and flashFrame:GetScript("OnUpdate") == nil,
+		"Brann finishes cleanly and stops OnUpdate (0 CPU idle)")
+	assert(#stopped == 0, "normal completion lets Wanderlust sounds finish decaying naturally")
+
+	-- 2. RP mode off -> on triggers Chromie, spellbook open + delayed quill sound.
+	if pm.IsModeActive("rp") then pm.ToggleMode("rp") end
+	playedKits, playedFiles, stopped, pendingAfter = {}, {}, {}, {}
+	pm.ToggleMode("rp")
+	assert(pm.IsModeActive("rp") and flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeChromie.tga]],
+		"activating RP mode shows ModeChromie.tga")
+	assert(#playedKits == 1 and playedKits[1].kit == (SOUNDKIT and SOUNDKIT.IG_SPELLBOOK_OPEN or 829),
+		"RP mode plays spellbook open immediately")
+	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.26) < 0.001, "RP mode schedules quill sound 0.26 s later")
+	pendingAfter[1].fn()
+	assert(#playedKits == 2 and playedKits[2].kit == (SOUNDKIT and SOUNDKIT.IG_WRITE_QUEST or 3093),
+		"delayed RP timer plays quill sound")
+	-- Deactivating RP mode mid-flash stops the active portrait and sounds.
+	local stoppedBeforeRP = #stopped
+	pm.ToggleMode("rp")
+	assert(not flashFrame:IsShown() and #stopped == stoppedBeforeRP + 2,
+		"deactivating RP mode mid-flash stops visual and sound handles")
+
+	-- 3. Berserker mode chooses Muradin for Alliance, Grommash for Horde, and falls back to Muradin on secret faction.
+	if pm.IsModeActive("berserker") then pm.ToggleMode("berserker") end
+	playedKits, playedFiles, stopped, pendingAfter = {}, {}, {}, {}
+	factionValue = "Alliance"
+	pm.ToggleMode("berserker")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeMuradin.tga]],
+		"Alliance Berserker shows ModeMuradin.tga")
+	assert(#playedFiles == 1 and playedFiles[1].id == 567473, "Berserker plays metal unsheathe immediately")
+	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.18) < 0.001, "Berserker schedules impact 0.18 s later")
+	pendingAfter[1].fn()
+	local firstImpactID = playedFiles[2] and playedFiles[2].id
+	assert(#playedFiles == 2 and IMPACT_IDS[firstImpactID], "delayed Berserker timer plays verified heavy impact")
+	-- Overshoot punch peaks above base size during fade-in end, then settles and finishes cleanly.
+	flashFrame:GetScript("OnUpdate")(flashFrame, 0.14)
+	assert(flashFrame:GetWidth() > flash.baseSize * 1.02, "Berserker has punch overshoot scale on entry")
+	flashFrame:GetScript("OnUpdate")(flashFrame, 1.30)
+	assert(not flashFrame:IsShown() and #stopped == 0, "Berserker finishes cleanly with natural sound decay")
+
+	-- Horde Berserker shows Grommash and alternates the impact sound.
+	pm.ToggleMode("berserker")
+	playedKits, playedFiles, stopped, pendingAfter = {}, {}, {}, {}
+	factionValue = "Horde"
+	pm.ToggleMode("berserker")
+	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeGrommash.tga]], "Horde Berserker shows ModeGrommash.tga")
+	pendingAfter[1].fn()
+	assert(IMPACT_IDS[playedFiles[2].id] and playedFiles[2].id ~= firstImpactID,
+		"second Berserker impact alternates to another verified hit")
+
+	-- Secret faction falls back cleanly to Muradin without error.
+	secretToken = "SECRET_FACTION"
+	factionValue = secretToken
+	pm.PreviewFlash("berserker")
+	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeMuradin.tga]], "secret faction falls back cleanly to Muradin")
+	secretToken, factionValue = nil, "Alliance"
+
+	-- 4. Disabling portraitModeFlashSound stops active sounds immediately and keeps future previews silent;
+	--    disabling portraitModeFlash hides the active flash and suppresses ToggleMode flashes.
+	ns.SetOption("Visuals", "portraitModeFlashSound", false)
+	assert(flashFrame:IsShown() and #stopped > 0, "disabling portraitModeFlashSound stops active sounds without hiding portrait")
+	ns.SetOption("Visuals", "portraitModeFlash", false)
+	assert(not flashFrame:IsShown() and flashFrame:GetScript("OnUpdate") == nil, "disabling portraitModeFlash stops active flash")
+	playedKits, playedFiles, pendingAfter = {}, {}, {}
+	pm.ToggleMode("berserker")
+	pm.ToggleMode("berserker")
+	assert(not flashFrame:IsShown() and #playedFiles == 0, "portraitModeFlash = false suppresses activation flash")
+
+	-- 5. Slash commands preview each mode and explicit faction variants.
+	ns.SetOption("Visuals", "portraitModeFlash", true)
+	SlashCmdList.FOREVERPLUS("brann")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeBrann.tga]], "/fp brann previews Brann")
+	SlashCmdList.FOREVERPLUS("chromie")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeChromie.tga]], "/fp chromie previews Chromie")
+	SlashCmdList.FOREVERPLUS("grommash")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeGrommash.tga]], "/fp grommash previews Grommash")
+	SlashCmdList.FOREVERPLUS("muradin")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeMuradin.tga]], "/fp muradin previews Muradin")
+	SlashCmdList.FOREVERPLUS("berserker")
+	assert(flashFrame:IsShown() and texturePath == [[Interface\AddOns\ForeverPlus\Media\ModeMuradin.tga]], "/fp berserker uses player faction")
+
+	-- 6. Mutual exclusion with Nat Pagle (Helpers.PreviewBear hides mode flash and vice versa).
+	helpers.PreviewBear()
+	assert(not flashFrame:IsShown(), "starting Nat Pagle flash stops active PortraitModes flash")
+	pm.PreviewFlash("wanderlust")
+	assert(flashFrame:IsShown(), "starting PortraitModes flash shows Brann cleanly")
+	pm.StopFlash()
+	helpers.StopBearFlash()
+
+	-- Restore state cleanly.
+	if pm.IsModeActive("wanderlust") ~= (savedWanderOn and true or false) then
+		ns.SetOption("Wanderlust", "enabled", savedWanderOn)
+	end
+	if pm.IsModeActive("berserker") then pm.ToggleMode("berserker") end
+	ns.SetOption("Visuals", "portraitModeFlashSound", savedSoundOpt)
+	ns.SetOption("Visuals", "portraitModeFlash", savedFlashOpt)
+	UIParent.w, UIParent.h = savedW, savedH
+	CreateFrame, PlaySound, PlaySoundFile, StopSound, C_Timer.After, C_Timer.NewTicker =
+		savedCreate, savedPlay, savedPlayFile, savedStop, savedAfter, savedTicker
+	UnitFactionGroup, issecretvalue = savedFaction, savedSecret
+	flash.frame = savedFrame
+	ForeverPlusModeFlash = savedGlobal
+	print("portrait mode flashes OK")
+end)()
 assert(loadfile("emote_voice.lua"))(root, ns)

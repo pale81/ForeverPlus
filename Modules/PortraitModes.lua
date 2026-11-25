@@ -364,6 +364,258 @@ end
 
 local UpdatePlayerPortrait, RefreshMenu, RefreshIconPicker, StopDrag
 
+---------------------------------------------------------------------------
+-- Mode activation portrait flashes and natural-decay client sounds
+---------------------------------------------------------------------------
+local Flash = {
+	frame = nil,
+	activeMode = nil,
+	profile = nil,
+	elapsed = nil,
+	baseSize = 720,
+	gen = 0,
+	handles = {},
+	fileIndex = {},
+	profiles = {
+		wanderlust = {
+			art = [[Interface\AddOns\ForeverPlus\Media\ModeBrann.tga]],
+			fadeIn = 0.24,
+			hold = 0.54,
+			shrink = 0.87,
+			startScale = 0.92,
+			peakScale = 1.00,
+			minScale = 0.04,
+			maxAlpha = 0.50,
+			sound1 = { kit = "IG_QUEST_LOG_OPEN", fallbackKit = 844 },
+			sound2 = { delay = 0.22, files = { 982361, 982363, 982365, 982367 } },
+		},
+		rp = {
+			art = [[Interface\AddOns\ForeverPlus\Media\ModeChromie.tga]],
+			fadeIn = 0.22,
+			hold = 0.48,
+			shrink = 0.85,
+			startScale = 0.94,
+			peakScale = 1.00,
+			minScale = 0.04,
+			maxAlpha = 0.50,
+			sound1 = { kit = "IG_SPELLBOOK_OPEN", fallbackKit = 829 },
+			sound2 = { delay = 0.26, kit = "IG_WRITE_QUEST", fallbackKit = 3093 },
+		},
+		berserker = {
+			artAlliance = [[Interface\AddOns\ForeverPlus\Media\ModeMuradin.tga]],
+			artHorde = [[Interface\AddOns\ForeverPlus\Media\ModeGrommash.tga]],
+			fadeIn = 0.14,
+			hold = 0.42,
+			shrink = 0.74,
+			startScale = 0.84,
+			peakScale = 1.04,
+			minScale = 0.04,
+			maxAlpha = 0.56,
+			sound1 = { files = { 567473 } },
+			sound2 = { delay = 0.18, files = { 567634, 1324858, 1324859 } },
+		},
+	},
+}
+
+function Flash.ArtPath(modeKey, variant)
+	local profile = Flash.profiles[modeKey]
+	if not profile then return nil end
+	if profile.art then
+		return profile.art
+	end
+	if variant == "grommash" then
+		return profile.artHorde
+	elseif variant == "muradin" then
+		return profile.artAlliance
+	end
+	local faction = type(UnitFactionGroup) == "function" and UnitFactionGroup("player") or nil
+	if faction and not ns.Secret(faction) and faction == "Horde" then
+		return profile.artHorde
+	end
+	return profile.artAlliance
+end
+
+function Flash.StopSounds()
+	Flash.gen = Flash.gen + 1
+	for i = 1, #Flash.handles do
+		if StopSound then
+			StopSound(Flash.handles[i])
+		end
+		Flash.handles[i] = nil
+	end
+end
+
+function Flash.PlaySoundSpec(spec, key)
+	if not spec then return end
+	local ok, handle
+	if spec.files then
+		if not PlaySoundFile then return end
+		local idx = ((Flash.fileIndex[key] or 0) % #spec.files) + 1
+		Flash.fileIndex[key] = idx
+		ok, handle = PlaySoundFile(spec.files[idx], "SFX")
+	elseif spec.kit or spec.fallbackKit then
+		if not PlaySound then return end
+		local kitID = (SOUNDKIT and spec.kit and SOUNDKIT[spec.kit]) or spec.fallbackKit
+		if kitID then
+			ok, handle = PlaySound(kitID, "SFX")
+		end
+	end
+	if ok and handle then
+		Flash.handles[#Flash.handles + 1] = handle
+	end
+end
+
+function Flash.PlaySounds(modeKey, profile)
+	Flash.StopSounds()
+	local db = VisualsDB()
+	if not (db and db.portraitModeFlashSound) then
+		return
+	end
+	local gen = Flash.gen
+	Flash.PlaySoundSpec(profile.sound1, modeKey .. ":1")
+	if profile.sound2 then
+		ns.After("PortraitModes: mode flash sound", profile.sound2.delay or 0.20, function()
+			local cur = VisualsDB()
+			if gen ~= Flash.gen or not (cur and cur.portraitModeFlashSound) then
+				return
+			end
+			Flash.PlaySoundSpec(profile.sound2, modeKey .. ":2")
+		end)
+	end
+end
+
+function Flash.BaseSize()
+	local width = ns.Number(UIParent and UIParent:GetWidth(), 1280)
+	local height = ns.Number(UIParent and UIParent:GetHeight(), 720)
+	local size = math.min(width, height) * 0.96
+	return size > 0 and size or 720
+end
+
+function Flash.Apply(t)
+	local profile = Flash.profile
+	if not (profile and Flash.frame) then return end
+	local alpha, scale
+	local fadeIn, hold, shrink = profile.fadeIn, profile.hold, profile.shrink
+	local peak = profile.peakScale or 1
+	if t < fadeIn then
+		local p = t / fadeIn
+		local eased = 1 - (1 - p) * (1 - p)
+		alpha = profile.maxAlpha * eased
+		scale = profile.startScale + (peak - profile.startScale) * eased
+	elseif t < fadeIn + hold then
+		alpha = profile.maxAlpha
+		if peak ~= 1 then
+			local p = math.min(1, (t - fadeIn) / (hold * 0.5))
+			scale = peak + (1 - peak) * (1 - (1 - p) * (1 - p))
+		else
+			scale = 1
+		end
+	else
+		local p = math.min(1, (t - fadeIn - hold) / shrink)
+		local eased = p * p * (0.4 + 0.6 * p)
+		scale = 1 - (1 - profile.minScale) * eased
+		alpha = profile.maxAlpha * (1 - p * p)
+	end
+	local size = Flash.baseSize * scale
+	Flash.frame:SetSize(size, size)
+	Flash.frame:SetAlpha(alpha)
+end
+
+function Flash.Hide()
+	Flash.elapsed = nil
+	Flash.activeMode = nil
+	Flash.profile = nil
+	if Flash.frame then
+		ns.SetUpdate(Flash.frame, "PortraitModes: mode flash", nil)
+		Flash.frame:SetAlpha(0)
+		if Flash.frame:IsShown() then
+			Flash.frame:Hide()
+		end
+	end
+end
+
+function Flash.Stop()
+	Flash.StopSounds()
+	Flash.Hide()
+end
+
+function Flash.OnUpdate(_, delta)
+	local profile = Flash.profile
+	if not (Flash.elapsed and profile) then
+		Flash.Hide()
+		return
+	end
+	Flash.elapsed = Flash.elapsed + (delta or 0)
+	local total = profile.fadeIn + profile.hold + profile.shrink
+	if Flash.elapsed >= total then
+		-- Let mode sounds finish decaying naturally without cutting them off.
+		Flash.Hide()
+		return
+	end
+	Flash.Apply(Flash.elapsed)
+end
+
+function Flash.EnsureFrame()
+	if Flash.frame then
+		return Flash.frame
+	end
+	local frame = CreateFrame("Frame", "ForeverPlusModeFlash", UIParent)
+	frame:SetFrameStrata("FULLSCREEN_DIALOG")
+	frame:SetFrameLevel(100)
+	frame:EnableMouse(false)
+	if frame.SetIgnoreParentAlpha then
+		frame:SetIgnoreParentAlpha(true)
+	end
+	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	frame.art = frame:CreateTexture(nil, "OVERLAY")
+	frame.art:SetAllPoints()
+	frame:SetScript("OnHide", ns.Measured("PortraitModes: mode flash hide", Flash.Hide))
+	frame:Hide()
+	Flash.frame = frame
+	return frame
+end
+
+function Flash.Show(modeKey, variant)
+	local profile = Flash.profiles[modeKey]
+	if not profile then return false end
+	local helpers = ns:GetModule("Helpers")
+	if helpers and helpers.StopBearFlash then
+		helpers.StopBearFlash()
+	end
+	local frame = Flash.EnsureFrame()
+	local art = Flash.ArtPath(modeKey, variant)
+	frame.art:SetTexture(art)
+	Flash.activeMode = modeKey
+	Flash.profile = profile
+	Flash.baseSize = Flash.BaseSize()
+	Flash.elapsed = 0
+	Flash.Apply(0)
+	frame:Show()
+	ns.SetUpdate(frame, "PortraitModes: mode flash", Flash.OnUpdate)
+	Flash.PlaySounds(modeKey, profile)
+	return true
+end
+
+function PortraitModes.StopFlash()
+	Flash.Stop()
+end
+
+function PortraitModes.StopFlashSounds()
+	Flash.StopSounds()
+end
+
+function PortraitModes.PreviewFlash(modeKey, variant)
+	if modeKey == "angler" then
+		local helpers = ns:GetModule("Helpers")
+		if helpers and helpers.PreviewBear then
+			helpers.PreviewBear()
+			return true
+		end
+		return false
+	end
+	return Flash.Show(modeKey, variant)
+end
+
 local function SetModeIcon(modeKey, iconID)
 	local mode = MODE_BY_KEY[modeKey]
 	local db = VisualsDB()
@@ -378,7 +630,8 @@ end
 
 local function ToggleMode(modeKey)
 	if not MODE_BY_KEY[modeKey] or modeKey == "normal" then return end
-	local target = not IsModeActive(modeKey)
+	local wasActive = IsModeActive(modeKey)
+	local target = not wasActive
 	suppressOptionNotify = true
 	for _, feature in ipairs(ModeFeatures(modeKey)) do
 		if IsFeatureSelected(ItemKey(feature)) then
@@ -386,6 +639,16 @@ local function ToggleMode(modeKey)
 		end
 	end
 	suppressOptionNotify = false
+	if modeKey ~= "angler" then
+		local db = VisualsDB()
+		if not wasActive and target and IsModeActive(modeKey) then
+			if db and db.portraitModeFlash then
+				Flash.Show(modeKey)
+			end
+		elseif not target and Flash.activeMode == modeKey then
+			Flash.Stop()
+		end
+	end
 	UpdatePlayerPortrait()
 	RefreshMenu()
 end
@@ -1136,6 +1399,7 @@ local function CreateModeMenu()
 	panel.ModeStatus = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	panel.ModeStatus:SetPoint("LEFT", 4, 0)
 	panel.ModeStatus:SetJustifyH("LEFT")
+	panel.ModeStatus:SetWordWrap(false)
 
 	local toggleButton = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
 	toggleButton:SetSize(108, 22)
@@ -1144,6 +1408,23 @@ local function CreateModeMenu()
 		ToggleMode(selectedMenuMode)
 	end))
 	panel.ToggleButton = toggleButton
+
+	local previewButton = CreateFrame("Button", nil, header, "UIPanelButtonTemplate")
+	previewButton:SetSize(74, 22)
+	previewButton:SetPoint("RIGHT", toggleButton, "LEFT", -6, 0)
+	previewButton:SetText(L.PORTRAIT_MODES_PREVIEW)
+	previewButton:SetScript("OnClick", ns.Measured("PortraitModes: preview mode flash", function()
+		PortraitModes.PreviewFlash(selectedMenuMode)
+	end))
+	previewButton:SetScript("OnEnter", ns.Measured("PortraitModes: preview button tooltip", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L.PORTRAIT_MODES_PREVIEW)
+		GameTooltip_AddNormalLine(GameTooltip, L.PORTRAIT_MODES_PREVIEW_DESC)
+		GameTooltip:Show()
+	end))
+	previewButton:SetScript("OnLeave", GameTooltip_Hide)
+	panel.PreviewButton = previewButton
+	panel.ModeStatus:SetPoint("RIGHT", previewButton, "LEFT", -6, 0)
 
 	local divider = inset:CreateTexture(nil, "ARTWORK")
 	divider:SetHeight(1)

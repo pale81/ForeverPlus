@@ -331,7 +331,6 @@ local PAGES = {
 		{ "DungeonJournal", header = L.JOURNAL_TITLE },
 		{ "Flight", header = L.FLIGHT_TITLE },
 		{ "Waypoint", header = L.WAYPOINT_TITLE },
-		{ "GuidingWind", header = L.WIND_TITLE },
 		{ "Scout", header = L.SCOUT_TITLE },
 		{ "Innkeepers", header = L.INNS_TITLE },
 		{ "Transports", header = L.TRANSPORTS_TITLE },
@@ -351,6 +350,7 @@ local PAGES = {
 		{ "Wanderlust" },
 	},
 	{ group = 1, title = L.FONTS_TITLE, { "Fonts" } },
+	{ group = 2, title = L.WIND_TITLE, { "GuidingWind" } },
 	{ group = 2, title = L.RADAR_TITLE, { "RecipeRadar" } },
 }
 ns.SettingsPages = PAGES -- read by the tests: every option must appear on a page

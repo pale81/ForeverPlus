@@ -11559,6 +11559,7 @@ end)()
 	local solo = ns:GetModule("SoloParty")
 	local landing = ns:GetModule("Landing")
 	local combatText = ns:GetModule("CombatText")
+	local wind = ns:GetModule("GuidingWind")
 	local oldCreate, oldPlayer, oldHook = CreateFrame, PlayerFrame, hooksecurefunc
 	local oldShift, oldMod, oldEdit, oldRegistry = IsShiftKeyDown, IsModifierKeyDown, EditModeManagerFrame, EventRegistry
 	local oldCursor, oldTicker = GetCursorPosition, C_Timer.NewTicker
@@ -11616,6 +11617,7 @@ end)()
 		em = emotes.db.enabled, cam = camera.db.enabled,
 		spOn = solo.db.enabled, spCrit = solo.db.criticals, spBloody = solo.db.bloody,
 		land = landing.db.enabled, ct = combatText.db.enabled,
+		windOn = wind.db.enabled, windInt = wind.db.interval, windStr = wind.db.strength,
 	}
 	ns.SetOption("Wanderlust", "enabled", false)
 	ns.SetOption("Helpers", "fishing", false)
@@ -11623,6 +11625,7 @@ end)()
 	ns.SetOption("SoloParty", "bloody", false)
 	ns.SetOption("Landing", "enabled", true)
 	ns.SetOption("CombatText", "enabled", false)
+	ns.SetOption("GuidingWind", "enabled", false)
 
 	local onEvent = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
 	assert(visuals.db.playerPortraitWheel and saved.mode == 1, "new characters start with their standard portrait")
@@ -11789,27 +11792,75 @@ end)()
 	assert(pm.ModeIcon("berserker") == 132400 and icon.asset == 132400)
 	menuFrame:Hide()
 
-	-- Wrap forward to normal and backward to slot 5.
+	-- Slot 6: Guiding Wind mode with its own WoW icon and menu controls.
+	shift = true
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+	scroll(wheel, 1)
+	assert(visuals.cdb.playerPortraitMode == 6 and icon.asset == 236154, "slot 6 is Guiding Wind with gale icon")
+	shift = false
+	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+	click(wheel, "LeftButton")
+	assert(wind.db.enabled == true and pm.IsModeActive("guidingWind") and icon.desaturated == false)
+	-- Right-click opens Guiding Wind tab with interval and strength controls.
+	click(wheel, "RightButton")
+	assert(menuFrame and menuFrame:IsShown() and #menuFrame.tabs == 5, "portrait menu has 5 mode tabs")
+	local intervalRow, strengthRow
+	for _, row in ipairs(menuFrame.rows) do
+		if row:IsShown() and row.entry and row.entry.kind == "control" then
+			if row.entry.control.key == "interval" then intervalRow = row end
+			if row.entry.control.key == "strength" then strengthRow = row end
+		end
+	end
+	assert(intervalRow and strengthRow, "Guiding Wind tab exposes interval and strength controls")
+	local startInt = wind.db.interval
+	intervalRow.Plus:GetScript("OnClick")(intervalRow.Plus)
+	assert(wind.db.interval == startInt + 1, "interval + button increases gust interval")
+	intervalRow.Minus:GetScript("OnClick")(intervalRow.Minus)
+	assert(wind.db.interval == startInt, "interval - button decreases gust interval")
+	-- Moving all three sub-options away still leaves the interval & strength controls expandable and visible.
+	assert(pm.MoveFeature("GuidingWind:autoGusts", "wanderlust")
+		and pm.MoveFeature("GuidingWind:biomeParticles", "wanderlust")
+		and pm.MoveFeature("GuidingWind:sound", "wanderlust"))
+	local stillHasInterval = false
+	for _, row in ipairs(menuFrame.rows) do
+		if row:IsShown() and row.entry and row.entry.kind == "control" and row.entry.control.key == "interval" then
+			stillHasInterval = true
+			break
+		end
+	end
+	assert(stillHasInterval, "Guiding Wind controls stay visible even after moving all sub-options")
+	pm.ResetAssignments()
+	assert(pm.PreviewFlash("guidingWind") == true and wind.GetState().active, "Guiding Wind header preview triggers a gust")
+	menuFrame:Hide()
+	click(wheel, "LeftButton")
+	assert(wind.db.enabled == false and not wind.GetState().active and not pm.IsModeActive("guidingWind") and icon.desaturated == true)
+	-- Preview still works when Guiding Wind is disabled (without re-enabling it or starting auto-gusts).
+	assert(pm.PreviewFlash("guidingWind") == true and wind.GetState().active
+		and wind.db.enabled == false and not wind.GetState().timerActive,
+		"Guiding Wind preview works while mode is disabled")
+	ns.SetOption("GuidingWind", "enabled", false)
+
+	-- Wrap forward to normal and backward to slot 6.
 	shift = true
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
 	scroll(wheel, 1)
 	assert(visuals.cdb.playerPortraitMode == 1 and not icon:IsShown() and not background:IsShown())
 	assert(wheel.clickEnabled == false and wheel.motionEnabled == false, "normal portrait passes clicks through")
 	scroll(wheel, -1)
-	assert(visuals.cdb.playerPortraitMode == 5 and icon:IsShown(), "reverse scrolling also wraps")
+	assert(visuals.cdb.playerPortraitMode == 6 and icon:IsShown(), "reverse scrolling also wraps to slot 6")
 
 	-- Vehicle, Edit Mode and disabling the option hide the overlay cleanly.
 	frame.unit = "vehicle"
 	unitChanged(frame)
 	scroll(wheel, -1)
-	assert(not wheel.wheelEnabled and not icon:IsShown() and visuals.cdb.playerPortraitMode == 5)
+	assert(not wheel.wheelEnabled and not icon:IsShown() and visuals.cdb.playerPortraitMode == 6)
 	frame.unit = "player"
 	unitChanged(frame)
 	assert(wheel.wheelEnabled and icon:IsShown())
 	edit = true
 	callbacks["EditMode.Enter"]()
 	scroll(wheel, -1)
-	assert(not wheel.wheelEnabled and not wheel.clickEnabled and visuals.cdb.playerPortraitMode == 5)
+	assert(not wheel.wheelEnabled and not wheel.clickEnabled and visuals.cdb.playerPortraitMode == 6)
 	edit = false
 	callbacks["EditMode.Exit"]()
 	assert(wheel.wheelEnabled and wheel.clickEnabled)
@@ -11817,14 +11868,17 @@ end)()
 	onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
 	assert(not wheel.wheelEnabled)
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
-	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 5)
+	assert(not icon:IsShown() and not background:IsShown() and visuals.cdb.playerPortraitMode == 6)
 	ns.SetOption("Visuals", "playerPortraitWheel", true)
-	assert(icon:IsShown() and icon.asset == 132400)
+	assert(icon:IsShown() and icon.asset == 236154)
 
 	-- Restore state cleanly.
 	ns.SetOption("Visuals", "playerPortraitWheel", false)
 	visuals.db.playerPortraitWheel, visuals.cdb.playerPortraitMode = true, saved.mode
 	pm.ResetAssignments()
+	ns.SetOption("GuidingWind", "enabled", saved.windOn)
+	ns.SetOption("GuidingWind", "interval", saved.windInt)
+	ns.SetOption("GuidingWind", "strength", saved.windStr)
 	ns.SetOption("Wanderlust", "enabled", saved.wl)
 	ns.SetOption("Wanderlust", "showBags", saved.wlBags)
 	ns.SetOption("Helpers", "fishing", saved.fish)
@@ -15017,18 +15071,21 @@ end)()
 	assert(wind.db.enabled == true and wind.db.autoGusts == true
 		and wind.db.biomeParticles == true and wind.db.sound == true and wind.db.interval == 14
 		and wind.db.strength == 75, "GuidingWind defaults are sensible and non-breaking")
-	local foundOnPage = false
+	local foundOwnPage = false
 	for _, page in ipairs(ns.SettingsPages) do
-		for _, entry in ipairs(page) do
-			if entry[1] == "GuidingWind" then foundOnPage = true end
+		if page.title == ns.L.WIND_TITLE and #page == 1 and page[1][1] == "GuidingWind" then
+			foundOwnPage = true
 		end
 	end
-	assert(foundOnPage, "GuidingWind is registered on a settings page")
+	assert(foundOwnPage, "GuidingWind has its own dedicated settings page")
+	local intervalOpt
 	for _, opt in ipairs(wind.options) do
 		if opt.key then
 			assert(opt.new == true, "new GuidingWind option carries new=true: " .. tostring(opt.key))
 		end
+		if opt.key == "interval" then intervalOpt = opt end
 	end
+	assert(intervalOpt and intervalOpt.min == 5 and intervalOpt.max == 60, "interval slider covers 5..60 s")
 	assert(type(ForeverPlus_SummonGuidingWind) == "function"
 		and BINDING_NAME_FOREVERPLUS_GUIDINGWIND == ns.L.WIND_BINDING, "key binding hook and label registered")
 
@@ -15183,13 +15240,15 @@ end)()
 	ok, reason = wind.Summon(true)
 	assert(not ok and reason == "arrived" and way.Target() == nil, "arrival check clears waypoint when close")
 
-	-- PortraitModes: guidingWind is an optional entry in Wanderlust mode, unselected by default.
-	assert(pm.FeatureMode("guidingWind") == "wanderlust" and not pm.IsFeatureSelected("guidingWind"),
-		"GuidingWind is registered in Wanderlust mode as optional (unselected by default)")
-	pm.SetFeatureSelected("guidingWind", true)
-	assert(pm.IsFeatureSelected("guidingWind"), "GuidingWind can be opted into Wanderlust mode")
+	-- PortraitModes: guidingWind has its own dedicated mode slot with WoW gale icon.
+	assert(pm.FeatureMode("guidingWind") == "guidingWind" and pm.IsFeatureSelected("guidingWind"),
+		"GuidingWind is registered in its own portrait mode and selected by default")
+	assert(pm.ModeIcon("guidingWind") == 236154, "GuidingWind mode uses verified WoW gale icon 236154")
+	assert(pm.MoveFeature("guidingWind", "wanderlust") and pm.FeatureMode("guidingWind") == "wanderlust",
+		"GuidingWind can be reassigned onto Wanderlust mode")
 	pm.ResetAssignments()
-	assert(not pm.IsFeatureSelected("guidingWind"), "ResetAssignments restores optional default")
+	assert(pm.FeatureMode("guidingWind") == "guidingWind" and pm.IsFeatureSelected("guidingWind"),
+		"ResetAssignments restores GuidingWind to its own portrait mode")
 
 	-- Restore state cleanly.
 	way.Clear()

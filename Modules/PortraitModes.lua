@@ -16,7 +16,7 @@ local MINUS_UP = [[Interface\Buttons\UI-MinusButton-Up]]
 local MINUS_DOWN = [[Interface\Buttons\UI-MinusButton-Down]]
 local PLUS_HIGHLIGHT = [[Interface\Buttons\UI-PlusButton-Hilight]]
 
--- Slot 1 is always the standard Blizzard portrait; slots 2..5 use full-bleed
+-- Slot 1 is always the standard Blizzard portrait; slots 2..6 use full-bleed
 -- original Blizzard icons from the client (every ID verified in Data/MacroIcons.lua).
 local MODES = {
 	{ key = "normal" },
@@ -49,13 +49,20 @@ local MODES = {
 		icon = 132400,
 		presets = { 132400, 132397, 132403, 132393, 132355, 132277, 136009, 236364, 236304, 236303 },
 	},
+	{
+		key = "guidingWind",
+		name = L.WIND_TITLE,
+		short = L.PORTRAIT_MODE_WIND_SHORT,
+		icon = 236154,
+		presets = { 236154, 136018, 132845, 136046, 136114, 132837, 1029585, 136022, 237001, 237007 },
+	},
 }
 local MODE_BY_KEY = {}
 for index, mode in ipairs(MODES) do
 	mode.index = index
 	MODE_BY_KEY[mode.key] = mode
 end
-local SELECTABLE_MODES = { MODES[2], MODES[3], MODES[4], MODES[5] }
+local SELECTABLE_MODES = { MODES[2], MODES[3], MODES[4], MODES[5], MODES[6] }
 
 local function ModuleOn(moduleName, key)
 	local mod = ns:GetModule(moduleName)
@@ -66,7 +73,7 @@ local function SetModuleOn(moduleName, key, value)
 	ns.SetOption(moduleName, key, value and true or false)
 end
 
--- Draggable feature blocks that can belong to any of the four modes.
+-- Draggable feature blocks that can belong to any of the five modes.
 local FEATURES = {
 	{
 		key = "wanderlust",
@@ -90,8 +97,7 @@ local FEATURES = {
 	},
 	{
 		key = "guidingWind",
-		defaultMode = "wanderlust",
-		defaultSelected = false,
+		defaultMode = "guidingWind",
 		name = L.WIND_TITLE,
 		desc = L.WIND_ENABLE_DESC,
 		modules = { GuidingWind = true },
@@ -101,6 +107,31 @@ local FEATURES = {
 			{ module = "GuidingWind", key = "autoGusts", name = L.WIND_AUTO, desc = L.WIND_AUTO_DESC },
 			{ module = "GuidingWind", key = "biomeParticles", name = L.WIND_BIOME, desc = L.WIND_BIOME_DESC },
 			{ module = "GuidingWind", key = "sound", name = L.WIND_SOUND, desc = L.WIND_SOUND_DESC },
+		},
+		controls = {
+			{
+				module = "GuidingWind", key = "interval",
+				name = L.WIND_INTERVAL, desc = L.WIND_INTERVAL_DESC,
+				min = 5, max = 60, step = 1, default = 14,
+				format = function(v) return L.WIND_INTERVAL_FMT:format(v) end,
+				enabled = function() return ModuleOn("GuidingWind", "autoGusts") end,
+			},
+			{
+				module = "GuidingWind", key = "strength",
+				name = L.WIND_STRENGTH, desc = L.WIND_STRENGTH_DESC,
+				min = 30, max = 100, step = 5, default = 75,
+				format = function(v) return ("%d %%"):format(v) end,
+			},
+		},
+		action = {
+			text = L.WIND_PREVIEW_BUTTON,
+			keepOpen = true,
+			onClick = function()
+				local wind = ns:GetModule("GuidingWind")
+				if wind and wind.Preview then
+					wind.Preview(0)
+				end
+			end,
 		},
 	},
 	{
@@ -611,6 +642,12 @@ function PortraitModes.PreviewFlash(modeKey, variant)
 			return true
 		end
 		return false
+	elseif modeKey == "guidingWind" then
+		local wind = ns:GetModule("GuidingWind")
+		if wind and wind.Preview then
+			return wind.Preview(0) and true or false
+		end
+		return false
 	end
 	return Flash.Show(modeKey, variant)
 end
@@ -750,14 +787,15 @@ PortraitModes.ResetAssignments = ResetAssignments
 -- WoW-style PortraitFrameTemplate window with PanelTopTabButtonTemplate tabs
 -- and drag-and-drop reassignment between modes.
 ---------------------------------------------------------------------------
-local MENU_WIDTH = 404
+local MENU_WIDTH = 484
 local INSET_TOP = 86
 local INSET_BOTTOM = 40
 local HEADER_HEIGHT = 36
 local FEATURE_ROW_HEIGHT = 26
 local SUB_ROW_HEIGHT = 22
+local CONTROL_ROW_HEIGHT = 24
 local ACTION_ROW_HEIGHT = 26
-local MAX_LIST_HEIGHT = 276
+local MAX_LIST_HEIGHT = 316
 
 local menu, iconPicker, dragGhost
 local selectedMenuMode = "wanderlust"
@@ -791,15 +829,15 @@ local function StatusText(modeKey)
 	return GRAY_FONT_COLOR:WrapTextInColorCode(L.PORTRAIT_MODE_OFF)
 end
 
-local function IsExpanded(feature, modeFeatureCount, subList)
-	if not (subList and #subList > 0) then
+local function IsExpanded(feature, modeFeatureCount, childCount)
+	if not (childCount and childCount > 0) then
 		return false
 	end
 	local saved = expandedFeatures[feature.key]
 	if saved ~= nil then
 		return saved
 	end
-	return modeFeatureCount == 1 or #subList <= 2
+	return modeFeatureCount == 1 or childCount <= 2
 end
 
 local function SelectWoWTab(tab, selected)
@@ -952,12 +990,70 @@ local function AcquireRow(index)
 	actionButton:SetScript("OnClick", ns.Measured("PortraitModes: action button", function()
 		local entry = row.entry
 		if entry and entry.action and entry.action.onClick then
-			menu:Hide()
+			if not entry.action.keepOpen then
+				menu:Hide()
+			end
 			entry.action.onClick()
 		end
 	end))
 	actionButton:Hide()
 	row.ActionButton = actionButton
+
+	local function StepControl(ctrl, delta)
+		local mod = ns:GetModule(ctrl.module)
+		local current = mod and mod.db and ns.Number(mod.db[ctrl.key], ctrl.default) or ctrl.default
+		local nextVal = math.max(ctrl.min, math.min(ctrl.max, current + delta * ctrl.step))
+		if nextVal ~= current then
+			ns.SetOption(ctrl.module, ctrl.key, nextVal)
+			if not WATCHED_MODULES[ctrl.module] then
+				RefreshMenu()
+			end
+		end
+	end
+
+	local plus = CreateFrame("Button", nil, row)
+	plus:SetSize(18, 18)
+	plus:SetPoint("RIGHT", -6, 0)
+	plus:SetNormalTexture(PLUS_UP)
+	plus:SetPushedTexture(PLUS_DOWN)
+	plus:SetHighlightTexture(PLUS_HIGHLIGHT, "ADD")
+	plus:SetScript("OnClick", ns.Measured("PortraitModes: step up", function()
+		local entry = row.entry
+		if entry and entry.kind == "control" and entry.controlEnabled then
+			StepControl(entry.control, 1)
+		end
+	end))
+	plus:Hide()
+	row.Plus = plus
+
+	local valueText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	valueText:SetPoint("RIGHT", plus, "LEFT", -4, 0)
+	valueText:SetWidth(48)
+	valueText:SetJustifyH("CENTER")
+	valueText:Hide()
+	row.Value = valueText
+
+	local minus = CreateFrame("Button", nil, row)
+	minus:SetSize(18, 18)
+	minus:SetPoint("RIGHT", valueText, "LEFT", -4, 0)
+	minus:SetNormalTexture(MINUS_UP)
+	minus:SetPushedTexture(MINUS_DOWN)
+	minus:SetHighlightTexture(PLUS_HIGHLIGHT, "ADD")
+	minus:SetScript("OnClick", ns.Measured("PortraitModes: step down", function()
+		local entry = row.entry
+		if entry and entry.kind == "control" and entry.controlEnabled then
+			StepControl(entry.control, -1)
+		end
+	end))
+	minus:Hide()
+	row.Minus = minus
+
+	row:SetScript("OnMouseWheel", ns.Measured("PortraitModes: control wheel", function(self, delta)
+		local entry = self.entry
+		if entry and entry.kind == "control" and entry.controlEnabled then
+			StepControl(entry.control, delta > 0 and 1 or -1)
+		end
+	end))
 
 	row:SetScript("OnClick", ns.Measured("PortraitModes: menu row click", function(self)
 		local entry = self.entry
@@ -1003,6 +1099,13 @@ local function AcquireRow(index)
 			end
 			GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODES_DRAG_TOOLTIP)
 			GameTooltip:Show()
+		elseif entry.kind == "control" then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip_SetTitle(GameTooltip, entry.control.name)
+			if entry.control.desc then
+				GameTooltip_AddNormalLine(GameTooltip, entry.control.desc)
+			end
+			GameTooltip:Show()
 		end
 	end))
 	row:SetScript("OnLeave", GameTooltip_Hide)
@@ -1015,8 +1118,10 @@ local function BuildMenuEntries(modeKey)
 	local features = ModeFeatures(modeKey)
 	for _, feature in ipairs(features) do
 		local subList = not feature.isSub and FeatureSubOptions(feature, modeKey) or nil
-		local hasSubs = subList and #subList > 0 or false
-		local expanded = hasSubs and IsExpanded(feature, #features, subList) or false
+		local controlList = not feature.isSub and feature.controls or nil
+		local childCount = (subList and #subList or 0) + (controlList and #controlList or 0)
+		local hasSubs = childCount > 0
+		local expanded = hasSubs and IsExpanded(feature, #features, childCount) or false
 		entries[#entries + 1] = {
 			kind = "feature",
 			feature = feature,
@@ -1025,8 +1130,11 @@ local function BuildMenuEntries(modeKey)
 			height = FEATURE_ROW_HEIGHT,
 		}
 		if expanded then
-			for _, sub in ipairs(subList) do
+			for _, sub in ipairs(subList or {}) do
 				entries[#entries + 1] = { kind = "sub", feature = feature, sub = sub, height = SUB_ROW_HEIGHT }
+			end
+			for _, ctrl in ipairs(controlList or {}) do
+				entries[#entries + 1] = { kind = "control", feature = feature, control = ctrl, height = CONTROL_ROW_HEIGHT }
 			end
 		end
 		if not feature.isSub and feature.action then
@@ -1091,7 +1199,11 @@ RefreshMenu = function()
 				local feature = entry.feature
 				local checked = IsFeatureSelected(ItemKey(feature))
 				row:EnableMouse(true)
+				row:EnableMouseWheel(false)
 				row.ActionButton:Hide()
+				row.Minus:Hide()
+				row.Value:Hide()
+				row.Plus:Hide()
 				row.Check:SetSize(24, 24)
 				row.Check:ClearAllPoints()
 				row.Check:SetPoint("LEFT", 4, 0)
@@ -1115,7 +1227,11 @@ RefreshMenu = function()
 				local checked = ModuleOn(sub.module, sub.key)
 				local parentSelected = IsFeatureSelected(entry.feature.key)
 				row:EnableMouse(true)
+				row:EnableMouseWheel(false)
 				row.ActionButton:Hide()
+				row.Minus:Hide()
+				row.Value:Hide()
+				row.Plus:Hide()
 				row.Expand:Hide()
 				row.Check:SetSize(20, 20)
 				row.Check:ClearAllPoints()
@@ -1129,10 +1245,40 @@ RefreshMenu = function()
 				row.Text:SetPoint("LEFT", row.Check, "RIGHT", 2, 0)
 				row.Text:SetPoint("RIGHT", -8, 0)
 				row.Text:Show()
-			else
-				row:EnableMouse(false)
+			elseif entry.kind == "control" then
+				local ctrl = entry.control
+				local mod = ns:GetModule(ctrl.module)
+				local value = mod and mod.db and ns.Number(mod.db[ctrl.key], ctrl.default) or ctrl.default
+				local activeCtrl = IsFeatureSelected(entry.feature.key) and (not ctrl.enabled or ctrl.enabled())
+				entry.controlEnabled = activeCtrl
+				row:EnableMouse(true)
+				row:EnableMouseWheel(activeCtrl)
+				row.ActionButton:Hide()
 				row.Check:Hide()
 				row.Expand:Hide()
+				row.Text:SetFontObject(activeCtrl and "GameFontHighlightSmall" or "GameFontDisableSmall")
+				row.Text:SetText(ctrl.name)
+				row.Text:ClearAllPoints()
+				row.Text:SetPoint("LEFT", 32, 0)
+				row.Text:SetPoint("RIGHT", row.Minus, "LEFT", -8, 0)
+				row.Text:Show()
+				row.Value:SetFontObject(activeCtrl and "GameFontHighlightSmall" or "GameFontDisableSmall")
+				row.Value:SetText(ctrl.format and ctrl.format(value) or tostring(value))
+				row.Value:Show()
+				row.Minus:SetEnabled(activeCtrl and value > ctrl.min)
+				row.Minus:SetAlpha(activeCtrl and value > ctrl.min and 1 or 0.4)
+				row.Minus:Show()
+				row.Plus:SetEnabled(activeCtrl and value < ctrl.max)
+				row.Plus:SetAlpha(activeCtrl and value < ctrl.max and 1 or 0.4)
+				row.Plus:Show()
+			else
+				row:EnableMouse(false)
+				row:EnableMouseWheel(false)
+				row.Check:Hide()
+				row.Expand:Hide()
+				row.Minus:Hide()
+				row.Value:Hide()
+				row.Plus:Hide()
 				row.Text:Hide()
 				row.ActionButton:SetText(entry.action.text)
 				row.ActionButton:Show()

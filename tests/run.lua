@@ -16276,3 +16276,264 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	Enum.UIMapType.Continent = savedContinent
 	print("waypoint quest POI & arrow styles OK")
 end)()
+;(function()
+	-- WorldReactions: surfacing water droplets, campfire warmth/embers, weapon sheath sounds, worn armor clinking.
+	local wr = ns:GetModule("WorldReactions")
+	assert(wr, "WorldReactions module loaded")
+	assert(wr.db.enabled == true and wr.db.waterDrops == true and wr.db.campfireGlow == true
+		and wr.db.weaponSheathSound == true and wr.db.armorRattle == true and wr.db.intensity == 75,
+		"WorldReactions sensible defaults")
+
+	-- Registered on a settings page under Roleplay & every keyed option carries new = true.
+	local foundOnPage = false
+	for _, page in ipairs(ns.SettingsPages or {}) do
+		for _, entry in ipairs(page) do
+			if entry[1] == "WorldReactions" then foundOnPage = true end
+		end
+	end
+	assert(foundOnPage, "WorldReactions is registered on a settings page")
+	local buttonCount = 0
+	for _, opt in ipairs(wr.options or {}) do
+		if opt.key then
+			assert(opt.new == true, "new WorldReactions option carries new=true: " .. tostring(opt.key))
+		elseif opt.type == "button" then
+			buttonCount = buttonCount + 1
+		end
+	end
+	assert(buttonCount == 4, "WorldReactions provides preview/test buttons for all four reactions")
+
+	-- 1. Water emergence state machine
+	local ws = { graceUntil = 5 }
+	assert(not wr.StepWater(ws, true, true, 1.0, false), "water suppressed during login grace")
+	assert(not wr.StepWater(ws, false, false, 4.0, false), "emerging during login grace stays silent")
+	assert(not wr.StepWater(ws, true, true, 10.0, false), "diving down does not trigger yet")
+	assert(not wr.StepWater(ws, false, true, 10.2, false), "brief dip below 0.35s does not trigger")
+	assert(not wr.StepWater(ws, true, true, 11.0, false), "submerge again")
+	assert(wr.StepWater(ws, false, true, 11.6, false), "surfacing after >= 0.35s triggers droplets")
+	assert(not wr.StepWater(ws, false, false, 12.2, false), "climbing out within 4s cooldown does not double-trigger")
+	assert(not wr.StepWater(ws, false, true, 17.0, false), "start surface swim after cooldown")
+	assert(wr.StepWater(ws, false, false, 17.8, false), "exiting swim after >= 0.5s triggers droplets")
+	assert(not wr.StepWater(ws, true, true, 25.0, false), "submerge before death")
+	assert(not wr.StepWater(ws, false, false, 26.0, true), "blocked state (dead/taxi/flying) suppresses water trigger")
+
+	-- 2. Weapon sheath state machine & weapon classification
+	local ss = { graceUntil = 3 }
+	assert(wr.StepSheath(ss, 1, 1.0, false) == nil, "initial sheath state establishes baseline")
+	assert(wr.StepSheath(ss, 2, 2.0, false) == nil, "sheath change during login grace stays silent")
+	assert(wr.StepSheath(ss, 1, 5.0, false) == nil, "change enters debounce window")
+	assert(wr.StepSheath(ss, 1, 5.10, false) == nil, "debounce < 0.15s does not fire yet")
+	local action, mode = wr.StepSheath(ss, 1, 5.20, false)
+	assert(action == "sheath" and mode == "melee", "sheathing melee weapon fires after debounce")
+	assert(wr.StepSheath(ss, 3, 5.30, false) == nil, "enter ranged unsheath debounce")
+	assert(wr.StepSheath(ss, 3, 5.50, false) == nil, "cooldown < 0.45s suppresses rapid repeat")
+	assert(wr.StepSheath(ss, 1, 6.10, false) == nil, "sheath from ranged enters debounce")
+	action, mode = wr.StepSheath(ss, 1, 6.30, false)
+	assert(action == "sheath" and mode == "ranged", "sheathing from ranged remembers ranged mode")
+	assert(wr.StepSheath(ss, 2, 7.0, true) == nil, "mounted/blocked state updates baseline silently")
+	assert(wr.StepSheath(ss, 2, 7.3, false) == nil, "dismounting into same state does not falsely trigger")
+
+	local savedGetInvID, savedGetInfoInstant = GetInventoryItemID, C_Item.GetItemInfoInstant
+	local equipped = {}
+	GetInventoryItemID = function(_, slot) return equipped[slot] end
+	C_Item.GetItemInfoInstant = function(id)
+		local map = {
+			[1001] = { 2, 7 },  -- Sword1H -> metal
+			[1002] = { 2, 10 }, -- Staff -> wood
+			[1003] = { 2, 2 },  -- Bow -> wood
+			[1004] = { 2, 3 },  -- Gun -> metal
+			[1005] = { 4, 6 },  -- Shield -> shield
+		}
+		local entry = map[id]
+		if entry then return id, nil, nil, nil, nil, entry[1], entry[2] end
+	end
+	equipped = { [16] = 1001 }
+	assert(wr.WeaponSoundKind("melee") == "metal", "sword classifies as metal")
+	equipped = { [16] = 1002 }
+	assert(wr.WeaponSoundKind("melee") == "wood", "staff classifies as wood")
+	equipped = { [16] = 1001, [18] = 1003 }
+	assert(wr.WeaponSoundKind("ranged") == "wood", "bow in ranged mode classifies as wood")
+	equipped = { [18] = 1004 }
+	assert(wr.WeaponSoundKind("ranged") == "metal", "gun in ranged mode classifies as metal")
+	equipped = { [17] = 1005 }
+	assert(wr.WeaponSoundKind("melee") == "shield", "offhand shield without mainhand classifies as shield")
+	equipped = {}
+	assert(wr.WeaponSoundKind("melee") == nil, "unarmed returns nil")
+
+	-- 3. Worn armor durability & clinking state machine
+	local savedDurability = GetInventoryItemDurability
+	local slotDura = { [1] = { 40, 100 }, [5] = { 25, 100 }, [7] = { 80, 100 } }
+	GetInventoryItemDurability = function(slot)
+		local pair = slotDura[slot]
+		if pair then return pair[1], pair[2] end
+	end
+	assert(wr.LowestArmorDurability() == 25, "lowest armor durability picks minimum across armor slots")
+	local as = { graceUntil = 2 }
+	assert(not wr.StepArmor(as, 20, false, 1.0, false), "login with already worn armor does not rattle immediately")
+	assert(not wr.StepArmor(as, 50, false, 5.0, false), "repaired armor does not rattle")
+	assert(wr.StepArmor(as, 28, false, 10.0, false), "dropping below 30% rattles once")
+	assert(not wr.StepArmor(as, 25, false, 15.0, false), "further drop within 25s cooldown stays silent")
+	assert(not wr.StepArmor(as, 25, true, 40.0, false), "jumping while worn starts fall timer")
+	assert(wr.StepArmor(as, 25, false, 40.5, false), "landing after >= 0.15s while worn rattles after cooldown")
+	assert(not wr.StepArmor(as, 60, true, 70.0, false) and not wr.StepArmor(as, 60, false, 70.6, false),
+		"landing with healthy armor never rattles")
+
+	-- 4. Overlay visuals, audio playback, campfire aura/proximity & combat fade
+	local savedPlayFile, savedPlaySound, savedAfter = PlaySoundFile, PlaySound, ns.After
+	local savedSecrets, savedUnitAuras, savedCombat = C_Secrets, C_UnitAuras, UnitAffectingCombat
+	local savedGetTime, savedMapBest, savedMapPos, savedMapSize = GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize
+	local playedFiles, playedKits, pendingAfter = {}, {}, {}
+	local nowTime = 100
+	GetTime = function() return nowTime end
+	PlaySoundFile = function(id) playedFiles[#playedFiles + 1] = id return true, #playedFiles end
+	PlaySound = function(kit) playedKits[#playedKits + 1] = kit return true end
+	ns.After = function(_, _, fn) pendingAfter[#pendingAfter + 1] = fn end
+	local combatFlag = false
+	UnitAffectingCombat = function() return combatFlag end
+
+	-- Trigger water droplets preview & animate one step
+	wr.TriggerWater(true)
+	local ov = _G.ForeverPlusWorldReactions
+	assert(ov and ov:IsShown() and wr.GetState().dropsActive, "water trigger shows click-through overlay")
+	assert(#playedFiles == 1, "splash sound played immediately")
+	assert(#pendingAfter == 1, "drip sound scheduled")
+	pendingAfter[1]()
+	assert(#playedFiles == 2, "drip follow-up sound played")
+	ov:GetScript("OnUpdate")(ov, 0.1)
+	assert(ov:IsShown(), "overlay stays active during droplet fall")
+	for _ = 1, 35 do
+		local fn = ov:GetScript("OnUpdate")
+		if fn then fn(ov, 0.1) end
+	end
+	assert(not wr.GetState().dropsActive and not ov:IsShown() and not ov:GetScript("OnUpdate"),
+		"overlay hides and clears OnUpdate once droplets finish")
+
+	-- Campfire via Cozy Fire aura 7353 & combat suppression + secret aura safety
+	local cozyAura = { spellId = 7353 }
+	local secretAuras = false
+	C_Secrets = { ShouldAurasBeSecret = function() return secretAuras end }
+	C_UnitAuras = { GetPlayerAuraBySpellID = function(id) return id == 7353 and cozyAura or nil end }
+	wr:Apply()
+	assert(wr.GetState().hasCozyFireAura and wr.GetState().campfireDesired, "Cozy Fire buff activates campfire glow")
+	assert(ov:IsShown(), "campfire glow shows overlay")
+	for _ = 1, 5 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(wr.GetState().campfireAlpha > 0.5, "campfire glow fades in smoothly")
+
+	-- Secret aura restriction & secret UNIT_AURA unit/aura values keep last known state without throwing
+	local evFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function FireEvent(event, ...)
+		evFrame:GetScript("OnEvent")(evFrame, event, ...)
+	end
+	secretAuras = true
+	assert(upvalue(ns.RegisterEvent, "listeners").UNIT_AURA[wr], "UNIT_AURA registered for campfire aura tracking")
+	FireEvent("UNIT_AURA", "player")
+	assert(wr.GetState().hasCozyFireAura, "restricted auras preserve last known Cozy Fire state safely")
+	secretAuras = false
+	local savedSecret = ns.Secret
+	local secretToken = {}
+	ns.Secret = function(v) return v == secretToken or savedSecret(v) end
+	FireEvent("UNIT_AURA", secretToken)
+	assert(wr.GetState().hasCozyFireAura, "secret UNIT_AURA unit token is ignored without comparing")
+	cozyAura = secretToken
+	FireEvent("UNIT_AURA", "player")
+	assert(wr.GetState().hasCozyFireAura, "secret aura returned by GetPlayerAuraBySpellID preserves state safely")
+	cozyAura = { spellId = 7353 }
+	ns.Secret = savedSecret
+
+	-- Disabling waterDrops while droplets and campfire glow are both active hides droplet textures immediately
+	pendingAfter = {}
+	playedFiles = {}
+	wr.TriggerWater(false)
+	ov:GetScript("OnUpdate")(ov, 0.35)
+	assert(wr.GetState().dropsActive and wr.GetState().campfireDesired, "both droplets and campfire active together")
+	local dropPoolRef = uv(wr.TriggerWater, "dropPool")
+	local anyDropShown = false
+	for _, d in ipairs(dropPoolRef) do
+		if d.texture:IsShown() then anyDropShown = true break end
+	end
+	assert(anyDropShown, "droplet textures visible during animation")
+	ns.SetOption("WorldReactions", "waterDrops", false)
+	for _, d in ipairs(dropPoolRef) do
+		assert(not d.texture:IsShown(), "disabling waterDrops hides all droplet textures immediately even while campfire stays active")
+	end
+	if pendingAfter[1] then pendingAfter[1]() end
+	assert(#playedFiles == 1, "disabling waterDrops cancels scheduled follow-up drip sound")
+	ns.SetOption("WorldReactions", "waterDrops", true)
+
+	-- Combat suppresses campfire glow cleanly
+	combatFlag = true
+	FireEvent("PLAYER_REGEN_DISABLED")
+	assert(not wr.GetState().campfireDesired, "entering combat fades out campfire glow")
+	for _ = 1, 6 do
+		local fn = ov:GetScript("OnUpdate")
+		if fn then fn(ov, 0.1) end
+	end
+	assert(wr.GetState().campfireAlpha == 0 and not ov:IsShown(), "campfire glow fully hidden in combat")
+	combatFlag = false
+	FireEvent("PLAYER_REGEN_ENABLED")
+	assert(wr.GetState().campfireDesired, "leaving combat near campfire restores glow")
+
+	-- Campfire proximity via UNIT_SPELLCAST_SUCCEEDED (works even with Minimap campfires disabled)
+	cozyAura = nil
+	FireEvent("UNIT_AURA", "player")
+	assert(not wr.GetState().campfireDesired, "losing Cozy Fire turns off campfire glow")
+	local playerX, playerY = 0.50, 0.50
+	C_Map.GetBestMapForUnit = function() return 1429 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return playerX, playerY end } end
+	C_Map.GetMapWorldSize = function() return 1000, 1000 end
+	assert(upvalue(ns.RegisterEvent, "listeners").UNIT_SPELLCAST_SUCCEEDED[wr],
+		"UNIT_SPELLCAST_SUCCEEDED registered for campfire proximity")
+	FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "guid", 1307227)
+	assert(wr.GetState().campfireDesired, "placing a Basic Campfire activates glow when nearby")
+	playerX = 0.55 -- 50 yards away (> 14 yd radius)
+	assert(not wr.IsNearCampfire(nowTime), "walking 50 yards away deactivates campfire proximity")
+
+	-- ns.HasCampfireNearPlayer safely handles nil GetXY / missing GetMapWorldSize
+	local savedCampfires = uv(ns.HasCampfireNearPlayer, "campfires")
+	savedCampfires[#savedCampfires + 1] = { mapID = 1429, x = 0.50, y = 0.50, expires = nowTime + 60 }
+	playerX, playerY = 0.50, 0.50
+	assert(ns.HasCampfireNearPlayer(14), "Minimap campfire helper detects nearby fire")
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return nil, nil end } end
+	assert(not ns.HasCampfireNearPlayer(14), "Minimap campfire helper handles nil GetXY safely")
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return playerX, playerY end } end
+	C_Map.GetMapWorldSize = nil
+	assert(not ns.HasCampfireNearPlayer(14), "Minimap campfire helper handles missing GetMapWorldSize safely")
+	table.remove(savedCampfires)
+	C_Map.GetMapWorldSize = function() return 1000, 1000 end
+
+	-- PLAYER_EQUIPMENT_CHANGED clears worn armor flag when damaged piece is swapped out
+	slotDura = { [1] = { 20, 100 } }
+	FireEvent("UPDATE_INVENTORY_DURABILITY")
+	assert(wr.GetState().armorWorn, "UPDATE_INVENTORY_DURABILITY marks armor as worn below 30%")
+	slotDura = { [1] = { 100, 100 } }
+	FireEvent("PLAYER_EQUIPMENT_CHANGED")
+	assert(not wr.GetState().armorWorn, "PLAYER_EQUIPMENT_CHANGED clears worn flag after swapping armor")
+
+	-- Weapon & armor test sounds with fallback
+	playedFiles, playedKits = {}, {}
+	equipped = { [16] = 1002 }
+	assert(wr.PlayWeaponSound("unsheath", "melee", false) and playedFiles[1] == 567506, "wood unsheath plays wood sound")
+	assert(wr.PlayWeaponSound("sheath", "melee", false) and playedFiles[2] == 567456, "wood sheath plays wood sound")
+	PlaySoundFile = function() return false end
+	SOUNDKIT = SOUNDKIT or {}
+	local savedChainKit = SOUNDKIT.PUT_DOWN_SMALL_CHAIN
+	SOUNDKIT.PUT_DOWN_SMALL_CHAIN = 1212
+	assert(wr.PlayArmorRattle() and playedKits[1] == 1212, "armor rattle falls back to PUT_DOWN_SMALL_CHAIN when PlaySoundFile fails")
+
+	-- Disabling WorldReactions stops overlay and clears watcher OnUpdate
+	ns.SetOption("WorldReactions", "enabled", false)
+	local st = wr.GetState()
+	assert(not st.watcherActive and not st.overlayShown and not st.campfireDesired and not st.dropsActive,
+		"disabling WorldReactions stops watcher and hides overlay")
+	ns.SetOption("WorldReactions", "enabled", true)
+
+	-- Restore mocked globals
+	SOUNDKIT.PUT_DOWN_SMALL_CHAIN = savedChainKit
+	GetInventoryItemID, C_Item.GetItemInfoInstant, GetInventoryItemDurability = savedGetInvID, savedGetInfoInstant, savedDurability
+	PlaySoundFile, PlaySound, ns.After = savedPlayFile, savedPlaySound, savedAfter
+	C_Secrets, C_UnitAuras, UnitAffectingCombat = savedSecrets, savedUnitAuras, savedCombat
+	GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize = savedGetTime, savedMapBest, savedMapPos, savedMapSize
+	wr:Apply()
+	print("world reactions OK")
+end)()

@@ -32,7 +32,7 @@ read_globals = {
 	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "Professions", "ProfessionsRecipeListRecipeMixin",
 	"ITEM_MIN_LEVEL",
 	"Fancy24Font",
-	"GetUnitSpeed", "IsFalling", "IsSwimming", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",
+	"GetUnitSpeed", "IsFalling", "IsSwimming", "GetSheathState", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",
 	"GetServerTime",
 	"C_Calendar", "C_DateAndTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",

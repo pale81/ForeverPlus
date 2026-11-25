@@ -91,6 +91,7 @@ Modules\GuidingWind.lua
 Modules\Moments.lua
 Modules\Chronicle.lua
 Modules\Landing.lua
+Modules\WorldReactions.lua
 Modules\SoloParty.lua
 Modules\StatRank.lua
 Modules\Errors.lua

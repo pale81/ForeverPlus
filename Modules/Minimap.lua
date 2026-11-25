@@ -33,8 +33,47 @@ local CAMPFIRE_SPELLS = {
 	[1307252] = 15 * 60, -- Journeyman Campfire
 	[1307237] = 15 * 60, -- Expert Campfire
 }
+ns.CAMPFIRE_SPELLS = CAMPFIRE_SPELLS
 local campfires, campfireHolder = {}, nil
 local CAMPFIRE_ICON = [[Interface\Icons\INV_Misc_BBQFire_01]]
+
+-- Read-only distance check for modules such as WorldReactions: true when any tracked campfire
+-- on the player's current map is within maxDistance yards.
+function ns.HasCampfireNearPlayer(maxDistance)
+	if #campfires == 0 then
+		return false
+	end
+	local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+	local position = currentMapID and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(currentMapID, "player")
+	if not position then
+		return false
+	end
+	local width, height
+	if C_Map.GetMapWorldSize then
+		width, height = C_Map.GetMapWorldSize(currentMapID)
+	end
+	width, height = ns.Number(width, 0), ns.Number(height, 0)
+	if width <= 0 or height <= 0 then
+		return false
+	end
+	local px, py = position:GetXY()
+	px, py = ns.Number(px), ns.Number(py)
+	if not (px and py) then
+		return false
+	end
+	local limitSq = (maxDistance or 14) * (maxDistance or 14)
+	local now = ns.Number(GetTime(), 0)
+	for _, fire in ipairs(campfires) do
+		if fire.expires > now and fire.mapID == currentMapID then
+			local dx = (fire.x - px) * width
+			local dy = (py - fire.y) * height
+			if dx * dx + dy * dy <= limitSq then
+				return true
+			end
+		end
+	end
+	return false
+end
 
 -- Symbol size from the options (percent); 1 is the size the symbols were
 -- designed at. RecipeRadar reads it the same way for its pins.
@@ -48,7 +87,7 @@ function ns.MinimapSymbolScale()
 end
 
 local function IsGroupUnit(unit)
-	if type(unit) ~= "string" then
+	if type(unit) ~= "string" or ns.Secret(unit) then
 		return false
 	end
 	return unit == "player" or unit:match("^party%d+$") ~= nil or unit:match("^raid%d+$") ~= nil

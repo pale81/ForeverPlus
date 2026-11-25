@@ -75,6 +75,8 @@ end
 local savedScale, savedWindow -- the window's scale while it is collapsed
 local holding = false
 local questView
+-- Own pages as an open book (the chronicle): { title =, pages = { HTML, ... }, first = number of the left page }.
+local customView
 
 local function Collapse(window)
 	window = window or savedWindow or ItemTextFrame
@@ -156,6 +158,12 @@ function Readable.TakePage(page, text, hasNext, look)
 end
 
 function Readable.CanTurn(forward)
+	if customView then
+		if forward then
+			return customView.first + 2 <= #customView.pages
+		end
+		return customView.first > 1
+	end
 	local spread = Readable.spread
 	if spread.fetching or spread.target or not spread.left then
 		return false
@@ -168,6 +176,14 @@ function Readable.CanTurn(forward)
 end
 
 function Readable.Turn(forward)
+	if customView then
+		if Readable.CanTurn(forward) then
+			PlaySound(SOUNDKIT.IG_ABILITY_PAGE_TURN or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+			customView.first = customView.first + (forward and 2 or -2)
+			Readable.DrawBook()
+		end
+		return
+	end
 	local spread = Readable.spread
 	-- A plate with several pages (not a book) turns one page at a time.
 	if not spread.left then
@@ -201,7 +217,9 @@ function Readable.HasQuest()
 end
 
 function Readable.Close()
-	if questView then
+	if customView then
+		Readable.Hide()
+	elseif questView then
 		CloseQuest()
 	else
 		CloseItemText()
@@ -270,6 +288,13 @@ local function CreateView()
 	frame:EnableMouse(true)
 	frame:Hide()
 	frame.Dim = dim
+	-- Esc closes it: own pages have no window of the game behind them (a text of the game closes its window on
+	-- the same key).
+	tinsert(UISpecialFrames, "ForeverPlusReadable")
+	frame:SetScript("OnHide", function()
+		dim:Hide()
+		customView = nil
+	end)
 	ns.FadeIn(frame, 0.25)
 	frame.Shadow = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
 	frame.Shadow:SetTexture(MEDIA .. "shadow")
@@ -476,7 +501,7 @@ local function Draw(look, material, pages, quest)
 		frame.Art:SetTexCoord(unpack(geometry.coords))
 		frame.Art:SetVertexColor(style.tint[1], style.tint[2], style.tint[3])
 	end
-	local title = quest and quest.blocks[1].title or ItemTextGetItem() or ""
+	local title = quest and quest.blocks[1].title or customView and customView.title or ItemTextGetItem() or ""
 	local first = pages[1] and pages[1].page == 1
 	for index, holder in ipairs(frame.Pages) do
 		local area = geometry.pages[index]
@@ -498,7 +523,7 @@ local function Draw(look, material, pages, quest)
 				(page.text or ""):find("^%s*<[Hh][Tt][Mm][Ll]") and "HTML" or "Text", #(page.text or ""),
 				tostring(file), Value(function() return size end), tostring(flags))
 			WatchPage(holder, L.READABLE_TRACE_PAGE:format(page.page))
-			SetPageText(holder, quest and page.text or WithCreator(page.text), geometry.width - area[1] - area[3],
+			SetPageText(holder, (quest or customView) and page.text or WithCreator(page.text), geometry.width - area[1] - area[3],
 				math.max(1, geometry.height - top - area[4]))
 			local several = not quest and (look == "BOOK" or page.hasNext or page.page > 1)
 			holder.Number:SetText(several and L.READABLE_PAGE:format(page.page) or "")
@@ -604,7 +629,7 @@ function Readable.Show()
 	if not Readable.db.enabled then
 		return
 	end
-	if questView then Readable.Hide() end
+	if questView or customView then Readable.Hide() end
 	local number, hasNext = page or 1, ItemTextHasNextPage() and true or false
 	text = text or ItemTextGetText() or ""
 	local look, material = Readable.Look(ItemTextGetMaterial(), number, hasNext)
@@ -635,13 +660,39 @@ function Readable.Show()
 end
 
 function Readable.Hide()
-	questView = nil
+	questView, customView = nil, nil
 	if view then
 		view:Hide()
 		view.Dim:Hide()
 	end
 	Readable.ResetSpread()
 	Release()
+end
+
+-- The open spread of own pages.
+function Readable.DrawBook()
+	if not customView then
+		return
+	end
+	local pages = {}
+	for number = customView.first, customView.first + 1 do
+		local text = customView.pages[number]
+		if text then
+			pages[#pages + 1] = { page = number, text = text, hasNext = number < #customView.pages }
+		end
+	end
+	Draw("BOOK", "Parchment", pages)
+end
+
+-- Own pages as an open book (the chronicle); a text or quest of the game on the screen is closed first.
+-- book: { title =, pages = { HTML, ... }, first = number of the left page }.
+function Readable.ShowBook(book)
+	if view and view:IsShown() and not customView then
+		Readable.Close()
+	end
+	Readable.Hide()
+	customView = book
+	Readable.DrawBook()
 end
 
 -- Item quests use QUEST_DETAIL, not ITEM_TEXT_READY. Match the event's item ID,
@@ -698,7 +749,7 @@ function Readable:Apply()
 	local on = self.db.enabled
 	self:ToggleEvent("ITEM_TEXT_READY", true, Readable.Show)
 	self:ToggleEvent("ITEM_TEXT_CLOSED", on, function()
-		if not questView then Readable.Hide() end
+		if not questView and not customView then Readable.Hide() end
 	end)
 	self:ToggleEvent("QUEST_DETAIL", on, Readable.ShowQuest)
 	self:ToggleEvent("QUEST_ITEM_UPDATE", on, function()
@@ -735,7 +786,7 @@ function Readable:OnLogin()
 			end
 		end))
 		ItemTextFrame:HookScript("OnHide", ns.Measured("Readable: window hidden", function()
-			if not questView then Readable.Hide() end
+			if not questView and not customView then Readable.Hide() end
 		end))
 	end
 	if QuestFrame then

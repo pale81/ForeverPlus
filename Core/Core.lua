@@ -1038,6 +1038,8 @@ local function RunSlashCommand(msg)
 		ns:GetModule("Upgrades").Open()
 	elseif msg == "rp" then
 		ns:GetModule("Roleplay").OpenEditor()
+	elseif msg == "chronik" or msg == "chronicle" then
+		ns:GetModule("Chronicle").Open()
 	elseif msg == "mausrad" or msg == "wheel" then
 		ns.StartWheelCheck()
 	elseif msg == "schrift" or msg == "font" then

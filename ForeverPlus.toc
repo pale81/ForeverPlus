@@ -89,6 +89,7 @@ Modules\Flight.lua
 Modules\Waypoint.lua
 Modules\GuidingWind.lua
 Modules\Moments.lua
+Modules\Chronicle.lua
 Modules\Landing.lua
 Modules\SoloParty.lua
 Modules\StatRank.lua

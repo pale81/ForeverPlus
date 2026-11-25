@@ -15900,6 +15900,7 @@ end)()
 	print("portrait mode flashes OK")
 end)()
 assert(loadfile("emote_voice.lua"))(root, ns)
+assert(loadfile("chronicle.lua"))(root, ns, uv)
 ;(function()
 	-- Waypoint: quest objective clicks (questPOI) and arrow designs/colors/preview
 	local way = ns:GetModule("Waypoint")

@@ -10,7 +10,6 @@ local GuidingWind = ns:NewModule("GuidingWind", {
 		enabled = true,
 		autoGusts = true,
 		interval = 14,
-		hideArrow = false,
 		biomeParticles = true,
 		sound = true,
 		strength = 75,
@@ -249,7 +248,7 @@ function GuidingWind.CurrentBiome()
 end
 
 function GuidingWind.HidesWaypointArrow()
-	return GuidingWind.db and GuidingWind.db.enabled and GuidingWind.db.hideArrow and true or false
+	return GuidingWind.db and GuidingWind.db.enabled and true or false
 end
 
 local function DrawSoundIndex()
@@ -815,13 +814,6 @@ function GuidingWind:OnOptionChanged(key)
 		ScheduleAutoGust()
 		return
 	end
-	if key == "hideArrow" then
-		local waypoint = ns:GetModule("Waypoint")
-		if waypoint and waypoint.Refresh then
-			waypoint.Refresh()
-		end
-		return
-	end
 	self:Apply()
 end
 
@@ -837,7 +829,6 @@ GuidingWind.options = {
 	{ key = "interval", type = "slider", name = L.WIND_INTERVAL, desc = L.WIND_INTERVAL_DESC,
 		min = 6, max = 45, step = 1, format = function(v) return L.WIND_INTERVAL_FMT:format(v) end,
 		parent = "autoGusts", new = true },
-	{ key = "hideArrow", type = "toggle", name = L.WIND_HIDE_ARROW, desc = L.WIND_HIDE_ARROW_DESC, parent = "enabled", new = true },
 	{ key = "biomeParticles", type = "toggle", name = L.WIND_BIOME, desc = L.WIND_BIOME_DESC, parent = "enabled", new = true },
 	{ key = "sound", type = "toggle", name = L.WIND_SOUND, desc = L.WIND_SOUND_DESC, parent = "enabled", new = true },
 	{ key = "strength", type = "slider", name = L.WIND_STRENGTH, desc = L.WIND_STRENGTH_DESC,

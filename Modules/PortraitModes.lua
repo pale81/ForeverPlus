@@ -99,7 +99,6 @@ local FEATURES = {
 		setOn = function(on) SetModuleOn("GuidingWind", "enabled", on) end,
 		subOptions = {
 			{ module = "GuidingWind", key = "autoGusts", name = L.WIND_AUTO, desc = L.WIND_AUTO_DESC },
-			{ module = "GuidingWind", key = "hideArrow", name = L.WIND_HIDE_ARROW, desc = L.WIND_HIDE_ARROW_DESC },
 			{ module = "GuidingWind", key = "biomeParticles", name = L.WIND_BIOME, desc = L.WIND_BIOME_DESC },
 			{ module = "GuidingWind", key = "sound", name = L.WIND_SOUND, desc = L.WIND_SOUND_DESC },
 		},

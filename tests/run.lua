@@ -6381,6 +6381,10 @@ end)()
 end)()
 ;(function()
 	local way = ns:GetModule("Waypoint")
+	local wind = ns:GetModule("GuidingWind")
+	local savedWindEnabled = wind and wind.db and wind.db.enabled
+	if wind and wind.db then wind.db.enabled = false end
+	way.Preview(false)
 	local arrow = _G.ForeverPlusWaypointArrow
 	local savedAPI, savedGhost, savedFacing = rawget(_G, "C_DeathInfo"), rawget(_G, "UnitIsGhost"), GetPlayerFacing
 	local savedMap, savedMapInfo, savedPosition = C_Map.GetBestMapForUnit, C_Map.GetMapInfo, C_Map.GetPlayerMapPosition
@@ -6443,6 +6447,7 @@ end)()
 
 	way.Clear()
 	way.db.arrow, way.db.corpseArrow = true, true
+	if wind and wind.db then wind.db.enabled = savedWindEnabled end
 	C_DeathInfo, UnitIsGhost, GetPlayerFacing = savedAPI, savedGhost, savedFacing
 	C_Map.GetBestMapForUnit, C_Map.GetMapInfo, C_Map.GetPlayerMapPosition = savedMap, savedMapInfo, savedPosition
 	C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.ClearUserWaypoint = savedHasWaypoint, savedGetWaypoint, savedClear
@@ -14918,7 +14923,7 @@ end)()
 	assert(wind and way, "GuidingWind and Waypoint modules loaded")
 
 	-- 1. Options, defaults, NEU flags and settings page registration.
-	assert(wind.db.enabled == true and wind.db.autoGusts == true and wind.db.hideArrow == false
+	assert(wind.db.enabled == true and wind.db.autoGusts == true
 		and wind.db.biomeParticles == true and wind.db.sound == true and wind.db.interval == 14
 		and wind.db.strength == 75, "GuidingWind defaults are sensible and non-breaking")
 	local foundOnPage = false
@@ -15020,7 +15025,8 @@ end)()
 	-- Set waypoint to the east (right when facing north = -pi/2).
 	way.Set(80, 50, "Goldhain")
 	local arrow = _G.ForeverPlusWaypointArrow
-	assert(arrow and arrow:IsShown(), "waypoint arrow remains visible by default (hideArrow=false)")
+	assert(wind.HidesWaypointArrow() and (not arrow or not arrow:IsShown()),
+		"GuidingWind always replaces and hides the waypoint arrow while enabled")
 	assert(wind.GetState().timerActive, "auto gust timer starts once a waypoint exists")
 
 	-- Manual summon triggers gust pointing right (-pi/2), forest biome, and plays a real wind sound.
@@ -15072,16 +15078,16 @@ end)()
 	facing = 0
 
 	-- Waypoint arrow suppression & clean restore on disable.
-	ns.SetOption("GuidingWind", "hideArrow", true)
-	assert(wind.HidesWaypointArrow() and not arrow:IsShown(), "hideArrow hides the waypoint arrow immediately")
+	assert(wind.HidesWaypointArrow() and (not arrow or not arrow:IsShown()), "GuidingWind suppresses the waypoint arrow")
 	ns.SetOption("GuidingWind", "enabled", false)
-	assert(not wind.HidesWaypointArrow() and arrow:IsShown(), "disabling GuidingWind restores the waypoint arrow")
+	arrow = _G.ForeverPlusWaypointArrow
+	assert(not wind.HidesWaypointArrow() and arrow and arrow:IsShown(), "disabling GuidingWind restores the waypoint arrow")
 	assert(not wind.GetState().active and not wind.GetState().timerActive and not overlay:IsShown(),
 		"disabling GuidingWind stops active gust and cancels auto timer")
 
 	-- Re-enable and verify arrival clears the waypoint even while arrow is hidden.
 	ns.SetOption("GuidingWind", "enabled", true)
-	assert(not arrow:IsShown(), "arrow hidden again with hideArrow=true")
+	assert(not arrow:IsShown(), "re-enabling GuidingWind hides the waypoint arrow again")
 	playerX, playerY = 0.799, 0.5
 	ok, reason = wind.Summon(true)
 	assert(not ok and reason == "arrived" and way.Target() == nil, "arrival check clears waypoint when close")
@@ -15096,7 +15102,6 @@ end)()
 
 	-- Restore state cleanly.
 	way.Clear()
-	ns.SetOption("GuidingWind", "hideArrow", false)
 	ns.SetOption("GuidingWind", "enabled", true)
 	C_Map.GetMapInfo, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize =
 		savedMapInfo, savedBestMap, savedPlayerPos, savedWorldSize
@@ -15931,12 +15936,18 @@ assert(loadfile("emote_voice.lua"))(root, ns)
 	shiftDown = false
 
 	-- Left-click on zone map pin uses unquantized GetQuestsOnMap coordinates and preserves quest super-tracking
+	local wind = ns:GetModule("GuidingWind")
+	local savedWindEnabled = wind and wind.db and wind.db.enabled
+	if wind and wind.db then wind.db.enabled = true end
 	superUserWp = nil
 	way.OnQuestPOIClick(zonePin, "LeftButton")
 	local goal = way.Target()
 	assert(goal and goal.mapID == 1429 and math.abs(goal.x - 0.46) < 1e-6 and math.abs(goal.y - 0.62) < 1e-6
 		and goal.name == "Wolves Across the Border" and goal.questID == 33, "zone pin sets quest waypoint")
 	assert(userWp and userWp.uiMapID == 1429 and superUserWp == nil, "sets user waypoint without overriding quest super-track")
+	assert(not (_G.ForeverPlusWaypointArrow and _G.ForeverPlusWaypointArrow:IsShown()),
+		"active GuidingWind keeps the waypoint arrow hidden even after quest objective click")
+	if wind and wind.db then wind.db.enabled = false end
 
 	-- Clicking the same pin again (Blizzard clears super-tracking) clears the quest waypoint
 	superQuestID = 0
@@ -16118,6 +16129,7 @@ assert(loadfile("emote_voice.lua"))(root, ns)
 
 	-- Restore all mocked state
 	way.Clear()
+	if wind and wind.db then wind.db.enabled = savedWindEnabled end
 	way.db.questWaypoint, way.db.arrowStyle, way.db.arrowColor = true, "standard", "DEFAULT"
 	way.db.arrowCustomColor = { r = 1, g = 0.82, b = 0 }
 	tex.SetAtlas, tex.SetTexture, tex.SetTexCoord, tex.SetDesaturated = savedSetAtlas, savedSetTex, savedSetCoords, savedSetDesat

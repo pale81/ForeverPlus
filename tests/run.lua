@@ -1138,6 +1138,8 @@ local qstate = { done = 0, complete = false }
 C_QuestLog.GetNumQuestLogEntries = function() return 1 end
 C_QuestLog.GetInfo = function() return { questID = 5, isHeader = false } end
 C_QuestLog.GetQuestObjectives = function() return { { numFulfilled = qstate.done } } end
+C_QuestLog.GetNumQuestObjectives = function() return 1 end
+GetQuestObjectiveInfo = function() return "", "monster", false, qstate.done, 2 end
 C_QuestLog.IsComplete = function() return qstate.complete end
 C_QuestLog.IsFailed = function() return false end
 C_QuestLog.GetLogIndexForQuestID = function() return 1 end
@@ -1147,6 +1149,40 @@ local scan = uv(uv(quests.OnLogin, "QueueScan"), "ScanQuests")
 scan(); qstate.done = 1; scan(); qstate.done = 2; qstate.complete = true; scan()
 print("  sounds:", table.concat(played, ","))
 assert(played[1] == 558137 or played[1] == "558137", "quest progress sound")
+;(function()
+	-- Quests: the log scan reads objectives without per-quest tables and keeps its own state tables.
+	local questState = uv(scan, "state")
+	local savedObjectives, savedInfo, savedNum = C_QuestLog.GetQuestObjectives, C_QuestLog.GetInfo, C_QuestLog.GetNumQuestLogEntries
+	local savedChat, savedInGroup, savedInRaid = C_ChatInfo, IsInGroup, IsInRaid
+	local objectiveTables = 0
+	C_QuestLog.GetQuestObjectives = function() objectiveTables = objectiveTables + 1 return {} end
+	local entries = { 5 }
+	C_QuestLog.GetNumQuestLogEntries = function() return #entries end
+	C_QuestLog.GetInfo = function(index) return { questID = entries[index], isHeader = false, title = "Kobolde" } end
+	local sent = {}
+	C_ChatInfo = { SendChatMessage = function(text, channel) sent[#sent + 1] = channel .. ":" .. text end }
+	IsInGroup = function(category) return category == nil end
+	IsInRaid = function() return false end
+	quests.db.sharePartial = true
+	qstate.done, qstate.complete = 0, false
+	scan()
+	local entry = questState[5]
+	assert(entry and entry.done == 0, "the scan records the quest")
+	qstate.done = 1
+	scan()
+	assert(questState[5] == entry and entry.done == 1 and entry.counts[1] == 1, "the scan updates the same state table")
+	assert(#sent == 1 and sent[1]:find("^PARTY:") and sent[1]:find("Kobolde", 1, true), "a moved objective goes to the group")
+	scan()
+	assert(#sent == 1, "an unchanged objective is not shared again")
+	assert(objectiveTables == 0, "the scan does not build objective tables")
+	entries = {}
+	scan()
+	assert(questState[5] == nil, "a quest that left the log leaves the state")
+	quests.db.sharePartial = false
+	C_QuestLog.GetQuestObjectives, C_QuestLog.GetInfo, C_QuestLog.GetNumQuestLogEntries = savedObjectives, savedInfo, savedNum
+	C_ChatInfo, IsInGroup, IsInRaid = savedChat, savedInGroup, savedInRaid
+	print("quest scan state OK")
+end)()
 ;(function()
 	local bagOptions
 	for _, page in ipairs(ns.SettingsPages) do

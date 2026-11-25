@@ -88,45 +88,60 @@ local function ShareLine(text)
 	end
 end
 
+local scanGeneration = 0
+
+-- Reads objectives through GetQuestObjectiveInfo (values, no tables) and updates the state tables in place, so a scan
+-- leaves little garbage behind.
 local function ScanQuests()
 	scanPending = false
-	local seen = {}
+	scanGeneration = scanGeneration + 1
+	local generation = scanGeneration
 	local progressed, completed = false, false
 	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
 		local info = C_QuestLog.GetInfo(index)
 		if info and not info.isHeader and info.questID and info.questID > 0 then
 			local questID = info.questID
-			local done, counts = 0, {}
-			local old = state[questID]
-			for objectiveIndex, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
-				local fulfilled = objective.numFulfilled or 0
+			local entry = state[questID]
+			local known = initialized and entry ~= nil
+			if not entry then
+				entry = { done = 0, complete = false, counts = {} }
+				state[questID] = entry
+			end
+			local counts = entry.counts
+			local done = 0
+			local numObjectives = C_QuestLog.GetNumQuestObjectives(questID) or 0
+			for objectiveIndex = 1, numObjectives do
+				local text, _, _, fulfilled, required = GetQuestObjectiveInfo(questID, objectiveIndex, true)
+				fulfilled = fulfilled or 0
 				done = done + fulfilled
-				counts[objectiveIndex] = fulfilled
 				-- Objectives that moved on, for the group: every step, or only the finished ones.
-				if initialized and old and fulfilled > (old.counts[objectiveIndex] or 0) then
-					local finished = fulfilled >= (objective.numRequired or math.huge)
+				if known and fulfilled > (counts[objectiveIndex] or 0) then
+					local finished = fulfilled >= (required or math.huge)
 					if Quests.db.sharePartial or (finished and Quests.db.shareDone) then
-						ShareLine(L.QUESTS_SHARE_LINE:format(info.title or "?", objective.text or ""))
+						ShareLine(L.QUESTS_SHARE_LINE:format(info.title or "?", text or ""))
 					end
 				end
+				counts[objectiveIndex] = fulfilled
+			end
+			for objectiveIndex = #counts, numObjectives + 1, -1 do
+				counts[objectiveIndex] = nil
 			end
 			local complete = ns.IsQuestReady(questID, index)
-			if initialized and old then
-				if complete and not old.complete then
+			if known then
+				if complete and not entry.complete then
 					completed = true
 					if Quests.db.shareDone or Quests.db.sharePartial then
 						ShareLine(L.QUESTS_SHARE_READY:format(info.title or "?"))
 					end
-				elseif done > old.done then
+				elseif done > entry.done then
 					progressed = true
 				end
 			end
-			state[questID] = { done = done, complete = complete, counts = counts }
-			seen[questID] = true
+			entry.done, entry.complete, entry.seen = done, complete, generation
 		end
 	end
-	for questID in pairs(state) do
-		if not seen[questID] then
+	for questID, entry in pairs(state) do
+		if entry.seen ~= generation then
 			state[questID] = nil
 		end
 	end

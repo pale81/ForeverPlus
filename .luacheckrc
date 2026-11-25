@@ -82,7 +82,7 @@ read_globals = {
 	"LOCKED", "IsMounted", "SetItemButtonDesaturated", "MERCHANT_ITEMS_PER_PAGE", "GetMerchantItemLink", "GetMerchantItemID",
 	"MerchantFrame_UpdateMerchantInfo", "ITEM_SPELL_KNOWN", "ClearOverrideBindings", "SetOverrideBindingClick", "NUM_BAG_SLOTS",
 	"GetNumLanguages", "GetLanguageByIndex", "FCFTab_UpdateAlpha", "QuestInfo_Display",
-	"GetNumQuestLeaderBoards", "AUCTION_DURATION_ONE", "AUCTION_DURATION_TWO", "AUCTION_DURATION_THREE",
+	"GetNumQuestLeaderBoards", "GetQuestObjectiveInfo", "AUCTION_DURATION_ONE", "AUCTION_DURATION_TWO", "AUCTION_DURATION_THREE",
 	"strcmputf8i", "GetZoneText", "CopyTable", "DoesAncestryInclude",
 	"IsResting",
 	"QuestObjectiveItemButtonMixin",

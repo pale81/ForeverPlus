@@ -15,6 +15,7 @@ local Waypoint = ns:NewModule("Waypoint", {
 		message = true,
 		arrow = true, -- the arrow on the screen
 		arrowStyle = "standard",
+		clickArrowStyle = true,
 		arrowColor = "DEFAULT",
 		arrowCustomColor = { r = 1, g = 0.82, b = 0 },
 		corpseArrow = true,
@@ -635,8 +636,47 @@ local function UpdateArrow(self, elapsed)
 	end
 end
 
+local function SelectArrowStyle(key)
+	ns.SetOption("Waypoint", "arrowStyle", key)
+	if not SettingsVisible() then
+		return
+	end
+	-- Refresh just our visible dropdown label after changing its backing value.
+	local list = SettingsPanel:GetSettingsList()
+	local setting = Settings.GetSetting("ForeverPlus_Waypoint_arrowStyle")
+	if list and list.ScrollBox and setting then
+		list.ScrollBox:ForEachFrame(function(row)
+			if row.GetSetting and row:GetSetting() == setting then
+				local dropdown = row.Control.Dropdown
+				dropdown:UpdateToMenuSelections(dropdown:GetMenuDescription())
+			end
+		end)
+	end
+end
+
+local function CycleArrowStyle()
+	local current = ARROW_STYLES_BY_KEY[Waypoint.db.arrowStyle] or ARROW_STYLES[1]
+	for i, style in ipairs(ARROW_STYLES) do
+		if style == current then
+			SelectArrowStyle(ARROW_STYLES[i % #ARROW_STYLES + 1].key)
+			return
+		end
+	end
+end
+
 local function CreateArrow()
-	arrow = CreateFrame("Frame", "ForeverPlusWaypointArrow", UIParent)
+	arrow = CreateFrame("Button", "ForeverPlusWaypointArrow", UIParent)
+	arrow:RegisterForClicks("LeftButtonUp")
+	arrow:SetScript("OnClick", ns.Measured("Waypoint: cycle arrow design", function(_, button)
+		if button == "LeftButton" and Waypoint.db.clickArrowStyle then
+			CycleArrowStyle()
+		end
+	end))
+	arrow:SetScript("OnDoubleClick", ns.Measured("Waypoint: reset arrow design", function(_, button)
+		if button == "LeftButton" and Waypoint.db.clickArrowStyle then
+			SelectArrowStyle(Waypoint.defaults.arrowStyle)
+		end
+	end))
 	arrow:SetSize(64, 84)
 	arrow:SetFrameStrata("MEDIUM")
 	arrow.Arrow = arrow:CreateTexture(nil, "ARTWORK")
@@ -651,6 +691,9 @@ local function CreateArrow()
 		local corpse = CorpseRun()
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 		GameTooltip_SetTitle(GameTooltip, corpse and L.WAYPOINT_CORPSE or L.WAYPOINT_ARROW)
+		if Waypoint.db.clickArrowStyle then
+			GameTooltip_AddInstructionLine(GameTooltip, L.WAYPOINT_STYLE_CLICK_HINT)
+		end
 		GameTooltip_AddInstructionLine(GameTooltip, corpse and L.WAYPOINT_CORPSE_HINT or L.WAYPOINT_ARROW_HINT)
 		GameTooltip:Show()
 	end))
@@ -1025,6 +1068,7 @@ Waypoint.options = {
 	{ key = "message", type = "toggle", name = L.WAYPOINT_MESSAGE, desc = L.MESSAGE_DESC, parent = "enabled" },
 	{ key = "arrow", type = "toggle", name = L.WAYPOINT_ARROW, desc = L.WAYPOINT_ARROW_DESC, parent = "enabled", new = true },
 	{ key = "arrowStyle", type = "dropdown", name = L.WAYPOINT_STYLE, desc = L.WAYPOINT_STYLE_DESC, parent = "arrow", values = StyleValues, new = true },
+	{ key = "clickArrowStyle", type = "toggle", name = L.WAYPOINT_STYLE_CLICK, desc = L.WAYPOINT_STYLE_CLICK_HINT, parent = "arrow" },
 	{ key = "arrowColor", type = "dropdown", name = L.WAYPOINT_COLOR, desc = L.WAYPOINT_COLOR_DESC, parent = "arrow", values = ColorValues, new = true },
 	{ type = "button", name = L.WAYPOINT_CUSTOM_COLOR, text = L.WAYPOINT_CUSTOM_COLOR_BTN, desc = L.WAYPOINT_CUSTOM_COLOR_DESC, func = Waypoint.ChooseColor },
 	{ key = "corpseArrow", type = "toggle", name = L.WAYPOINT_CORPSE, desc = L.WAYPOINT_CORPSE_DESC, parent = "enabled" },

@@ -16213,6 +16213,47 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	assert(previewFrame:IsShown(), "preview panel opens alongside active waypoint in settings")
 	arrow:GetScript("OnUpdate")(arrow, 0.2)
 	assert(math.abs(tex.rotation - rotBefore) < 1e-4, "style change re-applies arrow rotation even while standing still")
+
+	local click, doubleClick = arrow:GetScript("OnClick"), arrow:GetScript("OnDoubleClick")
+	assert(way.db.clickArrowStyle and optsByKey.clickArrowStyle, "arrow click controls enabled by default")
+	local savedList, savedGetSetting = SettingsPanel.GetSettingsList, Settings.GetSetting
+	local setting, menu, label = {}, {}, nil
+	local dropdown = {
+		GetMenuDescription = function() return menu end,
+		UpdateToMenuSelections = function(_, description)
+			assert(description == menu)
+			label = way.db.arrowStyle
+		end,
+	}
+	local row = { GetSetting = function() return setting end, Control = { Dropdown = dropdown } }
+	Settings.GetSetting = function(variable)
+		if variable == "ForeverPlus_Waypoint_arrowStyle" then return setting end
+	end
+	SettingsPanel.GetSettingsList = function()
+		return { ScrollBox = { ForEachFrame = function(_, visit) visit({}) visit(row) end } }
+	end
+	local goal = way.Target()
+	for _, key in ipairs({ "chevron", "rune", "standard", "classic", "compass" }) do
+		click(arrow, "LeftButton")
+		assert(way.db.arrowStyle == key and arrow.lastStyleKey == key and label == key, "single-click selects and renders " .. key)
+	end
+	for _, entry in ipairs(way.ARROW_STYLES) do
+		ns.SetOption("Waypoint", "arrowStyle", entry.key)
+		click(arrow, "LeftButton")
+		doubleClick(arrow, "LeftButton")
+		assert(way.db.arrowStyle == "standard" and lastAtlas == "Navigation-Tracked-Arrow" and label == "standard", "double-click resets " .. entry.key)
+	end
+	assert(way.db.arrowColor == "ORANGE" and way.Target() == goal, "design clicks preserve color and destination")
+	ns.SetOption("Waypoint", "arrowStyle", "rune")
+	click(arrow, "RightButton")
+	doubleClick(arrow, "RightButton")
+	assert(way.db.arrowStyle == "rune", "right-click leaves design alone")
+	ns.SetOption("Waypoint", "clickArrowStyle", false)
+	click(arrow, "LeftButton")
+	doubleClick(arrow, "LeftButton")
+	assert(way.db.arrowStyle == "rune", "disabled design gestures leave selection alone")
+	ns.SetOption("Waypoint", "clickArrowStyle", true)
+	SettingsPanel.GetSettingsList, Settings.GetSetting = savedList, savedGetSetting
 	arrow:GetScript("OnMouseUp")(arrow, "MiddleButton")
 	assert(way.Target() == nil, "middle-click on active arrow clears waypoint even while preview panel is shown")
 	settingsHideFn()

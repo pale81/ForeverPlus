@@ -164,6 +164,7 @@ L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Highlights Shaman shields, Slice an
 L.VISUALS_TOTEM_TIMERS = "Totem timers on the totem bar"
 L.VISUALS_TOTEM_TIMERS_DESC = "Shows the remaining duration of active totems with a countdown and slim bar directly on the slots of the Shaman totem bar."
 L.VISUALS_TOTEM_RECALL_BINDING = "Totemic Recall (Totem Bar)"
+L.VISUALS_TOTEM_SUMMON_BINDING = "Call of the Elements (Totem Bar)"
 L.VISUALS_TOTEM_RECALL_COLORS = "Color Totemic Recall by usability"
 L.VISUALS_TOTEM_RECALL_COLORS_DESC = "Colors Totemic Recall on the totem bar blue when mana is low and gray when the spell is unusable."
 

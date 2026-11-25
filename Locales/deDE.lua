@@ -163,6 +163,7 @@ L.VISUALS_COMBAT_BUFF_RECOMMENDATION_DESC = "Markiert im Kampf den Schamanenschi
 L.VISUALS_TOTEM_TIMERS = "Totem-Laufzeit auf der Totemleiste"
 L.VISUALS_TOTEM_TIMERS_DESC = "Zeigt die Restlaufzeit aktiver Totems mit Zeitanzeige und schmaler Leiste direkt auf den Feldern der Schamanen-Totemleiste."
 L.VISUALS_TOTEM_RECALL_BINDING = "Totemischer Rückruf (Totemleiste)"
+L.VISUALS_TOTEM_SUMMON_BINDING = "Ruf der Elemente (Totemleiste)"
 L.VISUALS_TOTEM_RECALL_COLORS = "Totemrückruf nach Zustand färben"
 L.VISUALS_TOTEM_RECALL_COLORS_DESC = "Färbt den Totemischen Rückruf auf der Totemleiste blau bei Manamangel und grau, wenn er nicht einsetzbar ist."
 

@@ -39,8 +39,9 @@ local Visuals = ns:NewModule("Visuals", {
 })
 
 local TOTEM_RECALL_BINDING = "CLICK MultiCastRecallSpellButton:LeftButton"
-local TOTEM_RECALL_CAST_BUTTON = "ForeverPlusTotemRecallCastButton"
+local TOTEM_SUMMON_BINDING = "CLICK MultiCastSummonSpellButton:LeftButton"
 _G["BINDING_NAME_" .. TOTEM_RECALL_BINDING] = L.VISUALS_TOTEM_RECALL_BINDING
+_G["BINDING_NAME_" .. TOTEM_SUMMON_BINDING] = L.VISUALS_TOTEM_SUMMON_BINDING
 
 ---------------------------------------------------------------------------
 -- Item quality frame (like the tooltip frame) from "uncommon" upwards, soft grey for grey and white items (option)
@@ -561,47 +562,91 @@ local function HookActionButtons()
 	hooksecurefunc("ActionButton_UpdateRangeIndicator", ns.Measured("Visuals: action range", OnRangeUpdate))
 end
 
-local function SetupTotemRecallBinding(button)
-	local spellID = TOTEM_MULTI_CAST_RECALL_SPELLS and TOTEM_MULTI_CAST_RECALL_SPELLS[button:GetID()]
-	if spellID then
-		-- Keep the saved command and the native hotkey label. Use a secure spell button
-		-- for the keyboard so the game's key-down setting applies to the recall too.
-		local cast = CreateFrame("Button", TOTEM_RECALL_CAST_BUTTON, UIParent, "SecureActionButtonTemplate")
-		cast:EnableMouse(false)
-		cast:RegisterForClicks("AnyUp", "AnyDown")
-		cast:SetAttribute("type", "spell")
-		cast:SetAttribute("spell", spellID)
-		local function ApplyBindings()
-			ClearOverrideBindings(cast)
-			for _, key in ipairs({ GetBindingKey(TOTEM_RECALL_BINDING) }) do
-				SetOverrideBindingClick(cast, false, key, TOTEM_RECALL_CAST_BUTTON, "LeftButton")
-			end
-		end
-		Visuals:RegisterEvent("UPDATE_BINDINGS", function()
-			ns.RunOutOfCombat(ApplyBindings)
-		end)
-		ApplyBindings()
+local function CreateTotemCastButton(binding)
+	local button, spellIDs = binding.button, binding.spellIDs
+	local spellID = spellIDs and spellIDs[button:GetID()]
+	if not spellID then
+		return
 	end
+
+	-- Keep the native command and its hotkey label. The secure cast honours
+	-- the game's setting for firing on key press or release.
+	local template = "SecureActionButtonTemplate"
+	if binding.followsPage then
+		template = template .. ", SecureHandlerBaseTemplate"
+	end
+	local cast = CreateFrame("Button", binding.castName, UIParent, template)
+	cast:EnableMouse(false)
+	cast:RegisterForClicks("AnyUp", "AnyDown")
+	cast:SetAttribute("type", "spell")
+	cast:SetAttribute("spell", spellID)
+	if binding.followsPage then
+		for page, id in ipairs(spellIDs) do
+			cast:SetAttribute("spell-page-" .. page, id)
+		end
+		cast:SetFrameRef("summon", button)
+		-- Read the native page at the hardware click, including during combat.
+		cast:WrapScript(cast, "PreClick", [[
+			local summon = self:GetFrameRef("summon")
+			local page = summon and summon:GetID()
+			self:SetAttribute("spell", page and self:GetAttribute("spell-page-" .. page))
+		]])
+	end
+	return cast
+end
+
+local function SetupTotemKeybindSelector(binding)
 	if not QuickKeybindButtonTemplateMixin then
 		return
 	end
 
-	-- The native recall button has no quick-keybind scripts. Overlay only while
-	-- the binding UI is active so the default mouse click stays on the spell.
+	-- Overlay the native spell button only while the binding UI is active.
+	local button = binding.button
 	local selector = CreateFrame("Button", nil, button, "QuickKeybindButtonTemplate")
 	selector:Hide()
-	selector.commandName = TOTEM_RECALL_BINDING
+	selector.commandName = binding.command
 	selector:SetAllPoints(button)
 	selector:SetFrameLevel(button:GetFrameLevel() + 1)
 	selector.QuickKeybindHighlightTexture:SetAllPoints()
 	selector:RegisterForClicks("AnyUp")
-	EventRegistry:RegisterCallback("QuickKeybindFrame.QuickKeybindModeEnabled", ns.Measured("Visuals: show recall keybind", function()
+	EventRegistry:RegisterCallback("QuickKeybindFrame.QuickKeybindModeEnabled", ns.Measured("Visuals: show totem keybind", function()
 		selector:DoModeChange(true)
 		selector:Show()
-	end), Visuals)
-	EventRegistry:RegisterCallback("QuickKeybindFrame.QuickKeybindModeDisabled", ns.Measured("Visuals: hide recall keybind", function()
+	end), binding)
+	EventRegistry:RegisterCallback("QuickKeybindFrame.QuickKeybindModeDisabled", ns.Measured("Visuals: hide totem keybind", function()
 		selector:Hide()
-	end), Visuals)
+	end), binding)
+end
+
+local function SetupTotemBindings()
+	local bindings = {
+		{ button = MultiCastRecallSpellButton, command = TOTEM_RECALL_BINDING,
+			castName = "ForeverPlusTotemRecallCastButton", spellIDs = TOTEM_MULTI_CAST_RECALL_SPELLS },
+		{ button = MultiCastSummonSpellButton, command = TOTEM_SUMMON_BINDING,
+			castName = "ForeverPlusTotemSummonCastButton", spellIDs = TOTEM_MULTI_CAST_SUMMON_SPELLS, followsPage = true },
+	}
+	for _, binding in ipairs(bindings) do
+		if binding.button then
+			binding.cast = CreateTotemCastButton(binding)
+			SetupTotemKeybindSelector(binding)
+		end
+	end
+
+	local function ApplyBindings()
+		for _, binding in ipairs(bindings) do
+			local cast = binding.cast
+			if cast then
+				ClearOverrideBindings(cast)
+				for _, key in ipairs({ GetBindingKey(binding.command) }) do
+					SetOverrideBindingClick(cast, false, key, binding.castName, "LeftButton")
+				end
+			end
+		end
+	end
+	Visuals:RegisterEvent("UPDATE_BINDINGS", function()
+		ns.RunOutOfCombat(ApplyBindings)
+	end)
+	ApplyBindings()
 end
 
 -- The native recall button holds a spell ID instead of an action slot.
@@ -2151,10 +2196,8 @@ function Visuals:OnLogin()
 	FrameBuffs()
 	HookQuestItems()
 	HookActionButtons()
-	if select(2, UnitClass("player")) == "SHAMAN" and MultiCastRecallSpellButton then
-		ns.RunOutOfCombat(function()
-			SetupTotemRecallBinding(MultiCastRecallSpellButton)
-		end)
+	if select(2, UnitClass("player")) == "SHAMAN" then
+		ns.RunOutOfCombat(SetupTotemBindings)
 		if type(MultiCastRecallSpellButton_Update) == "function" then
 			hooksecurefunc("MultiCastRecallSpellButton_Update", ns.Measured("Visuals: totem recall", ColorTotemRecall))
 			UpdateTotemRecallWatch()

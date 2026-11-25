@@ -13440,74 +13440,111 @@ end)()
 
 ;(function()
 	local visuals = ns:GetModule("Visuals")
-	local setup = assert(uv(visuals.OnLogin, "SetupTotemRecallBinding"))
+	local setup = assert(uv(visuals.OnLogin, "SetupTotemBindings"))
 	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
 	local updateBindings = eventFrame:GetScript("OnEvent")
 	local savedFrame, savedRegistry, savedMixin = CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin
-	local savedSpells, savedKey = TOTEM_MULTI_CAST_RECALL_SPELLS, GetBindingKey
+	local savedRecallSpells, savedSummonSpells = TOTEM_MULTI_CAST_RECALL_SPELLS, TOTEM_MULTI_CAST_SUMMON_SPELLS
+	local savedRecall, savedSummon, savedKey = MultiCastRecallSpellButton, MultiCastSummonSpellButton, GetBindingKey
 	local savedClear, savedOverride = ClearOverrideBindings, SetOverrideBindingClick
-	local castName = "ForeverPlusTotemRecallCastButton"
-	local command = "CLICK MultiCastRecallSpellButton:LeftButton"
-	local recall = NewFrame("CheckButton")
-	local cast, selector
-	local events, overrides = {}, {}
-	local keys = { "SHIFT-R", "CTRL-R" }
+	local recallCastName, summonCastName = "ForeverPlusTotemRecallCastButton", "ForeverPlusTotemSummonCastButton"
+	local recallCommand = "CLICK MultiCastRecallSpellButton:LeftButton"
+	local summonCommand = "CLICK MultiCastSummonSpellButton:LeftButton"
+	local recall, summon = NewFrame("CheckButton"), NewFrame("CheckButton")
+	local currentPage = 1
+	summon.GetID = function() return currentPage end
+	MultiCastRecallSpellButton, MultiCastSummonSpellButton = recall, summon
+	local events, overrides, casts, selectors = {}, {}, {}, {}
+	local keys = { [recallCommand] = { "SHIFT-R", "CTRL-R" }, [summonCommand] = { "SHIFT-T" } }
 	TOTEM_MULTI_CAST_RECALL_SPELLS = { 36936 }
+	TOTEM_MULTI_CAST_SUMMON_SPELLS = { 66842, 66843, 66844 }
 	EventRegistry = { RegisterCallback = function(_, event, fn, owner)
-		events[event] = function() fn(owner) end
+		events[event] = events[event] or {}
+		events[event][owner] = fn
 	end }
+	local function Fire(event)
+		for owner, callback in pairs(events[event]) do callback(owner) end
+	end
 	QuickKeybindButtonTemplateMixin = {}
 	CreateFrame = function(kind, name, parent, template)
 		local frame = savedFrame(kind, name, parent, template)
 		local attributes = {}
+		local frameRefs = {}
 		frame.SetAttribute = function(_, key, value) attributes[key] = value end
 		frame.GetAttribute = function(_, key) return attributes[key] end
+		frame.SetFrameRef = function(_, key, value) frameRefs[key] = value end
+		frame.GetFrameRef = function(_, key) return frameRefs[key] end
+		frame.WrapScript = function(self, target, script, body)
+			assert(template == "SecureActionButtonTemplate, SecureHandlerBaseTemplate", "page switching is secure")
+			assert(target == self and script == "PreClick", "select the spell before casting")
+			self.preClick = setfenv(assert(loadstring(body)), { self = target })
+		end
 		frame.RegisterForClicks = function(self, ...) self.clicks = table.concat({ ... }, ",") end
 		frame.SetAllPoints = function(self, target) self.anchor = target end
-		if template == "SecureActionButtonTemplate" then
-			cast = frame
-		elseif template == "QuickKeybindButtonTemplate" then
-			assert(parent == recall, "quick keybind follows the position and visibility of the recall button")
-			selector = frame
+		if template == "QuickKeybindButtonTemplate" then
+			selectors[parent] = frame
 			frame.DoModeChange = function(self, enabled) self.highlighted = enabled end
+		else
+			casts[name] = frame
 		end
 		return frame
 	end
 	GetBindingKey = function(action)
-		assert(action == command, "recall uses its saved binding")
-		return unpack(keys)
+		local bound = assert(keys[action], "each button uses its own saved command")
+		return unpack(bound)
 	end
 	ClearOverrideBindings = function(owner)
-		assert(owner == cast, "recall clears only its own overrides")
-		overrides = {}
+		overrides[owner] = {}
 	end
 	SetOverrideBindingClick = function(owner, priority, key, name, mouseButton)
-		assert(owner == cast and not priority and mouseButton == "LeftButton", "ordinary binding priority")
-		overrides[key] = name
+		assert(owner == casts[name] and not priority and mouseButton == "LeftButton", "ordinary binding priority")
+		overrides[owner][key] = name
 	end
-	setup(recall)
-	assert(cast:GetAttribute("type") == "spell" and cast:GetAttribute("spell") == 36936, "secure cast uses Totemic Recall")
-	assert(cast.clicks == "AnyUp,AnyDown", "the game can use either key press or release")
-	assert(overrides["SHIFT-R"] == castName and overrides["CTRL-R"] == castName, "both bound keys use the secure cast")
-	assert(selector.commandName == command and selector.anchor == recall and not selector:IsShown(),
-		"fast binding targets the saved command and starts hidden")
-	events["QuickKeybindFrame.QuickKeybindModeEnabled"]()
-	assert(selector:IsShown() and selector.highlighted, "fast binding can select the recall button under the cursor")
-	keys = { "ALT-R" }
+	setup()
+	local recallCast, summonCast = casts[recallCastName], casts[summonCastName]
+	assert(recallCast:GetAttribute("type") == "spell" and recallCast:GetAttribute("spell") == 36936, "secure recall is unchanged")
+	assert(summonCast:GetAttribute("type") == "spell", "the totem page casts a spell")
+	assert(recallCast.clicks == "AnyUp,AnyDown" and summonCast.clicks == recallCast.clicks,
+		"both buttons support the game's key press or release setting")
+	for page, spellID in ipairs(TOTEM_MULTI_CAST_SUMMON_SPELLS) do
+		currentPage = page
+		summonCast.preClick()
+		assert(summonCast:GetAttribute("spell") == spellID, "secure summon follows the native page at click time")
+	end
+	currentPage = 4
+	summonCast.preClick()
+	assert(summonCast:GetAttribute("spell") == nil, "an unknown page cannot reuse the previous summon spell")
+	assert(overrides[recallCast]["SHIFT-R"] == recallCastName and overrides[recallCast]["CTRL-R"] == recallCastName,
+		"both recall keys use the secure cast")
+	assert(overrides[summonCast]["SHIFT-T"] == summonCastName, "summon has an independent binding")
+	assert(selectors[recall].commandName == recallCommand and selectors[summon].commandName == summonCommand,
+		"quick binding selects the correct saved command")
+	for button, selector in pairs(selectors) do
+		assert(selector.anchor == button and not selector:IsShown(), "each selector starts hidden over its native button")
+	end
+	Fire("QuickKeybindFrame.QuickKeybindModeEnabled")
+	assert(selectors[recall]:IsShown() and selectors[summon]:IsShown() and selectors[summon].highlighted,
+		"quick binding shows both selectors")
+	keys[recallCommand], keys[summonCommand] = { "ALT-R" }, { "ALT-T" }
 	updateBindings(eventFrame, "UPDATE_BINDINGS")
-	assert(overrides["ALT-R"] == castName and not overrides["SHIFT-R"] and not overrides["CTRL-R"],
-		"rebinding replaces both old keys")
-	keys = {}
+	assert(overrides[recallCast]["ALT-R"] == recallCastName and not overrides[recallCast]["SHIFT-R"]
+		and not overrides[recallCast]["CTRL-R"], "rebinding recall replaces both old keys")
+	assert(overrides[summonCast]["ALT-T"] == summonCastName and not overrides[summonCast]["SHIFT-T"],
+		"rebinding summon replaces its old key")
+	keys[summonCommand] = {}
 	updateBindings(eventFrame, "UPDATE_BINDINGS")
-	assert(not next(overrides), "clearing the binding removes the shortcut")
-	events["QuickKeybindFrame.QuickKeybindModeDisabled"]()
-	assert(not selector:IsShown(), "closing fast binding returns mouse input to the recall button")
+	assert(not next(overrides[summonCast]) and overrides[recallCast]["ALT-R"] == recallCastName,
+		"clearing summon leaves the recall shortcut intact")
+	Fire("QuickKeybindFrame.QuickKeybindModeDisabled")
+	assert(not selectors[recall]:IsShown() and not selectors[summon]:IsShown(),
+		"closing quick binding returns mouse input to the native buttons")
 	visuals:UnregisterEvent("UPDATE_BINDINGS")
-	_G[castName] = nil
+	_G[recallCastName], _G[summonCastName] = nil, nil
 	CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin = savedFrame, savedRegistry, savedMixin
-	TOTEM_MULTI_CAST_RECALL_SPELLS, GetBindingKey = savedSpells, savedKey
+	TOTEM_MULTI_CAST_RECALL_SPELLS, TOTEM_MULTI_CAST_SUMMON_SPELLS = savedRecallSpells, savedSummonSpells
+	MultiCastRecallSpellButton, MultiCastSummonSpellButton, GetBindingKey = savedRecall, savedSummon, savedKey
 	ClearOverrideBindings, SetOverrideBindingClick = savedClear, savedOverride
-	print("totem recall quick keybind and secure cast binding OK")
+	print("totem summon and recall quick keybind, secure cast and page switching OK")
 end)()
 
 ;(function()

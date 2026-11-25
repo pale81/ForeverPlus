@@ -596,7 +596,7 @@ local function CreateTotemCastButton(binding)
 end
 
 local function SetupTotemKeybindSelector(binding)
-	if not QuickKeybindButtonTemplateMixin then
+	if not QuickKeybindButtonTemplateMixin or not QuickKeybindFrame then
 		return
 	end
 
@@ -609,6 +609,35 @@ local function SetupTotemKeybindSelector(binding)
 	selector:SetFrameLevel(button:GetFrameLevel() + 1)
 	selector.QuickKeybindHighlightTexture:SetAllPoints()
 	selector:RegisterForClicks("AnyUp")
+
+	if binding.followsPage then
+		-- The summon button owns the mouse interaction with its page flyout.
+		-- Keep hover on the native button and clicks on the keybind selector.
+		selector:SetMouseMotionEnabled(false)
+		selector:SetMouseClickEnabled(true)
+		local onEnter = ns.Measured("Visuals: select totem summon binding", function()
+			if selector:IsVisible() and QuickKeybindFrame.mouseOverButton ~= selector then
+				selector:QuickKeybindButtonOnEnter()
+			end
+		end)
+		local onLeave = ns.Measured("Visuals: clear totem summon binding", function()
+			if QuickKeybindFrame.mouseOverButton == selector then
+				selector:QuickKeybindButtonOnLeave()
+				if QuickKeybindFrame.mouseOverButton == selector then
+					QuickKeybindFrame:SetSelected(nil, nil)
+				end
+			end
+		end)
+		button:HookScript("OnEnter", onEnter)
+		button:HookScript("OnLeave", onLeave)
+		selector:HookScript("OnShow", ns.Measured("Visuals: check summon hover on show", function()
+			if button:IsMouseMotionFocus() then
+				onEnter()
+			end
+		end))
+		selector:HookScript("OnHide", onLeave)
+	end
+
 	EventRegistry:RegisterCallback("QuickKeybindFrame.QuickKeybindModeEnabled", ns.Measured("Visuals: show totem keybind", function()
 		selector:DoModeChange(true)
 		selector:Show()
@@ -627,8 +656,12 @@ local function SetupTotemBindings()
 	}
 	for _, binding in ipairs(bindings) do
 		if binding.button then
-			binding.cast = CreateTotemCastButton(binding)
 			SetupTotemKeybindSelector(binding)
+		end
+	end
+	for _, binding in ipairs(bindings) do
+		if binding.button then
+			binding.cast = CreateTotemCastButton(binding)
 		end
 	end
 

@@ -13447,6 +13447,7 @@ end)()
 	local eventFrame = uv(ns.RegisterEvent, "eventFrame")
 	local updateBindings = eventFrame:GetScript("OnEvent")
 	local savedFrame, savedRegistry, savedMixin = CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin
+	local savedQuickKeybindFrame = QuickKeybindFrame
 	local savedRecallSpells, savedSummonSpells = TOTEM_MULTI_CAST_RECALL_SPELLS, TOTEM_MULTI_CAST_SUMMON_SPELLS
 	local savedRecall, savedSummon, savedKey = MultiCastRecallSpellButton, MultiCastSummonSpellButton, GetBindingKey
 	local savedClear, savedOverride = ClearOverrideBindings, SetOverrideBindingClick
@@ -13455,7 +13456,10 @@ end)()
 	local summonCommand = "CLICK MultiCastSummonSpellButton:LeftButton"
 	local recall, summon = NewFrame("CheckButton"), NewFrame("CheckButton")
 	local currentPage = 1
+	local modeShown, summonHover, nativeEnters = false, false, 0
 	summon.GetID = function() return currentPage end
+	summon.IsMouseMotionFocus = function() return summonHover end
+	summon:SetScript("OnEnter", function() nativeEnters = nativeEnters + 1 end)
 	MultiCastRecallSpellButton, MultiCastSummonSpellButton = recall, summon
 	local events, overrides, casts, selectors = {}, {}, {}, {}
 	local keys = { [recallCommand] = { "SHIFT-R", "CTRL-R" }, [summonCommand] = { "SHIFT-T" } }
@@ -13469,6 +13473,11 @@ end)()
 		for owner, callback in pairs(events[event]) do callback(owner) end
 	end
 	QuickKeybindButtonTemplateMixin = {}
+	QuickKeybindFrame = {
+		SetSelected = function(self, command, selector)
+			self.command, self.mouseOverButton = command, selector
+		end,
+	}
 	CreateFrame = function(kind, name, parent, template)
 		local frame = savedFrame(kind, name, parent, template)
 		local attributes = {}
@@ -13487,6 +13496,25 @@ end)()
 		if template == "QuickKeybindButtonTemplate" then
 			selectors[parent] = frame
 			frame.DoModeChange = function(self, enabled) self.highlighted = enabled end
+			frame.SetMouseMotionEnabled = function(self, enabled) self.mouseMotion = enabled end
+			frame.SetMouseClickEnabled = function(self, enabled) self.mouseClick = enabled end
+			frame.Show = function(self)
+				self.shown = true
+				local script = self:GetScript("OnShow")
+				if script then script(self) end
+			end
+			frame.Hide = function(self)
+				self.shown = false
+				local script = self:GetScript("OnHide")
+				if script then script(self) end
+			end
+			frame.QuickKeybindButtonOnEnter = function(self)
+				assert(modeShown, "ordinary native hover does not enter quick binding")
+				QuickKeybindFrame:SetSelected(self.commandName, self)
+			end
+			frame.QuickKeybindButtonOnLeave = function()
+				if modeShown then QuickKeybindFrame:SetSelected(nil, nil) end
+			end
 		else
 			casts[name] = frame
 		end
@@ -13525,9 +13553,20 @@ end)()
 	for button, selector in pairs(selectors) do
 		assert(selector.anchor == button and not selector:IsShown(), "each selector starts hidden over its native button")
 	end
+	assert(selectors[summon].mouseMotion == false and selectors[summon].mouseClick == true,
+		"the selector leaves mouse motion to summon and catches clicks during quick binding")
+	summon:GetScript("OnEnter")(summon, true)
+	assert(nativeEnters == 1 and not QuickKeybindFrame.mouseOverButton, "native hover outside quick binding stays intact")
+	modeShown, summonHover = true, true
 	Fire("QuickKeybindFrame.QuickKeybindModeEnabled")
 	assert(selectors[recall]:IsShown() and selectors[summon]:IsShown() and selectors[summon].highlighted,
 		"quick binding shows both selectors")
+	assert(QuickKeybindFrame.command == summonCommand, "opening while already over the native button selects summon")
+	summon:GetScript("OnLeave")(summon, true)
+	assert(not QuickKeybindFrame.mouseOverButton, "leaving the native button clears the selection")
+	summon:GetScript("OnEnter")(summon, true)
+	assert(nativeEnters == 2 and QuickKeybindFrame.mouseOverButton == selectors[summon],
+		"the live hover script selects the shortcut while preserving native hover")
 	keys[recallCommand], keys[summonCommand] = { "ALT-R" }, { "ALT-T" }
 	updateBindings(eventFrame, "UPDATE_BINDINGS")
 	assert(overrides[recallCast]["ALT-R"] == recallCastName and not overrides[recallCast]["SHIFT-R"]
@@ -13538,12 +13577,15 @@ end)()
 	updateBindings(eventFrame, "UPDATE_BINDINGS")
 	assert(not next(overrides[summonCast]) and overrides[recallCast]["ALT-R"] == recallCastName,
 		"clearing summon leaves the recall shortcut intact")
+	modeShown = false
 	Fire("QuickKeybindFrame.QuickKeybindModeDisabled")
 	assert(not selectors[recall]:IsShown() and not selectors[summon]:IsShown(),
 		"closing quick binding returns mouse input to the native buttons")
+	assert(not QuickKeybindFrame.mouseOverButton, "closing quick binding clears the summon key listener")
 	visuals:UnregisterEvent("UPDATE_BINDINGS")
 	_G[recallCastName], _G[summonCastName] = nil, nil
 	CreateFrame, EventRegistry, QuickKeybindButtonTemplateMixin = savedFrame, savedRegistry, savedMixin
+	QuickKeybindFrame = savedQuickKeybindFrame
 	TOTEM_MULTI_CAST_RECALL_SPELLS, TOTEM_MULTI_CAST_SUMMON_SPELLS = savedRecallSpells, savedSummonSpells
 	MultiCastRecallSpellButton, MultiCastSummonSpellButton, GetBindingKey = savedRecall, savedSummon, savedKey
 	ClearOverrideBindings, SetOverrideBindingClick = savedClear, savedOverride

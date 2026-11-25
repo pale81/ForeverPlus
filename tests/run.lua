@@ -15840,3 +15840,294 @@ end)()
 	print("portrait mode flashes OK")
 end)()
 assert(loadfile("emote_voice.lua"))(root, ns)
+;(function()
+	-- Waypoint: quest objective clicks (questPOI) and arrow designs/colors/preview
+	local way = ns:GetModule("Waypoint")
+	assert(way.db.questWaypoint == true, "questWaypoint enabled by default")
+	assert(way.db.arrowStyle == "standard" and way.db.arrowColor == "DEFAULT", "default arrow style and color")
+	assert(type(way.db.arrowCustomColor) == "table", "default custom arrow color")
+
+	local optsByKey, hasColorBtn = {}, false
+	for _, opt in ipairs(way.options) do
+		if opt.key then optsByKey[opt.key] = opt end
+		if opt.type == "button" and opt.func == way.ChooseColor then hasColorBtn = true end
+	end
+	assert(optsByKey.questWaypoint and optsByKey.questWaypoint.new == true, "questWaypoint has new=true")
+	assert(optsByKey.arrowStyle and optsByKey.arrowStyle.new == true, "arrowStyle has new=true")
+	assert(optsByKey.arrowColor and optsByKey.arrowColor.new == true, "arrowColor has new=true")
+	assert(hasColorBtn, "custom arrow color picker button present")
+	assert(#optsByKey.arrowStyle.values() == 5, "5 arrow designs available")
+	assert(#optsByKey.arrowColor.values() == 8, "7 color presets plus custom available")
+
+	-- Quest objective click tests
+	local savedCVar, savedShift = GetCVarBool, IsShiftKeyDown
+	local savedCan, savedSet, savedClear = C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint
+	local savedHas, savedGet, savedBest, savedInfo = C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.GetBestMapForUnit, C_Map.GetMapInfo
+	local savedUiPoint, savedSuper, savedPrint = UiMapPoint, C_SuperTrack, ns.Print
+	local savedQuestsOnMap, savedNextWp, savedNextWpMap, savedTitle =
+		C_QuestLog.GetQuestsOnMap, C_QuestLog.GetNextWaypoint, C_QuestLog.GetNextWaypointForMap, C_QuestLog.GetTitleForQuestID
+	local savedContinent = Enum.UIMapType.Continent
+
+	local questPOIOn, shiftDown = false, false
+	local userWp, superUserWp, superQuestID
+	GetCVarBool = function(name) return name == "questPOI" and questPOIOn or false end
+	IsShiftKeyDown = function() return shiftDown end
+	Enum.UIMapType.Continent = 2
+	C_Map.CanSetUserWaypointOnMap = function() return true end
+	C_Map.SetUserWaypoint = function(pt) userWp = pt return true end
+	C_Map.ClearUserWaypoint = function() userWp = nil end
+	C_Map.HasUserWaypoint = function() return userWp ~= nil end
+	C_Map.GetUserWaypoint = function() return userWp end
+	C_Map.GetBestMapForUnit = function() return 1429 end
+	C_Map.GetMapInfo = function(id) return { mapID = id, mapType = id == 1415 and 2 or 3, name = "Zone" .. tostring(id) } end
+	UiMapPoint = { CreateFromCoordinates = function(m, x, y) return { uiMapID = m, position = { x = x, y = y } } end }
+	C_SuperTrack = {
+		SetSuperTrackedUserWaypoint = function(v) superUserWp = v end,
+		GetSuperTrackedQuestID = function() return superQuestID end,
+	}
+	C_QuestLog.GetTitleForQuestID = function(id) return id == 33 and "Wolves Across the Border" or nil end
+	C_QuestLog.GetQuestsOnMap = function(mapID)
+		if mapID == 1429 then
+			return { { questID = 33, x = 0.46, y = 0.62 } }
+		end
+		return {}
+	end
+	C_QuestLog.GetNextWaypoint = function(id)
+		if id == 33 then return 1429, 0.48, 0.65 end
+	end
+	C_QuestLog.GetNextWaypointForMap = function() return nil end
+	ns.Print = function() end
+
+	local zonePin = {
+		GetQuestID = function() return 33 end,
+		GetMap = function() return { GetMapID = function() return 1429 end } end,
+		GetPosition = function() return 0.47, 0.63 end,
+	}
+	local continentPin = {
+		GetQuestID = function() return 33 end,
+		GetMap = function() return { GetMapID = function() return 1415 end } end,
+		GetPosition = function() return 0.50, 0.50 end,
+	}
+	local trackerBtn = { GetQuestID = function() return 33 end }
+
+	-- Disabled when questPOI CVar is off
+	way.Clear()
+	superQuestID, questPOIOn = 33, false
+	way.OnQuestPOIClick(zonePin, "LeftButton")
+	assert(way.Target() == nil, "no waypoint when Blizzard questPOI is disabled")
+
+	-- Disabled when questWaypoint option is off
+	questPOIOn, way.db.questWaypoint = true, false
+	way.OnQuestPOIClick(zonePin, "LeftButton")
+	assert(way.Target() == nil, "no waypoint when questWaypoint option is disabled")
+	way.db.questWaypoint = true
+
+	-- Ignored for right-click and shift-click
+	way.OnQuestPOIClick(zonePin, "RightButton")
+	assert(way.Target() == nil, "right-click ignored")
+	shiftDown = true
+	way.OnQuestPOIClick(zonePin, "LeftButton")
+	assert(way.Target() == nil, "shift-click ignored")
+	shiftDown = false
+
+	-- Left-click on zone map pin uses unquantized GetQuestsOnMap coordinates and preserves quest super-tracking
+	superUserWp = nil
+	way.OnQuestPOIClick(zonePin, "LeftButton")
+	local goal = way.Target()
+	assert(goal and goal.mapID == 1429 and math.abs(goal.x - 0.46) < 1e-6 and math.abs(goal.y - 0.62) < 1e-6
+		and goal.name == "Wolves Across the Border" and goal.questID == 33, "zone pin sets quest waypoint")
+	assert(userWp and userWp.uiMapID == 1429 and superUserWp == nil, "sets user waypoint without overriding quest super-track")
+
+	-- Clicking the same pin again (Blizzard clears super-tracking) clears the quest waypoint
+	superQuestID = 0
+	way.OnQuestPOIClick(zonePin, "LeftButton")
+	assert(way.Target() == nil and userWp == nil, "deselecting quest objective clears its waypoint")
+
+	-- Continent pin resolves to the zone map via GetNextWaypoint
+	superQuestID = 33
+	way.OnQuestPOIClick(continentPin, "LeftButton")
+	goal = way.Target()
+	assert(goal and goal.mapID == 1429 and math.abs(goal.x - 0.48) < 1e-6 and math.abs(goal.y - 0.65) < 1e-6,
+		"continent pin resolves to zone waypoint")
+
+	-- Tracker/log POI button (no GetMap) resolves via GetNextWaypoint
+	way.Clear()
+	way.OnQuestPOIClick(trackerBtn, "LeftButton")
+	goal = way.Target()
+	assert(goal and goal.mapID == 1429 and goal.questID == 33, "tracker POI button sets quest waypoint")
+
+	-- QUEST_TURNED_IN clears matching quest waypoint, leaves unrelated ones intact
+	local listeners = uv(ns.RegisterEvent, "listeners")
+	listeners.QUEST_TURNED_IN[way](way, "QUEST_TURNED_IN", 999)
+	assert(way.Target() ~= nil, "unrelated quest turn-in keeps waypoint")
+	listeners.QUEST_TURNED_IN[way](way, "QUEST_TURNED_IN", 33)
+	assert(way.Target() == nil, "matching quest turn-in clears quest waypoint")
+
+	-- Tooltip hint on MapCanvas.QuestPin.OnEnter
+	local savedTipOwner, savedTipShown, savedTipAdd = GameTooltip.GetOwner, GameTooltip.IsShown, GameTooltip_AddInstructionLine
+	local tipLines = {}
+	GameTooltip.IsShown = function() return true end
+	GameTooltip.GetOwner = function() return zonePin end
+	GameTooltip_AddInstructionLine = function(_, text) tipLines[#tipLines + 1] = text end
+	way.OnQuestPinEnter(nil, zonePin, 33)
+	assert(#tipLines == 1 and tipLines[1] == ns.L.WAYPOINT_QUEST_CLICK, "quest pin tooltip adds click hint")
+	questPOIOn = false
+	way.OnQuestPinEnter(nil, zonePin, 33)
+	assert(#tipLines == 1, "no tooltip hint when questPOI is off")
+	GameTooltip.GetOwner, GameTooltip.IsShown, GameTooltip_AddInstructionLine = savedTipOwner, savedTipShown, savedTipAdd
+
+	-- HookQuestPOI installs post-hook on POIButtonMixin.OnClick once
+	local savedMixin, savedHook = rawget(_G, "POIButtonMixin"), hooksecurefunc
+	local hookCount = 0
+	_G.POIButtonMixin = { OnClick = function() end }
+	hooksecurefunc = function(tbl, method)
+		if tbl == _G.POIButtonMixin and method == "OnClick" then hookCount = hookCount + 1 end
+	end
+	way.HookQuestPOI()
+	way.HookQuestPOI()
+	assert(hookCount == 1, "HookQuestPOI hooks POIButtonMixin.OnClick once")
+	_G.POIButtonMixin, hooksecurefunc = savedMixin, savedHook
+
+	-- Arrow designs, colors, custom color picker, corpse tint and preview
+	local arrow = _G.ForeverPlusWaypointArrow
+	local tex = arrow.Arrow
+	local lastAtlas, lastTex, lastCoords, lastDesat
+	local savedSetAtlas, savedSetTex, savedSetCoords, savedSetDesat = tex.SetAtlas, tex.SetTexture, tex.SetTexCoord, tex.SetDesaturated
+	local savedNewTimer, savedPicker = ns.NewTimer, ColorPickerFrame
+	local savedGhost = rawget(_G, "UnitIsGhost")
+	local previewCallback, pickerSpec, pickerShown = nil, nil, false
+	tex.SetAtlas = function(_, a) lastAtlas, lastTex, lastCoords = a, nil, nil end
+	tex.SetTexture = function(_, t) lastTex, lastAtlas = t, nil end
+	tex.SetTexCoord = function(_, l, r, t, b) lastCoords = { l, r, t, b } end
+	tex.SetDesaturated = function(_, d) lastDesat = d end
+	ns.NewTimer = function(_, _, fn)
+		previewCallback = fn
+		return { Cancel = function() previewCallback = nil end }
+	end
+
+	-- Standard + Default keeps original untinted atlas
+	arrow.lastStyleKey, arrow.lastDesat, arrow.lastR = nil, nil, nil
+	way.db.arrowStyle, way.db.arrowColor = "standard", "DEFAULT"
+	way:OnOptionChanged("arrowStyle")
+	assert(arrow:IsShown(), "preview shows arrow when no waypoint is active")
+	assert(lastAtlas == "Navigation-Tracked-Arrow" and lastDesat == false
+		and tex.vertexColor[1] == 1 and tex.vertexColor[2] == 1 and tex.vertexColor[3] == 1, "standard default untinted")
+	assert(previewCallback ~= nil, "preview timer scheduled")
+	previewCallback()
+	assert(not arrow:IsShown(), "preview hides arrow after timer expires")
+
+	-- Standard + Blue desaturates and tints
+	way.db.arrowColor = "BLUE"
+	way:OnOptionChanged("arrowColor")
+	assert(lastDesat == true and math.abs(tex.vertexColor[1] - 0.27) < 0.01
+		and math.abs(tex.vertexColor[3] - 1.00) < 0.01, "standard blue tints desaturated atlas")
+
+	-- Custom arrow designs load Media\WaypointArrows.tga with 1/256 UV inset
+	local expectedTiles = {
+		classic = { 0, 0 }, compass = { 1, 0 }, chevron = { 0, 1 }, rune = { 1, 1 },
+	}
+	for styleKey, pos in pairs(expectedTiles) do
+		way.db.arrowStyle = styleKey
+		way:OnOptionChanged("arrowStyle")
+		assert(lastTex and lastTex:find("WaypointArrows.tga", 1, true), styleKey .. " uses custom sheet")
+		assert(lastDesat == false, styleKey .. " is not desaturated")
+		local inset = 1 / 256
+		assert(math.abs(lastCoords[1] - (pos[1] * 0.5 + inset)) < 1e-6
+			and math.abs(lastCoords[2] - ((pos[1] + 1) * 0.5 - inset)) < 1e-6
+			and math.abs(lastCoords[3] - (pos[2] * 0.5 + inset)) < 1e-6
+			and math.abs(lastCoords[4] - ((pos[2] + 1) * 0.5 - inset)) < 1e-6, styleKey .. " UV coords inset")
+	end
+
+	-- Corpse run keeps user style and forces spectral blue tint
+	UnitIsGhost = function() return true end
+	way.Refresh()
+	assert(lastTex and lastTex:find("WaypointArrows.tga", 1, true), "corpse keeps custom arrow style")
+	assert(math.abs(tex.vertexColor[1] - 0.40) < 0.01 and math.abs(tex.vertexColor[2] - 0.85) < 0.01
+		and math.abs(tex.vertexColor[3] - 1.00) < 0.01, "corpse uses spectral blue color")
+	UnitIsGhost = function() return false end
+
+	-- Color picker updates custom color and cancel restores previous state
+	local pickedRGB = { 0.2, 0.9, 0.4 }
+	ColorPickerFrame = {
+		SetupColorPickerAndShow = function(_, spec) pickerSpec = spec pickerShown = true end,
+		GetColorRGB = function() return pickedRGB[1], pickedRGB[2], pickedRGB[3] end,
+		IsShown = function() return pickerShown end,
+	}
+	way.db.arrowStyle, way.db.arrowColor = "classic", "ORANGE"
+	way.db.arrowCustomColor = { r = 1, g = 0.82, b = 0 }
+	way.ChooseColor()
+	assert(pickerSpec and pickerSpec.hasOpacity == false, "color picker opened without opacity")
+	pickerSpec.swatchFunc()
+	assert(way.db.arrowColor == "CUSTOM" and math.abs(tex.vertexColor[2] - 0.9) < 1e-6, "swatch applies custom color")
+	pickerShown = false
+	pickerSpec.cancelFunc()
+	assert(way.db.arrowColor == "ORANGE" and math.abs(way.db.arrowCustomColor.r - 1) < 1e-6, "cancel restores previous color")
+
+	-- Middle-click during preview closes preview cleanly
+	way.Preview(false)
+	assert(arrow:IsShown(), "preview active")
+	arrow:GetScript("OnMouseUp")(arrow, "MiddleButton")
+	assert(not arrow:IsShown(), "middle-click closes preview")
+
+	-- Inline preview images in design dropdown & large preview panel when SettingsPanel is open
+	way.db.arrowColor = "BLUE"
+	local styleEntries = optsByKey.arrowStyle.values()
+	assert(styleEntries[1][2]:find("Navigation-Tracked-Arrow", 1, true) or styleEntries[1][2]:find("MiniMap-QuestArrow", 1, true),
+		"standard design dropdown entry carries inline arrow preview")
+	assert(styleEntries[2][2]:find("|TInterface\\AddOns\\ForeverPlus\\Media\\WaypointArrows.tga:18:18:0:0:256:256:1:127:1:127:69:199:255|t", 1, true),
+		"classic dropdown entry carries tinted inline sprite preview")
+	assert(styleEntries[5][2]:find(":129:255:129:255:69:199:255|t", 1, true),
+		"rune dropdown entry uses bottom-right tile in current color")
+
+	local savedSettingsShown, savedSettingsHook = SettingsPanel.IsShown, SettingsPanel.HookScript
+	local settingsHideFn
+	SettingsPanel.IsShown = function() return true end
+	SettingsPanel.HookScript = function(_, script, fn)
+		if script == "OnHide" then settingsHideFn = fn end
+	end
+	way.db.arrowStyle, way.db.arrowColor = "rune", "ORANGE"
+	way:OnOptionChanged("arrowStyle")
+	local previewFrame = _G.ForeverPlusWaypointPreview
+	assert(previewFrame and previewFrame:IsShown(), "large preview panel opens beside SettingsPanel")
+	assert(previewFrame.Arrow and previewFrame.Arrow.vertexColor
+		and math.abs(previewFrame.Arrow.vertexColor[1] - 1.00) < 0.01
+		and math.abs(previewFrame.Arrow.vertexColor[2] - 0.52) < 0.01, "preview panel renders chosen arrow tint")
+	assert(settingsHideFn ~= nil, "SettingsPanel OnHide hook installed")
+	settingsHideFn()
+	assert(not previewFrame:IsShown(), "closing SettingsPanel hides preview panel")
+
+	-- Regression: changing design while standing still re-applies arrow rotation, and middle-click clears active waypoint
+	local savedPlayerPos, savedFacing = C_Map.GetPlayerMapPosition, GetPlayerFacing
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return 0.5, 0.5 end } end
+	GetPlayerFacing = function() return 0 end
+	way.Set(80, 50, "East")
+	arrow:GetScript("OnUpdate")(arrow, 0.2)
+	local rotBefore = tex.rotation
+	assert(rotBefore and math.abs(rotBefore + math.pi / 2) < 1e-4, "active waypoint points east")
+	tex.rotation = 0 -- simulate WoW resetting texture rotation on SetTexCoord/SetAtlas
+	way.db.arrowStyle = "compass"
+	way:OnOptionChanged("arrowStyle")
+	assert(previewFrame:IsShown(), "preview panel opens alongside active waypoint in settings")
+	arrow:GetScript("OnUpdate")(arrow, 0.2)
+	assert(math.abs(tex.rotation - rotBefore) < 1e-4, "style change re-applies arrow rotation even while standing still")
+	arrow:GetScript("OnMouseUp")(arrow, "MiddleButton")
+	assert(way.Target() == nil, "middle-click on active arrow clears waypoint even while preview panel is shown")
+	settingsHideFn()
+	C_Map.GetPlayerMapPosition, GetPlayerFacing = savedPlayerPos, savedFacing
+	SettingsPanel.IsShown, SettingsPanel.HookScript = savedSettingsShown, savedSettingsHook
+
+	-- Restore all mocked state
+	way.Clear()
+	way.db.questWaypoint, way.db.arrowStyle, way.db.arrowColor = true, "standard", "DEFAULT"
+	way.db.arrowCustomColor = { r = 1, g = 0.82, b = 0 }
+	tex.SetAtlas, tex.SetTexture, tex.SetTexCoord, tex.SetDesaturated = savedSetAtlas, savedSetTex, savedSetCoords, savedSetDesat
+	ns.NewTimer, ColorPickerFrame, UnitIsGhost = savedNewTimer, savedPicker, savedGhost
+	GetCVarBool, IsShiftKeyDown = savedCVar, savedShift
+	C_Map.CanSetUserWaypointOnMap, C_Map.SetUserWaypoint, C_Map.ClearUserWaypoint = savedCan, savedSet, savedClear
+	C_Map.HasUserWaypoint, C_Map.GetUserWaypoint, C_Map.GetBestMapForUnit, C_Map.GetMapInfo = savedHas, savedGet, savedBest, savedInfo
+	UiMapPoint, C_SuperTrack, ns.Print = savedUiPoint, savedSuper, savedPrint
+	C_QuestLog.GetQuestsOnMap, C_QuestLog.GetNextWaypoint, C_QuestLog.GetNextWaypointForMap, C_QuestLog.GetTitleForQuestID =
+		savedQuestsOnMap, savedNextWp, savedNextWpMap, savedTitle
+	Enum.UIMapType.Continent = savedContinent
+	print("waypoint quest POI & arrow styles OK")
+end)()

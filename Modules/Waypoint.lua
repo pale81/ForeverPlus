@@ -14,8 +14,12 @@ local Waypoint = ns:NewModule("Waypoint", {
 		chatLinks = true, -- coordinates in the chat can be clicked
 		message = true,
 		arrow = true, -- the arrow on the screen
+		arrowStyle = "standard",
+		arrowColor = "DEFAULT",
+		arrowCustomColor = { r = 1, g = 0.82, b = 0 },
 		corpseArrow = true,
 		clearOnArrival = true, -- the waypoint goes when the player is there
+		questWaypoint = true, -- clicking a Blizzard quest objective (questPOI) sets a waypoint
 	},
 })
 
@@ -67,8 +71,9 @@ function Waypoint.Bearing(px, py, tx, ty, width, height, facing)
 end
 
 local Refresh -- below
+local EndPreview -- below
 
-local function SetPoint(mapID, x, y, name, allowArrowOnly)
+local function SetPoint(mapID, x, y, name, allowArrowOnly, keepSuperTrack, questID)
 	local canSet = C_Map.CanSetUserWaypointOnMap(mapID)
 	if not canSet and not allowArrowOnly then
 		return false
@@ -78,11 +83,14 @@ local function SetPoint(mapID, x, y, name, allowArrowOnly)
 		if wasSet == false and not allowArrowOnly then
 			return false
 		end
-		if wasSet ~= false then
+		if wasSet ~= false and not keepSuperTrack then
 			C_SuperTrack.SetSuperTrackedUserWaypoint(true)
 		end
 	end
-	target = { mapID = mapID, x = x / 100, y = y / 100, name = name }
+	if EndPreview then
+		EndPreview(true)
+	end
+	target = { mapID = mapID, x = x / 100, y = y / 100, name = name, questID = questID }
 	Refresh()
 	if Waypoint.db.message then
 		ns.Print(L.WAYPOINT_SET, x, y, name and (" " .. name) or "")
@@ -277,6 +285,265 @@ end
 
 local arrow
 local ARROW_ATLAS, ARROW_FILE = "Navigation-Tracked-Arrow", [[Interface\Minimap\MiniMap-QuestArrow]]
+local ARROW_SHEET = [[Interface\AddOns\ForeverPlus\Media\WaypointArrows.tga]]
+local UV_INSET = 1 / 256
+local CORPSE_COLOR = { r = 0.40, g = 0.85, b = 1.00 }
+local PREVIEW_SECONDS = 4
+
+local ARROW_STYLES = {
+	{ key = "standard", label = "WAYPOINT_STYLE_STANDARD" },
+	{ key = "classic", label = "WAYPOINT_STYLE_CLASSIC", col = 0, row = 0 },
+	{ key = "compass", label = "WAYPOINT_STYLE_COMPASS", col = 1, row = 0 },
+	{ key = "chevron", label = "WAYPOINT_STYLE_CHEVRON", col = 0, row = 1 },
+	{ key = "rune", label = "WAYPOINT_STYLE_RUNE", col = 1, row = 1 },
+}
+local ARROW_STYLES_BY_KEY = {}
+for _, entry in ipairs(ARROW_STYLES) do
+	ARROW_STYLES_BY_KEY[entry.key] = entry
+end
+
+local ARROW_COLORS = {
+	{ key = "DEFAULT", label = "WAYPOINT_COLOR_DEFAULT", hex = "ffd100", r = 1.00, g = 0.82, b = 0.00 },
+	{ key = "WHITE", label = "WAYPOINT_COLOR_WHITE", hex = "f2f5ff", r = 0.95, g = 0.96, b = 1.00 },
+	{ key = "BLUE", label = "WAYPOINT_COLOR_BLUE", hex = "45c8ff", r = 0.27, g = 0.78, b = 1.00 },
+	{ key = "ORANGE", label = "WAYPOINT_COLOR_ORANGE", hex = "ff8426", r = 1.00, g = 0.52, b = 0.15 },
+	{ key = "GREEN", label = "WAYPOINT_COLOR_GREEN", hex = "4dff6a", r = 0.30, g = 1.00, b = 0.42 },
+	{ key = "RED", label = "WAYPOINT_COLOR_RED", hex = "ff4242", r = 1.00, g = 0.26, b = 0.26 },
+	{ key = "PURPLE", label = "WAYPOINT_COLOR_PURPLE", hex = "c46bff", r = 0.77, g = 0.42, b = 1.00 },
+	{ key = "CUSTOM", label = "WAYPOINT_COLOR_CUSTOM" },
+}
+local ARROW_COLORS_BY_KEY = {}
+for _, entry in ipairs(ARROW_COLORS) do
+	ARROW_COLORS_BY_KEY[entry.key] = entry
+end
+
+Waypoint.ARROW_STYLES = ARROW_STYLES
+Waypoint.ARROW_COLORS = ARROW_COLORS
+
+local previewActive = false
+local previewHold = false
+local previewTimer
+local previewPanel
+local settingsHideHooked = false
+
+local function ClampChannel(value, fallback)
+	local number = tonumber(value)
+	return number and math.min(1, math.max(0, number)) or fallback
+end
+
+function Waypoint.CustomColor(db)
+	local source = db and db.arrowCustomColor
+	local default = Waypoint.defaults.arrowCustomColor
+	if type(source) ~= "table" then
+		return default.r, default.g, default.b
+	end
+	return ClampChannel(source.r, default.r), ClampChannel(source.g, default.g), ClampChannel(source.b, default.b)
+end
+
+local function ColorHex(r, g, b)
+	return ("%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+end
+
+local function ColorLabel(db)
+	db = db or Waypoint.db
+	local color = ARROW_COLORS_BY_KEY[db and db.arrowColor] or ARROW_COLORS[1]
+	local hex = color.hex
+	if not hex then
+		local r, g, b = Waypoint.CustomColor(db)
+		hex = ColorHex(r, g, b)
+	end
+	return ("|cff%s%s|r"):format(hex, L[color.label])
+end
+
+function Waypoint.ArrowAppearance(isCorpse, db)
+	db = db or Waypoint.db
+	local style = ARROW_STYLES_BY_KEY[db and db.arrowStyle] or ARROW_STYLES[1]
+	local isStandard = style.key == "standard"
+	if isCorpse then
+		return style, CORPSE_COLOR.r, CORPSE_COLOR.g, CORPSE_COLOR.b, isStandard
+	end
+	local colorKey = db and db.arrowColor
+	if colorKey == "CUSTOM" then
+		local r, g, b = Waypoint.CustomColor(db)
+		return style, r, g, b, isStandard
+	end
+	local color = ARROW_COLORS_BY_KEY[colorKey] or ARROW_COLORS[1]
+	if isStandard and color.key == "DEFAULT" then
+		return style, 1, 1, 1, false
+	end
+	return style, color.r, color.g, color.b, isStandard
+end
+
+function Waypoint.StyleMarkup(styleKey, db)
+	db = db or Waypoint.db
+	local style = ARROW_STYLES_BY_KEY[styleKey] or ARROW_STYLES[1]
+	if style.col ~= nil then
+		local _, r, g, b = Waypoint.ArrowAppearance(false, {
+			arrowStyle = style.key,
+			arrowColor = db and db.arrowColor,
+			arrowCustomColor = db and db.arrowCustomColor,
+		})
+		local left = style.col * 128 + 1
+		local right = (style.col + 1) * 128 - 1
+		local top = style.row * 128 + 1
+		local bottom = (style.row + 1) * 128 - 1
+		local cr = math.floor(r * 255 + 0.5)
+		local cg = math.floor(g * 255 + 0.5)
+		local cb = math.floor(b * 255 + 0.5)
+		return ("|T%s:18:18:0:0:256:256:%d:%d:%d:%d:%d:%d:%d|t "):format(
+			ARROW_SHEET, left, right, top, bottom, cr, cg, cb)
+	end
+	if C_Texture.GetAtlasInfo(ARROW_ATLAS) and type(CreateAtlasMarkup) == "function" then
+		return CreateAtlasMarkup(ARROW_ATLAS, 18, 18) .. " "
+	end
+	return ("|T%s:18:18|t "):format(ARROW_FILE)
+end
+
+local function ApplyArrowAppearance(self, isCorpse)
+	if not (self and self.Arrow) then
+		return
+	end
+	local style, r, g, b, desaturate = Waypoint.ArrowAppearance(isCorpse)
+	local tex = self.Arrow
+	if self.lastStyleKey ~= style.key then
+		self.lastStyleKey = style.key
+		self.lastAngle = nil
+		if style.col ~= nil then
+			tex:SetTexture(ARROW_SHEET, nil, nil, "TRILINEAR")
+			local left = style.col * 0.5 + UV_INSET
+			local right = (style.col + 1) * 0.5 - UV_INSET
+			local top = style.row * 0.5 + UV_INSET
+			local bottom = (style.row + 1) * 0.5 - UV_INSET
+			tex:SetTexCoord(left, right, top, bottom)
+		elseif C_Texture.GetAtlasInfo(ARROW_ATLAS) then
+			tex:SetAtlas(ARROW_ATLAS)
+		else
+			tex:SetTexture(ARROW_FILE)
+			tex:SetTexCoord(0, 1, 0, 1)
+		end
+	end
+	if self.lastDesat ~= desaturate then
+		self.lastDesat = desaturate
+		if tex.SetDesaturated then
+			tex:SetDesaturated(desaturate)
+		end
+	end
+	if self.lastR ~= r or self.lastG ~= g or self.lastB ~= b then
+		self.lastR, self.lastG, self.lastB = r, g, b
+		tex:SetVertexColor(r, g, b)
+	end
+end
+
+local function CancelPreviewTimer()
+	if previewTimer then
+		previewTimer:Cancel()
+		previewTimer = nil
+	end
+end
+
+function EndPreview(silent)
+	CancelPreviewTimer()
+	if previewPanel then
+		previewPanel:Hide()
+	end
+	if not previewActive then
+		previewHold = false
+		return
+	end
+	previewActive = false
+	previewHold = false
+	if not silent then
+		Refresh()
+	end
+end
+
+local function UpdatePreviewPanel(self, elapsed)
+	self.wait = (self.wait or 0) - elapsed
+	if self.wait > 0 then
+		return
+	end
+	self.wait = 0.15
+	if previewHold and not (ColorPickerFrame and ColorPickerFrame:IsShown()) then
+		previewHold = false
+		CancelPreviewTimer()
+		previewTimer = ns.NewTimer("Waypoint: preview", PREVIEW_SECONDS, function()
+			EndPreview(false)
+		end)
+	end
+end
+
+local function EnsurePreviewPanel()
+	if previewPanel then
+		return previewPanel
+	end
+	previewPanel = ns.CreatePanel("ForeverPlusWaypointPreview", { strata = "DIALOG", close = true, escape = false })
+	previewPanel:SetSize(186, 152)
+	previewPanel.Title:SetText(L.WAYPOINT_ARROW)
+	previewPanel.Arrow = previewPanel:CreateTexture(nil, "ARTWORK")
+	previewPanel.Arrow:SetSize(64, 64)
+	previewPanel.Arrow:SetPoint("TOP", 0, -34)
+	previewPanel.StyleName = previewPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	previewPanel.StyleName:SetPoint("TOP", previewPanel.Arrow, "BOTTOM", 0, -8)
+	previewPanel.ColorName = previewPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	previewPanel.ColorName:SetPoint("TOP", previewPanel.StyleName, "BOTTOM", 0, -3)
+	if previewPanel.Close then
+		previewPanel.Close:SetScript("OnClick", ns.Measured("Waypoint: close preview", function()
+			EndPreview(false)
+		end))
+	end
+	ns.SetUpdate(previewPanel, "Waypoint: preview panel", UpdatePreviewPanel)
+	return previewPanel
+end
+
+local function HookSettingsPanelHide()
+	if settingsHideHooked then
+		return
+	end
+	if SettingsPanel and type(SettingsPanel.HookScript) == "function" then
+		settingsHideHooked = true
+		SettingsPanel:HookScript("OnHide", ns.Measured("Waypoint: hide preview with settings", function()
+			EndPreview(false)
+		end))
+	end
+end
+
+local function SettingsVisible()
+	return SettingsPanel and type(SettingsPanel.IsShown) == "function" and SettingsPanel:IsShown() or false
+end
+
+local function ShowPreviewPanel()
+	HookSettingsPanelHide()
+	local panel = EnsurePreviewPanel()
+	local style = Waypoint.ArrowAppearance(false)
+	ApplyArrowAppearance(panel, false)
+	panel.StyleName:SetText(L[style.label])
+	panel.ColorName:SetText(ColorLabel(Waypoint.db))
+	panel:ClearAllPoints()
+	panel:SetPoint("TOPLEFT", SettingsPanel, "TOPRIGHT", 8, -40)
+	panel.wait = 0
+	panel:Show()
+end
+
+local function StyleValues()
+	local values = {}
+	for _, entry in ipairs(ARROW_STYLES) do
+		values[#values + 1] = { entry.key, Waypoint.StyleMarkup(entry.key) .. L[entry.label] }
+	end
+	return values
+end
+
+local function ColorValues()
+	local values = {}
+	for _, entry in ipairs(ARROW_COLORS) do
+		local hex = entry.hex
+		if not hex then
+			local r, g, b = Waypoint.CustomColor(Waypoint.db)
+			hex = ColorHex(r, g, b)
+		end
+		values[#values + 1] = { entry.key, ("|cff%s%s|r"):format(hex, L[entry.label]) }
+	end
+	return values
+end
 
 local function SetArrowDisplay(self, name, showArrow, angle, distText, distYards)
 	if self.lastName ~= name then
@@ -317,6 +584,10 @@ local function UpdateArrow(self, elapsed)
 		return
 	end
 	if CorpseRun() then
+		if not (previewPanel and previewPanel:IsShown()) then
+			EndPreview(true)
+		end
+		ApplyArrowAppearance(self, true)
 		local distance, angle = CorpseBearing()
 		if distance then
 			SetArrowDisplay(self, L.WAYPOINT_CORPSE_NAME, distance > 0, angle, nil, distance)
@@ -327,14 +598,31 @@ local function UpdateArrow(self, elapsed)
 		return
 	end
 	if not Waypoint.db.arrow then
+		EndPreview(true)
 		self:Hide()
 		return
 	end
 	local distance, goal, angle = Waypoint.Where()
 	if not goal then
+		if previewActive and not (previewPanel and previewPanel:IsShown()) then
+			if previewHold and not (ColorPickerFrame and ColorPickerFrame:IsShown()) then
+				previewHold = false
+				CancelPreviewTimer()
+				previewTimer = ns.NewTimer("Waypoint: preview", PREVIEW_SECONDS, function()
+					EndPreview(false)
+				end)
+			end
+			ApplyArrowAppearance(self, false)
+			SetArrowDisplay(self, L.WAYPOINT_ARROW, true, 0, nil, 42)
+			return
+		end
 		self:Hide()
 		return
 	end
+	if not (previewPanel and previewPanel:IsShown()) then
+		EndPreview(true)
+	end
+	ApplyArrowAppearance(self, false)
 	if Waypoint.CheckArrival(distance) then
 		return
 	end
@@ -354,11 +642,7 @@ local function CreateArrow()
 	arrow.Arrow = arrow:CreateTexture(nil, "ARTWORK")
 	arrow.Arrow:SetSize(48, 48)
 	arrow.Arrow:SetPoint("TOP", 0, 0)
-	if C_Texture.GetAtlasInfo(ARROW_ATLAS) then
-		arrow.Arrow:SetAtlas(ARROW_ATLAS)
-	else
-		arrow.Arrow:SetTexture(ARROW_FILE)
-	end
+	ApplyArrowAppearance(arrow, false)
 	arrow.Name = arrow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	arrow.Name:SetPoint("TOP", arrow.Arrow, "BOTTOM", 0, -2)
 	arrow.Text = arrow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -373,6 +657,10 @@ local function CreateArrow()
 	arrow:SetScript("OnLeave", GameTooltip_Hide)
 	arrow:SetScript("OnMouseUp", ns.Measured("Waypoint: arrow click", function(_, button)
 		if button == "MiddleButton" and not CorpseRun() then
+			if previewActive and not (previewPanel and previewPanel:IsShown()) then
+				EndPreview(false)
+				return
+			end
 			Waypoint.Clear()
 			ns.Print(L.WAYPOINT_CLEARED)
 		end
@@ -387,10 +675,14 @@ end
 -- The corpse temporarily takes priority over any existing waypoint.
 function Refresh()
 	local db = Waypoint.db
-	if not ArrowSuppressed() and (CorpseRun() or (db.enabled and db.arrow and Waypoint.Target())) then
+	local corpse = CorpseRun()
+	local arrowPreview = previewActive and not (previewPanel and previewPanel:IsShown())
+	local hasGoal = db.enabled and db.arrow and (Waypoint.Target() ~= nil or arrowPreview)
+	if not ArrowSuppressed() and (corpse or hasGoal) then
 		if not arrow then
 			CreateArrow()
 		end
+		ApplyArrowAppearance(arrow, corpse)
 		arrow.wait = 0
 		arrow:Show()
 	elseif arrow then
@@ -402,6 +694,265 @@ function Refresh()
 	end
 end
 Waypoint.Refresh = Refresh
+
+function Waypoint.Preview(keepOpen)
+	local db = Waypoint.db
+	if not (db and db.enabled and db.arrow) then
+		EndPreview(true)
+		Refresh()
+		return
+	end
+	local inSettings = SettingsVisible()
+	if not inSettings and (ArrowSuppressed() or CorpseRun() or Waypoint.Target()) then
+		EndPreview(true)
+		Refresh()
+		return
+	end
+	CancelPreviewTimer()
+	previewActive = true
+	previewHold = keepOpen and true or false
+	if inSettings then
+		ShowPreviewPanel()
+		Refresh()
+	else
+		if previewPanel then
+			previewPanel:Hide()
+		end
+		if not arrow then
+			CreateArrow()
+		end
+		ApplyArrowAppearance(arrow, false)
+		SetArrowDisplay(arrow, L.WAYPOINT_ARROW, true, 0, nil, 42)
+		arrow.wait = 0
+		arrow:Show()
+	end
+	if not previewHold then
+		previewTimer = ns.NewTimer("Waypoint: preview", PREVIEW_SECONDS, function()
+			EndPreview(false)
+		end)
+	end
+end
+
+local syncingColor = false
+local function SyncColorSetting(value)
+	local setting = Settings and Settings.GetSetting and Settings.GetSetting("ForeverPlus_Waypoint_arrowColor")
+	if setting and type(setting.SetValue) == "function"
+		and (type(setting.GetValue) ~= "function" or setting:GetValue() ~= value) then
+		syncingColor = true
+		local ok, err = pcall(setting.SetValue, setting, value)
+		syncingColor = false
+		if not ok then
+			error(err, 0)
+		end
+	end
+end
+
+function Waypoint.ChooseColor()
+	if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
+		return
+	end
+	local db = Waypoint.db
+	local r, g, b = Waypoint.CustomColor(db)
+	local before = { key = db.arrowColor, color = { r = r, g = g, b = b } }
+	local function ApplyPicked()
+		local newR, newG, newB = ColorPickerFrame:GetColorRGB()
+		db.arrowCustomColor = {
+			r = ClampChannel(newR, r),
+			g = ClampChannel(newG, g),
+			b = ClampChannel(newB, b),
+		}
+		db.arrowColor = "CUSTOM"
+		SyncColorSetting("CUSTOM")
+		Waypoint.Preview(true)
+	end
+	Waypoint.Preview(true)
+	ColorPickerFrame:SetupColorPickerAndShow({
+		r = r, g = g, b = b, hasOpacity = false,
+		swatchFunc = ApplyPicked,
+		cancelFunc = function()
+			db.arrowCustomColor = before.color
+			db.arrowColor = before.key
+			SyncColorSetting(before.key)
+			if previewActive then
+				Waypoint.Preview(false)
+			else
+				Refresh()
+			end
+		end,
+	})
+end
+
+---------------------------------------------------------------------------
+-- Blizzard quest objectives (questPOI): clicking a quest objective sets a
+-- waypoint and shows the arrow without replacing Blizzard's quest tracking.
+---------------------------------------------------------------------------
+local function ValidCoord(x, y)
+	x, y = ns.Number(x), ns.Number(y)
+	if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+		return x, y
+	end
+end
+
+local function FindQuestOnMap(mapID, questID, refX, refY)
+	local quests = C_QuestLog and C_QuestLog.GetQuestsOnMap and C_QuestLog.GetQuestsOnMap(mapID)
+	if type(quests) == "table" and not ns.Secret(quests) then
+		local bestX, bestY, bestDist
+		for _, info in ipairs(quests) do
+			if type(info) == "table" and not ns.Secret(info) and ns.Number(info.questID) == questID then
+				local x, y = ValidCoord(info.x, info.y)
+				if x then
+					if not refX then
+						return x, y
+					end
+					local dx, dy = x - refX, y - refY
+					local dist = dx * dx + dy * dy
+					if not bestDist or dist < bestDist then
+						bestX, bestY, bestDist = x, y, dist
+					end
+				end
+			end
+		end
+		if bestX then
+			return bestX, bestY
+		end
+	end
+	if C_QuestLog and C_QuestLog.GetNextWaypointForMap then
+		local wx, wy = C_QuestLog.GetNextWaypointForMap(questID, mapID)
+		wx, wy = ValidCoord(wx, wy)
+		if wx then
+			return wx, wy
+		end
+	end
+end
+
+local function NextWaypointForQuest(questID)
+	if not (C_QuestLog and C_QuestLog.GetNextWaypoint) then
+		return nil
+	end
+	local mapID, x, y = C_QuestLog.GetNextWaypoint(questID)
+	mapID = ns.Number(mapID)
+	x, y = ValidCoord(x, y)
+	if mapID and mapID > 0 and x then
+		return mapID, x, y
+	end
+end
+
+function Waypoint.QuestPoint(questID, pin)
+	questID = ns.Number(questID)
+	if not questID or questID <= 0 then
+		return nil
+	end
+	local title = C_QuestLog and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
+	if type(title) ~= "string" or ns.Secret(title) or title == "" then
+		title = nil
+	end
+	if type(pin) == "table" then
+		local map = type(pin.GetMap) == "function" and pin:GetMap()
+		local pinMapID = map and type(map.GetMapID) == "function" and ns.Number(map:GetMapID())
+		local px, py
+		if type(pin.GetPosition) == "function" then
+			px, py = pin:GetPosition()
+		else
+			px, py = pin.normalizedX, pin.normalizedY
+		end
+		px, py = ValidCoord(px, py)
+		if pinMapID and pinMapID > 0 then
+			local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(pinMapID)
+			local continentType = Enum and Enum.UIMapType and Enum.UIMapType.Continent
+			if info and continentType and info.mapType == continentType then
+				local wMap, wx, wy = NextWaypointForQuest(questID)
+				if wMap then
+					return wMap, wx, wy, title
+				end
+			end
+			local fx, fy = FindQuestOnMap(pinMapID, questID, px, py)
+			if fx then
+				return pinMapID, fx, fy, title
+			end
+			if px then
+				return pinMapID, px, py, title
+			end
+		end
+	end
+	local wMap, wx, wy = NextWaypointForQuest(questID)
+	if wMap then
+		return wMap, wx, wy, title
+	end
+	local playerMap = C_Map and C_Map.GetBestMapForUnit and ns.Number(C_Map.GetBestMapForUnit("player"))
+	if playerMap and playerMap > 0 then
+		local fx, fy = FindQuestOnMap(playerMap, questID)
+		if fx then
+			return playerMap, fx, fy, title
+		end
+	end
+	local openMap = WorldMapFrame and WorldMapFrame:IsShown() and type(WorldMapFrame.GetMapID) == "function"
+		and ns.Number(WorldMapFrame:GetMapID())
+	if openMap and openMap > 0 and openMap ~= playerMap then
+		local fx, fy = FindQuestOnMap(openMap, questID)
+		if fx then
+			return openMap, fx, fy, title
+		end
+	end
+end
+
+local function OnQuestPOIClick(pin, button)
+	if button ~= "LeftButton" or not (Waypoint.db.enabled and Waypoint.db.questWaypoint and GetCVarBool("questPOI")) then
+		return
+	end
+	if IsShiftKeyDown and IsShiftKeyDown() then
+		return
+	end
+	local questID = pin and type(pin.GetQuestID) == "function" and ns.Number(pin:GetQuestID())
+	if not questID or questID <= 0 then
+		return
+	end
+	local superTracked = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and ns.Number(C_SuperTrack.GetSuperTrackedQuestID())
+	if superTracked == questID then
+		local mapID, x, y, title = Waypoint.QuestPoint(questID, pin)
+		if mapID and x and y then
+			SetPoint(mapID, x * 100, y * 100, title, true, true, questID)
+		end
+	elseif not superTracked or superTracked == 0 then
+		if target and target.questID == questID then
+			Waypoint.Clear()
+		end
+	end
+end
+
+local function OnQuestPinEnter(_, pin, questID)
+	if not (Waypoint.db.enabled and Waypoint.db.questWaypoint and GetCVarBool("questPOI")) then
+		return
+	end
+	if not (GameTooltip and GameTooltip:IsShown() and ns.Number(questID)) then
+		return
+	end
+	if pin and type(GameTooltip.GetOwner) == "function" and GameTooltip:GetOwner() ~= pin then
+		return
+	end
+	GameTooltip_AddInstructionLine(GameTooltip, L.WAYPOINT_QUEST_CLICK)
+	GameTooltip:Show()
+end
+
+local function OnQuestEnded(_, _, questID)
+	if target and target.questID and ns.Number(questID) == target.questID then
+		Waypoint.Clear()
+	end
+end
+
+local poiHooked = false
+local function HookQuestPOI()
+	if poiHooked then
+		return
+	end
+	local mixin = rawget(_G, "POIButtonMixin")
+	if type(mixin) == "table" and type(mixin.OnClick) == "function" then
+		poiHooked = true
+		hooksecurefunc(mixin, "OnClick", ns.Measured("Waypoint: quest POI click", OnQuestPOIClick))
+	end
+end
+Waypoint.HookQuestPOI = HookQuestPOI
+Waypoint.OnQuestPOIClick = OnQuestPOIClick
+Waypoint.OnQuestPinEnter = OnQuestPinEnter
 
 local filtering = false
 
@@ -415,6 +966,10 @@ function Waypoint:Apply()
 	end
 end
 
+function Waypoint:OnInitialize()
+	ns.OnAddOnLoaded("Blizzard_POIButton", HookQuestPOI)
+end
+
 function Waypoint:OnLogin()
 	EventRegistry:RegisterCallback("SetItemRef", function(_, link)
 		if type(link) ~= "string" or link:sub(1, #LINK_PREFIX) ~= LINK_PREFIX then
@@ -426,6 +981,8 @@ function Waypoint:OnLogin()
 			Waypoint.Set(x, y)
 		end
 	end, self)
+	EventRegistry:RegisterCallback("MapCanvas.QuestPin.OnEnter", ns.Measured("Waypoint: quest pin tooltip", OnQuestPinEnter), self)
+	ns.OnAddOnLoaded("Blizzard_POIButton", HookQuestPOI)
 	-- "/way 23 34" as web pages give it, unless another addon owns that command.
 	if not SlashCmdList.TOMTOM_WAY and not _G.SLASH_FOREVERPLUSWAY1 then
 		_G.SLASH_FOREVERPLUSWAY1 = "/way"
@@ -439,19 +996,37 @@ function Waypoint:OnLogin()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", Refresh)
 	self:RegisterEvent("PLAYER_ALIVE", Refresh)
 	self:RegisterEvent("PLAYER_UNGHOST", Refresh)
+	self:RegisterEvent("QUEST_TURNED_IN", OnQuestEnded)
+	self:RegisterEvent("QUEST_REMOVED", OnQuestEnded)
 	self:Apply()
 end
 
-function Waypoint:OnOptionChanged()
+function Waypoint:OnOptionChanged(key)
+	if syncingColor then
+		return
+	end
 	self:Apply()
+	if not (self.db.enabled and self.db.arrow) then
+		EndPreview(true)
+		Refresh()
+		return
+	end
+	if key == "arrowStyle" or key == "arrowColor" then
+		Waypoint.Preview(false)
+		return
+	end
 	Refresh()
 end
 
 Waypoint.options = {
 	{ key = "enabled", type = "toggle", name = L.WAYPOINT_ENABLE, desc = L.WAYPOINT_ENABLE_DESC, new = true },
 	{ key = "chatLinks", type = "toggle", name = L.WAYPOINT_CHAT, desc = L.WAYPOINT_CHAT_DESC, parent = "enabled", new = true },
+	{ key = "questWaypoint", type = "toggle", name = L.WAYPOINT_QUEST, desc = L.WAYPOINT_QUEST_DESC, parent = "enabled", new = true },
 	{ key = "message", type = "toggle", name = L.WAYPOINT_MESSAGE, desc = L.MESSAGE_DESC, parent = "enabled" },
 	{ key = "arrow", type = "toggle", name = L.WAYPOINT_ARROW, desc = L.WAYPOINT_ARROW_DESC, parent = "enabled", new = true },
+	{ key = "arrowStyle", type = "dropdown", name = L.WAYPOINT_STYLE, desc = L.WAYPOINT_STYLE_DESC, parent = "arrow", values = StyleValues, new = true },
+	{ key = "arrowColor", type = "dropdown", name = L.WAYPOINT_COLOR, desc = L.WAYPOINT_COLOR_DESC, parent = "arrow", values = ColorValues, new = true },
+	{ type = "button", name = L.WAYPOINT_CUSTOM_COLOR, text = L.WAYPOINT_CUSTOM_COLOR_BTN, desc = L.WAYPOINT_CUSTOM_COLOR_DESC, func = Waypoint.ChooseColor },
 	{ key = "corpseArrow", type = "toggle", name = L.WAYPOINT_CORPSE, desc = L.WAYPOINT_CORPSE_DESC, parent = "enabled" },
 	{ key = "clearOnArrival", type = "toggle", name = L.WAYPOINT_ARRIVAL, desc = L.WAYPOINT_ARRIVAL_DESC, parent = "enabled", new = true },
 }

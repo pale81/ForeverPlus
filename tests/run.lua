@@ -8152,6 +8152,7 @@ end)()
 	C_QuestLog, GetCVarBool, ns.QuestieDB.Bundled = savedLog, savedCVar, savedBundled
 	print("quest turn-in pins OK")
 end)()
+assert(loadfile("quest_calendar.lua"))(ns, uv, setuv)
 ;(function()
 	local wm, symbols = ns:GetModule("WorldMap"), ns.MapSymbols
 	local db, collect = wm.db, uv(symbols.Count, "Collect")

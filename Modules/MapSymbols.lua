@@ -5,6 +5,7 @@
 -- are blocked in combat. Options live in the WorldMap module and the radar.
 local _, ns = ...
 local L = ns.L
+local QuestCalendar = ns.MapQuestCalendar
 
 local Symbols = {}
 ns.MapSymbols = Symbols
@@ -548,6 +549,7 @@ Symbols.AddSource(function(mapID, add)
 	end
 	local lib = ns.QuestieDB.Get()
 	if not lib then return end
+	local calendar = QuestCalendar.Read()
 	local playerLevel, playerRaceMask, playerClassMask, playerSkills = PlayerQuestCriteria(lib)
 	local availability = {}
 	-- The discovery marker already shows these quest starts on the zone map.
@@ -571,7 +573,7 @@ Symbols.AddSource(function(mapID, add)
 				isAvailable = QuestStartAvailable(entry, lib, playerLevel, playerRaceMask, playerClassMask, playerSkills)
 				availability[id] = isAvailable
 			end
-			if isAvailable then
+			if isAvailable and QuestCalendar.Allows(calendar, id, zoneMapID) then
 				local x, y = toMap(entry.x, entry.y)
 				local group
 				for _, existing in ipairs(groups) do
@@ -721,8 +723,10 @@ Symbols.AddSource(function(mapID, add)
 	end
 
 	local bundled = ns.QuestieDB.Bundled()
+	local calendar = QuestCalendar.Read()
 	local pins = {}
-	local function AddPoint(id, x, y)
+	local function AddPoint(id, x, y, zone)
+		if not QuestCalendar.Allows(calendar, id, zone) then return false end
 		x, y = ns.Number(x), ns.Number(y)
 		if not (x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1) or (x == 0 and y == 0) then
 			return false
@@ -745,7 +749,8 @@ Symbols.AddSource(function(mapID, add)
 	local clientPoints = C_QuestLog.GetQuestsOnMap and C_QuestLog.GetQuestsOnMap(mapID)
 	for _, point in ipairs(clientPoints or {}) do
 		local id = ns.Number(point.questID)
-		if ready[id] and not (point.isQuestStart or point.isMapIndicatorQuest) and AddPoint(id, point.x, point.y) then
+		if ready[id] and not (point.isQuestStart or point.isMapIndicatorQuest)
+			and AddPoint(id, point.x, point.y, ns.Number(point.mapID) or mapID) then
 			fromClient[id] = true
 		end
 	end
@@ -758,9 +763,9 @@ Symbols.AddSource(function(mapID, add)
 					local zone, x, y = point[1], point[2] / 100, point[3] / 100
 					local rect = continent and zone ~= mapID and Rect(zone, mapID)
 					if zone == mapID then
-						AddPoint(id, x, y)
+						AddPoint(id, x, y, zone)
 					elseif rect and rect[1] < rect[2] and rect[3] < rect[4] then
-						AddPoint(id, rect[1] + x * (rect[2] - rect[1]), rect[3] + y * (rect[4] - rect[3]))
+						AddPoint(id, rect[1] + x * (rect[2] - rect[1]), rect[3] + y * (rect[4] - rect[3]), zone)
 					end
 				end
 			end
@@ -1153,6 +1158,7 @@ local function Draw()
 	end
 	currentMap = mapID
 	local items = Collect(mapID)
+	QuestCalendar.MarkDrawn()
 	local count = #items
 	if count == 0 then
 		return
@@ -1181,10 +1187,39 @@ local function Draw()
 	end, DRAW_BUDGET)
 end
 
+local calendarTimer
+local calendarFilters = { calendarShowHolidays = true, calendarShowDarkmoon = true, calendarShowWeeklyHolidays = true }
+
+local function ShowsQuests()
+	local db = Options()
+	return db.questStarts or (db.questTurnIns and not GetCVarBool("questPOI"))
+end
+
+local function StopCalendarTimer()
+	if calendarTimer then
+		calendarTimer:Cancel()
+		calendarTimer = nil
+	end
+end
+
+local function CheckCalendarWhileShown()
+	if not WorldMapFrame:IsShown() or not ShowsQuests() then
+		StopCalendarTimer()
+	elseif not calendarTimer then
+		-- Event start/end times can pass while the player keeps the map open.
+		calendarTimer = ns.NewTimer("Map symbols: calendar time", 30, function()
+			calendarTimer = nil
+			if WorldMapFrame:IsShown() and ShowsQuests() and QuestCalendar.HasChanged() then Draw() end
+			CheckCalendarWhileShown()
+		end)
+	end
+end
+
 -- Data on first use (the map open with an option on); the NPCs arrive a few
 -- frames later and are drawn then.
 function Symbols.Refresh()
 	if not (layer and WorldMapFrame:IsShown()) then
+		StopCalendarTimer()
 		Draw()
 		return
 	end
@@ -1200,6 +1235,7 @@ function Symbols.Refresh()
 		BuildQuestStarts(lib, Draw)
 	end
 	Draw()
+	CheckCalendarWhileShown()
 end
 
 -- The text of an area (Data/PlaceInfo.lua) under the name that the map shows while the mouse is over it.
@@ -1292,16 +1328,21 @@ function Symbols.Setup()
 	end
 	WorldMapFrame:HookScript("OnShow", QueueRefresh)
 	WorldMapFrame:HookScript("OnShow", ns.Measured("Map symbols: area label", HookAreaLabel))
+	WorldMapFrame:HookScript("OnHide", ns.Measured("Map symbols: stop calendar timer", StopCalendarTimer))
 	local events = CreateFrame("Frame")
 	events:RegisterEvent("QUEST_LOG_UPDATE")
 	events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
 	events:RegisterEvent("QUEST_POI_UPDATE")
 	events:RegisterEvent("CVAR_UPDATE")
 	events:RegisterEvent("SKILL_LINES_CHANGED")
+	events:RegisterEvent("CALENDAR_UPDATE_EVENT_LIST")
 	-- The quest log changes in bursts: one refresh after the last change, not one per event.
 	local queued = false
 	events:SetScript("OnEvent", ns.Measured("Map symbols: quest event", function(_, event, cvar)
-		if (event == "QUEST_POI_UPDATE" or event == "CVAR_UPDATE")
+		if event == "CALENDAR_UPDATE_EVENT_LIST" or (event == "CVAR_UPDATE" and not ns.Secret(cvar) and calendarFilters[cvar]) then
+			QuestCalendar.Invalidate()
+			if not ShowsQuests() then return end
+		elseif (event == "QUEST_POI_UPDATE" or event == "CVAR_UPDATE")
 			and (not Options().questTurnIns or (event == "CVAR_UPDATE" and cvar ~= "questPOI")) then
 			return
 		end

@@ -53,6 +53,7 @@ Data\WeaponMasters.lua
 Data\ZoneLevels.lua
 Data\MapDiscoveries.lua
 Modules\WorldMap.lua
+Modules\MapQuestCalendar.lua
 Modules\MapSymbols.lua
 Modules\DungeonJournal.lua
 Data\ProcRates.lua

@@ -34,6 +34,7 @@ read_globals = {
 	"Fancy24Font",
 	"GetUnitSpeed", "IsFalling", "IsSwimming", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",
 	"GetServerTime",
+	"C_Calendar", "C_DateAndTime",
 	"AuctionHouseFrameDisplayMode", "BUFF_MAX_DISPLAY", "DEBUFF_MAX_DISPLAY", "DebuffFrame",
 	"DELETE_ITEM_CONFIRM_STRING", "EquipPendingItem", "ConfirmBindOnUse", "StaticPopup_FindVisible",
 	"COMBATLOG", "GetMerchantItemCostInfo", "GetMerchantItemCostItem", "GetChannelName", "GetMerchantItemMaxStack", "GetNumBuybackItems", "GetBuybackItemInfo", "BuybackItem", "GetMerchantNumItems", "BuyMerchantItem", "CloseMerchant", "strlenutf8", "GetTrainerGreetingText", "TRAIN", "CloseTrainer", "QuestMapFrame", "QuestMapFrame_ShowQuestDetails", "CharacterTrinket1Slot", "C_ChatInfo", "IsInGroup", "IsInRaid", "LE_PARTY_CATEGORY_INSTANCE", "PickupPlayerMoney", "StaticPopup_Visible", "GetMoney", "EventToastManagerFrame", "BossBanner", "GetCursorMoney", "DropCursorMoney", "MoneyInputFrame_OpenPopup", "MoneyTypeInfo", "TimeUtil", "ShoppingTooltip1", "ShoppingTooltip2", "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2",

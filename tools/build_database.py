@@ -29,6 +29,7 @@ CLASSES = (
 )
 EVERYTHING_QUESTS_COMMIT = "fe5fe092b3fe53bf31d43b82d185a396ab5cb21c"
 EVERYTHING_QUEST_FILES = ("QuestCoords_Forever.lua", "QuestTurnIn_Forever.lua", "QuestAvailable_Forever.lua")
+EVERYTHING_QUEST_HOLIDAYS = "QuestHolidays_Classic.lua"  # Also loaded by the upstream Camelot TOC.
 ITEM_CLASSES = {
     "consumable": 0, "container": 1, "weapon": 2, "armor": 4,
     "reagent": 5, "projectile": 6, "trade-goods": 7, "recipe": 9,
@@ -208,6 +209,22 @@ def parse_quest_values(payload: bytes, section: str, *, lists: bool = False, str
     return result
 
 
+def parse_quest_holidays(payload: bytes) -> dict[int, list[int]]:
+    text = payload.decode("utf-8-sig")
+    events = re.search(r"^event = \{(.*?)^\},", text, re.M | re.S)
+    windows = re.search(r"^window = \{(.*?)^\},", text, re.M | re.S)
+    if not events or not windows:
+        raise RuntimeError("missing quest holiday events or windows")
+    holidays = {int(quest): [int(event)] for quest, event in re.findall(r"\[(\d+)\]\s*=\s*(\d+)", events[1])}
+    if not holidays or any(not 1 <= rule[0] <= 12 for rule in holidays.values()):
+        raise RuntimeError("missing quest holidays or unknown Everything Quests holiday index")
+    for quest, day1, month1, day2, month2 in re.findall(r'\[(\d+)\]\s*=\s*"(\d+)/(\d+)-(\d+)/(\d+)"', windows[1]):
+        holidays[int(quest)].extend((int(month1) * 100 + int(day1), int(month2) * 100 + int(day2)))
+    # Stranglethorn Fishing Extravaganza, from the quest roles and Forever's Holidays row 301.
+    holidays.update({quest: [13] for quest in (8193, 8194, 8221, 8224, 8225)})
+    return holidays
+
+
 def quote_lua(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
@@ -299,6 +316,9 @@ def main() -> int:
     for field, values in availability.items():
         for quest_id, value in values.items():
             quest_points.setdefault(quest_id, {})[field] = value
+    holidays_payload = fetch_everything_quests(EVERYTHING_QUEST_HOLIDAYS)
+    quest_hashes[EVERYTHING_QUEST_HOLIDAYS] = hashlib.sha256(holidays_payload).hexdigest()
+    holidays = {quest: rule for quest, rule in parse_quest_holidays(holidays_payload).items() if quest in quest_points}
 
     item_ids = sorted(items)
     item_rows = {
@@ -346,6 +366,7 @@ def main() -> int:
         stream.write("-- Attribution and source limits are documented in DATA-SOURCES.md.\n")
         stream.write("local _, ns = ...\nns.BundledDatabase = {\n")
         stream.write("meta = " + lua(meta) + ",\n")
+        stream.write("questHolidays = " + lua(holidays) + ",\n")
         stream.write("zone = {},\nenum = {},\nentities = {\n")
         for kind in ("Quest", "Npc", "Item", "Object"):
             entity = entities[kind]

@@ -534,16 +534,16 @@ end
 ---------------------------------------------------------------------------
 local BEAR_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerNatPagle.tga]]
 local BEAR_MAX_ALPHA = 0.50
-local BEAR_FADE_IN = 0.15
-local BEAR_HOLD = 0.30
-local BEAR_SHRINK = 0.55
+local BEAR_FADE_IN = 0.22
+local BEAR_HOLD = 0.50
+local BEAR_SHRINK = 0.88
 local BEAR_TOTAL = BEAR_FADE_IN + BEAR_HOLD + BEAR_SHRINK
 local BEAR_START_SCALE = 0.94
 local BEAR_MIN_SCALE = 0.04
 -- Verified Forever 1.60.1.71037 fishing cast and bobber splash FileDataIDs.
 local BEAR_CAST_SOUNDS = { 3610663, 3610665 }
 local BEAR_SPLASH_SOUNDS = { 569285, 568970, 569044 }
-local BEAR_SPLASH_DELAY = 0.22
+local BEAR_SPLASH_DELAY = 0.35
 local bearFrame, bearElapsed, bearBaseSize, lastFishing
 local bearSoundGen, bearCastIndex, bearSplashIndex = 0, 0, 0
 local bearCastHandle, bearSplashHandle
@@ -618,9 +618,8 @@ local function ApplyAnglerBearFrame(t)
 	bearFrame:SetAlpha(alpha)
 end
 
-local function StopAnglerBear()
+local function HideAnglerBear()
 	bearElapsed = nil
-	StopAnglerBearSounds()
 	if bearFrame then
 		ns.SetUpdate(bearFrame, "Helpers: angler bear", nil)
 		bearFrame:SetAlpha(0)
@@ -630,14 +629,20 @@ local function StopAnglerBear()
 	end
 end
 
+local function StopAnglerBear()
+	StopAnglerBearSounds()
+	HideAnglerBear()
+end
+
 local function UpdateAnglerBear(_, delta)
 	if not bearElapsed then
-		StopAnglerBear()
+		HideAnglerBear()
 		return
 	end
 	bearElapsed = bearElapsed + (delta or 0)
 	if bearElapsed >= BEAR_TOTAL then
-		StopAnglerBear()
+		-- Let the cast and water-splash tail decay naturally instead of chopping it off.
+		HideAnglerBear()
 		return
 	end
 	ApplyAnglerBearFrame(bearElapsed)
@@ -658,7 +663,7 @@ local function EnsureAnglerBearFrame()
 	frame.art = frame:CreateTexture(nil, "OVERLAY")
 	frame.art:SetAllPoints()
 	frame.art:SetTexture(BEAR_ART)
-	frame:SetScript("OnHide", ns.Measured("Helpers: angler bear hide", StopAnglerBear))
+	frame:SetScript("OnHide", ns.Measured("Helpers: angler bear hide", HideAnglerBear))
 	frame:Hide()
 	bearFrame = frame
 	return frame

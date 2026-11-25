@@ -2403,8 +2403,8 @@ end)()
 	assert(texturePath == [[Interface\AddOns\ForeverPlus\Media\AnglerNatPagle.tga]], "Nat Pagle loads AnglerNatPagle.tga")
 	assert(#played == 1 and CAST_IDS[played[1].id] and played[1].channel == "SFX",
 		"activation plays a verified fishing cast sound immediately on SFX")
-	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.22) < 0.001,
-		"bobber splash is scheduled 0.22 s after cast via ns.After")
+	assert(#pendingAfter == 1 and math.abs(pendingAfter[1].delay - 0.35) < 0.001,
+		"bobber splash is scheduled 0.35 s after cast via ns.After")
 	local firstCastID, firstCastHandle = played[1].id, played[1].handle
 	pendingAfter[1].fn()
 	assert(#played == 2 and SPLASH_IDS[played[2].id] and played[2].channel == "SFX",
@@ -2413,25 +2413,28 @@ end)()
 
 	local update = bear:GetScript("OnUpdate")
 	assert(type(update) == "function", "Nat Pagle starts an OnUpdate handler while active")
-	update(bear, 0.25)
+	update(bear, 0.40)
 	local holdSize, holdAlpha = bear:GetWidth(), bear:GetAlpha()
 	assert(holdSize > 900 and math.abs(holdAlpha - 0.50) < 0.01, "during hold Nat Pagle fills screen height at half transparency")
-	update(bear, 0.50)
+	update(bear, 0.70)
 	local midSize, midAlpha = bear:GetWidth(), bear:GetAlpha()
 	assert(midSize < holdSize and midAlpha < holdAlpha, "during shrink Nat Pagle starts shrinking and fading")
-	update(bear, 0.20)
+	update(bear, 0.40)
 	assert(bear:GetWidth() < holdSize * 0.35 and bear:GetWidth() < midSize and bear:GetAlpha() < midAlpha,
 		"accelerated in-easing rapidly shrinks Nat Pagle toward the screen center")
-	update(bear, 0.10)
+	update(bear, 0.15)
 	assert(not bear:IsShown() and bear:GetAlpha() == 0 and bear:GetScript("OnUpdate") == nil,
 		"after completion Nat Pagle hides cleanly and stops OnUpdate (0 CPU idle)")
-	assert(stopped[1] == firstCastHandle and stopped[2] == firstSplashHandle,
-		"stopping Nat Pagle cleanly stops its active cast and splash sound handles")
+	assert(#stopped == 0,
+		"normal completion lets cast and bobber splash sounds finish decaying naturally")
 
 	-- PortraitModes ToggleMode off -> on triggers Nat Pagle and alternates cast/splash sounds.
 	played, stopped, pendingAfter = {}, {}, {}
 	ns.PortraitModes.ToggleMode("angler")
 	assert(not helpers.db.fishing and not bear:IsShown(), "PortraitModes turns angler mode off")
+	assert(stopped[1] == firstCastHandle and stopped[2] == firstSplashHandle,
+		"turning fishing off stops any still-active cast and splash handles")
+	stopped = {}
 	ns.PortraitModes.ToggleMode("angler")
 	assert(helpers.db.fishing and bear:IsShown() and bear:GetScript("OnUpdate") ~= nil,
 		"PortraitModes off -> on transition plays Nat Pagle")
@@ -2467,7 +2470,7 @@ end)()
 	local countBeforeMute = #stopped
 	ns.SetOption("Helpers", "fishingBearSound", false)
 	assert(bear:IsShown() and #stopped > countBeforeMute, "disabling fishingBearSound stops active sounds immediately")
-	bear:GetScript("OnUpdate")(bear, 1.5)
+	bear:GetScript("OnUpdate")(bear, 2.0)
 
 	-- With fishingBearSound = false, activation and all preview commands/aliases stay completely silent.
 	played, stopped, pendingAfter = {}, {}, {}
@@ -2475,16 +2478,16 @@ end)()
 	ns.SetOption("Helpers", "fishing", false)
 	ns.SetOption("Helpers", "fishing", true)
 	assert(bear:IsShown() and #played == 0 and #pendingAfter == 0, "fishingBearSound = false stays silent on activation")
-	bear:GetScript("OnUpdate")(bear, 1.5)
+	bear:GetScript("OnUpdate")(bear, 2.0)
 	for _, cmd in ipairs({ "nat", "pagle", "angler", "bär", "anglerbär", "bear", "anglerbear" }) do
 		SlashCmdList.FOREVERPLUS(cmd)
 		assert(bear:IsShown() and bear:GetScript("OnUpdate") ~= nil, "/fp " .. cmd .. " previews Nat Pagle")
-		bear:GetScript("OnUpdate")(bear, 1.5)
+		bear:GetScript("OnUpdate")(bear, 2.0)
 		assert(not bear:IsShown() and bear:GetScript("OnUpdate") == nil, "preview finishes and stops OnUpdate")
 	end
 	previewOpt.func()
 	assert(bear:IsShown() and #played == 0 and #pendingAfter == 0, "settings preview stays silent when fishingBearSound is off")
-	bear:GetScript("OnUpdate")(bear, 1.5)
+	bear:GetScript("OnUpdate")(bear, 2.0)
 
 	ns.SetOption("Helpers", "fishingBearSound", savedBearSoundOpt)
 	ns.SetOption("Helpers", "fishingBear", savedBearOpt)

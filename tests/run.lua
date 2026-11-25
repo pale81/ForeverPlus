@@ -16013,7 +16013,20 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	assert(optsByKey.arrowColor and optsByKey.arrowColor.new == true, "arrowColor has new=true")
 	assert(hasColorBtn, "custom arrow color picker button present")
 	assert(#optsByKey.arrowStyle.values() == 5, "5 arrow designs available")
-	assert(#optsByKey.arrowColor.values() == 8, "7 color presets plus custom available")
+	local colorValues = optsByKey.arrowColor.values()
+	assert(#colorValues == 11, "gold, 9 class colors plus custom available")
+	assert(colorValues[1][1] == "DEFAULT" and colorValues[2][1] == "WARRIOR" and colorValues[10][1] == "HUNTER"
+		and colorValues[11][1] == "CUSTOM", "gold first, class colors in Forever order, custom last")
+	assert(colorValues[8][2]:find("Mage", 1, true), "class color named after the class")
+
+	-- Old color presets become the same custom color
+	local legacyDb = { arrowColor = "BLUE", arrowCustomColor = { r = 1, g = 0.82, b = 0 } }
+	way.MigrateArrowColor(legacyDb)
+	assert(legacyDb.arrowColor == "CUSTOM" and math.abs(legacyDb.arrowCustomColor.g - 0.78) < 1e-6,
+		"old BLUE preset migrates to custom color")
+	legacyDb = { arrowColor = "MAGE" }
+	way.MigrateArrowColor(legacyDb)
+	assert(legacyDb.arrowColor == "MAGE" and legacyDb.arrowCustomColor == nil, "class color left as is")
 
 	-- Quest objective click tests
 	local savedCVar, savedShift = GetCVarBool, IsShiftKeyDown
@@ -16178,11 +16191,22 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	previewCallback()
 	assert(not arrow:IsShown(), "preview hides arrow after timer expires")
 
-	-- Standard + Blue desaturates and tints
-	way.db.arrowColor = "BLUE"
+	-- Standard + class color desaturates and tints with the client's class color
+	local savedGetClassColor = C_ClassColor.GetClassColor
+	C_ClassColor.GetClassColor = function(classFile)
+		if classFile == "MAGE" then
+			return { GetRGB = function() return 0.25, 0.78, 0.92 end }
+		end
+	end
+	way.db.arrowColor = "MAGE"
 	way:OnOptionChanged("arrowColor")
-	assert(lastDesat == true and math.abs(tex.vertexColor[1] - 0.27) < 0.01
-		and math.abs(tex.vertexColor[3] - 1.00) < 0.01, "standard blue tints desaturated atlas")
+	assert(lastDesat == true and math.abs(tex.vertexColor[1] - 0.25) < 0.01
+		and math.abs(tex.vertexColor[3] - 0.92) < 0.01, "standard mage color tints desaturated atlas")
+	way.db.arrowColor = "WARRIOR"
+	way:OnOptionChanged("arrowColor")
+	assert(math.abs(tex.vertexColor[1] - 1) < 0.01 and math.abs(tex.vertexColor[2] - 0.82) < 0.01
+		and math.abs(tex.vertexColor[3] - 0) < 0.01, "unknown class color falls back to gold")
+	C_ClassColor.GetClassColor = savedGetClassColor
 
 	-- Custom arrow designs load Media\WaypointArrows.tga with 1/256 UV inset
 	local expectedTiles = {
@@ -16215,7 +16239,7 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 		GetColorRGB = function() return pickedRGB[1], pickedRGB[2], pickedRGB[3] end,
 		IsShown = function() return pickerShown end,
 	}
-	way.db.arrowStyle, way.db.arrowColor = "classic", "ORANGE"
+	way.db.arrowStyle, way.db.arrowColor = "classic", "MAGE"
 	way.db.arrowCustomColor = { r = 1, g = 0.82, b = 0 }
 	way.ChooseColor()
 	assert(pickerSpec and pickerSpec.hasOpacity == false, "color picker opened without opacity")
@@ -16223,7 +16247,7 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	assert(way.db.arrowColor == "CUSTOM" and math.abs(tex.vertexColor[2] - 0.9) < 1e-6, "swatch applies custom color")
 	pickerShown = false
 	pickerSpec.cancelFunc()
-	assert(way.db.arrowColor == "ORANGE" and math.abs(way.db.arrowCustomColor.r - 1) < 1e-6, "cancel restores previous color")
+	assert(way.db.arrowColor == "MAGE" and math.abs(way.db.arrowCustomColor.r - 1) < 1e-6, "cancel restores previous color")
 
 	-- Middle-click during preview closes preview cleanly
 	way.Preview(false)
@@ -16232,7 +16256,7 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	assert(not arrow:IsShown(), "middle-click closes preview")
 
 	-- Inline preview images in design dropdown & large preview panel when SettingsPanel is open
-	way.db.arrowColor = "BLUE"
+	way.db.arrowColor, way.db.arrowCustomColor = "CUSTOM", { r = 0.27, g = 0.78, b = 1.00 }
 	local styleEntries = optsByKey.arrowStyle.values()
 	assert(styleEntries[1][2]:find("Navigation-Tracked-Arrow", 1, true) or styleEntries[1][2]:find("MiniMap-QuestArrow", 1, true),
 		"standard design dropdown entry carries inline arrow preview")
@@ -16247,7 +16271,8 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	SettingsPanel.HookScript = function(_, script, fn)
 		if script == "OnHide" then settingsHideFn = fn end
 	end
-	way.db.arrowStyle, way.db.arrowColor = "rune", "ORANGE"
+	way.db.arrowStyle, way.db.arrowColor = "rune", "CUSTOM"
+	way.db.arrowCustomColor = { r = 1.00, g = 0.52, b = 0.15 }
 	way:OnOptionChanged("arrowStyle")
 	local previewFrame = _G.ForeverPlusWaypointPreview
 	assert(previewFrame and previewFrame:IsShown(), "large preview panel opens beside SettingsPanel")
@@ -16302,7 +16327,7 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 		doubleClick(arrow, "LeftButton")
 		assert(way.db.arrowStyle == "standard" and lastAtlas == "Navigation-Tracked-Arrow" and label == "standard", "double-click resets " .. entry.key)
 	end
-	assert(way.db.arrowColor == "ORANGE" and way.Target() == goal, "design clicks preserve color and destination")
+	assert(way.db.arrowColor == "CUSTOM" and way.Target() == goal, "design clicks preserve color and destination")
 	ns.SetOption("Waypoint", "arrowStyle", "rune")
 	click(arrow, "RightButton")
 	doubleClick(arrow, "RightButton")

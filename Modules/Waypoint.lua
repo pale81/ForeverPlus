@@ -303,19 +303,36 @@ for _, entry in ipairs(ARROW_STYLES) do
 	ARROW_STYLES_BY_KEY[entry.key] = entry
 end
 
+-- Gold, then the class colors of the nine Forever classes (CLASS_SORT_ORDER of the Camelot client; the color
+-- comes from C_ClassColor), then a color of one's own.
 local ARROW_COLORS = {
-	{ key = "DEFAULT", label = "WAYPOINT_COLOR_DEFAULT", hex = "ffd100", r = 1.00, g = 0.82, b = 0.00 },
-	{ key = "WHITE", label = "WAYPOINT_COLOR_WHITE", hex = "f2f5ff", r = 0.95, g = 0.96, b = 1.00 },
-	{ key = "BLUE", label = "WAYPOINT_COLOR_BLUE", hex = "45c8ff", r = 0.27, g = 0.78, b = 1.00 },
-	{ key = "ORANGE", label = "WAYPOINT_COLOR_ORANGE", hex = "ff8426", r = 1.00, g = 0.52, b = 0.15 },
-	{ key = "GREEN", label = "WAYPOINT_COLOR_GREEN", hex = "4dff6a", r = 0.30, g = 1.00, b = 0.42 },
-	{ key = "RED", label = "WAYPOINT_COLOR_RED", hex = "ff4242", r = 1.00, g = 0.26, b = 0.26 },
-	{ key = "PURPLE", label = "WAYPOINT_COLOR_PURPLE", hex = "c46bff", r = 0.77, g = 0.42, b = 1.00 },
-	{ key = "CUSTOM", label = "WAYPOINT_COLOR_CUSTOM" },
+	{ key = "DEFAULT", label = "WAYPOINT_COLOR_DEFAULT", r = 1.00, g = 0.82, b = 0.00 },
 }
+for _, classFile in ipairs({ "WARRIOR", "PALADIN", "PRIEST", "SHAMAN", "DRUID", "ROGUE", "MAGE", "WARLOCK", "HUNTER" }) do
+	ARROW_COLORS[#ARROW_COLORS + 1] = { key = classFile, class = classFile }
+end
+ARROW_COLORS[#ARROW_COLORS + 1] = { key = "CUSTOM", label = "WAYPOINT_COLOR_CUSTOM" }
 local ARROW_COLORS_BY_KEY = {}
 for _, entry in ipairs(ARROW_COLORS) do
 	ARROW_COLORS_BY_KEY[entry.key] = entry
+end
+
+-- The color presets before the class colors: a saved one becomes the same color of one's own.
+local LEGACY_ARROW_COLORS = {
+	WHITE = { r = 0.95, g = 0.96, b = 1.00 },
+	BLUE = { r = 0.27, g = 0.78, b = 1.00 },
+	ORANGE = { r = 1.00, g = 0.52, b = 0.15 },
+	GREEN = { r = 0.30, g = 1.00, b = 0.42 },
+	RED = { r = 1.00, g = 0.26, b = 0.26 },
+	PURPLE = { r = 0.77, g = 0.42, b = 1.00 },
+}
+
+function Waypoint.MigrateArrowColor(db)
+	local legacy = db and LEGACY_ARROW_COLORS[db.arrowColor]
+	if legacy then
+		db.arrowCustomColor = { r = legacy.r, g = legacy.g, b = legacy.b }
+		db.arrowColor = "CUSTOM"
+	end
 end
 
 Waypoint.ARROW_STYLES = ARROW_STYLES
@@ -345,15 +362,35 @@ local function ColorHex(r, g, b)
 	return ("%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
 end
 
+-- r, g, b of a color entry; a class color the client does not know stays gold.
+local function EntryRGB(entry, db)
+	if entry.key == "CUSTOM" then
+		return Waypoint.CustomColor(db)
+	end
+	if entry.class then
+		local color = C_ClassColor.GetClassColor(entry.class)
+		if color then
+			return color:GetRGB()
+		end
+		entry = ARROW_COLORS[1]
+	end
+	return entry.r, entry.g, entry.b
+end
+
+local function EntryLabel(entry)
+	if entry.class then
+		return LOCALIZED_CLASS_NAMES_MALE[entry.class] or entry.class
+	end
+	return L[entry.label]
+end
+
+local function EntryMarkup(entry, db)
+	return ("|cff%s%s|r"):format(ColorHex(EntryRGB(entry, db)), EntryLabel(entry))
+end
+
 local function ColorLabel(db)
 	db = db or Waypoint.db
-	local color = ARROW_COLORS_BY_KEY[db and db.arrowColor] or ARROW_COLORS[1]
-	local hex = color.hex
-	if not hex then
-		local r, g, b = Waypoint.CustomColor(db)
-		hex = ColorHex(r, g, b)
-	end
-	return ("|cff%s%s|r"):format(hex, L[color.label])
+	return EntryMarkup(ARROW_COLORS_BY_KEY[db and db.arrowColor] or ARROW_COLORS[1], db)
 end
 
 function Waypoint.ArrowAppearance(isCorpse, db)
@@ -363,16 +400,12 @@ function Waypoint.ArrowAppearance(isCorpse, db)
 	if isCorpse then
 		return style, CORPSE_COLOR.r, CORPSE_COLOR.g, CORPSE_COLOR.b, isStandard
 	end
-	local colorKey = db and db.arrowColor
-	if colorKey == "CUSTOM" then
-		local r, g, b = Waypoint.CustomColor(db)
-		return style, r, g, b, isStandard
-	end
-	local color = ARROW_COLORS_BY_KEY[colorKey] or ARROW_COLORS[1]
+	local color = ARROW_COLORS_BY_KEY[db and db.arrowColor] or ARROW_COLORS[1]
 	if isStandard and color.key == "DEFAULT" then
 		return style, 1, 1, 1, false
 	end
-	return style, color.r, color.g, color.b, isStandard
+	local r, g, b = EntryRGB(color, db)
+	return style, r, g, b, isStandard
 end
 
 function Waypoint.StyleMarkup(styleKey, db)
@@ -536,12 +569,7 @@ end
 local function ColorValues()
 	local values = {}
 	for _, entry in ipairs(ARROW_COLORS) do
-		local hex = entry.hex
-		if not hex then
-			local r, g, b = Waypoint.CustomColor(Waypoint.db)
-			hex = ColorHex(r, g, b)
-		end
-		values[#values + 1] = { entry.key, ("|cff%s%s|r"):format(hex, L[entry.label]) }
+		values[#values + 1] = { entry.key, EntryMarkup(entry, Waypoint.db) }
 	end
 	return values
 end
@@ -1010,6 +1038,7 @@ function Waypoint:Apply()
 end
 
 function Waypoint:OnInitialize()
+	Waypoint.MigrateArrowColor(self.db)
 	ns.OnAddOnLoaded("Blizzard_POIButton", HookQuestPOI)
 end
 

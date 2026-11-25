@@ -34,5 +34,5 @@ Harness: unbekannte Globale sind nachsichtige Platzhalter, die nicht in `_G` lan
 
 ## Im Spiel testen
 - Der Ordner liegt im AddOns-Verzeichnis; nach Änderungen `/rl`.
-- Fehler: `/fp diagnose` (Bericht zum Kopieren), `/fp fehler`, `/fp messen`; Fehlerprotokolle unter `…/_classic_beta_/Logs/`.
-- Gespeicherte Daten: `…/_classic_beta_/WTF/Account/<KONTO>/SavedVariables/ForeverPlus.lua`.
+- Fehler: `/fp diagnose` (Bericht zum Kopieren), `/fp fehler`, `/fp messen`; Fehlerprotokolle unter `…/_forever_/Logs/`.
+- Gespeicherte Daten: `…/_forever_/WTF/Account/<KONTO>/SavedVariables/ForeverPlus.lua`.

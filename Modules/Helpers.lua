@@ -807,17 +807,35 @@ end
 
 ns.HasFishingPole = HasFishingPole
 
+local function CanRestoreOffHand(weapons)
+	return weapons.off and C_Item.GetItemCount(weapons.off) >= (weapons.off == weapons.main and 2 or 1)
+end
+
+-- Keep the pre-fishing set even after the pole is removed or another weapon is equipped.
+local recentMain, recentOff
 local function RememberFishingWeapons()
 	if not (Helpers.db.fishing and Helpers.db.fishingRestore) then
+		recentMain, recentOff = nil, nil
 		return
 	end
 	local main = GetInventoryItemID("player", MAIN_HAND)
 	local off = GetInventoryItemID("player", OFF_HAND)
-	if ns.Secret(main) or ns.Secret(off) or IsFishingPole(main) then
+	if ns.Secret(main) or ns.Secret(off) or not main then
 		return
 	end
 	local weapons = Helpers.cdb.fishingWeapons
-	weapons.main, weapons.off = main, off
+	if IsFishingPole(main) then
+		if recentMain then
+			weapons.main, weapons.off = recentMain, recentOff
+			recentMain, recentOff = nil, nil
+		end
+		weapons.pending = weapons.main and true or nil
+	else
+		recentMain, recentOff = main, off
+		if not weapons.pending or (main == weapons.main and (off == weapons.off or not CanRestoreOffHand(weapons))) then
+			weapons.main, weapons.off, weapons.pending = main, off, nil
+		end
+	end
 end
 
 function Helpers:PLAYER_EQUIPMENT_CHANGED(_, slot)
@@ -825,9 +843,19 @@ function Helpers:PLAYER_EQUIPMENT_CHANGED(_, slot)
 		return
 	end
 	cachedPole = nil
-	-- Equipping a two-handed pole can update the two slots separately.
 	if weaponsTimer then
 		weaponsTimer:Cancel()
+		weaponsTimer = nil
+	end
+	local main = GetInventoryItemID("player", MAIN_HAND)
+	local off = GetInventoryItemID("player", OFF_HAND)
+	if ns.Secret(main) or ns.Secret(off) then
+		return
+	end
+	-- An empty off hand can be the first half of equipping a two-handed pole.
+	if slot == MAIN_HAND or off or IsFishingPole(main) then
+		RememberFishingWeapons()
+		return
 	end
 	weaponsTimer = ns.NewTimer("Helpers: remember fishing weapons", 0.5, function()
 		weaponsTimer = nil
@@ -839,15 +867,26 @@ local function EquipLine(slot, itemID, modifier)
 	return ("/equipslot [@mouseover,noexists,nocombat,nomounted,%s] %d item:%d"):format(modifier, slot, itemID)
 end
 
-local function RestoreWeaponsMacro()
+local function RestoreWeaponsMacro(main)
 	local weapons = Helpers.cdb.fishingWeapons
-	if not weapons.main or C_Item.GetItemCount(weapons.main) == 0 then
+	local wantedMain, wantedOff = weapons.main, weapons.off
+	if not wantedMain or (weaponsTimer and not weapons.pending) then
 		return
 	end
-	local text = EquipLine(MAIN_HAND, weapons.main, "mod:shift")
-	local off = weapons.off
-	if off and C_Item.GetItemCount(off) >= (off == weapons.main and 2 or 1) then
-		text = text .. "\n" .. EquipLine(OFF_HAND, off, "mod:shift")
+	local off = GetInventoryItemID("player", OFF_HAND)
+	if ns.Secret(off) then
+		return
+	end
+	local text
+	if main ~= wantedMain then
+		if C_Item.GetItemCount(wantedMain) == 0 then
+			return
+		end
+		text = EquipLine(MAIN_HAND, wantedMain, "nomod")
+	end
+	if off ~= wantedOff and CanRestoreOffHand(weapons) then
+		local line = EquipLine(OFF_HAND, wantedOff, "nomod")
+		text = text and (text .. "\n" .. line) or line
 	end
 	return text
 end
@@ -987,8 +1026,17 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 		if bindingTimer or IsMouseButtonDown("RightButton") or shift ~= IsShiftKeyDown() or not CanArmFishing() then
 			return
 		end
-		local hasPole = HasFishingPole()
-		if hasPole and not shift then
+		if IsAltKeyDown() or IsControlKeyDown() then
+			return
+		end
+		local main = GetInventoryItemID("player", MAIN_HAND)
+		if ns.Secret(main) then
+			return
+		end
+		if IsFishingPole(main) then
+			if shift then
+				return
+			end
 			local spellID = FishingSpell()
 			if not spellID or IsFishingChannel() then
 				return
@@ -1000,16 +1048,14 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 				return
 			end
 			local macro
-			if shift then
-				if hasPole and Helpers.db.fishingRestore and not IsAltKeyDown() and not IsControlKeyDown() then
-					macro = RestoreWeaponsMacro()
-				end
-			elseif Helpers.db.fishingEquip and FishingSpell() then
+			if shift and Helpers.db.fishingEquip and FishingSpell() then
 				local pole = FindFishingPole()
 				if pole then
 					RememberFishingWeapons()
-					macro = EquipLine(MAIN_HAND, pole, "nomod")
+					macro = EquipLine(MAIN_HAND, pole, "mod:shift")
 				end
+			elseif not shift and Helpers.db.fishingRestore then
+				macro = RestoreWeaponsMacro(main)
 			end
 			if not macro then
 				return

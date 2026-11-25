@@ -2097,7 +2097,7 @@ assert(proc(0, 1) == 13262, "disenchant")
 	GetMouseFoci = function() return { focus } end
 	UnitExists = function() return mouseover end
 	GetCursorPosition = function() return x, 100 end
-	GetInventoryItemID = function(_, slot) return slot == INVSLOT_MAINHAND and equipped or offHand end
+	GetInventoryItemID = function(_, slot) if slot == INVSLOT_MAINHAND then return equipped end return offHand end
 	GetCursorInfo = function() return cursor end
 	IsShiftKeyDown = function() return shift end
 	IsAltKeyDown = function() return false end
@@ -2119,6 +2119,9 @@ assert(proc(0, 1) == 13262, "disenchant")
 
 	assert(helpers.db.fishingMenu and helpers.db.fishing and savedEquip and helpers.db.fishingRestore,
 		"the rod and all three angler options are enabled by default")
+	click()
+	assert(not binding, "a plain pair never equips a pole from the bag")
+	shift = true
 	helpers.db.fishingEquip = false
 	click()
 	assert(not binding, "no override without an equipped pole while the option is off")
@@ -2153,8 +2156,8 @@ assert(proc(0, 1) == 13262, "disenchant")
 	IsMouseButtonDown = savedMouseDown
 	assert(not binding, "a physical press that is already underway keeps its native release")
 	click()
-	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
-		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted,nomod] 16 item:6256",
+	assert(binding == "SHIFT-BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
+		and attrs.macrotext == "/equipslot [@mouseover,noexists,nocombat,nomounted,mod:shift] 16 item:6256",
 		"the first pair selects the unlocked pole for a guarded main-hand equip")
 	local equipTimer = timer
 	local postClick = button:GetScript("PostClick")
@@ -2163,25 +2166,61 @@ assert(proc(0, 1) == 13262, "disenchant")
 	postClick(button, "LeftButton", false)
 	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
 	equipped, offHand = 6256, nil
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
 	click()
-	assert(binding and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == false,
+	assert(not binding, "Shift with a pole equipped leaves the gear alone")
+	shift = false
+	click()
+	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == false,
 		"the next pair casts Fishing on release after the pole is equipped")
 	timer.expire()
 	assert(not binding, "an unused binding expires")
+	equipped = nil
 	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
-	timer.expire()
-	shift = true
+	local restore = helpers.db.fishingRestore
+	helpers.db.fishingRestore = false
 	click()
-	local condition = "[@mouseover,noexists,nocombat,nomounted,mod:shift]"
-	assert(binding == "SHIFT-BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
+	assert(not binding, "restoration can be disabled independently")
+	helpers.db.fishingRestore = restore
+	click()
+	local condition = "[@mouseover,noexists,nocombat,nomounted,nomod]"
+	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
 		and attrs.macrotext == "/equipslot " .. condition .. " 16 item:1\n/equipslot " .. condition .. " 17 item:2",
-		"with a pole equipped, the shifted pair restores the saved main hand and shield after the equipment event")
+		"after removing the pole, a plain pair restores the saved weapon and shield")
 	timer.expire()
+	equipped = 3
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
 	bagCounts[1] = nil
 	click()
-	assert(not binding, "shift leaves the pole and normal click handling available if the old main hand is missing")
-	shift = false
-	equipped, bagItems = 1, {}
+	assert(not binding, "a missing saved main hand leaves the normal click free")
+	bagCounts[1], equipped = 1, 1
+	click()
+	assert(binding and attrs.macrotext == "/equipslot " .. condition .. " 17 item:2",
+		"only the missing shield is equipped")
+	timer.expire()
+	offHand = 2
+	click()
+	assert(not binding, "already wearing the saved set leaves the plain click free")
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_OFFHAND)
+	equipped = 3
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
+	click()
+	assert(not binding, "a later weapon upgrade is kept after the fishing set has been restored")
+	offHand = nil
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_OFFHAND)
+	local splitUpdate = timer
+	click()
+	assert(not binding, "a normal click during a split equipment update leaves a manually removed shield alone")
+	equipped = 6256
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
+	assert(splitUpdate.cancelled and helpers.cdb.fishingWeapons.main == 3 and helpers.cdb.fishingWeapons.off == 2,
+		"manually equipping a pole just after a weapon change remembers the new weapon and its shield")
+	bagCounts[2], equipped = nil, 3
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
+	assert(not helpers.cdb.fishingWeapons.pending, "an unavailable shield does not keep a restored main hand pending")
+	equipped = nil
+	shift, bagItems = true, {}
+	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
 	click()
 	assert(not binding, "no override when there is no pole to equip")
 

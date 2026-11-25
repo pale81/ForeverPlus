@@ -2,7 +2,7 @@
 local root = (arg and arg[1]) or ".."
 local now, combat, visibilityCalls, hooks = 0, false, 0, 0
 local timers, tickers, events = {}, {}, {}
-local globals = {}
+local globals, ns = {}, nil
 local target, focus, bagsOpen, editMode, chatActive = false, false, false, false, nil
 local closeSounds = 0
 local panelWindows, specialFrames = {}, {}
@@ -15,9 +15,13 @@ function ui:GetEffectiveScale() return 0.8 end
 function ui:SetAlpha(alpha) self.alpha = alpha end
 function ui:GetChildren() return unpack(self.children) end
 function ui:HookScript(script, fn)
-	assert(script == "OnShow")
-	hooks = hooks + 1
-	self.onShow = fn
+	assert(script == "OnShow" or script == "OnHide")
+	if script == "OnShow" then
+		hooks = hooks + 1
+		self.onShow = fn
+	else
+		self.onHide = fn
+	end
 end
 
 local world = { GetEffectiveScale = function() return 1 end }
@@ -77,9 +81,13 @@ local function PeekableFrame(rect)
 end
 local cluster = PeekableFrame()
 -- 100 x 100 at (1000, 600) with a UI scale of 0.8: (800, 480) to (880, 560) in cursor coordinates.
-local map = {}
-function map:GetRect() return 1000, 600, 100, 100 end
-function map:GetEffectiveScale() return 0.8 end
+local minimap = { shown = true }
+function minimap:IsForbidden() return false end
+function minimap:IsShown() return self.shown end
+function minimap:Show() self.shown = true end
+function minimap:Hide() self.shown = false end
+function minimap:GetRect() return 1000, 600, 100, 100 end
+function minimap:GetEffectiveScale() return 0.8 end
 -- 150 x 40 at (1000, 100) with a UI scale of 0.8: (800, 80) to (920, 112) in cursor coordinates.
 local bagsBar = PeekableFrame({ 1000, 100, 150, 40 })
 local combinedBags = PeekableFrame()
@@ -137,9 +145,10 @@ local function SetVisibility(shown)
 	end
 	ui.shown = shown
 	if changed and shown and ui.onShow then ui.onShow() end
+	if changed and not shown and ui.onHide then ui.onHide() end
 end
 
-local ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
+ns = { L = { WANDERLUST_TITLE = "Wanderlust", WANDERLUST_DESC = "description",
 	WANDERLUST_SOFT_HIDE = "Soft hide", WANDERLUST_SOFT_HIDE_DESC = "description",
 	WANDERLUST_MINIMAP = "Minimap", WANDERLUST_MINIMAP_DESC = "description",
 	WANDERLUST_HOVER_TEXT = "Mouseover text", WANDERLUST_HOVER_TEXT_DESC = "description",
@@ -241,7 +250,7 @@ local env = setmetatable({
 		end
 	end,
 	MinimapCluster = cluster,
-	Minimap = map,
+	Minimap = minimap,
 	BagsBar = bagsBar,
 	GameTooltip = gameTooltip,
 	ShoppingTooltip1 = shopping1,
@@ -249,7 +258,7 @@ local env = setmetatable({
 	StackSplitFrame = stackSplit,
 	GetTime = function() return now end,
 	GetCursorPosition = function() return cursorX, cursorY end,
-	CreateFrame = function(_, _, parent)
+	CreateFrame = function(_, name, parent)
 		if parent == world then
 			assert(not chatHost, "one host keeps the chat frames visible")
 			chatHost = {
@@ -259,6 +268,24 @@ local env = setmetatable({
 			}
 			return chatHost
 		end
+		if name == "ForeverPlusWanderlustEsc" and parent == ui then
+			local guard = { shown = false }
+			function guard:IsShown() return self.shown end
+			function guard:SetSize() end
+			function guard:EnableMouse() end
+			function guard:SetScript(script, fn) if script == "OnHide" then self.onHide = fn end end
+			function guard:Show() self.shown = true end
+			function guard:Hide()
+				local was = self.shown
+				self.shown = false
+				if was and self.onHide then self.onHide(self) end
+			end
+			function guard:SetShown(shown)
+				if shown then self:Show() else self:Hide() end
+			end
+			globals[name] = guard
+			return guard
+		end
 		assert(not parent and not peekDriver, "one parentless driver checks the cursor")
 		peekDriver = { shown = true, shownCalls = 0 }
 		function peekDriver:SetShown(shown)
@@ -266,6 +293,13 @@ local env = setmetatable({
 			self.shownCalls = self.shownCalls + 1
 		end
 		return peekDriver
+	end,
+	tinsert = table.insert,
+	tContains = function(list, item)
+		for _, value in ipairs(list) do
+			if value == item then return true end
+		end
+		return false
 	end,
 	SetUIVisibility = SetVisibility,
 	InCombatLockdown = function() return combat end,
@@ -1202,24 +1236,78 @@ end)()
 	assert(actionBar.alpha == 0 and independentRegion.alpha == 0 and playerFrame.alpha == 0
 		and playerContainer.alpha == 0 and targetFrame.alpha == 0 and hiddenPanel.alpha == 1,
 		"visible HUD, independent regions, player portrait container and transient target frames fade to 0 while hidden panels stay untouched")
-	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0 and bagsBar.alpha == 0,
-		"minimap, independent minimap overlays and bags bar start transparent")
+	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0 and bagsBar.alpha == 0 and not minimap.shown,
+		"minimap widget (and its blips), overlays and bags bar start hidden")
 	assert(chatFrame.alpha == 1 and chatFrame.parent == ui and gameTooltip.alpha == 1,
 		"chat stays in UIParent at full alpha and tooltips stay visible")
 
 	-- Minimap mouseover reveals minimap + independent overlay without touching SetUIVisibility.
 	Over(true)
-	assert(cluster.alpha == 1 and minimapOverlay.alpha == 0.9 and actionBar.alpha == 0 and visibilityCalls == visBefore,
-		"minimap mouseover in soft-hide mode restores minimap and independent overlay with 0 SetUIVisibility calls")
+	assert(cluster.alpha == 1 and minimapOverlay.alpha == 0.9 and minimap.shown
+		and actionBar.alpha == 0 and visibilityCalls == visBefore,
+		"minimap mouseover in soft-hide mode restores minimap widget and overlays with 0 SetUIVisibility calls")
 	Over(false)
 	Advance(0.3)
 	Tick()
-	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0, "leaving minimap hides it again after rim grace")
+	assert(cluster.alpha == 0 and minimapOverlay.alpha == 0 and not minimap.shown,
+		"leaving minimap hides the minimap widget and its blips again after rim grace")
+
+	-- One Escape keypress restores the interface in soft-hide mode without opening GameMenuFrame.
+	local function CloseSpecialWindowsSim()
+		local closed = false
+		for _, name in ipairs(specialFrames) do
+			local frame = globals[name]
+			if frame and frame:IsShown() then
+				frame:Hide()
+				closed = true
+			end
+		end
+		return closed
+	end
+	assert(globals.ForeverPlusWanderlustEsc and globals.ForeverPlusWanderlustEsc:IsShown(),
+		"soft hide arms the Escape guard when no bag or bubble is open")
+	assert(CloseSpecialWindowsSim(), "Escape is handled by the Wanderlust guard instead of opening GameMenuFrame")
+	assert(ui.shown and actionBar.alpha == 0.85 and minimap.shown and not module.IsSoftHidden() and Pending() == 1,
+		"one Escape restores the full interface and minimap immediately and restarts the minute")
+	assert(not CloseSpecialWindowsSim(), "a second Escape is free to open Blizzard's GameMenuFrame")
+
+	-- One Alt+Z (TOGGLEUI) keypress while softly hidden also restores the interface in one step.
+	Advance(60)
+	assert(module.IsSoftHidden() and not minimap.shown, "re-enters soft hide after a quiet minute")
+	local function PressToggleUI()
+		if ui.shown then
+			CloseSpecialWindowsSim()
+			SetVisibility(false)
+		else
+			SetVisibility(true)
+		end
+	end
+	PressToggleUI()
+	assert(ui.shown and actionBar.alpha == 0.85 and minimap.shown and not qolSuppressed and not module.IsSoftHidden()
+		and Pending() == 1,
+		"one Alt+Z restores the softly hidden interface in a single step")
+	Advance(0.1)
+	PressToggleUI()
+	assert(not ui.shown, "a subsequent Alt+Z on the visible interface hides it manually for the player")
+	SetVisibility(true)
+	visBefore = visibilityCalls
+	Advance(60)
+	assert(module.IsSoftHidden() and not minimap.shown and visibilityCalls == visBefore)
+
+	-- While bags are open in soft-hide mode, Escape closes the bags rather than restoring the whole HUD.
+	bagsOpen = true
+	Fire("BAG_OPEN", 0)
+	assert(not globals.ForeverPlusWanderlustEsc:IsShown(), "open bags disarm the Escape guard so Escape closes the bag first")
+	bagsOpen = false
+	Fire("BAG_CLOSED", 0)
+	Tick()
+	assert(globals.ForeverPlusWanderlustEsc:IsShown(), "closing the bag re-arms the Escape guard")
 
 	-- BagsBar hover uses QoL.ShownAlpha (1) even though BagsBar was idle at alpha 0 before hiding.
 	cursorX, cursorY = 850, 95
 	Tick()
-	assert(bagsBar.alpha == 1 and actionBar.alpha == 0, "hovering BagsBar in soft-hide mode uses QoL shownAlpha")
+	assert(bagsBar.alpha == 1 and actionBar.alpha == 0 and not minimap.shown,
+		"hovering BagsBar in soft-hide mode uses QoL shownAlpha without showing minimap blips")
 	cursorX, cursorY = 500, 500
 	Tick()
 	assert(bagsBar.alpha == 0, "leaving BagsBar fades it back to 0")
@@ -1236,32 +1324,34 @@ end)()
 	combat = true
 	Fire("PLAYER_REGEN_DISABLED")
 	assert(actionBar.alpha == 0.85 and independentRegion.alpha == 0.75 and playerFrame.alpha == 1
-		and playerContainer.alpha == 1 and cluster.alpha == 1 and minimapOverlay.alpha == 0.9
+		and playerContainer.alpha == 1 and cluster.alpha == 1 and minimapOverlay.alpha == 0.9 and minimap.shown
 		and targetFrame.alpha == 1 and bagsBar.alpha == 0 and not qolSuppressed and not portraitHidden
 		and not module.IsSoftHidden() and visibilityCalls == visBefore,
-		"combat restores exact original alphas and portrait emblem without flashing idle QoL frames or calling SetUIVisibility")
+		"combat restores exact original alphas, minimap and portrait emblem without flashing idle QoL frames or calling SetUIVisibility")
 	combat = false
 	Fire("PLAYER_REGEN_ENABLED")
 
 	-- Switching softHide off while already hidden cleanly transitions to classic SetUIVisibility(false).
 	Advance(60)
-	assert(actionBar.alpha == 0 and ui.shown, "hides softly again after combat")
+	assert(actionBar.alpha == 0 and ui.shown and not minimap.shown, "hides softly again after combat")
 	module.db.softHide = false
 	module:OnOptionChanged("softHide", false)
-	assert(not ui.shown and actionBar.alpha == 0.85 and not qolSuppressed,
-		"turning softHide off while hidden restores frame alphas and enters classic Alt+Z mode")
+	assert(not ui.shown and actionBar.alpha == 0.85 and minimap.shown and not qolSuppressed,
+		"turning softHide off while hidden restores frame alphas and minimap and enters classic Alt+Z mode")
+	-- Classic peek for bags also hides the minimap widget so blips never float over the hidden HUD.
+	cursorX, cursorY = 850, 95
+	Tick()
+	assert(PeekingFrame(bagsBar) and not minimap.shown, "classic non-minimap peek hides the minimap widget so blips stay hidden")
+	cursorX, cursorY = 500, 500
+	Tick()
+	assert(not ui.shown and minimap.shown, "ending classic peek restores the minimap widget before next reveal")
 	module.db.softHide = true
 	module:OnOptionChanged("softHide", true)
-	assert(ui.shown and actionBar.alpha == 0 and qolSuppressed,
+	assert(ui.shown and actionBar.alpha == 0 and not minimap.shown and qolSuppressed,
 		"turning softHide back on while hidden restores UIParent and enters soft-hide mode")
 
-	-- Manual Alt+Z while softly hidden hands visibility back to the player with clean frame alphas.
-	SetVisibility(false)
-	Tick()
-	assert(not ui.shown and actionBar.alpha == 0.85 and not qolSuppressed,
-		"manual Alt+Z during soft hide restores frame alphas cleanly")
-	SetVisibility(true)
 	Enable(false)
+	assert(minimap.shown, "disabling restores the minimap widget")
 	ui.children, cluster.children, globals.TargetFrame, globals.PlayerFrame, env.PlayerFrame = {}, {}, nil, nil, nil
 	ns.PortraitModes, qolShownAlphas[bagsBar] = nil, nil
 end)()

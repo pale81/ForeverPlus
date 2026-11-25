@@ -18,11 +18,15 @@ local MINIMAP_LEAVE_GRACE = 0.25
 local BAG_KEY_PEEK_SECONDS = 3
 local peek, softHidden, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
 local lastMinimapHover
-local UpdateHiddenUI, CheckPeek, SyncPeek
+local minimapHiddenByWanderlust = false
+local escGuard, escHidingInternal, escRestoredAt, hidingUI
+local UpdateHiddenUI, CheckPeek, SyncPeek, RestoreUI, StartTimer, SoftBlocked, SyncEscGuard, SetMinimapHidden
 local peekDriverShown
 
 local SetInterfaceVisibility = ns.Measured("Wanderlust: SetUIVisibility", function(visible)
+	hidingUI = not visible
 	SetUIVisibility(visible)
+	hidingUI = nil
 end)
 
 local function DialogModule()
@@ -141,6 +145,7 @@ local function EndPeek(hide)
 	if hide and UIParent:IsShown() then SetInterfaceVisibility(false) end
 	UIParent:SetAlpha(saved.alpha)
 	RestoreIgnored(saved.ignored)
+	if not softHidden then SetMinimapHidden(false) end
 end
 
 local WINDOW_NAMES = {
@@ -171,6 +176,35 @@ local function WindowShown(frame)
 	if not frame or IsForbiddenSafe(frame) or not frame.IsShown then return false end
 	local shown = frame:IsShown()
 	return not ns.Secret(shown) and shown == true
+end
+
+-- Blizzards minimap blips (nodes, quests, units) ignore alpha: hide the Minimap widget itself
+-- while it should not be visible, without touching MinimapCluster's EditMode layout state.
+SetMinimapHidden = function(hide)
+	if not Minimap or IsForbiddenSafe(Minimap) or not Minimap.Hide or not Minimap.Show then
+		minimapHiddenByWanderlust = false
+		return
+	end
+	if hide then
+		if not minimapHiddenByWanderlust and WindowShown(Minimap) then
+			if not (Minimap.IsProtected and Minimap:IsProtected()) or not InCombatLockdown() then
+				minimapHiddenByWanderlust = true
+				Minimap:Hide()
+			end
+		end
+	elseif minimapHiddenByWanderlust then
+		minimapHiddenByWanderlust = false
+		local function RestoreMinimap()
+			if not minimapHiddenByWanderlust and Minimap and not IsForbiddenSafe(Minimap) and Minimap.Show then
+				Minimap:Show()
+			end
+		end
+		if Minimap.IsProtected and Minimap:IsProtected() and InCombatLockdown() then
+			ns.RunOutOfCombat(RestoreMinimap)
+		else
+			RestoreMinimap()
+		end
+	end
 end
 
 -- Not IsAnyBagOpen(): it builds Blizzard's bag frame list on first use. Called from here (tainted, e.g. at login),
@@ -331,7 +365,7 @@ local function IsChatFrameObject(frame)
 end
 
 local function IsSoftExcluded(frame)
-	if frame == GameTooltip or frame == ShoppingTooltip1 or frame == ShoppingTooltip2 then
+	if frame == escGuard or frame == GameTooltip or frame == ShoppingTooltip1 or frame == ShoppingTooltip2 then
 		return true
 	end
 	if Wanderlust.db.showChat and IsChatFrameObject(frame) then
@@ -393,10 +427,16 @@ local function SyncSoftPeek()
 	local overMinimap = CursorOverMinimap()
 	if overMinimap ~= softHidden.minimapShown then
 		softHidden.minimapShown = overMinimap
+		if overMinimap then
+			SetMinimapHidden(false)
+		end
 		for frame, info in pairs(softHidden.minimap) do
 			if CanFadeFrame(frame) then
 				frame:SetAlpha(overMinimap and info.show or 0)
 			end
+		end
+		if not overMinimap then
+			SetMinimapHidden(true)
 		end
 	end
 	if softHidden.bags then
@@ -411,6 +451,7 @@ local function SyncSoftPeek()
 			end
 		end
 	end
+	SyncEscGuard()
 end
 
 local function EnterSoftHide()
@@ -475,6 +516,7 @@ local function ExitSoftHide()
 	softHidden = nil
 	bagKeyUntil = nil
 	lastMinimapHover = nil
+	SyncEscGuard()
 	for frame, orig in pairs(saved.frames) do
 		if CanFadeFrame(frame) then
 			frame:SetAlpha(orig)
@@ -485,6 +527,7 @@ local function ExitSoftHide()
 			frame:SetAlpha(info.restore)
 		end
 	end
+	SetMinimapHidden(false)
 	if saved.bags and CanFadeFrame(saved.bags.frame) then
 		saved.bags.frame:SetAlpha(saved.bags.restore)
 	end
@@ -503,6 +546,7 @@ end
 
 local function EnterPeek(desired, reveal)
 	peek = { alpha = UIParent:GetAlpha(), ignored = {} }
+	SetMinimapHidden(not desired[MinimapCluster])
 	for frame in pairs(desired) do
 		peek.ignored[frame] = frame:IsIgnoringParentAlpha()
 		frame:SetIgnoreParentAlpha(true)
@@ -538,6 +582,7 @@ SyncPeek = function()
 			if UIParent:IsShown() then return end
 			EnterPeek(desired, true)
 		else
+			SetMinimapHidden(not desired[MinimapCluster])
 			local removed
 			for frame, orig in pairs(peek.ignored) do
 				if not desired[frame] then
@@ -591,7 +636,7 @@ local function InteractionOpen()
 		end
 	end
 	for _, name in ipairs(UISpecialFrames) do
-		if not WINDOW_NAME_SET[name] then
+		if not WINDOW_NAME_SET[name] and name ~= "ForeverPlusWanderlustEsc" then
 			local frame = _G[name]
 			if WindowShown(frame) and not (ownsWindow and ownsWindow(frame)) then
 				lastOpenWindow = frame
@@ -612,12 +657,44 @@ local function HardBlocked()
 	return InteractionOpen()
 end
 
-local function SoftBlocked()
+SoftBlocked = function()
 	return (Wanderlust.db.showBags and AnyBagOpen()) or DialogActive()
 end
 
 local function ActivityBlocked()
 	return HardBlocked() or SoftBlocked()
+end
+
+local function EnsureEscGuard()
+	if escGuard then return escGuard end
+	escGuard = CreateFrame("Frame", "ForeverPlusWanderlustEsc", UIParent)
+	if escGuard.SetSize then escGuard:SetSize(1, 1) end
+	if escGuard.EnableMouse then escGuard:EnableMouse(false) end
+	if escGuard.Hide then escGuard:Hide() end
+	if escGuard.SetScript then
+		escGuard:SetScript("OnHide", ns.Measured("Wanderlust: escape restore", function()
+			if escHidingInternal or not softHidden then return end
+			escRestoredAt = ns.Number(GetTime(), 0)
+			RestoreUI()
+			StartTimer()
+		end))
+	end
+	if UISpecialFrames and not tContains(UISpecialFrames, "ForeverPlusWanderlustEsc") then
+		tinsert(UISpecialFrames, "ForeverPlusWanderlustEsc")
+	end
+	return escGuard
+end
+
+SyncEscGuard = function()
+	local want = softHidden ~= nil and not SoftBlocked() and not InCombatLockdown()
+	if not want and not escGuard then return end
+	local guard = EnsureEscGuard()
+	if not guard or not guard.IsShown or not guard.SetShown then return end
+	if guard:IsShown() ~= want then
+		escHidingInternal = true
+		guard:SetShown(want)
+		escHidingInternal = nil
+	end
 end
 
 local function CancelTimer()
@@ -634,7 +711,7 @@ local function ClearTeleport()
 	end
 end
 
-local function RestoreUI()
+RestoreUI = function()
 	ClearTeleport()
 	EndPeek(false)
 	ExitSoftHide()
@@ -672,7 +749,7 @@ local function HideUI()
 	UpdateHiddenUI()
 end
 
-local function StartTimer()
+StartTimer = function()
 	CancelTimer()
 	-- hidUI: the interface is Wanderlust's, also while it is see-through over the minimap.
 	if not Wanderlust.db.enabled or InCombatLockdown() or not UIParent:IsShown() or hidUI then
@@ -708,6 +785,29 @@ local function OnUIShown()
 	if not restoring then
 		StartTimer()
 	end
+end
+
+local function OnUIHidden()
+	if hidingUI then return end
+	local now = ns.Number(GetTime(), 0)
+	local fromSoftToggle = softHidden ~= nil or (escRestoredAt ~= nil and escRestoredAt == now)
+	if not fromSoftToggle then return end
+	escRestoredAt = nil
+	ClearTeleport()
+	ExitSoftHide()
+	hidUI = nil
+	UpdateHiddenUI()
+	if InCombatLockdown() then return end
+	-- In soft-hide mode UIParent stayed shown, so pressing Alt+Z (TOGGLEUI) hid UIParent instead of
+	-- revealing the interface. Bring UIParent back right away so one keypress restores the UI.
+	ns.After("Wanderlust: toggle ui restore", 0, function()
+		if not UIParent:IsShown() then
+			restoring = true
+			SetInterfaceVisibility(true)
+			restoring = nil
+			StartTimer()
+		end
+	end)
 end
 
 local function Stop()
@@ -1005,6 +1105,12 @@ function Wanderlust:Apply()
 	if enabled and not hooked then
 		hooked = true
 		UIParent:HookScript("OnShow", ns.Measured("Wanderlust: interface shown", OnUIShown))
+		UIParent:HookScript("OnHide", ns.Measured("Wanderlust: interface hidden", OnUIHidden))
+		if GameMenuFrame and GameMenuFrame.HookScript then
+			GameMenuFrame:HookScript("OnShow", ns.Measured("Wanderlust: game menu shown", function()
+				if Wanderlust.db.enabled and hidUI then InteractionOpened() end
+			end))
+		end
 		EventRegistry:RegisterCallback("ChatFrame.OnEditBoxShow", ns.Measured("Wanderlust: chat opened", ChatInputOpened), self)
 		if BankFrame and BankFrame.SetPortraitToUnit then
 			hooksecurefunc(BankFrame, "SetPortraitToUnit", ns.Measured("Wanderlust: bank opening", BankOpening))

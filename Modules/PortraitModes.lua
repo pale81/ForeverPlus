@@ -1591,9 +1591,20 @@ local function ShowPortraitTooltip()
 		return
 	end
 	local checkMark = AtlasIcon("common-icon-checkmark", 12)
-	local crossMark = AtlasIcon("common-icon-redx", 11)
-	local subCheck = AtlasIcon("common-icon-checkmark", 10)
-	local subCross = AtlasIcon("common-icon-redx", 9)
+	local crossMark = AtlasIcon("common-icon-redx", 12)
+	-- Active lines white, inactive gray: green stays reserved for the click hints below.
+	local function AddFeatureLine(text, selected, on, active, leftOffset)
+		local mark
+		if not selected then
+			mark = "-"
+		elseif on then
+			mark = checkMark ~= "" and checkMark or "+"
+		else
+			mark = crossMark ~= "" and crossMark or "-"
+		end
+		local color = active and HIGHLIGHT_FONT_COLOR or GRAY_FONT_COLOR
+		GameTooltip_AddColoredLine(GameTooltip, mark .. " " .. text, color, false, leftOffset)
+	end
 	GameTooltip:SetOwner(portraitWheel, "ANCHOR_RIGHT")
 	GameTooltip_SetTitle(GameTooltip, ("%s (%s)"):format(mode.name, StatusText(mode.key)))
 	local features = ModeFeatures(mode.key)
@@ -1603,40 +1614,22 @@ local function ShowPortraitTooltip()
 		for _, feature in ipairs(features) do
 			local selected = IsFeatureSelected(ItemKey(feature))
 			local on = feature.isOn()
-			local color = not selected and GRAY_FONT_COLOR or (on and GREEN_FONT_COLOR or HIGHLIGHT_FONT_COLOR)
-			local prefix
-			if not selected then
-				prefix = "- "
-			elseif on then
-				prefix = checkMark ~= "" and (checkMark .. " ") or "+ "
-			else
-				prefix = crossMark ~= "" and (crossMark .. " ") or "- "
-			end
-			GameTooltip_AddColoredLine(GameTooltip, prefix .. feature.name, color)
+			AddFeatureLine(feature.name, selected, on, selected and on)
 			if not feature.isSub then
 				local subs = FeatureSubOptions(feature, mode.key)
 				if subs then
 					for _, sub in ipairs(subs) do
 						local subOn = sub.isOn()
-						local subColor = not selected and GRAY_FONT_COLOR
-							or (subOn and (on and GREEN_FONT_COLOR or HIGHLIGHT_FONT_COLOR) or GRAY_FONT_COLOR)
-						local subPrefix
-						if not selected then
-							subPrefix = "   - "
-						elseif subOn then
-							subPrefix = "   " .. (subCheck ~= "" and (subCheck .. " ") or "+ ")
-						else
-							subPrefix = "   " .. (subCross ~= "" and (subCross .. " ") or "- ")
-						end
-						GameTooltip_AddColoredLine(GameTooltip, subPrefix .. sub.name, subColor)
+						AddFeatureLine(sub.name, selected, subOn, selected and on and subOn, 16)
 					end
 				end
 			end
 		end
 	end
-	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_LEFT)
-	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_RIGHT)
-	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_WHEEL)
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_LEFT, false)
+	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_RIGHT, false)
+	GameTooltip_AddInstructionLine(GameTooltip, L.PORTRAIT_MODE_HINT_WHEEL, false)
 	GameTooltip:Show()
 end
 

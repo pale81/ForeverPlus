@@ -636,14 +636,22 @@ local function AddUpcomingRows(provider, profession, skill, known, collapses)
 end
 
 -- Insert/Remove normally redraw the attached ScrollBox after every mutation.
-local function BatchListChanges(box, change)
+-- LinearizedTreeDataProviderMixin caches uncollapsed nodes in self.linearized until Invalidate() runs;
+-- Remove(node, true) skips invalidation, so invalidate the provider once before redrawing.
+local function BatchListChanges(box, provider, change)
 	local view = box.GetView and box:GetView()
 	if not (view and view.DetachDataProviderCallbacks and view.AttachDataProviderCallbacks and view.DataProviderContentsChanged) then
 		change()
+		if provider and provider.Invalidate then
+			provider:Invalidate()
+		end
 		return
 	end
 	view:DetachDataProviderCallbacks()
 	local ok, message = pcall(change)
+	if provider and provider.Invalidate then
+		provider:Invalidate()
+	end
 	view:AttachDataProviderCallbacks()
 	view:DataProviderContentsChanged()
 	if not ok then
@@ -668,7 +676,7 @@ local function UpdateList(recipeList, provider, replacesRecipes, change, selectF
 		selection:DeselectElementData(selected)
 	end
 	local box = recipeList.ScrollBox
-	BatchListChanges(box, change)
+	BatchListChanges(box, provider, change)
 	if recipeList.NoResultsText then
 		recipeList.NoResultsText:SetShown(#provider:GetChildrenNodes() == 0)
 	end

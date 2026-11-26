@@ -11086,6 +11086,7 @@ end)()
 	local function Redraw()
 		if attached then redraws = redraws + 1 end
 	end
+	local provider
 	local function Node(data)
 		local node = { data = data, children = {}, GetData = function(self) return self.data end }
 		function node:GetNodes() return self.children end
@@ -11093,7 +11094,7 @@ end)()
 		function node:InsertNode(child, index)
 			child.parent = self
 			table.insert(self.children, index or #self.children + 1, child)
-			Redraw()
+			if provider then provider:Invalidate() else Redraw() end
 			return child
 		end
 		function node:Insert(childData) return self:InsertNode(Node(childData)) end
@@ -11101,7 +11102,9 @@ end)()
 			for index, current in ipairs(self.children) do
 				if child == current then
 					local removed = table.remove(self.children, index)
-					if not skipInvalidation then Redraw() end
+					if not skipInvalidation then
+						if provider then provider:Invalidate() else Redraw() end
+					end
 					return removed
 				end
 			end
@@ -11109,22 +11112,45 @@ end)()
 		return node
 	end
 	local root = Node()
-	local provider = {
+	local linearized
+	local function CollectNodes(excludeCollapsed)
+		local nodes = {}
+		local function Add(parent)
+			for _, node in ipairs(parent.children) do
+				nodes[#nodes + 1] = node
+				if not (excludeCollapsed and node.collapsed) then Add(node) end
+			end
+		end
+		Add(root)
+		return nodes
+	end
+	provider = {
 		GetRootNode = function() return root end,
 		GetChildrenNodes = function() return root.children end,
 		Insert = function(_, data) return root:Insert(data) end,
 		Remove = function(_, node) return node.parent:Remove(node) end,
 		IsEmpty = function() return #root.children == 0 end,
-		Enumerate = function(_, _, _, excludeCollapsed)
-			local nodes = {}
-			local function Add(parent)
-				for _, node in ipairs(parent.children) do
-					nodes[#nodes + 1] = node
-					if not (excludeCollapsed and node.collapsed) then Add(node) end
-				end
+		Invalidate = function()
+			linearized = nil
+			Redraw()
+		end,
+		GetLinearized = function()
+			if not linearized then
+				linearized = CollectNodes(true)
 			end
-			Add(root)
-			return ipairs(nodes)
+			return linearized
+		end,
+		GetSize = function(self, excludeCollapsed)
+			if excludeCollapsed then
+				return #self:GetLinearized()
+			end
+			return #CollectNodes(false)
+		end,
+		Enumerate = function(self, _, _, excludeCollapsed)
+			if excludeCollapsed then
+				return ipairs(self:GetLinearized())
+			end
+			return ipairs(CollectNodes(false))
 		end,
 	}
 	function provider:EnumerateEntireRange() return self:Enumerate(nil, nil, false) end
@@ -11278,9 +11304,13 @@ end)()
 	local before = { unpack(category.children) }
 	local events = uv(ns.RegisterEvent, "listeners")
 	assert(not plan.db.withMaterials, "material filtering is off by default")
-	selected = favorite
+	-- Populate LinearizedTreeDataProviderMixin's cache just like ScrollBox:SetDataProvider does.
+	assert(provider:GetSize(true) == 7, "unfiltered linearized cache contains all visible rows")
+	selected, redraws = favorite, 0
 	ns.SetOption("ProfessionPlan", "withMaterials", true)
 	FinishScan()
+	assert(redraws == 1 and provider:GetSize(true) == 3,
+		"material filter invalidates the linearized tree cache and redraws once")
 	assert(#root.children == 2 and root.children[1] == category and root.children[2] == favorites
 		and selected == favorite and category.collapsed, "material filter keeps matching categories, favorites and selection")
 	assert(#category.children == 4 and category.children[1] == before[1] and category.children[2] == before[2]
@@ -11290,22 +11320,26 @@ end)()
 		"each reagent count is read once and optional reagents are skipped")
 
 	category.collapsed = false
+	provider:Invalidate()
+	assert(provider:GetSize(true) == 7, "expanding category refreshes linearized cache before bag update")
 	inventory = { [107] = 1 }
 	events.BAG_UPDATE_DELAYED[plan]()
 	assert(selected == favorite and root.children[2] == favorites, "the old result stays visible during a bag refresh")
 	FinishScan()
 	selectRecommended()
-	assert(#root.children == 1 and #category.children == 3 and category.children[1] == before[3]
-		and category.children[2] == before[5] and selected == before[3],
-		"bag changes remove depleted recipes and select the first visible match")
+	assert(provider:GetSize(true) == 4 and #root.children == 1 and #category.children == 3
+		and category.children[1] == before[3] and category.children[2] == before[5] and selected == before[3],
+		"bag changes remove depleted recipes, refresh linearized cache and select the first visible match")
 	inventory = {}
 	events.PLAYERBANKSLOTS_CHANGED[plan]()
 	FinishScan()
-	assert(provider:IsEmpty() and noResults:IsShown(), "an empty result uses the native empty state")
+	assert(provider:IsEmpty() and provider:GetSize(true) == 0 and noResults:IsShown(),
+		"an empty result clears linearized cache and uses the native empty state")
 
 	makeable = true
 	plan.Inject()
-	assert(#root.children == 4 and #category.children == #before and not noResults:IsShown(),
+	assert(provider:GetSize(true) == 7 + #before and #root.children == 4 and #category.children == #before
+		and not noResults:IsShown(),
 		"the native makeable filter takes precedence and restores the native list")
 	for index, node in ipairs(before) do assert(category.children[index] == node, "restored recipe order") end
 

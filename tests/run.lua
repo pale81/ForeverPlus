@@ -16424,7 +16424,7 @@ end)()
 	local combatFlag = false
 	UnitAffectingCombat = function() return combatFlag end
 
-	-- Trigger water droplets preview & animate one step
+	-- Trigger water runoff preview & verify receding lens sheet + slender downward-running rivulets
 	wr.TriggerWater(true)
 	local ov = _G.ForeverPlusWorldReactions
 	assert(ov and ov:IsShown() and wr.GetState().dropsActive, "water trigger shows click-through overlay")
@@ -16432,14 +16432,77 @@ end)()
 	assert(#pendingAfter == 1, "drip sound scheduled")
 	pendingAfter[1]()
 	assert(#playedFiles == 2, "drip follow-up sound played")
-	ov:GetScript("OnUpdate")(ov, 0.1)
-	assert(ov:IsShown(), "overlay stays active during droplet fall")
-	for _ = 1, 35 do
+
+	local dropPoolRef = uv(wr.TriggerWater, "dropPool")
+	local sheetTexRef = uv(wr.TriggerWater, "sheetTexture")
+	assert(sheetTexRef, "receding lens water sheet texture created")
+	local recordedSize, recordedY = {}, {}
+	for i, d in ipairs(dropPoolRef) do
+		d.texture.SetSize = function(_, w, h) recordedSize[i] = { w = w, h = h } end
+		d.texture.SetPoint = function(_, _, _, _, _, y) recordedY[i] = y end
+	end
+	local sheetY = nil
+	sheetTexRef.SetPoint = function(_, _, _, _, _, y) sheetY = y end
+
+	for _ = 1, 3 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(ov:IsShown() and sheetTexRef:IsShown(), "receding water sheet is visible right after surfacing")
+	local firstSheetY = sheetY
+	local firstY = {}
+	local shownCount = 0
+	for i, d in ipairs(dropPoolRef) do
+		if d.texture:IsShown() then
+			shownCount = shownCount + 1
+			firstY[i] = recordedY[i]
+			assert(recordedSize[i] and recordedSize[i].h > recordedSize[i].w * 2.5,
+				"rivulet renders as a slender vertical streak rather than a round bubble")
+		end
+	end
+	assert(shownCount > 0, "at least one water rivulet is visible after 0.3s")
+	for _ = 1, 2 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(sheetY and firstSheetY and sheetY < firstSheetY, "receding water sheet slides downward across the lens")
+	local movedDown = false
+	for i, prevY in pairs(firstY) do
+		if dropPoolRef[i].texture:IsShown() and recordedY[i] and recordedY[i] < prevY then
+			movedDown = true
+			break
+		end
+	end
+	assert(movedDown, "water rivulets run downward over time")
+	-- After WATER_SHEET_DURATION (0.72s) the receding sheet hides while rivulets finish running down
+	for _ = 1, 3 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(not sheetTexRef:IsShown(), "receding water sheet finishes and hides before rivulets end")
+	for _ = 1, 30 do
 		local fn = ov:GetScript("OnUpdate")
 		if fn then fn(ov, 0.1) end
 	end
 	assert(not wr.GetState().dropsActive and not ov:IsShown() and not ov:GetScript("OnUpdate"),
-		"overlay hides and clears OnUpdate once droplets finish")
+		"overlay hides and clears OnUpdate once water runoff finishes")
+
+	-- Surfacing in combat restricts active rivulets to the outer screen edges
+	combatFlag = true
+	wr:Apply()
+	wr.TriggerWater(false)
+	local activeCombatDrops = 0
+	for _, d in ipairs(dropPoolRef) do
+		if d.active then
+			activeCombatDrops = activeCombatDrops + 1
+			assert(d.x <= 0.16 or d.x >= 0.84, "combat surfacing keeps rivulets near outer edges: x=" .. tostring(d.x))
+		end
+	end
+	assert(activeCombatDrops > 0 and activeCombatDrops < #dropPoolRef,
+		"combat surfacing uses a reduced outer-edge subset of rivulets")
+	combatFlag = false
+	wr:Apply()
+	for _ = 1, 35 do
+		local fn = ov:GetScript("OnUpdate")
+		if fn then fn(ov, 0.1) end
+	end
 
 	-- Campfire via Cozy Fire aura 7353 & combat suppression + secret aura safety
 	local cozyAura = { spellId = 7353 }
@@ -16475,21 +16538,23 @@ end)()
 	cozyAura = { spellId = 7353 }
 	ns.Secret = savedSecret
 
-	-- Disabling waterDrops while droplets and campfire glow are both active hides droplet textures immediately
+	-- Disabling waterDrops while water runoff and campfire glow are both active hides water textures immediately
 	pendingAfter = {}
 	playedFiles = {}
 	wr.TriggerWater(false)
-	ov:GetScript("OnUpdate")(ov, 0.35)
-	assert(wr.GetState().dropsActive and wr.GetState().campfireDesired, "both droplets and campfire active together")
-	local dropPoolRef = uv(wr.TriggerWater, "dropPool")
+	for _ = 1, 3 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(wr.GetState().dropsActive and wr.GetState().campfireDesired, "both water runoff and campfire active together")
 	local anyDropShown = false
 	for _, d in ipairs(dropPoolRef) do
 		if d.texture:IsShown() then anyDropShown = true break end
 	end
-	assert(anyDropShown, "droplet textures visible during animation")
+	assert(anyDropShown and sheetTexRef:IsShown(), "water rivulet and sheet textures visible during animation")
 	ns.SetOption("WorldReactions", "waterDrops", false)
+	assert(not sheetTexRef:IsShown(), "disabling waterDrops hides receding water sheet immediately")
 	for _, d in ipairs(dropPoolRef) do
-		assert(not d.texture:IsShown(), "disabling waterDrops hides all droplet textures immediately even while campfire stays active")
+		assert(not d.texture:IsShown(), "disabling waterDrops hides all rivulet textures immediately even while campfire stays active")
 	end
 	if pendingAfter[1] then pendingAfter[1]() end
 	assert(#playedFiles == 1, "disabling waterDrops cancels scheduled follow-up drip sound")

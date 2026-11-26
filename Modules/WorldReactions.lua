@@ -20,21 +20,22 @@ local WorldReactions = ns:NewModule("WorldReactions", {
 })
 
 local TEXTURE = [[Interface\AddOns\ForeverPlus\Media\WorldReactions]]
-local PIXEL = 1 / 256
+local PIXEL = 1 / 512
 
--- UV regions in Media/WorldReactions.tga (256x256) with 1px inset against bilinear bleed.
-local UV_GLOW = { PIXEL, 1 - PIXEL, PIXEL, 0.375 - PIXEL }
-local UV_DROPS = {
-	{ PIXEL, 0.25 - PIXEL, 0.375 + PIXEL, 0.625 - PIXEL }, -- running droplet with streak
-	{ 0.25 + PIXEL, 0.50 - PIXEL, 0.375 + PIXEL, 0.625 - PIXEL }, -- round clinging bead
-	{ 0.50 + PIXEL, 0.75 - PIXEL, 0.375 + PIXEL, 0.625 - PIXEL }, -- elongated side droplet
+-- UV regions in Media/WorldReactions.tga (512x512) with 1px inset against bilinear bleed.
+local UV_GLOW = { PIXEL, 1 - PIXEL, PIXEL, 0.25 - PIXEL }
+local UV_RIVULETS = {
+	{ PIXEL, 0.125 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL },        -- primary vertical water rivulet
+	{ 0.125 + PIXEL, 0.25 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- slender meandering trickle
+	{ 0.25 + PIXEL, 0.375 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- pinched wet trail with micro-runs
+	{ 0.375 + PIXEL, 0.50 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- soft translucent water runnel
 }
-local UV_MIST = { 0.75 + PIXEL, 1 - PIXEL, 0.375 + PIXEL, 0.625 - PIXEL }
+local UV_SHEET = { 0.50 + PIXEL, 1 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }
 local UV_EMBERS = {
-	{ PIXEL, 0.25 - PIXEL, 0.625 + PIXEL, 0.875 - PIXEL }, -- rising spark with tail
-	{ 0.25 + PIXEL, 0.50 - PIXEL, 0.625 + PIXEL, 0.875 - PIXEL }, -- glowing ash flake
-	{ 0.50 + PIXEL, 0.75 - PIXEL, 0.625 + PIXEL, 0.875 - PIXEL }, -- paired twin embers
-	{ 0.75 + PIXEL, 1 - PIXEL, 0.625 + PIXEL, 0.875 - PIXEL }, -- soft radial spark halo
+	{ PIXEL, 0.25 - PIXEL, 0.75 + PIXEL, 1 - PIXEL },            -- rising spark with tail
+	{ 0.25 + PIXEL, 0.50 - PIXEL, 0.75 + PIXEL, 1 - PIXEL },     -- glowing ash flake
+	{ 0.50 + PIXEL, 0.75 - PIXEL, 0.75 + PIXEL, 1 - PIXEL },     -- paired twin embers
+	{ 0.75 + PIXEL, 1 - PIXEL, 0.75 + PIXEL, 1 - PIXEL },        -- soft radial spark halo
 }
 
 -- Verified Forever 1.60.1.71037 sounds from Data/EmitterSounds.lua.
@@ -77,7 +78,8 @@ local ARMOR_MIN_AIRTIME = 0.15
 local SUBMERGED_MIN = 0.35
 local SWIM_MIN = 0.50
 local WATER_COOLDOWN = 4.0
-local WATER_DURATION = 2.45
+local WATER_DURATION = 2.55
+local WATER_SHEET_DURATION = 0.72
 local WATER_DRIP_DELAY = 0.28
 
 local SHEATH_DEBOUNCE = 0.15
@@ -85,14 +87,29 @@ local SHEATH_COOLDOWN = 0.45
 local LOGIN_GRACE = 2.0
 local POLL_INTERVAL = 0.10
 
-local DROP_COUNT = 14
-local MIST_COUNT = 4
+local DROP_COUNT = 18
 local EMBER_COUNT = 14
-local MIST_ANCHORS = {
-	{ 0.05, 0.88, 170 },
-	{ 0.95, 0.88, 170 },
-	{ 0.04, 0.52, 150 },
-	{ 0.96, 0.52, 150 },
+-- Stratified camera-lens lanes: { xCenter, xJitter, startYMin, startYMax, alphaBase, combatOnlyEdge }
+-- Denser along the outer thirds and upper frame, sparser and lighter across the upper center.
+local RIVULET_LANES = {
+	{ 0.035, 0.020, 0.74, 1.02, 0.76, true },
+	{ 0.075, 0.022, 0.62, 0.96, 0.72, true },
+	{ 0.115, 0.024, 0.80, 1.03, 0.68, true },
+	{ 0.165, 0.028, 0.84, 1.03, 0.64, false },
+	{ 0.225, 0.030, 0.86, 1.03, 0.58, false },
+	{ 0.295, 0.032, 0.88, 1.03, 0.52, false },
+	{ 0.375, 0.034, 0.92, 1.04, 0.40, false },
+	{ 0.460, 0.032, 0.93, 1.04, 0.34, false },
+	{ 0.540, 0.032, 0.93, 1.04, 0.34, false },
+	{ 0.625, 0.034, 0.92, 1.04, 0.40, false },
+	{ 0.705, 0.032, 0.88, 1.03, 0.52, false },
+	{ 0.775, 0.030, 0.86, 1.03, 0.58, false },
+	{ 0.835, 0.028, 0.84, 1.03, 0.64, false },
+	{ 0.885, 0.024, 0.80, 1.03, 0.68, true },
+	{ 0.925, 0.022, 0.62, 0.96, 0.72, true },
+	{ 0.965, 0.020, 0.74, 1.02, 0.76, true },
+	{ 0.055, 0.024, 0.54, 0.84, 0.60, true },
+	{ 0.945, 0.024, 0.54, 0.84, 0.60, true },
 }
 
 -- Weapon subclass classification (Enum.ItemWeaponSubclass values).
@@ -127,7 +144,7 @@ local soundLast = {}
 local trackedFires = {}
 
 local overlay, watcher
-local glowTexture, dropPool, mistPool, emberPool
+local glowTexture, sheetTexture, dropPool, emberPool
 local dropsActive = false
 local dropsElapsed = 0
 local dropsCombat = false
@@ -596,23 +613,19 @@ local function EnsureOverlay()
 		emberPool[i] = ember
 	end
 
-	mistPool = {}
-	for i = 1, MIST_COUNT do
-		local tex = overlay:CreateTexture(nil, "ARTWORK")
-		tex:SetTexture(TEXTURE)
-		tex:SetTexCoord(UV_MIST[1], UV_MIST[2], UV_MIST[3], UV_MIST[4])
-		tex:SetBlendMode("BLEND")
-		tex:SetVertexColor(0.84, 0.94, 1.0, 1.0)
-		tex:Hide()
-		mistPool[i] = { texture = tex }
-	end
+	sheetTexture = overlay:CreateTexture(nil, "ARTWORK")
+	sheetTexture:SetTexture(TEXTURE)
+	sheetTexture:SetTexCoord(UV_SHEET[1], UV_SHEET[2], UV_SHEET[3], UV_SHEET[4])
+	sheetTexture:SetBlendMode("BLEND")
+	sheetTexture:SetVertexColor(0.90, 0.96, 1.0, 1.0)
+	sheetTexture:Hide()
 
 	dropPool = {}
 	for i = 1, DROP_COUNT do
 		local tex = overlay:CreateTexture(nil, "OVERLAY")
 		tex:SetTexture(TEXTURE)
 		tex:SetBlendMode("BLEND")
-		tex:SetVertexColor(0.88, 0.96, 1.0, 1.0)
+		tex:SetVertexColor(0.90, 0.96, 1.0, 1.0)
 		tex:Hide()
 		dropPool[i] = { texture = tex }
 	end
@@ -626,10 +639,8 @@ local function HideWaterTextures()
 			drop.texture:Hide()
 		end
 	end
-	if mistPool then
-		for _, mist in ipairs(mistPool) do
-			mist.texture:Hide()
-		end
+	if sheetTexture then
+		sheetTexture:Hide()
 	end
 end
 
@@ -661,53 +672,71 @@ local function AnimateOverlay(_, elapsed)
 	local intensity = IntensityScale()
 	local stillRunning = false
 
-	-- 1. Water droplets & subtle damp edge mist
+	-- 1. Camera-lens water runoff: receding water film + vertical running rivulets
 	if dropsActive then
 		dropsElapsed = dropsElapsed + delta
 		local combatFactor = dropsCombat and 0.35 or 1.0
 		local anyDrop = false
 
-		for _, drop in ipairs(dropPool) do
-			local t = dropsElapsed - drop.delay
-			if t >= 0 and t < drop.duration then
+		-- Brief receding water film gliding down from the top of the camera lens.
+		if sheetTexture then
+			local sp = dropsElapsed / WATER_SHEET_DURATION
+			if sp < 1 then
 				anyDrop = true
-				local p = t / drop.duration
-				local fadeIn = Clamp(p / 0.12, 0, 1)
-				local fadeOut = p > 0.65 and Clamp((1 - p) / 0.35, 0, 1) or 1
-				local runT = math.max(0, t - drop.cling)
-				local runNorm = runT / math.max(0.2, drop.duration - drop.cling)
-				local fall = drop.travel * (runNorm * runNorm * 0.72 + runNorm * 0.28)
-				local sway = math.sin(runNorm * drop.wobbleFreq * math.pi + drop.phase) * drop.wobbleAmp
-				local x = Clamp(drop.x + sway, 0.01, 0.99)
-				local y = Clamp(drop.y - fall, 0.02, 0.98)
-				local stretch = 1.0 + 0.32 * runNorm
-				local baseSize = drop.size * uiScale
-
-				drop.texture:SetSize(baseSize * (1.0 - 0.08 * runNorm), baseSize * stretch)
-				drop.texture:ClearAllPoints()
-				drop.texture:SetPoint("CENTER", overlay, "BOTTOMLEFT", x * w, y * h)
-				drop.texture:SetAlpha(drop.alpha * fadeIn * fadeOut * intensity * combatFactor)
-				drop.texture:Show()
-			elseif t < 0 then
-				anyDrop = true
-				drop.texture:Hide()
+				local ease = 1.0 - (1.0 - sp) * (1.0 - sp)
+				local sheetHeight = h * (0.46 + 0.14 * sp)
+				-- Bottom edge starts near upper lens (y = 0.78) and slides cleanly down off-screen.
+				local bottomY = (0.78 - 0.84 * ease) * h
+				local fadeIn = math.sin(Clamp(sp / 0.16, 0, 1) * math.pi * 0.5)
+				local fadeOut = (1.0 - sp) ^ 1.15
+				local sheetCombat = dropsCombat and 0.25 or 1.0
+				sheetTexture:SetSize(w * 1.04, sheetHeight)
+				sheetTexture:ClearAllPoints()
+				sheetTexture:SetPoint("BOTTOM", overlay, "BOTTOM", 0, bottomY)
+				sheetTexture:SetAlpha(0.62 * fadeIn * fadeOut * intensity * sheetCombat)
+				sheetTexture:Show()
 			else
-				drop.texture:Hide()
+				sheetTexture:Hide()
 			end
 		end
 
-		for _, mist in ipairs(mistPool) do
-			local p = dropsElapsed / 1.45
-			if p < 1 then
-				anyDrop = true
-				local env = math.sin(p * math.pi)
-				mist.texture:SetSize(mist.size * uiScale, mist.size * uiScale * 0.72)
-				mist.texture:ClearAllPoints()
-				mist.texture:SetPoint("CENTER", overlay, "BOTTOMLEFT", mist.x * w, mist.y * h)
-				mist.texture:SetAlpha(mist.alpha * env * intensity * combatFactor)
-				mist.texture:Show()
+		for _, drop in ipairs(dropPool) do
+			if drop.active then
+				local t = dropsElapsed - drop.delay
+				if t >= 0 and t < drop.duration then
+					anyDrop = true
+					local p = t / drop.duration
+					local fadeIn = Clamp(p / 0.10, 0, 1)
+					local fadeOut = p > 0.66 and Clamp((1 - p) / 0.34, 0, 1) or 1
+					local runT = math.max(0, t - drop.cling)
+					local runNorm = runT / math.max(0.2, drop.duration - drop.cling)
+					-- Brisk initial gravity runoff with subtle stick-slip hesitation.
+					local gravity = 1.0 - (1.0 - runNorm) ^ 1.65
+					local slip = 0.016 * math.sin(runNorm * drop.slipFreq * math.pi + drop.phase) * (1.0 - runNorm)
+					local fall = drop.travel * Clamp(gravity + slip, 0, 1.04)
+					local headY = drop.startY - fall
+					-- Top of the wet trail lingers near startY while the head runs ahead, then drains down.
+					local tailLag = Clamp((runNorm - 0.12) / 0.88, 0, 1)
+					local tailY = drop.startY - fall * (0.42 * tailLag * tailLag)
+					local minLen = math.max(drop.maxLen * 0.38, drop.width * 3.2) * uiScale
+					local maxLen = drop.maxLen * uiScale
+					local streakLen = Clamp((tailY - headY) * h, minLen, maxLen)
+					local width = drop.width * uiScale * (1.0 - 0.28 * p)
+					local x = Clamp(drop.x + drop.drift * runNorm, 0.01, 0.99)
+
+					drop.texture:SetSize(width, streakLen)
+					drop.texture:ClearAllPoints()
+					drop.texture:SetPoint("BOTTOM", overlay, "BOTTOMLEFT", x * w, headY * h)
+					drop.texture:SetAlpha(drop.alpha * fadeIn * fadeOut * intensity * combatFactor)
+					drop.texture:Show()
+				elseif t < 0 then
+					anyDrop = true
+					drop.texture:Hide()
+				else
+					drop.texture:Hide()
+				end
 			else
-				mist.texture:Hide()
+				drop.texture:Hide()
 			end
 		end
 
@@ -799,46 +828,38 @@ function WorldReactions.TriggerWater(isPreview)
 	dropsElapsed = 0
 	dropsActive = true
 
-	local edgeBand = dropsCombat and 0.06 or 0.105
-	local topBand = dropsCombat and 0.07 or 0.14
-
-	for i, drop in ipairs(dropPool) do
-		local zone = i % 3
-		if zone == 0 then
-			-- Left outer edge
-			drop.x = 0.018 + math.random() * edgeBand
-			drop.y = 0.34 + math.random() * 0.60
-		elseif zone == 1 then
-			-- Right outer edge
-			drop.x = 1.0 - (0.018 + math.random() * edgeBand)
-			drop.y = 0.34 + math.random() * 0.60
+	if sheetTexture then
+		if math.random() < 0.5 then
+			sheetTexture:SetTexCoord(UV_SHEET[2], UV_SHEET[1], UV_SHEET[3], UV_SHEET[4])
 		else
-			-- Upper edge (leaving central vision clear)
-			local side = (i % 2 == 0) and 0.12 or 0.56
-			drop.x = side + math.random() * 0.32
-			drop.y = 1.0 - (0.02 + math.random() * topBand)
+			sheetTexture:SetTexCoord(UV_SHEET[1], UV_SHEET[2], UV_SHEET[3], UV_SHEET[4])
 		end
-		drop.delay = math.random() * 0.24
-		drop.cling = 0.14 + math.random() * 0.22
-		drop.duration = 1.65 + math.random() * 0.70
-		drop.travel = 0.14 + math.random() * 0.16
-		drop.wobbleAmp = 0.003 + math.random() * 0.005
-		drop.wobbleFreq = 1.5 + math.random() * 2.0
-		drop.phase = math.random() * math.pi * 2
-		drop.size = 16 + math.random() * 22
-		drop.alpha = 0.55 + math.random() * 0.30
-		local uv = UV_DROPS[((i - 1) % #UV_DROPS) + 1]
-		drop.texture:SetTexCoord(uv[1], uv[2], uv[3], uv[4])
-		drop.texture:Hide()
+		sheetTexture:Hide()
 	end
 
-	for i, mist in ipairs(mistPool) do
-		local a = MIST_ANCHORS[i]
-		mist.x = a[1]
-		mist.y = a[2]
-		mist.size = a[3]
-		mist.alpha = 0.26
-		mist.texture:Hide()
+	for i, drop in ipairs(dropPool) do
+		local lane = RIVULET_LANES[i] or RIVULET_LANES[((i - 1) % #RIVULET_LANES) + 1]
+		local edgeOnly = lane[6]
+		drop.active = (not dropsCombat) or edgeOnly
+		drop.x = Clamp(lane[1] + (math.random() * 2 - 1) * lane[2], 0.015, 0.985)
+		drop.startY = lane[3] + math.random() * (lane[4] - lane[3])
+		drop.delay = math.random() * 0.22
+		drop.cling = 0.02 + math.random() * 0.12
+		drop.duration = 1.70 + math.random() * 0.75
+		drop.travel = 0.52 + math.random() * 0.34
+		drop.width = 24 + math.random() * 20
+		drop.maxLen = 220 + math.random() * 200
+		drop.drift = (math.random() - 0.5) * 0.014
+		drop.slipFreq = 2.0 + math.random() * 1.8
+		drop.phase = math.random() * math.pi * 2
+		drop.alpha = Clamp(lane[5] + (math.random() - 0.5) * 0.18, 0.24, 0.95)
+		local uv = UV_RIVULETS[((i - 1) % #UV_RIVULETS) + 1]
+		if math.random() < 0.5 then
+			drop.texture:SetTexCoord(uv[2], uv[1], uv[3], uv[4])
+		else
+			drop.texture:SetTexCoord(uv[1], uv[2], uv[3], uv[4])
+		end
+		drop.texture:Hide()
 	end
 
 	EnsureAnimationRunning()

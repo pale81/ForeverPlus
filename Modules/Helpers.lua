@@ -12,7 +12,6 @@ local Helpers = ns:NewModule("Helpers", {
 		feedPet = true,
 		openButton = true,
 		openButtonMute = true,
-		fishingMenu = true,
 		fishing = true,
 		fishingEquip = true,
 		fishingRestore = true,
@@ -384,149 +383,6 @@ local function CreateOpenButton()
 	ns.FrameActionButton(button)
 	openButton = button
 	ns:RegisterEditFrame(button, "OpenButton", L.HELPERS_OPEN_BUTTON, { "CENTER", UIParent, "CENTER", 60, -180 }, UpdateOpenButton)
-end
-
----------------------------------------------------------------------------
--- Angler mode menu on the player frame
----------------------------------------------------------------------------
-local FISHING_OPTIONS = {
-	{ key = "fishing", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
-	{ key = "fishingEquip", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing" },
-	{ key = "fishingRestore", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing" },
-	{ key = "fishingHideUI", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC, parent = "fishing", new = true },
-	{ key = "fishingSound", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC, parent = "fishing", new = true },
-	{ key = "fishingBear", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, parent = "fishing", new = true },
-	{ key = "fishingBearSound", name = L.HELPERS_FISHING_BEAR_SOUND, desc = L.HELPERS_FISHING_BEAR_SOUND_DESC, parent = "fishingBear", new = true },
-}
-local FISHING_OPTION_PARENTS = {}
-for _, option in ipairs(FISHING_OPTIONS) do
-	FISHING_OPTION_PARENTS[option.key] = option.parent
-end
-
-local function FishingOptionEnabled(key)
-	local parent = FISHING_OPTION_PARENTS[key]
-	while parent do
-		if not Helpers.db[parent] then
-			return false
-		end
-		parent = FISHING_OPTION_PARENTS[parent]
-	end
-	return true
-end
-local ROD_ART = [[Interface\AddOns\ForeverPlus\Media\AnglerRod]]
-local ROD_SIZE = 28
--- Hit areas in the 64-unit artwork: grip, reel, shaft, tip and float.
-local ROD_HITS = {
-	{ 5, 48, 18, 61 }, { 15, 35, 35, 51 }, { 25, 24, 37, 37 },
-	{ 33, 14, 44, 27 }, { 41, 6, 57, 16 }, { 49, 15, 59, 42 },
-}
-local fishingMenu
-
-local function CanUseFishingMenu()
-	local unit = PlayerFrame.unit
-	return not ns.Secret(unit) and unit == "player" and not ns:IsEditModeActive()
-		and (not PlayerFrame.GetEffectiveAlpha or ns.Number(PlayerFrame:GetEffectiveAlpha(), 1) > 0.05)
-end
-
-local function OpenFishingMenu()
-	if not CanUseFishingMenu() or IsModifierKeyDown() then
-		return
-	end
-	if GameTooltip:IsOwned(fishingMenu) then
-		GameTooltip:Hide()
-	end
-	MenuUtil.CreateContextMenu(fishingMenu, function(_, root)
-		root:CreateTitle(L.HELPERS_FISHING_MODE)
-		for _, option in ipairs(FISHING_OPTIONS) do
-			local name = option.name
-			local id = "option:Helpers:" .. option.key
-			local seen = ns.db.settingsNewSeen
-			local isNew = option.new and (not seen or (seen[id] or 0) < 2)
-			if isNew then
-				name = name .. " |cffcda4f6" .. L.SETTINGS_NEW .. "|r"
-			end
-			local row = ns.CreateOptionCheckbox(root, name, "Helpers", option.key, option.desc)
-			if isNew then
-				row:SetOnEnter(ns.Measured("Helpers: see new fishing option", function()
-					local counts = ns.db.settingsNewSeen or {}
-					counts[id] = (counts[id] or 0) + 1
-					ns.db.settingsNewSeen = counts
-				end))
-			end
-			if option.parent then
-				local key = option.key
-				row:SetEnabled(function() return FishingOptionEnabled(key) end)
-			end
-		end
-	end)
-end
-
-local function HideFishingMenuHover()
-	fishingMenu.shine:Hide()
-	if GameTooltip:IsOwned(fishingMenu) then
-		GameTooltip:Hide()
-	end
-end
-
-local function RefreshFishingMenu()
-	if fishingMenu then
-		fishingMenu.art:SetDesaturated(not Helpers.db.fishing)
-		fishingMenu.art:SetAlpha(Helpers.db.fishing and 1 or 0.72)
-		fishingMenu:SetShown(Helpers.db.fishingMenu and not ns:IsEditModeActive())
-	end
-end
-
-local function CreateFishingMenu()
-	local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
-	if not container then
-		return
-	end
-	local frame = CreateFrame("Frame", "ForeverPlusFishingMenu", container)
-	fishingMenu = frame
-	frame:SetSize(ROD_SIZE, ROD_SIZE)
-	frame:SetPoint("CENTER", container, "TOPRIGHT", -18, -21)
-	frame:SetFrameLevel(container:GetFrameLevel() + 10)
-	frame.art = frame:CreateTexture(nil, "OVERLAY", nil, 6)
-	frame.art:SetAllPoints()
-	frame.art:SetTexture(ROD_ART)
-	frame.art:SetTexCoord(1, 0, 0, 1)
-	frame.shine = frame:CreateTexture(nil, "OVERLAY", nil, 7)
-	frame.shine:SetAllPoints(frame.art)
-	frame.shine:SetTexture(ROD_ART)
-	frame.shine:SetTexCoord(1, 0, 0, 1)
-	frame.shine:SetBlendMode("ADD")
-	frame.shine:SetAlpha(0.24)
-	frame.shine:Hide()
-	local leave = ns.Measured("Helpers: fishing menu leave", HideFishingMenuHover)
-	local enter = ns.Measured("Helpers: fishing menu hover", function()
-		if CanUseFishingMenu() then
-			frame.shine:Show()
-			GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-			GameTooltip_SetTitle(GameTooltip, L.HELPERS_FISHING_MODE)
-			GameTooltip_AddNormalLine(GameTooltip, L.HELPERS_FISHING_MENU_HINT)
-			GameTooltip:Show()
-		end
-	end)
-	local click = ns.Measured("Helpers: open fishing menu", OpenFishingMenu)
-	local scale = ROD_SIZE / 64
-	for _, hit in ipairs(ROD_HITS) do
-		local left, top, right, bottom = unpack(hit)
-		local button = CreateFrame("Button", nil, frame)
-		button:SetPoint("TOPLEFT", frame, "TOPLEFT", ROD_SIZE - right * scale, -top * scale)
-		button:SetSize((right - left) * scale, (bottom - top) * scale)
-		button:RegisterForClicks("LeftButtonUp")
-		button:SetPassThroughButtons("RightButton", "MiddleButton", "Button4", "Button5")
-		button:SetScript("OnClick", click)
-		button:SetScript("OnEnter", enter)
-		button:SetScript("OnLeave", leave)
-	end
-	frame:SetScript("OnHide", leave)
-	EventRegistry:RegisterCallback("EditMode.Enter", ns.Measured("Helpers: hide fishing menu", function()
-		frame:Hide()
-	end), Helpers)
-	EventRegistry:RegisterCallback("EditMode.Exit", ns.Measured("Helpers: show fishing menu", function()
-		frame:SetShown(Helpers.db.fishingMenu)
-	end), Helpers)
 end
 
 ---------------------------------------------------------------------------
@@ -1168,7 +1024,6 @@ function Helpers:Update()
 	end
 	ns.RunOutOfCombat(ClearFishBinding)
 	UpdateOpenButton()
-	RefreshFishingMenu()
 	RefreshFishingPresentation()
 	lastFishing = db.fishing and true or false
 end
@@ -1177,7 +1032,6 @@ function Helpers:OnLogin()
 	CreateOverlay()
 	CreateOpenButton()
 	CreateFishButton()
-	CreateFishingMenu()
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", UpdateOpenButton)
 	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
 		cachedPole = nil
@@ -1243,8 +1097,12 @@ Helpers.options = {
 	{ key = "openButtonMute", type = "toggle", name = L.BUFFS_MUTE, desc = L.HELPERS_OPEN_MUTE_DESC, parent = "openButton" },
 	{ key = "knownRecipes", type = "toggle", name = L.HELPERS_KNOWN_RECIPES, desc = L.HELPERS_KNOWN_RECIPES_DESC },
 	{ type = "header", name = L.HELPERS_FISHING_MODE },
-	{ key = "fishingMenu", type = "toggle", name = L.HELPERS_FISHING_MENU, desc = L.HELPERS_FISHING_MENU_DESC, new = true },
-	{ key = "fishingBear", type = "toggle", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, new = true },
+	{ key = "fishing", type = "toggle", name = L.HELPERS_FISHING, desc = L.HELPERS_FISHING_DESC },
+	{ key = "fishingEquip", type = "toggle", name = L.HELPERS_FISHING_EQUIP, desc = L.HELPERS_FISHING_EQUIP_DESC, parent = "fishing" },
+	{ key = "fishingRestore", type = "toggle", name = L.HELPERS_FISHING_RESTORE, desc = L.HELPERS_FISHING_RESTORE_DESC, parent = "fishing" },
+	{ key = "fishingHideUI", type = "toggle", name = L.HELPERS_FISHING_HIDE_UI, desc = L.HELPERS_FISHING_HIDE_UI_DESC, parent = "fishing", new = true },
+	{ key = "fishingSound", type = "toggle", name = L.HELPERS_FISHING_SOUND, desc = L.HELPERS_FISHING_SOUND_DESC, parent = "fishing", new = true },
+	{ key = "fishingBear", type = "toggle", name = L.HELPERS_FISHING_BEAR, desc = L.HELPERS_FISHING_BEAR_DESC, parent = "fishing", new = true },
 	{ key = "fishingBearSound", type = "toggle", name = L.HELPERS_FISHING_BEAR_SOUND, desc = L.HELPERS_FISHING_BEAR_SOUND_DESC,
 		parent = "fishingBear", new = true },
 	{ type = "button", name = L.HELPERS_FISHING_BEAR_PREVIEW, text = L.HELPERS_FISHING_BEAR_PREVIEW_BUTTON,

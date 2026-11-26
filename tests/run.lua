@@ -2153,8 +2153,8 @@ assert(proc(0, 1) == 13262, "disenchant")
 		helpers:GLOBAL_MOUSE_UP("GLOBAL_MOUSE_UP", "RightButton")
 	end
 
-	assert(helpers.db.fishingMenu and helpers.db.fishing and savedEquip and helpers.db.fishingRestore,
-		"the rod and all three angler options are enabled by default")
+	assert(helpers.db.fishingMenu == nil and helpers.db.fishing and savedEquip and helpers.db.fishingRestore,
+		"the three core angler options are enabled by default and the old player-frame rod shortcut is gone")
 	click()
 	assert(not binding, "a plain pair never equips a pole from the bag")
 	shift = true
@@ -2273,84 +2273,34 @@ assert(proc(0, 1) == 13262, "disenchant")
 end)()
 print("helpers OK")
 ;(function()
-	local create = uv(helpers.OnLogin, "CreateFishingMenu")
-	local savedMenu, savedCreate, savedMenuUtil = ForeverPlusFishingMenu, CreateFrame, MenuUtil
-	local savedModifier, savedEdit = IsModifierKeyDown, ns.IsEditModeActive
-	local savedMode, savedShow = helpers.db.fishing, helpers.db.fishingMenu
-	local menu, firstHit, owner, title, anchor, clickThrough, gripX
-	local edit = false
-	local rows = {}
-	CreateFrame = function(kind, name, parent)
-		local frame = savedCreate(kind, name, parent)
-		if name == "ForeverPlusFishingMenu" then
-			menu = frame
-			frame.SetSize = function(self, width, height) self.w, self.h = width, height end
-			frame.SetPoint = function(_, _, relative, point) anchor = { relative, point } end
-		elseif parent == menu and not firstHit then
-			firstHit = frame
-			frame.SetPoint = function(_, _, _, _, x) gripX = x end
-			frame.SetPassThroughButtons = function(_, ...) clickThrough = { ... } end
-		end
-		return frame
-	end
-	MenuUtil = { CreateContextMenu = function(region, generate)
-		owner = region
-		generate(region, {
-			CreateTitle = function(_, text) title = text end,
-			CreateCheckbox = function(_, text, checked, toggle)
-				local row = { checked = checked, toggle = toggle, text = text,
-					SetEnabled = function(self, fn) self.enabled = fn end, SetOnEnter = function() end }
-				rows[(text:gsub(" |cffcda4f6.-|r$", ""))] = row
-				return row
-			end,
-		})
-	end }
-	IsModifierKeyDown = function() return false end
-	ns.IsEditModeActive = function() return edit end
-	create()
-	assert(anchor[1] == PlayerFrame.PlayerFrameContainer and anchor[2] == "TOPRIGHT" and clickThrough[1] == "RightButton",
-		"the rod follows the player's upper right corner and passes through ordinary right-clicks")
-	assert(menu:GetWidth() < 40 and gripX > menu:GetWidth() * 0.5, "the smaller mirrored rod has its grip hit area on the right")
-	local fishingSettings = {}
+	assert(rawget(_G, "ForeverPlusFishingMenu") == nil and uv(helpers.OnLogin, "CreateFishingMenu") == nil,
+		"angler shortcut button on the player frame is removed")
+	local fishingSettings, optionByKey = {}, {}
 	for _, option in ipairs(helpers.options) do
 		if option.key and option.key:match("^fishing") then
 			fishingSettings[#fishingSettings + 1] = option.key
+			optionByKey[option.key] = option
 		end
 	end
-	assert(table.concat(fishingSettings, ",") == "fishingMenu,fishingBear,fishingBearSound",
-		"settings expose rod visibility, Nat Pagle flash and sound")
-	local click = firstHit:GetScript("OnClick")
-	click(firstHit)
-	assert(owner == menu and title == ns.L.HELPERS_FISHING_MODE, "clicking the rod opens the angler menu")
-	local mode, equip, restore = rows[ns.L.HELPERS_FISHING], rows[ns.L.HELPERS_FISHING_EQUIP], rows[ns.L.HELPERS_FISHING_RESTORE]
-	assert(mode.checked() and equip.enabled() and restore.enabled(), "all three fishing settings are available from the same menu")
-	local hide, sound = rows[ns.L.HELPERS_FISHING_HIDE_UI], rows[ns.L.HELPERS_FISHING_SOUND]
-	local bear, bearSound = rows[ns.L.HELPERS_FISHING_BEAR], rows[ns.L.HELPERS_FISHING_BEAR_SOUND]
-	assert(not hide.checked() and not sound.checked() and bear.checked() and bear.enabled()
-		and bearSound.checked() and bearSound.enabled()
-		and hide.text:find(ns.L.SETTINGS_NEW, 1, true) and sound.text:find(ns.L.SETTINGS_NEW, 1, true)
-		and bear.text:find(ns.L.SETTINGS_NEW, 1, true) and bearSound.text:find(ns.L.SETTINGS_NEW, 1, true),
-		"presentation, Nat Pagle and sound options are marked NEW")
-	mode.toggle()
-	assert(not helpers.db.fishing and not equip.enabled() and not bearSound.enabled() and menu:IsShown(),
-		"turning off fishing leaves the menu available to turn it back on")
-	mode.toggle()
-	assert(helpers.db.fishing and equip.enabled() and bearSound.enabled(), "turning fishing back on enables the dependent choices")
-	bear.toggle()
-	assert(not helpers.db.fishingBear and not bearSound.enabled(), "turning off Nat Pagle flash disables its sound option")
-	bear.toggle()
-	assert(helpers.db.fishingBear and bearSound.enabled(), "turning Nat Pagle flash back on re-enables its sound option")
-	edit, owner = true, nil
-	click(firstHit)
-	assert(not owner, "the rod is inactive while the player frame is being placed")
-	edit = false
-	ns.SetOption("Helpers", "fishingMenu", false)
-	assert(not menu:IsShown(), "the portrait shortcut can be hidden through settings")
-	ns.SetOption("Helpers", "fishingMenu", savedShow)
-	ns.SetOption("Helpers", "fishing", savedMode)
-	ForeverPlusFishingMenu, CreateFrame, MenuUtil = savedMenu, savedCreate, savedMenuUtil
-	IsModifierKeyDown, ns.IsEditModeActive = savedModifier, savedEdit
-	setuv(create, "fishingMenu", savedMenu)
+	assert(table.concat(fishingSettings, ",") == "fishing,fishingEquip,fishingRestore,fishingHideUI,fishingSound,fishingBear,fishingBearSound",
+		"settings expose all angler mode options without the removed player-frame shortcut")
+	assert(optionByKey.fishingEquip.parent == "fishing" and optionByKey.fishingRestore.parent == "fishing"
+		and optionByKey.fishingHideUI.parent == "fishing" and optionByKey.fishingSound.parent == "fishing"
+		and optionByKey.fishingBear.parent == "fishing" and optionByKey.fishingBearSound.parent == "fishingBear",
+		"angler settings keep parent dependencies intact")
+	assert(optionByKey.fishingHideUI.new == true and optionByKey.fishingSound.new == true
+		and optionByKey.fishingBear.new == true and optionByKey.fishingBearSound.new == true,
+		"newer angler options remain marked NEW")
+	local subKeys = {}
+	for _, feature in ipairs(ns.PortraitModes.FEATURES) do
+		if feature.key == "angler" then
+			for _, sub in ipairs(feature.subOptions or {}) do
+				subKeys[#subKeys + 1] = sub.key
+			end
+		end
+	end
+	assert(table.concat(subKeys, ",") == "fishingEquip,fishingRestore,fishingHideUI,fishingSound,fishingBear,fishingBearSound",
+		"PortraitModes angler mode exposes all six angler sub-options")
 end)()
 ;(function()
 	local savedChannel, savedVisibility, savedGet, savedSet = UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar

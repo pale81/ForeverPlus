@@ -1,8 +1,7 @@
 -- WorldReactions: subtle physical world and screen-edge reactions:
 -- 1. Emerging from water: brief droplets running down the screen edges + wet splash/drip audio.
 -- 2. Standing near a campfire: gentle rising embers and a warm amber shimmer along the bottom edge.
--- 3. Weapon drawing/sheathing & worn armor: weapon-type sound on sheath transitions and subtle
---    metallic clinking when armor durability drops below 30%.
+-- 3. Worn armor: subtle metallic clinking when armor durability drops below 30%.
 local _, ns = ...
 local L = ns.L
 
@@ -13,7 +12,6 @@ local WorldReactions = ns:NewModule("WorldReactions", {
 		enabled = true,
 		waterDrops = true,
 		campfireGlow = true,
-		weaponSheathSound = true,
 		armorRattle = true,
 		intensity = 75,
 	},
@@ -51,13 +49,6 @@ local ARMOR_RATTLE_SOUNDS = {
 	1561735, 1561736, 1561737, 1561738, 1561739,
 }
 
--- Classic / Forever interface sheath sounds (community listfile).
-local SHEATH_SOUNDS = {
-	metal = { unsheath = 567473, sheath = 567498 },
-	wood = { unsheath = 567506, sheath = 567456 },
-	shield = { unsheath = 567430, sheath = 567395 },
-}
-
 -- Fallback campfire spell IDs if Minimap has not exposed ns.CAMPFIRE_SPELLS.
 local DEFAULT_CAMPFIRE_SPELLS = {
 	[1307227] = 15 * 60, -- Basic Campfire
@@ -82,8 +73,6 @@ local WATER_DURATION = 2.55
 local WATER_SHEET_DURATION = 0.72
 local WATER_DRIP_DELAY = 0.28
 
-local SHEATH_DEBOUNCE = 0.15
-local SHEATH_COOLDOWN = 0.45
 local LOGIN_GRACE = 2.0
 local POLL_INTERVAL = 0.10
 
@@ -112,33 +101,7 @@ local RIVULET_LANES = {
 	{ 0.945, 0.024, 0.54, 0.84, 0.60, true },
 }
 
--- Weapon subclass classification (Enum.ItemWeaponSubclass values).
-local WOOD_SUBCLASSES = {
-	[2] = true, -- Bows
-	[10] = true, -- Staff
-	[16] = true, -- Thrown
-	[18] = true, -- Crossbow
-	[19] = true, -- Wand
-	[20] = true, -- Fishingpole
-}
-local METAL_SUBCLASSES = {
-	[0] = true, -- Axe1H
-	[1] = true, -- Axe2H
-	[3] = true, -- Guns
-	[4] = true, -- Mace1H
-	[5] = true, -- Mace2H
-	[6] = true, -- Polearm
-	[7] = true, -- Sword1H
-	[8] = true, -- Sword2H
-	[9] = true, -- Warglaive
-	[11] = true, -- Bearclaw
-	[12] = true, -- Catclaw
-	[13] = true, -- Unarmed / Fist
-	[15] = true, -- Dagger
-}
-
 local waterState = {}
-local sheathState = {}
 local armorState = {}
 local soundLast = {}
 local trackedFires = {}
@@ -187,20 +150,6 @@ local function PlayFromPool(kind, pool, fallbackKit)
 	return false
 end
 
-local function PlaySingleSound(fileID, fallbackKit)
-	if fileID and PlaySoundFile then
-		local ok = PlaySoundFile(fileID, "SFX")
-		if ok then
-			return true
-		end
-	end
-	if fallbackKit and PlaySound and SOUNDKIT and SOUNDKIT[fallbackKit] then
-		PlaySound(SOUNDKIT[fallbackKit], "SFX")
-		return true
-	end
-	return false
-end
-
 local function IsGroupUnit(unit)
 	if type(unit) ~= "string" or ns.Secret(unit) then
 		return false
@@ -215,14 +164,6 @@ end
 local function WaterBlocked()
 	return (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player"))
 		or (UnitOnTaxi and UnitOnTaxi("player"))
-		or (IsFlying and IsFlying())
-		or false
-end
-
-local function SheathBlocked()
-	return (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player"))
-		or (UnitOnTaxi and UnitOnTaxi("player"))
-		or (IsMounted and IsMounted())
 		or (IsFlying and IsFlying())
 		or false
 end
@@ -276,91 +217,6 @@ function WorldReactions.StepWater(state, submerged, swimming, now, blocked)
 	end
 	state.lastTrigger = now
 	return true
-end
-
--- Tracks GetSheathState() transitions (1 = sheathed, 2 = melee, 3 = ranged).
--- Returns action ("unsheath" | "sheath") and mode ("melee" | "ranged"), or nil.
-function WorldReactions.StepSheath(state, sheath, now, blocked)
-	sheath = ns.Number(sheath)
-	if not sheath or sheath < 1 or sheath > 3 then
-		state.pending = nil
-		return nil
-	end
-	if blocked then
-		state.confirmed = sheath
-		state.pending = nil
-		return nil
-	end
-	if state.confirmed == nil or (state.graceUntil and now < state.graceUntil) then
-		state.confirmed = sheath
-		state.pending = nil
-		return nil
-	end
-	if sheath == state.confirmed then
-		state.pending = nil
-		return nil
-	end
-	if state.pending ~= sheath then
-		state.pending = sheath
-		state.pendingSince = now
-		return nil
-	end
-	if now - (state.pendingSince or now) < SHEATH_DEBOUNCE then
-		return nil
-	end
-	local prev = state.confirmed
-	state.confirmed = sheath
-	state.pending = nil
-	if state.lastSound and now - state.lastSound < SHEATH_COOLDOWN then
-		return nil
-	end
-	state.lastSound = now
-	local action = sheath == 1 and "sheath" or "unsheath"
-	local mode = (sheath == 3 or (sheath == 1 and prev == 3)) and "ranged" or "melee"
-	return action, mode
-end
-
--- Classifies the equipped weapon for the given sheath mode ("melee" | "ranged").
--- Returns "metal", "wood", "shield", or nil when unarmed.
-function WorldReactions.WeaponSoundKind(mode)
-	local getID = GetInventoryItemID
-	local getInfo = C_Item and C_Item.GetItemInfoInstant
-	if not (getID and getInfo) then
-		return nil
-	end
-	local function ClassifySlot(slot)
-		local itemID = ns.Number(getID("player", slot))
-		if not itemID then
-			return nil
-		end
-		local _, _, _, _, _, classID, subClassID = getInfo(itemID)
-		classID, subClassID = ns.Number(classID), ns.Number(subClassID)
-		if classID == 2 then -- Enum.ItemClass.Weapon
-			if WOOD_SUBCLASSES[subClassID] then
-				return "wood"
-			end
-			if METAL_SUBCLASSES[subClassID] then
-				return "metal"
-			end
-			return "metal"
-		end
-		if classID == 4 and subClassID == 6 then -- Enum.ItemClass.Armor / Shield
-			return "shield"
-		end
-		return nil
-	end
-
-	if mode == "ranged" then
-		local ranged = ClassifySlot(INVSLOT_RANGED or 18)
-		if ranged then
-			return ranged
-		end
-	end
-	local main = ClassifySlot(INVSLOT_MAINHAND or 16)
-	if main then
-		return main
-	end
-	return ClassifySlot(INVSLOT_OFFHAND or 17)
 end
 
 -- Lowest durability percentage (0-100) across worn armor slots, or nil when none have durability.
@@ -905,19 +761,6 @@ function WorldReactions.PreviewCampfire()
 	end)
 end
 
-function WorldReactions.PlayWeaponSound(action, mode, allowFallback)
-	local kind = WorldReactions.WeaponSoundKind(mode or "melee")
-	if not kind then
-		if not allowFallback then
-			return false
-		end
-		kind = "metal"
-	end
-	local pair = SHEATH_SOUNDS[kind] or SHEATH_SOUNDS.metal
-	local fileID = action == "sheath" and pair.sheath or pair.unsheath
-	return PlaySingleSound(fileID, "PUT_DOWN_SMALL_CHAIN")
-end
-
 function WorldReactions.PlayArmorRattle()
 	return PlayFromPool("armorRattle", ARMOR_RATTLE_SOUNDS, "PUT_DOWN_SMALL_CHAIN")
 end
@@ -978,13 +821,6 @@ local function OnWatch(_, elapsed)
 		end
 	end
 
-	if db.weaponSheathSound and GetSheathState then
-		local action, mode = WorldReactions.StepSheath(sheathState, GetSheathState(), now, SheathBlocked())
-		if action then
-			WorldReactions.PlayWeaponSound(action, mode, false)
-		end
-	end
-
 	if db.campfireGlow then
 		RefreshCampfireState(now)
 	end
@@ -995,9 +831,6 @@ local function ResetGrace()
 	waterState.graceUntil = now + LOGIN_GRACE
 	waterState.submergedSince = nil
 	waterState.swimmingSince = nil
-	sheathState.graceUntil = now + LOGIN_GRACE
-	sheathState.confirmed = GetSheathState and ns.Number(GetSheathState()) or nil
-	sheathState.pending = nil
 	armorState.graceUntil = now + LOGIN_GRACE
 	armorState.initialized = nil
 	armorState.fallingSince = nil
@@ -1064,7 +897,7 @@ function WorldReactions:Apply()
 	local on = db.enabled and true or false
 	local needCampfire = on and db.campfireGlow
 	local needArmor = on and db.armorRattle
-	local needWatch = on and (db.waterDrops or db.weaponSheathSound or db.campfireGlow or db.armorRattle)
+	local needWatch = on and (db.waterDrops or db.campfireGlow or db.armorRattle)
 
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", on, OnEnteringWorld)
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", on, OnCombatStart)
@@ -1134,12 +967,6 @@ WorldReactions.options = {
 	{ type = "button", name = L.WORLD_REACTIONS_CAMPFIRE_TEST, text = L.WORLD_REACTIONS_TEST_BUTTON,
 		desc = L.WORLD_REACTIONS_CAMPFIRE_TEST_DESC, func = function()
 			WorldReactions.PreviewCampfire()
-		end },
-	{ key = "weaponSheathSound", type = "toggle", name = L.WORLD_REACTIONS_WEAPON, desc = L.WORLD_REACTIONS_WEAPON_DESC,
-		parent = "enabled", new = true },
-	{ type = "button", name = L.WORLD_REACTIONS_WEAPON_TEST, text = L.WORLD_REACTIONS_TEST_BUTTON,
-		desc = L.WORLD_REACTIONS_WEAPON_TEST_DESC, func = function()
-			WorldReactions.PlayWeaponSound("unsheath", "melee", true)
 		end },
 	{ key = "armorRattle", type = "toggle", name = L.WORLD_REACTIONS_ARMOR, desc = L.WORLD_REACTIONS_ARMOR_DESC,
 		parent = "enabled", new = true },

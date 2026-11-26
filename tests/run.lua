@@ -16311,12 +16311,14 @@ assert(loadfile("chronicle.lua"))(root, ns, uv)
 	print("waypoint quest POI & arrow styles OK")
 end)()
 ;(function()
-	-- WorldReactions: surfacing water droplets, campfire warmth/embers, weapon sheath sounds, worn armor clinking.
+	-- WorldReactions: surfacing water droplets, campfire warmth/embers, worn armor clinking.
 	local wr = ns:GetModule("WorldReactions")
 	assert(wr, "WorldReactions module loaded")
 	assert(wr.db.enabled == true and wr.db.waterDrops == true and wr.db.campfireGlow == true
-		and wr.db.weaponSheathSound == true and wr.db.armorRattle == true and wr.db.intensity == 75,
-		"WorldReactions sensible defaults")
+		and wr.db.weaponSheathSound == nil and wr.db.armorRattle == true and wr.db.intensity == 75,
+		"WorldReactions sensible defaults without weapon sheath sound")
+	assert(wr.StepSheath == nil and wr.WeaponSoundKind == nil and wr.PlayWeaponSound == nil,
+		"weapon sheath sound helpers removed")
 
 	-- Registered on a settings page under Roleplay & every keyed option carries new = true.
 	local foundOnPage = false
@@ -16328,13 +16330,14 @@ end)()
 	assert(foundOnPage, "WorldReactions is registered on a settings page")
 	local buttonCount = 0
 	for _, opt in ipairs(wr.options or {}) do
+		assert(opt.key ~= "weaponSheathSound", "weaponSheathSound option removed")
 		if opt.key then
 			assert(opt.new == true, "new WorldReactions option carries new=true: " .. tostring(opt.key))
 		elseif opt.type == "button" then
 			buttonCount = buttonCount + 1
 		end
 	end
-	assert(buttonCount == 4, "WorldReactions provides preview/test buttons for all four reactions")
+	assert(buttonCount == 3, "WorldReactions provides preview/test buttons for all three reactions")
 
 	-- 1. Water emergence state machine
 	local ws = { graceUntil = 5 }
@@ -16350,50 +16353,7 @@ end)()
 	assert(not wr.StepWater(ws, true, true, 25.0, false), "submerge before death")
 	assert(not wr.StepWater(ws, false, false, 26.0, true), "blocked state (dead/taxi/flying) suppresses water trigger")
 
-	-- 2. Weapon sheath state machine & weapon classification
-	local ss = { graceUntil = 3 }
-	assert(wr.StepSheath(ss, 1, 1.0, false) == nil, "initial sheath state establishes baseline")
-	assert(wr.StepSheath(ss, 2, 2.0, false) == nil, "sheath change during login grace stays silent")
-	assert(wr.StepSheath(ss, 1, 5.0, false) == nil, "change enters debounce window")
-	assert(wr.StepSheath(ss, 1, 5.10, false) == nil, "debounce < 0.15s does not fire yet")
-	local action, mode = wr.StepSheath(ss, 1, 5.20, false)
-	assert(action == "sheath" and mode == "melee", "sheathing melee weapon fires after debounce")
-	assert(wr.StepSheath(ss, 3, 5.30, false) == nil, "enter ranged unsheath debounce")
-	assert(wr.StepSheath(ss, 3, 5.50, false) == nil, "cooldown < 0.45s suppresses rapid repeat")
-	assert(wr.StepSheath(ss, 1, 6.10, false) == nil, "sheath from ranged enters debounce")
-	action, mode = wr.StepSheath(ss, 1, 6.30, false)
-	assert(action == "sheath" and mode == "ranged", "sheathing from ranged remembers ranged mode")
-	assert(wr.StepSheath(ss, 2, 7.0, true) == nil, "mounted/blocked state updates baseline silently")
-	assert(wr.StepSheath(ss, 2, 7.3, false) == nil, "dismounting into same state does not falsely trigger")
-
-	local savedGetInvID, savedGetInfoInstant = GetInventoryItemID, C_Item.GetItemInfoInstant
-	local equipped = {}
-	GetInventoryItemID = function(_, slot) return equipped[slot] end
-	C_Item.GetItemInfoInstant = function(id)
-		local map = {
-			[1001] = { 2, 7 },  -- Sword1H -> metal
-			[1002] = { 2, 10 }, -- Staff -> wood
-			[1003] = { 2, 2 },  -- Bow -> wood
-			[1004] = { 2, 3 },  -- Gun -> metal
-			[1005] = { 4, 6 },  -- Shield -> shield
-		}
-		local entry = map[id]
-		if entry then return id, nil, nil, nil, nil, entry[1], entry[2] end
-	end
-	equipped = { [16] = 1001 }
-	assert(wr.WeaponSoundKind("melee") == "metal", "sword classifies as metal")
-	equipped = { [16] = 1002 }
-	assert(wr.WeaponSoundKind("melee") == "wood", "staff classifies as wood")
-	equipped = { [16] = 1001, [18] = 1003 }
-	assert(wr.WeaponSoundKind("ranged") == "wood", "bow in ranged mode classifies as wood")
-	equipped = { [18] = 1004 }
-	assert(wr.WeaponSoundKind("ranged") == "metal", "gun in ranged mode classifies as metal")
-	equipped = { [17] = 1005 }
-	assert(wr.WeaponSoundKind("melee") == "shield", "offhand shield without mainhand classifies as shield")
-	equipped = {}
-	assert(wr.WeaponSoundKind("melee") == nil, "unarmed returns nil")
-
-	-- 3. Worn armor durability & clinking state machine
+	-- 2. Worn armor durability & clinking state machine
 	local savedDurability = GetInventoryItemDurability
 	local slotDura = { [1] = { 40, 100 }, [5] = { 25, 100 }, [7] = { 80, 100 } }
 	GetInventoryItemDurability = function(slot)
@@ -16609,11 +16569,8 @@ end)()
 	FireEvent("PLAYER_EQUIPMENT_CHANGED")
 	assert(not wr.GetState().armorWorn, "PLAYER_EQUIPMENT_CHANGED clears worn flag after swapping armor")
 
-	-- Weapon & armor test sounds with fallback
+	-- Armor test sound with fallback
 	playedFiles, playedKits = {}, {}
-	equipped = { [16] = 1002 }
-	assert(wr.PlayWeaponSound("unsheath", "melee", false) and playedFiles[1] == 567506, "wood unsheath plays wood sound")
-	assert(wr.PlayWeaponSound("sheath", "melee", false) and playedFiles[2] == 567456, "wood sheath plays wood sound")
 	PlaySoundFile = function() return false end
 	SOUNDKIT = SOUNDKIT or {}
 	local savedChainKit = SOUNDKIT.PUT_DOWN_SMALL_CHAIN
@@ -16629,7 +16586,7 @@ end)()
 
 	-- Restore mocked globals
 	SOUNDKIT.PUT_DOWN_SMALL_CHAIN = savedChainKit
-	GetInventoryItemID, C_Item.GetItemInfoInstant, GetInventoryItemDurability = savedGetInvID, savedGetInfoInstant, savedDurability
+	GetInventoryItemDurability = savedDurability
 	PlaySoundFile, PlaySound, ns.After = savedPlayFile, savedPlaySound, savedAfter
 	C_Secrets, C_UnitAuras, UnitAffectingCombat = savedSecrets, savedUnitAuras, savedCombat
 	GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize = savedGetTime, savedMapBest, savedMapPos, savedMapSize

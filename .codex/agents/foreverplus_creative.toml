@@ -1,7 +1,7 @@
 name = "foreverplus_creative"
 description = "Entwirft bei offenen Gestaltungsfragen konkrete Ideen für Gameplay, Immersion, Grafik, Animation, Sound und UX in ForeverPlus."
 model = "gpt-6.2-sol"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 developer_instructions = """
 Arbeite als Creative-Agent für ForeverPlus. Lies AGENTS.md und den Projektskill
 .agents/skills/wow-experience/SKILL.md. Konzentriere dich auf die angefragte

@@ -12833,6 +12833,111 @@ end)()
 	print("compare tooltip without GetItem OK")
 end)()
 ;(function()
+	-- Narrow comparison tooltips are widened via right padding so the arrow fits inside top-right;
+	-- repeated updates stay idempotent, existing padding is preserved, and Clear/Show keep it consistent.
+	local module = ns:GetModule("Tooltip")
+	local update = uv(module.OnInitialize, "UpdateCompareArrows")
+	local hide = uv(module.OnInitialize, "HideCompareArrows")
+	local layout = uv(uv(update, "ShowCompareArrow"), "LayoutCompareArrow")
+	local savedWinner, savedState = ns.CompareWinner, ns.ItemLinkUpgradeState
+	local savedSecret = issecretvalue
+	local link, wornLink = "item:2234:0:0:0", "item:2235:0:0:0"
+	local function makeTip(baseWidth, titleWidth, initPad)
+		local pad = { initPad and initPad[1] or 0, initPad and initPad[2] or 0,
+			initPad and initPad[3] or 0, initPad and initPad[4] or 0 }
+		local tip = {
+			baseWidth = baseWidth, titleWidth = titleWidth, pad = pad,
+			setCalls = 0, clearCalls = 0,
+			IsForbidden = function() return false end,
+			IsShown = function() return true end,
+			CreateTexture = function(self)
+				local tex = NewFrame("Texture")
+				tex.points = {}
+				tex.ClearAllPoints = function(t) t.points = {} end
+				tex.SetPoint = function(t, ...) t.points[#t.points + 1] = { ... } end
+				self.arrow = tex
+				return tex
+			end,
+			GetLeftLine = function(self) return { GetStringWidth = function() return self.titleWidth end } end,
+			GetWidth = function(self) return self.baseWidth + self.pad[1] end,
+			GetPadding = function(self) return self.pad[1], self.pad[2], self.pad[3], self.pad[4] end,
+			SetPadding = function(self, r, b, l, t)
+				self.setCalls = self.setCalls + 1
+				self.pad[1], self.pad[2], self.pad[3], self.pad[4] = r or 0, b or 0, l or 0, t or 0
+			end,
+			ClearPadding = function(self)
+				self.clearCalls = self.clearCalls + 1
+				self.pad[1], self.pad[2], self.pad[3], self.pad[4] = 0, 0, 0, 0
+			end,
+		}
+		return tip
+	end
+	local worn = makeTip(200, 180)
+	worn.GetItem = function() return "Schimmernder Umhang des Affen", wornLink end
+	local main = makeTip(280, 120)
+	main.GetItem = function() return "Volksmiliz-Umhang", link end
+	main.shoppingTooltips = { worn }
+	ns.CompareWinner = function() return "worn", 1 end
+	ns.ItemLinkUpgradeState = function() return "worse" end
+	update({ tooltip = main })
+	-- neededWidth = 10 + 180 + 6 + 22 + 6 = 224 -> +24 right padding on narrow worn tooltip
+	assert(worn.pad[1] == 24 and worn:GetWidth() == 224 and worn.setCalls == 1, "narrow worn tooltip widened by exact deficit")
+	assert(worn.arrow.points[1][1] == "TOPRIGHT" and worn.arrow.points[1][3] == "TOPRIGHT", "arrow sits inside top-right corner")
+	assert(main.pad[1] == 0 and main.setCalls == 0 and main.arrow.points[1][1] == "TOPRIGHT", "already wide tooltip gets no extra padding")
+	-- Repeated RefreshItems ticks on the same hovered item must be idempotent (no padding drift or churn).
+	update({ tooltip = main })
+	assert(worn.pad[1] == 24 and worn.setCalls == 1 and worn.clearCalls == 0, "repeated refresh does not add or thrash padding")
+	-- Hiding clears our added padding cleanly via ClearPadding.
+	hide()
+	assert(worn.pad[1] == 0 and worn.clearCalls == 1, "hide resets added padding")
+	-- Pre-existing Blizzard padding (e.g. ItemRef CloseButton right=16, bottom=12) is preserved on widen and restore.
+	local ref = makeTip(200, 180, { 16, 12, 0, 0 })
+	ref.GetItem = function() return "Langer Gegenstandsname", link end
+	ref.shoppingTooltips = { worn }
+	ns.CompareWinner = function() return "hovered", true end
+	update({ tooltip = ref })
+	-- baseWidth = 216, neededWidth = 224 -> +8 on top of existing 16 => right=24, bottom=12 preserved
+	assert(ref.pad[1] == 24 and ref.pad[2] == 12 and ref.arrow.points[1][1] == "TOPRIGHT", "widens on top of existing padding")
+	hide()
+	assert(ref.pad[1] == 16 and ref.pad[2] == 12 and ref.clearCalls == 0, "restore preserves existing right and bottom padding")
+	-- GameTooltip:Show post-layout: if GameTooltip_CalculatePadding wiped padding while still narrow, re-apply;
+	-- if post-calls widened GameTooltip enough, drop our extra padding.
+	local narrowMain = makeTip(200, 180)
+	narrowMain.GetItem = function() return "Langer Umhang", link end
+	narrowMain.shoppingTooltips = { worn }
+	update({ tooltip = narrowMain })
+	assert(narrowMain.pad[1] == 24)
+	narrowMain:ClearPadding()
+	layout(narrowMain)
+	assert(narrowMain.pad[1] == 24, "re-applies padding after Blizzard OnShow ClearPadding")
+	narrowMain.baseWidth = 300
+	layout(narrowMain)
+	assert(narrowMain.pad[1] == 0, "drops extra padding once post-call lines widen the tooltip")
+	hide()
+	-- Secret padding values or tooltips without SetPadding fall back safely to the top edge without error.
+	local noPad = makeTip(200, 180)
+	noPad.SetPadding = nil
+	noPad.GetItem = function() return "Ohne Padding", wornLink end
+	main.shoppingTooltips = { noPad }
+	ns.CompareWinner = function() return "worn", 1 end
+	update({ tooltip = main })
+	assert(noPad.arrow.points[1][1] == "BOTTOMRIGHT" and noPad.arrow.points[1][3] == "TOPRIGHT",
+		"fallback to top edge when SetPadding is unavailable")
+	local secretTag = 999999
+	issecretvalue = function(v) return v == secretTag end
+	local secretTip = makeTip(200, 180, { secretTag, 0, 0, 0 })
+	secretTip.GetWidth = function() return 200 end
+	secretTip.GetItem = function() return "Geheimer Tooltip", wornLink end
+	main.shoppingTooltips = { secretTip }
+	update({ tooltip = main })
+	assert(secretTip.setCalls == 0 and secretTip.arrow.points[1][1] == "BOTTOMRIGHT",
+		"secret padding is never touched and falls back to top edge")
+	hide()
+	issecretvalue = savedSecret
+	ns.CompareWinner, ns.ItemLinkUpgradeState = savedWinner, savedState
+	print("compare tooltip widening OK")
+end)()
+;(function()
 	-- Quest starters must be offered alongside containers, and disappear once accepted.
 	local H, R, D = ns:GetModule("Helpers"), ns:GetModule("Readable"), ns:GetModule("Dialog")
 	local savedLocked = LOCKED

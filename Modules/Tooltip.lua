@@ -1030,13 +1030,110 @@ local function AddChatItemUpgrade(tooltip, link)
 	ns.SetItemComparisonArrow(chatItemArrow, state)
 end
 
--- Comparison arrows sit in the top right corner, or on the top edge if the item name needs the space.
+-- Comparison arrows sit in the top right corner; a narrow tooltip is widened with right padding
+-- so the arrow stays inside instead of overlapping the item name (falling back to the top edge
+-- only if padding cannot be read or changed).
 local compareArrows = {}
-local ARROW_SIZE, ARROW_INSET = 22, 6
+local comparePadding = {}
+local ARROW_SIZE, ARROW_INSET, ARROW_GAP, TITLE_LEFT_INSET = 22, 6, 6, 10
 
-local function HideCompareArrows()
-	for _, arrow in pairs(compareArrows) do
-		arrow:Hide()
+local function ReadPadding(tooltip)
+	if type(tooltip.GetPadding) ~= "function" then
+		return nil
+	end
+	local ok, right, bottom, left, top = pcall(tooltip.GetPadding, tooltip)
+	if not ok or Secret(right) or Secret(bottom) or Secret(left) or Secret(top) then
+		return nil
+	end
+	right = ns.Number(right)
+	if not right then
+		return nil
+	end
+	return right, ns.Number(bottom, 0), ns.Number(left, 0), ns.Number(top, 0)
+end
+
+local function ApplyPadding(tooltip, right, bottom, left, top)
+	if right == 0 and bottom == 0 and left == 0 and top == 0 and type(tooltip.ClearPadding) == "function" then
+		return pcall(tooltip.ClearPadding, tooltip)
+	end
+	if type(tooltip.SetPadding) ~= "function" then
+		return false
+	end
+	return pcall(tooltip.SetPadding, tooltip, right, bottom, left, top)
+end
+
+local function ResetComparePadding(tooltip)
+	local added = comparePadding[tooltip]
+	if not added then
+		return
+	end
+	comparePadding[tooltip] = nil
+	if tooltip:IsForbidden() then
+		return
+	end
+	local right, bottom, left, top = ReadPadding(tooltip)
+	if not right then
+		return
+	end
+	local restored = math.max(0, right - added)
+	if restored ~= right then
+		ApplyPadding(tooltip, restored, bottom, left, top)
+	end
+end
+
+local function HideCompareArrows(keep1, keep2)
+	for tooltip, arrow in pairs(compareArrows) do
+		if tooltip ~= keep1 and tooltip ~= keep2 then
+			arrow:Hide()
+			ResetComparePadding(tooltip)
+		end
+	end
+	for tooltip in pairs(comparePadding) do
+		if tooltip ~= keep1 and tooltip ~= keep2 then
+			ResetComparePadding(tooltip)
+		end
+	end
+end
+
+local function LayoutCompareArrow(tooltip)
+	local arrow = compareArrows[tooltip]
+	if not arrow or tooltip:IsForbidden() then
+		return
+	end
+	local titleLine = tooltip.GetLeftLine and tooltip:GetLeftLine(1)
+	local okTitle, titleWidth
+	if titleLine then
+		okTitle, titleWidth = pcall(titleLine.GetStringWidth, titleLine)
+	end
+	local okWidth, width = pcall(tooltip.GetWidth, tooltip)
+	titleWidth = okTitle and ns.Number(titleWidth)
+	width = okWidth and ns.Number(width)
+	local collides = false
+	if titleWidth and width then
+		local right, bottom, left, top = ReadPadding(tooltip)
+		local added = comparePadding[tooltip] or 0
+		local baseRight = right and math.max(0, right - added) or 0
+		local baseWidth = right and (width - (right - baseRight)) or width
+		local neededWidth = (left or 0) + TITLE_LEFT_INSET + titleWidth + ARROW_GAP + ARROW_SIZE + ARROW_INSET
+		local extra = math.ceil(neededWidth - baseWidth)
+		if extra > 0 then
+			if right and (baseRight + extra == right or ApplyPadding(tooltip, baseRight + extra, bottom, left, top)) then
+				comparePadding[tooltip] = extra
+			else
+				collides = true
+			end
+		elseif added > 0 then
+			comparePadding[tooltip] = nil
+			if right and baseRight ~= right then
+				ApplyPadding(tooltip, baseRight, bottom, left, top)
+			end
+		end
+	end
+	arrow:ClearAllPoints()
+	if collides then
+		arrow:SetPoint("BOTTOMRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, 1)
+	else
+		arrow:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, -ARROW_INSET)
 	end
 end
 
@@ -1048,17 +1145,7 @@ local function ShowCompareArrow(tooltip, state)
 		arrow:SetSize(ARROW_SIZE, ARROW_SIZE)
 		compareArrows[tooltip] = arrow
 	end
-	local titleLine = tooltip:GetLeftLine(1)
-	local okTitle, titleWidth = pcall(titleLine.GetStringWidth, titleLine)
-	local okWidth, width = pcall(tooltip.GetWidth, tooltip)
-	local collides = okTitle and okWidth
-		and ns.Number(titleWidth, 0) + 10 > ns.Number(width, 0) - ARROW_SIZE - ARROW_INSET
-	arrow:ClearAllPoints()
-	if collides then
-		arrow:SetPoint("BOTTOMRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, 1)
-	else
-		arrow:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -ARROW_INSET, -ARROW_INSET)
-	end
+	LayoutCompareArrow(tooltip)
 	ns.SetItemComparisonArrow(arrow, state)
 end
 
@@ -1118,17 +1205,18 @@ function Tooltip.PrintCompareTrace()
 end
 
 local function UpdateCompareArrows(manager)
-	HideCompareArrows()
 	compareTrace.calls = compareTrace.calls + 1
 	compareTrace.link, compareTrace.shown, compareTrace.sources, compareTrace.result = nil, nil, nil, nil
 	local tooltip = manager.tooltip
 	if not tooltip or tooltip:IsForbidden() or type(tooltip.shoppingTooltips) ~= "table" then
+		HideCompareArrows()
 		compareTrace.result = L.TOOLTIP_COMPARE_NO_TOOLTIP
 		return
 	end
 	local link = ItemLinkOf(tooltip)
 	compareTrace.link = link
 	if not link then
+		HideCompareArrows()
 		compareTrace.result = L.TOOLTIP_COMPARE_NO_ITEM
 		return
 	end
@@ -1146,6 +1234,7 @@ local function UpdateCompareArrows(manager)
 	if unknown then
 		local bySlot = WornLinksFor(link)
 		if #bySlot ~= #worn then
+			HideCompareArrows()
 			compareTrace.result = L.TOOLTIP_COMPARE_COUNTS:format(#bySlot, #worn)
 			return
 		end
@@ -1154,18 +1243,25 @@ local function UpdateCompareArrows(manager)
 		end
 	end
 	if #worn == 0 then
+		HideCompareArrows()
 		compareTrace.result = L.TOOLTIP_COMPARE_NONE_SHOWN
 		return
 	end
 	local winner, value = ns.CompareWinner(link, worn)
 	compareTrace.result = tostring(winner) .. " " .. tostring(value)
 	if winner == "hovered" then
+		HideCompareArrows(tooltip)
 		ShowCompareArrow(tooltip, value)
 	elseif winner == "worn" then
-		ShowCompareArrow(wornTips[value], true)
-		if ns.ItemLinkUpgradeState(link) == "worse" then
+		local wornTip = wornTips[value]
+		local showWorse = ns.ItemLinkUpgradeState(link) == "worse"
+		HideCompareArrows(wornTip, showWorse and tooltip or nil)
+		ShowCompareArrow(wornTip, true)
+		if showWorse then
 			ShowCompareArrow(tooltip, "worse")
 		end
+	else
+		HideCompareArrows()
 	end
 end
 
@@ -1489,7 +1585,12 @@ end
 
 function Tooltip:OnInitialize()
 	SetupHealthBar()
-	hooksecurefunc(GameTooltip, "Show", ns.Measured("Tooltip: Show", ReserveHealthBarSpace))
+	hooksecurefunc(GameTooltip, "Show", ns.Measured("Tooltip: Show", function(tooltip)
+		ReserveHealthBarSpace(tooltip)
+		if compareArrows[tooltip] and compareArrows[tooltip]:IsShown() then
+			LayoutCompareArrow(tooltip)
+		end
+	end))
 	GameTooltip:HookScript("OnTooltipCleared", ns.Measured("Tooltip: cleared", function(tooltip)
 		ClearSpacer(tooltip)
 		if hover and hover.object and not wanderlustHover then
@@ -1508,6 +1609,13 @@ function Tooltip:OnInitialize()
 	end))
 	if TooltipComparisonManager and TooltipComparisonManager.RefreshItems then
 		hooksecurefunc(TooltipComparisonManager, "RefreshItems", ns.Measured("Tooltip: compare arrow", UpdateCompareArrows))
+	end
+	if TooltipComparisonManager and TooltipComparisonManager.Clear then
+		hooksecurefunc(TooltipComparisonManager, "Clear", ns.Measured("Tooltip: compare clear", function(manager)
+			if not manager.tooltip then
+				HideCompareArrows()
+			end
+		end))
 	end
 	HookBronzeBorders()
 	if GameTooltip.SetTrainerService then

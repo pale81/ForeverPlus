@@ -8663,6 +8663,19 @@ end)()
 	assert(depositOne(), "one move")
 	print("  ", table.concat(calls, " | "))
 	assert(calls[1] == "split 0 1 10" and calls[2] == "pickup 6 1", "10 linen onto the bank stack of 10; the potion stays")
+	-- Shiny Fish Scales (17057) lack the client crafting-reagent flag, but are deposited too unless on the restock list.
+	bags = { [0] = { [1] = { itemID = 17057, stackCount = 5, hyperlink = "item:17057" }, [2] = { itemID = 118, stackCount = 3, hyperlink = "item:118" } },
+		[6] = { [1] = { itemID = 2589, stackCount = 10 } } }
+	calls = {}
+	setuv(depositOne, "run", { steps = 0, moved = 0, skip = {} })
+	assert(depositOne(), "Shiny Fish Scales deposited despite missing crafting-reagent flag")
+	assert(calls[1] == "pickup 0 1" and calls[2] == "pickup 6 2", "Shiny Fish Scales go into free bank slot")
+	ns:GetModule("Restock").cdb.items = { [17057] = true }
+	calls = {}
+	setuv(depositOne, "run", { steps = 0, moved = 0, skip = {} })
+	assert(not depositOne(), "Shiny Fish Scales on the restock list stay in the bags")
+	assert(#calls == 0, "no move when Shiny Fish Scales are on the restock list")
+	ns:GetModule("Restock").cdb.items = {}
 	setuv(depositOne, "run", nil)
 	print("services OK")
 end)()

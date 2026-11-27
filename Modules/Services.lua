@@ -108,13 +108,19 @@ end
 local depositButton
 local run -- { ticker, steps, wait = { bag, slot }, skip = { [itemID] = true }, moved = 0 }
 
+-- Reagents that lack the game's crafting-reagent flag in Forever.
+local EXTRA_REAGENTS = {
+	[17057] = true, -- Shiny Fish Scales
+}
+
 local function IsReagent(info)
 	local restock = ns:GetModule("Restock")
 	-- Items on the restock list belong in the bags.
 	if restock and restock.db and restock.db.enabled and restock.cdb.items[info.itemID] == true then
 		return false
 	end
-	return select(17, C_Item.GetItemInfo(info.hyperlink or info.itemID)) == true
+	return EXTRA_REAGENTS[info.itemID] == true
+		or select(17, C_Item.GetItemInfo(info.hyperlink or info.itemID)) == true
 end
 
 local function BankBags()

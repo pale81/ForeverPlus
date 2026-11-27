@@ -164,18 +164,106 @@ readable.ShowBook = saved[16]
 -- Own pages in the reader: turning by spreads, closing.
 readable.ShowBook({ title = "T", pages = { "<html><body><p>1</p></body></html>", "2", "3" }, first = 1 })
 local view = _G.ForeverPlusReadable
-assert(view and view:IsShown(), "the book is shown")
+assert(view and view:IsShown() and readable.IsBookShown(), "the book is shown")
 assert(readable.CanTurn(true) and not readable.CanTurn(false), "first spread: only forward")
 readable.Turn(true)
 assert(not readable.CanTurn(true) and readable.CanTurn(false), "last spread: only back")
 readable.Turn(false)
 assert(readable.CanTurn(true), "back on the first spread")
 readable.Close()
-assert(not view:IsShown() and not readable.CanTurn(true), "closed: no own pages left")
+assert(not view:IsShown() and not readable.IsBookShown() and not readable.CanTurn(true), "closed: no own pages left")
 readable.ShowBook({ title = "T", pages = { "1", "2", "3" }, first = 3 })
 view:Hide() -- Esc (special frame); the harness does not run OnHide itself
 view:GetScript("OnHide")(view)
-assert(not readable.CanTurn(false), "hidden by Esc: the own pages are gone")
+assert(not readable.IsBookShown() and not readable.CanTurn(false), "hidden by Esc: the own pages are gone")
+
+-- Calendar right-click: own overlay button, toggles the chronicle, appends tooltip hint only while hovered.
+;(function()
+	local savedCalendar = rawget(_G, "GameTimeFrame")
+	local savedCalendarClick = chronicle.db.calendarClick
+	local savedTooltip = {
+		IsOwned = rawget(GameTooltip, "IsOwned"),
+		AddLine = rawget(GameTooltip, "AddLine"),
+		Show = rawget(GameTooltip, "Show"),
+		Hide = rawget(GameTooltip, "Hide"),
+	}
+	local savedCreateFrame = CreateFrame
+	local calls = {}
+	CreateFrame = function(kind, name, parent, template)
+		local frame = savedCreateFrame(kind, name, parent, template)
+		if name == "ForeverPlusChronicleCalendarButton" then
+			frame.RegisterForClicks = function(_, ...) calls.clicks = { ... } end
+			frame.SetPassThroughButtons = function(_, ...) calls.passThrough = { ... } end
+			frame.SetMouseClickEnabled = function(_, value) calls.mouseClick = value end
+			frame.SetMouseMotionEnabled = function(_, value) calls.mouseMotion = value end
+		end
+		return frame
+	end
+
+	local calendar = savedCreateFrame("Button", "GameTimeFrame", MinimapCluster)
+	local owned, lines, tipShown, tipHidden = false, {}, 0, 0
+	GameTooltip.IsOwned = function(_, owner) return owned and owner == calendar end
+	GameTooltip.AddLine = function(_, text) lines[#lines + 1] = text end
+	GameTooltip.Show = function() tipShown = tipShown + 1 end
+	GameTooltip.Hide = function() tipHidden = tipHidden + 1 end
+
+	assert(chronicle.db.calendarClick == true, "calendar right-click defaults on")
+	chronicle.db.enabled = true
+	chronicle:Apply()
+	local overlay = _G.ForeverPlusChronicleCalendarButton
+	assert(overlay and overlay:IsShown(), "calendar right-click overlay created and shown")
+	assert(calls.clicks and calls.clicks[1] == "RightButtonUp" and #calls.clicks == 1, "overlay handles only right clicks")
+	assert(calls.passThrough and calls.passThrough[1] == "LeftButton", "left click passes through to calendar")
+	assert(calls.mouseClick == true and calls.mouseMotion == false, "hover stays on calendar button")
+
+	-- Right-click opens, second right-click closes.
+	overlay:GetScript("OnClick")(overlay, "RightButton")
+	assert(tipHidden == 1 and readable.IsBookShown() and view:IsShown(), "calendar right-click opens chronicle")
+	overlay:GetScript("OnClick")(overlay, "RightButton")
+	assert(tipHidden == 2 and not readable.IsBookShown() and not view:IsShown(), "second calendar right-click closes chronicle")
+
+	-- Tooltip hint: only while hovered and owned by GameTimeFrame.
+	owned = true
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 0, "no tooltip hint before OnEnter")
+	calendar:GetScript("OnEnter")(calendar)
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 1 and lines[1] == L.CHRONICLE_CALENDAR_HINT and tipShown == 1, "tooltip hint appended while hovered")
+	lines, owned = {}, false
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 0, "no tooltip hint when tooltip has another owner")
+	owned = true
+	calendar:GetScript("OnLeave")(calendar)
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 0, "no tooltip hint after OnLeave")
+	calendar:GetScript("OnEnter")(calendar)
+	calendar:GetScript("OnHide")(calendar)
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 0, "no tooltip hint after OnHide")
+
+	-- Disabling calendarClick or chronicle hides overlay and suppresses tooltip hint.
+	chronicle.db.calendarClick = false
+	chronicle:OnOptionChanged("calendarClick")
+	assert(not overlay:IsShown(), "disabling calendarClick hides overlay")
+	calendar:GetScript("OnEnter")(calendar)
+	calendar:GetScript("OnUpdate")(calendar, 0.016)
+	assert(#lines == 0, "disabled calendarClick adds no tooltip hint")
+	calendar:GetScript("OnLeave")(calendar)
+
+	chronicle.db.calendarClick = true
+	chronicle.db.enabled = false
+	chronicle:OnOptionChanged("enabled")
+	assert(not overlay:IsShown(), "disabling chronicle hides overlay")
+	chronicle.db.enabled = true
+	chronicle:OnOptionChanged("enabled")
+	assert(overlay:IsShown(), "re-enabling chronicle shows overlay again")
+
+	CreateFrame = savedCreateFrame
+	GameTooltip.IsOwned, GameTooltip.AddLine, GameTooltip.Show, GameTooltip.Hide =
+		savedTooltip.IsOwned, savedTooltip.AddLine, savedTooltip.Show, savedTooltip.Hide
+	_G.GameTimeFrame = savedCalendar
+	chronicle.db.calendarClick = savedCalendarClick
+end)()
 
 chronicle.cdb, chronicle.db.enabled = savedCdb, savedEnabled
 GetRealZoneText, GetSubZoneText, UnitLevel, IsInInstance, time, LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE,

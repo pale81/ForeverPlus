@@ -9,6 +9,7 @@ local Chronicle = ns:NewModule("Chronicle", {
 	order = 5.361,
 	defaults = {
 		enabled = true,
+		calendarClick = true,
 	},
 	charDefaults = {
 		entries = {}, -- { t = time(), k = kind, v = value, z = place, l = level }, oldest first
@@ -172,6 +173,15 @@ function Chronicle.Open()
 	})
 end
 
+function Chronicle.Toggle()
+	local readable = ns:GetModule("Readable")
+	if readable.IsBookShown() then
+		readable.Hide()
+		return
+	end
+	Chronicle.Open()
+end
+
 ---------------------------------------------------------------------------
 -- Moments of the journey
 ---------------------------------------------------------------------------
@@ -260,6 +270,58 @@ function Chronicle.Read()
 end
 
 ---------------------------------------------------------------------------
+-- Calendar right-click
+---------------------------------------------------------------------------
+local calendarButton, calendarHooked, calendarHovered
+
+local AppendCalendarTooltip = ns.Measured("Chronicle: calendar tooltip", function(self)
+	if calendarButton and calendarButton:IsShown() and GameTooltip:IsOwned(self) then
+		GameTooltip:AddLine(L.CHRONICLE_CALENDAR_HINT)
+		GameTooltip:Show()
+	end
+end)
+
+local function UpdateCalendarButton()
+	local target = GameTimeFrame
+	local enabled = Chronicle.db.enabled and Chronicle.db.calendarClick
+	if enabled and type(target) == "table" and type(target.HookScript) == "function" and not calendarButton then
+		-- GameTimeFrame handles any mouse button in OnClick. Give right clicks their own hit area
+		-- without altering Blizzard's scripts or mouse registration.
+		calendarButton = CreateFrame("Button", "ForeverPlusChronicleCalendarButton", target)
+		calendarButton:SetAllPoints()
+		calendarButton:SetFrameLevel(ns.Number(target:GetFrameLevel(), 0) + 1)
+		calendarButton:RegisterForClicks("RightButtonUp")
+		calendarButton:SetPassThroughButtons("LeftButton", "MiddleButton", "Button4", "Button5")
+		calendarButton:SetMouseClickEnabled(true)
+		calendarButton:SetMouseMotionEnabled(false)
+		calendarButton:SetScript("OnClick", ns.Measured("Chronicle: calendar click", function()
+			GameTooltip:Hide()
+			Chronicle.Toggle()
+		end))
+		if not calendarHooked then
+			calendarHooked = true
+			target:HookScript("OnEnter", ns.Measured("Chronicle: calendar enter", function()
+				calendarHovered = true
+			end))
+			target:HookScript("OnLeave", ns.Measured("Chronicle: calendar leave", function()
+				calendarHovered = false
+			end))
+			target:HookScript("OnHide", ns.Measured("Chronicle: calendar hide", function()
+				calendarHovered = false
+			end))
+			target:HookScript("OnUpdate", function(self)
+				if calendarHovered then
+					AppendCalendarTooltip(self)
+				end
+			end)
+		end
+	end
+	if calendarButton then
+		calendarButton:SetShown(enabled)
+	end
+end
+
+---------------------------------------------------------------------------
 -- Lifecycle
 ---------------------------------------------------------------------------
 local taxiHooked = false
@@ -289,6 +351,7 @@ function Chronicle:Apply()
 			end
 		end))
 	end
+	UpdateCalendarButton()
 	if on then
 		Chronicle.Arrive()
 	end
@@ -296,6 +359,7 @@ end
 
 function Chronicle:OnLogin()
 	self:Apply()
+	ns.OnAddOnLoaded("Blizzard_Minimap", UpdateCalendarButton)
 end
 
 function Chronicle:OnOptionChanged()
@@ -304,6 +368,7 @@ end
 
 Chronicle.options = {
 	{ key = "enabled", type = "toggle", name = L.CHRONICLE_ENABLE, desc = L.CHRONICLE_ENABLE_DESC, new = true },
+	{ key = "calendarClick", type = "toggle", name = L.CHRONICLE_CALENDAR, desc = L.CHRONICLE_CALENDAR_DESC, parent = "enabled", new = true },
 	{ type = "button", name = L.CHRONICLE_OPEN, text = L.CHRONICLE_OPEN_BUTTON, func = function()
 		Chronicle.Open()
 	end },

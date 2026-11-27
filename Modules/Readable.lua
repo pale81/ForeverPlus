@@ -684,6 +684,10 @@ function Readable.DrawBook()
 	Draw("BOOK", "Parchment", pages)
 end
 
+function Readable.IsBookShown()
+	return customView ~= nil and view ~= nil and view:IsShown()
+end
+
 -- Own pages as an open book (the chronicle); a text or quest of the game on the screen is closed first.
 -- book: { title =, pages = { HTML, ... }, first = number of the left page }.
 function Readable.ShowBook(book)

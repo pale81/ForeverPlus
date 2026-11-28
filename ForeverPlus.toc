@@ -58,6 +58,14 @@ Modules\MapSymbols.lua
 Modules\DungeonJournal.lua
 Data\ProcRates.lua
 Modules\Items.lua
+Modules\ItemsWeights.lua
+Modules\ItemsRating.lua
+Modules\ItemsPopup.lua
+Modules\ItemsBags.lua
+Modules\ItemsMerchant.lua
+Modules\ItemsSort.lua
+Modules\ItemsLoot.lua
+Modules\ItemsEvents.lua
 Modules\LootRoll.lua
 Modules\BankView.lua
 Modules\Restock.lua

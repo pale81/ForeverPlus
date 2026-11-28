@@ -677,7 +677,7 @@ local _, cls = UnitClass("player")
 compare = upvalue(BagComparisonState, "CompareScores")
 local up = upvalue(compare, "IsBestArmorType")
 -- player class in harness is MAGE; force shaman
-for i = 1, 200 do local n = debug.getupvalue(up, i) if not n then break end if n == "playerClass" then debug.setupvalue(up, i, "SHAMAN") end end
+for i = 1, 200 do local n = debug.getupvalue(upvalue(up, "PlayerClass"), i) if not n then break end if n == "playerClass" then debug.setupvalue(upvalue(up, "PlayerClass"), i, "SHAMAN") end end
 local GetWeights = upvalue(upvalue(compare, "EquippedScore"), "Score")
 local function check(link, expect)
 	for k in pairs(cache) do cache[k] = nil end

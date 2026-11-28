@@ -223,7 +223,7 @@ local function UpdateGlow(button, quality, forced)
 	end
 end
 
--- For the bag buttons (Items.lua, called on every bag update) and the character slots (below).
+-- For the bag buttons (ItemsBags.lua, called on every bag update) and the character slots (below).
 function ns.FrameItemButton(button, quality)
 	UpdateGlow(button, quality, true)
 end

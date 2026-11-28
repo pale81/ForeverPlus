@@ -20,8 +20,8 @@ local BAG_KEY_PEEK_SECONDS = 3
 local peek, softHidden, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
 local lastMinimapHover
 local minimapHiddenByWanderlust = false
-local escGuard, escHidingInternal, escRestoredAt, hidingUI
-local UpdateHiddenUI, CheckPeek, SyncPeek, RestoreUI, StartTimer, SoftBlocked, SyncEscGuard, SetMinimapHidden
+local escGuard, escHidingInternal, escRestoredAt, hidingUI, fishingHidden, uiHideHooked
+local UpdateHiddenUI, CheckPeek, SyncPeek, RestoreUI, StartTimer, SoftBlocked, SyncEscGuard, SetMinimapHidden, EnsureUIHideHook
 local peekDriverShown
 local softHardCheckElapsed = 0
 
@@ -266,7 +266,7 @@ local function DesiredPeekFrames()
 end
 
 local function UpdatePeekDriver()
-	local hidden = hidUI and Wanderlust.db.enabled or false
+	local hidden = hidUI and Wanderlust.db.enabled and not fishingHidden or false
 	local watchMinimap = hidden and Wanderlust.db.minimapMouseover
 		and MinimapCluster and not MinimapCluster:IsForbidden() or false
 	local watchBags = hidden and Wanderlust.db.showBags
@@ -416,34 +416,83 @@ local function BuildSoftExcluded()
 	if GameTooltip then softExcluded[GameTooltip] = true end
 	if ShoppingTooltip1 then softExcluded[ShoppingTooltip1] = true end
 	if ShoppingTooltip2 then softExcluded[ShoppingTooltip2] = true end
-	if Wanderlust.db.showChat then
-		if GeneralDockManager then softExcluded[GeneralDockManager] = true end
-		local names = ChatFrameNames()
-		for i = 1, #names do
-			local frame = _G[names[i]]
-			if frame then softExcluded[frame] = true end
-		end
-	end
-	if Wanderlust.db.showBags then
-		if ContainerFrameCombinedBags then softExcluded[ContainerFrameCombinedBags] = true end
-		if ContainerFrameContainer then
-			softExcluded[ContainerFrameContainer] = true
-			local list = ContainerFrameContainer.ContainerFrames
-			if list then
-				for i = 1, #list do
-					local bagFrame = list[i]
-					if bagFrame then softExcluded[bagFrame] = true end
-				end
+	local anglerBear = _G.ForeverPlusAnglerBear
+	if anglerBear then softExcluded[anglerBear] = true end
+	local modeFlash = _G.ForeverPlusModeFlash
+	if modeFlash then softExcluded[modeFlash] = true end
+	if not fishingHidden then
+		if Wanderlust.db.showChat then
+			if GeneralDockManager then softExcluded[GeneralDockManager] = true end
+			local names = ChatFrameNames()
+			for i = 1, #names do
+				local frame = _G[names[i]]
+				if frame then softExcluded[frame] = true end
 			end
 		end
-		if StackSplitFrame then softExcluded[StackSplitFrame] = true end
-	end
-	if Wanderlust.db.showBubbles then
-		local dialog = DialogModule()
-		local bubble = dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame()
-		if bubble then softExcluded[bubble] = true end
+		if Wanderlust.db.showBags then
+			if ContainerFrameCombinedBags then softExcluded[ContainerFrameCombinedBags] = true end
+			if ContainerFrameContainer then
+				softExcluded[ContainerFrameContainer] = true
+				local list = ContainerFrameContainer.ContainerFrames
+				if list then
+					for i = 1, #list do
+						local bagFrame = list[i]
+						if bagFrame then softExcluded[bagFrame] = true end
+					end
+				end
+			end
+			if StackSplitFrame then softExcluded[StackSplitFrame] = true end
+		end
+		if Wanderlust.db.showBubbles then
+			local dialog = DialogModule()
+			local bubble = dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame()
+			if bubble then softExcluded[bubble] = true end
+		end
 	end
 	return softExcluded
+end
+
+local function RecordExtraSoftFrame(state, frame)
+	if not CanFadeFrame(frame) or not WindowShown(frame)
+		or state.frames[frame] ~= nil or state.extra[frame] ~= nil
+		or state.minimap[frame] or (state.bags and state.bags.frame == frame) then
+		return
+	end
+	local orig = ns.Number(frame:GetAlpha(), 1)
+	state.extra[frame] = orig
+	if orig ~= 0 then frame:SetAlpha(0) end
+end
+
+local function FadeFishingExtras(state)
+	if not state then return end
+	RecordExtraSoftFrame(state, GeneralDockManager)
+	local names = ChatFrameNames()
+	for i = 1, #names do
+		RecordExtraSoftFrame(state, _G[names[i]])
+	end
+	RecordExtraSoftFrame(state, ContainerFrameCombinedBags)
+	if ContainerFrameContainer then
+		RecordExtraSoftFrame(state, ContainerFrameContainer)
+		local list = ContainerFrameContainer.ContainerFrames
+		if list then
+			for i = 1, #list do
+				RecordExtraSoftFrame(state, list[i])
+			end
+		end
+	end
+	RecordExtraSoftFrame(state, StackSplitFrame)
+	local dialog = DialogModule()
+	RecordExtraSoftFrame(state, dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame())
+end
+
+local function RestoreFishingExtras(state)
+	if not (state and state.extra) then return end
+	for frame, orig in pairs(state.extra) do
+		if CanFadeFrame(frame) then
+			frame:SetAlpha(orig)
+		end
+	end
+	wipe(state.extra)
 end
 
 local function FadeUIParentChildren(state, excluded, ...)
@@ -458,7 +507,7 @@ local function FadeUIParentChildren(state, excluded, ...)
 end
 
 local function SyncSoftChat()
-	if not softHidden then return end
+	if not softHidden or fishingHidden then return end
 	local showChat = Wanderlust.db.showChat
 	if showChat then
 		for frame, orig in pairs(softHidden.frames) do
@@ -490,7 +539,7 @@ local function SyncSoftPeek()
 	if bagKeyUntil and ns.Number(GetTime(), 0) >= bagKeyUntil then
 		bagKeyUntil = nil
 	end
-	local overMinimap = CursorOverMinimap()
+	local overMinimap = not fishingHidden and CursorOverMinimap() or false
 	if overMinimap ~= softHidden.minimapShown then
 		softHidden.minimapShown = overMinimap
 		if overMinimap then
@@ -507,9 +556,10 @@ local function SyncSoftPeek()
 	end
 	local bagsOpen
 	if softHidden.bags then
-		bagsOpen = Wanderlust.db.showBags and AnyBagOpen() or false
+		bagsOpen = not fishingHidden and Wanderlust.db.showBags and AnyBagOpen() or false
 		if bagsOpen then bagKeyUntil = nil end
-		local showBagsBar = Wanderlust.db.showBags and (bagsOpen or CursorOverBagsBar() or bagKeyUntil ~= nil) or false
+		local showBagsBar = not fishingHidden and Wanderlust.db.showBags
+			and (bagsOpen or CursorOverBagsBar() or bagKeyUntil ~= nil) or false
 		if showBagsBar ~= softHidden.bagsShown then
 			softHidden.bagsShown = showBagsBar
 			local bagBar = softHidden.bags.frame
@@ -523,11 +573,12 @@ end
 
 local function EnterSoftHide()
 	if softHidden then return end
+	EnsureUIHideHook()
 	local qol = QoLModule()
 	if qol and qol.SetWanderlustSuppressed then
 		qol.SetWanderlustSuppressed(true)
 	end
-	local state = { frames = {}, minimap = {}, minimapShown = nil, bags = nil, bagsShown = nil }
+	local state = { frames = {}, extra = {}, minimap = {}, minimapShown = nil, bags = nil, bagsShown = nil }
 	softHidden = state
 	softHardCheckElapsed = 0
 
@@ -577,6 +628,7 @@ local function ExitSoftHide()
 	bagKeyUntil = nil
 	lastMinimapHover = nil
 	SyncEscGuard()
+	RestoreFishingExtras(saved)
 	for frame, orig in pairs(saved.frames) do
 		if CanFadeFrame(frame) then
 			frame:SetAlpha(orig)
@@ -604,6 +656,10 @@ function Wanderlust.IsSoftHidden()
 	return softHidden ~= nil
 end
 
+function Wanderlust.IsChatSoftHidden()
+	return softHidden ~= nil and (fishingHidden == true or not Wanderlust.db.showChat)
+end
+
 local function EnterPeek(desired, reveal)
 	peek = { alpha = UIParent:GetAlpha(), ignored = {} }
 	SetMinimapHidden(not desired[MinimapCluster])
@@ -619,7 +675,7 @@ end
 
 SyncPeek = function()
 	if softHidden then
-		if not (hidUI and Wanderlust.db.enabled) then
+		if not ((hidUI and Wanderlust.db.enabled) or fishingHidden) then
 			ExitSoftHide()
 		elseif not InCombatLockdown() then
 			SyncSoftPeek()
@@ -752,7 +808,8 @@ SyncEscGuard = function(bagsOpen)
 	else
 		softBlocked = SoftBlocked()
 	end
-	local want = softHidden ~= nil and not softBlocked and not InCombatLockdown()
+	local want = softHidden ~= nil and hidUI and Wanderlust.db.enabled
+		and not fishingHidden and not softBlocked and not InCombatLockdown()
 	if not want and not escGuard then return end
 	local guard = EnsureEscGuard()
 	if not guard or not guard.IsShown or not guard.SetShown then return end
@@ -780,7 +837,9 @@ end
 RestoreUI = function()
 	ClearTeleport()
 	EndPeek(false)
-	ExitSoftHide()
+	if not fishingHidden then
+		ExitSoftHide()
+	end
 	if hidUI then
 		hidUI = nil
 		if not UIParent:IsShown() then
@@ -798,7 +857,7 @@ local function HideUI()
 	-- No open target or window is hidden, so its OnHide cannot play a close sound.
 	hidUI = true
 	SavePeekArea()
-	if Wanderlust.db.softHide then
+	if Wanderlust.db.softHide or fishingHidden then
 		EnterSoftHide()
 		UpdateHiddenUI(true)
 		return
@@ -813,6 +872,41 @@ local function HideUI()
 		SetInterfaceVisibility(false)
 	end
 	UpdateHiddenUI()
+end
+
+-- Soft-hide lease for Helpers' angler mode: avoids 20-50 ms SetUIVisibility stalls
+-- while preserving exact original alphas if Wanderlust is also active.
+function Wanderlust.SetFishingHidden(active)
+	if active then
+		if fishingHidden then return true end
+		if peek or (not softHidden and not UIParent:IsShown()) then
+			return false
+		end
+		fishingHidden = true
+		if softHidden then
+			FadeFishingExtras(softHidden)
+		else
+			EnterSoftHide()
+		end
+		SyncSoftPeek()
+		UpdatePeekDriver()
+		return true
+	end
+	if not fishingHidden then return false end
+	fishingHidden = nil
+	if hidUI and Wanderlust.db.enabled then
+		if Wanderlust.db.softHide then
+			RestoreFishingExtras(softHidden)
+			UpdateHiddenUI()
+		else
+			ExitSoftHide()
+			HideUI()
+		end
+	else
+		ExitSoftHide()
+		UpdatePeekDriver()
+	end
+	return true
 end
 
 StartTimer = function()
@@ -859,6 +953,7 @@ local function OnUIHidden()
 	local fromSoftToggle = softHidden ~= nil or (escRestoredAt ~= nil and escRestoredAt == now)
 	if not fromSoftToggle then return end
 	escRestoredAt = nil
+	fishingHidden = nil
 	ClearTeleport()
 	ExitSoftHide()
 	hidUI = nil
@@ -876,6 +971,12 @@ local function OnUIHidden()
 	end)
 end
 
+EnsureUIHideHook = function()
+	if uiHideHooked then return end
+	uiHideHooked = true
+	UIParent:HookScript("OnHide", ns.Measured("Wanderlust: interface hidden", OnUIHidden))
+end
+
 local function Stop()
 	CancelTimer()
 	RestoreUI()
@@ -885,6 +986,7 @@ local function RefreshActivity()
 	if not Wanderlust.db.enabled or InCombatLockdown() then return end
 	if softHidden and not UIParent:IsShown() then
 		-- The player manually hid UIParent (Alt+Z): hand visibility ownership back cleanly.
+		fishingHidden = nil
 		ExitSoftHide()
 		ClearTeleport()
 		hidUI = nil
@@ -915,6 +1017,7 @@ CheckPeek = function()
 	if peek or softHidden then
 		if not UIParent:IsShown() then
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
+			fishingHidden = nil
 			EndPeek(false)
 			ExitSoftHide()
 			ClearTeleport()
@@ -946,7 +1049,7 @@ UpdateHiddenUI = function(skipSoftChat)
 	UpdateHiddenChat()
 	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
 	if softHidden then
-		if hidden then
+		if hidden or fishingHidden then
 			if not skipSoftChat then
 				SyncSoftChat()
 			end
@@ -1180,7 +1283,7 @@ function Wanderlust:Apply()
 	if enabled and not hooked then
 		hooked = true
 		UIParent:HookScript("OnShow", ns.Measured("Wanderlust: interface shown", OnUIShown))
-		UIParent:HookScript("OnHide", ns.Measured("Wanderlust: interface hidden", OnUIHidden))
+		EnsureUIHideHook()
 		if GameMenuFrame and GameMenuFrame.HookScript then
 			GameMenuFrame:HookScript("OnShow", ns.Measured("Wanderlust: game menu shown", function()
 				if Wanderlust.db.enabled and hidUI then InteractionOpened() end
@@ -1253,7 +1356,7 @@ function Wanderlust:OnOptionChanged(key)
 	if key == "hoverText" or key == "showChat" then
 		UpdateHiddenUI()
 	elseif key == "softHide" then
-		if hidUI and self.db.enabled and not InCombatLockdown() then
+		if hidUI and self.db.enabled and not InCombatLockdown() and not fishingHidden then
 			local keepTeleport = teleport
 			teleport = nil
 			RestoreUI()

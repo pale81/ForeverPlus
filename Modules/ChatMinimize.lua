@@ -134,7 +134,8 @@ end
 
 local function ApplyAlpha()
 	local wanderlust = ns:GetModule("Wanderlust")
-	if wanderlust and wanderlust.IsSoftHidden and wanderlust.IsSoftHidden() and not wanderlust.db.showChat then
+	if wanderlust and ((wanderlust.IsChatSoftHidden and wanderlust.IsChatSoftHidden())
+		or (wanderlust.IsSoftHidden and wanderlust.IsSoftHidden() and not wanderlust.db.showChat)) then
 		return Ease(fold)
 	end
 	local alpha = 1 - Ease(fade)

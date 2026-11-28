@@ -642,14 +642,34 @@ print("helpers OK")
 		"PortraitModes angler mode exposes all six angler sub-options")
 end)()
 ;(function()
-	local savedChannel, savedVisibility, savedGet, savedSet = UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar
+	local savedChannel, savedVisibility, savedGet, savedSet, savedAfter =
+		UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar, ns.After
+	local savedGetChildren = UIParent.GetChildren
+	local savedMinimap = Minimap
 	local originalVisibility = UIParent:IsShown()
+	local wanderlust = ns:GetModule("Wanderlust")
 	local spellID
+	local visCalls = 0
 	local volumes = { Sound_SFXVolume = "0.2", Sound_MusicVolume = "0.4", Sound_AmbienceVolume = "0.8", Sound_DialogVolume = "0.6" }
+	local hudFrame = CreateFrame("Frame", nil, UIParent)
+	hudFrame:SetAlpha(0.85)
+	hudFrame:Show()
+	local fakeMinimap = { shown = true }
+	function fakeMinimap:IsForbidden() return false end
+	function fakeMinimap:IsShown() return self.shown end
+	function fakeMinimap:Show() self.shown = true end
+	function fakeMinimap:Hide() self.shown = false end
+	function fakeMinimap:GetAlpha() return 1 end
+	function fakeMinimap:SetAlpha() end
+	Minimap = fakeMinimap
+	UIParent.GetChildren = function() return hudFrame end
 	UnitChannelInfo = function()
 		if spellID then return C_Spell.GetSpellName(spellID), nil, nil, nil, nil, nil, nil, spellID end
 	end
-	SetUIVisibility = function(visible) UIParent:SetShown(visible) end
+	SetUIVisibility = function(visible)
+		visCalls = visCalls + 1
+		UIParent:SetShown(visible)
+	end
 	GetCVar = function(key) return volumes[key] end
 	SetCVar = function(key, value) volumes[key] = value end
 	local event = uv(ns.RegisterEvent, "eventFrame"):GetScript("OnEvent")
@@ -658,28 +678,49 @@ end)()
 	ns.SetOption("Helpers", "fishingSound", true)
 	spellID = 10
 	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
-	assert(UIParent:IsShown() and volumes.Sound_MusicVolume == "0.4", "an unrelated channel leaves the UI and volumes alone")
+	assert(UIParent:IsShown() and not wanderlust.IsSoftHidden() and hudFrame:GetAlpha() == 0.85
+		and fakeMinimap.shown and volumes.Sound_MusicVolume == "0.4" and visCalls == 0,
+		"an unrelated channel leaves the UI and volumes alone")
+	-- Rapid STOP + START in the same frame coalesces into a single scheduled refresh.
+	local queued = {}
+	ns.After = function(name, delay, fn)
+		queued[#queued + 1] = { name = name, delay = delay, fn = fn }
+	end
 	spellID = 7620
+	event(nil, "UNIT_SPELLCAST_CHANNEL_STOP", "player")
 	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
-	assert(not UIParent:IsShown() and volumes.Sound_SFXVolume == "0.65" and volumes.Sound_MusicVolume == "0.1",
-		"a real Fishing channel hides the UI and makes effects easier to hear")
+	assert(#queued == 1 and queued[1].name == "Helpers: refresh fishing presentation",
+		"multiple fishing channel events in one frame coalesce into a single deferred refresh")
+	queued[1].fn()
+	ns.After = savedAfter
+	assert(UIParent:IsShown() and visCalls == 0 and wanderlust.IsSoftHidden() and wanderlust.IsChatSoftHidden()
+		and hudFrame:GetAlpha() == 0 and not fakeMinimap.shown
+		and volumes.Sound_SFXVolume == "0.65" and volumes.Sound_MusicVolume == "0.1",
+		"a real Fishing channel softly hides HUD and minimap blips without SetUIVisibility and boosts effects")
 	volumes.Sound_DialogVolume = "0.7"
 	spellID = nil
 	event(nil, "UNIT_SPELLCAST_CHANNEL_STOP", "player")
-	assert(UIParent:IsShown() and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4"
+	assert(UIParent:IsShown() and visCalls == 0 and not wanderlust.IsSoftHidden()
+		and hudFrame:GetAlpha() == 0.85 and fakeMinimap.shown
+		and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4"
 		and volumes.Sound_AmbienceVolume == "0.8" and volumes.Sound_DialogVolume == "0.7",
-		"channel end restores the UI and original volumes while preserving a manual change")
+		"channel end restores original HUD alpha, minimap and volumes without SetUIVisibility while preserving manual changes")
 	UIParent:Hide()
 	spellID = 7620
 	event(nil, "UNIT_SPELLCAST_CHANNEL_START", "player")
+	assert(not wanderlust.IsSoftHidden() and not UIParent:IsShown() and visCalls == 0,
+		"fishing does not claim soft-hide when UIParent is already manually hidden")
 	event(nil, "PLAYER_LOGOUT")
-	assert(not UIParent:IsShown() and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4",
+	assert(not UIParent:IsShown() and visCalls == 0 and volumes.Sound_SFXVolume == "0.2" and volumes.Sound_MusicVolume == "0.4",
 		"logout restores the volumes and leaves an already-hidden UI hidden")
 	spellID = nil
 	ns.SetOption("Helpers", "fishingHideUI", false)
 	ns.SetOption("Helpers", "fishingSound", false)
 	UIParent:SetShown(originalVisibility)
-	UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar = savedChannel, savedVisibility, savedGet, savedSet
+	UIParent.GetChildren = savedGetChildren
+	Minimap = savedMinimap
+	UnitChannelInfo, SetUIVisibility, GetCVar, SetCVar, ns.After =
+		savedChannel, savedVisibility, savedGet, savedSet, savedAfter
 end)()
 ;(function()
 	-- Angler mode Nat Pagle flash & native sounds: trigger, geometry/animation, delayed splash, abort, options and previews.

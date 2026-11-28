@@ -596,7 +596,7 @@ end
 local FISHING_SOUND_CVARS = { "Sound_SFXVolume", "Sound_MusicVolume", "Sound_AmbienceVolume", "Sound_DialogVolume" }
 local fishingVolumes, fishingHidUI
 
-local function SetFishingSound(active)
+local SetFishingSound = ns.Measured("Helpers: fishing sound", function(active)
 	if active and not fishingVolumes then
 		fishingVolumes = {}
 		for _, key in ipairs(FISHING_SOUND_CVARS) do
@@ -618,10 +618,21 @@ local function SetFishingSound(active)
 		end
 		fishingVolumes = nil
 	end
-end
+end)
 
-local function SetFishingPresentation(active)
-	local hide = active and Helpers.db.fishingHideUI
+local function SetFishingUIHidden(hide)
+	local wanderlust = ns:GetModule("Wanderlust")
+	if wanderlust and wanderlust.SetFishingHidden then
+		if hide then
+			if not fishingHidUI and wanderlust.SetFishingHidden(true) then
+				fishingHidUI = true
+			end
+		elseif fishingHidUI then
+			fishingHidUI = nil
+			wanderlust.SetFishingHidden(false)
+		end
+		return
+	end
 	if hide and not fishingHidUI and UIParent:IsShown() then
 		fishingHidUI = true
 		SetUIVisibility(false)
@@ -631,17 +642,24 @@ local function SetFishingPresentation(active)
 			SetUIVisibility(true)
 		end
 	end
+end
+
+local function SetFishingPresentation(active)
+	SetFishingUIHidden(active and Helpers.db.fishingHideUI)
 	SetFishingSound(active and Helpers.db.fishingSound)
 end
 
+local fishingRefreshPending
 local function RefreshFishingPresentation()
+	fishingRefreshPending = nil
 	local db = Helpers.db
 	SetFishingPresentation(db.fishing and (db.fishingHideUI or db.fishingSound)
 		and not InCombatLockdown() and not UnitIsDeadOrGhost("player") and IsFishingChannel())
 end
 
 local function FishingChannelChanged(_, _, unit)
-	if not ns.Secret(unit) and unit == "player" then
+	if not ns.Secret(unit) and unit == "player" and not fishingRefreshPending then
+		fishingRefreshPending = true
 		-- Let the game update the channel before reading it, including after a recast.
 		ns.After("Helpers: refresh fishing presentation", 0, RefreshFishingPresentation)
 	end

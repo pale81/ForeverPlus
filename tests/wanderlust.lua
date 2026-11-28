@@ -1419,4 +1419,109 @@ end)()
 	Enable(false)
 	ui.children, cluster.children = {}, {}
 end)()
+;(function()
+	-- Fishing soft-hide lease: zero SetUIVisibility stalls, Escape stays free to cancel fishing,
+	-- and exact alpha restoration across Wanderlust + Fishing overlap in either order.
+	local actionBar = PeekableFrame()
+	actionBar.shown, actionBar.alpha = true, 0.85
+	cluster.shown, cluster.alpha = true, 1
+	bagsBar.shown, bagsBar.alpha = true, 0.6
+	chatFrame.shown, chatFrame.alpha = true, 0.9
+	chatDock.shown, chatDock.alpha = true, 1
+	ui.children = { actionBar, cluster, bagsBar, chatFrame, chatDock, gameTooltip }
+
+	-- 1) Fishing alone while Wanderlust is disabled.
+	Enable(false)
+	Over(false)
+	local visBefore = visibilityCalls
+	assert(module.SetFishingHidden(true), "fishing lease activates soft-hide even while Wanderlust is disabled")
+	assert(ui.shown and visibilityCalls == visBefore and module.IsSoftHidden() and module.IsChatSoftHidden(),
+		"fishing soft-hide keeps UIParent shown with 0 SetUIVisibility calls and marks chat soft-hidden")
+	assert(actionBar.alpha == 0 and cluster.alpha == 0 and bagsBar.alpha == 0 and chatFrame.alpha == 0
+		and chatDock.alpha == 0 and not minimap.shown and gameTooltip.alpha == 1,
+		"fishing soft-hide fades HUD, minimap, bags bar and chat while keeping tooltips readable")
+	assert(not (globals.ForeverPlusWanderlustEsc and globals.ForeverPlusWanderlustEsc:IsShown()),
+		"fishing soft-hide does not arm the Escape guard so Escape cancels fishing directly")
+	assert(not (peekDriver and peekDriver.shown),
+		"fishing soft-hide does not run the 100 ms Wanderlust peek driver")
+	assert(module.SetFishingHidden(false), "ending fishing lease returns true")
+	assert(not module.IsSoftHidden() and not module.IsChatSoftHidden() and visibilityCalls == visBefore
+		and actionBar.alpha == 0.85 and cluster.alpha == 1 and bagsBar.alpha == 0.6
+		and chatFrame.alpha == 0.9 and chatDock.alpha == 1 and minimap.shown,
+		"ending fishing soft-hide restores exact original alphas and minimap with 0 SetUIVisibility calls")
+
+	-- 1b) Manual Alt+Z while fishing soft-hide is active restores the interface in one step.
+	assert(module.SetFishingHidden(true) and module.IsSoftHidden(), "re-enter fishing soft-hide")
+	SetVisibility(false)
+	assert(ui.shown and not module.IsSoftHidden() and actionBar.alpha == 0.85 and minimap.shown,
+		"one Alt+Z restores fishing soft-hide cleanly even while Wanderlust is disabled")
+	assert(not module.SetFishingHidden(false), "stale fishing end after Alt+Z is a clean no-op")
+
+	-- 2) Wanderlust already soft-hidden (with chat shown and minimap hovered), then Fishing starts and stops.
+	module.db.softHide = true
+	module.db.showChat = true
+	Over(true)
+	Enable(true)
+	Advance(60)
+	assert(module.IsSoftHidden() and not module.IsChatSoftHidden() and cluster.alpha == 1
+		and minimap.shown and chatFrame.alpha == 0.9 and globals.ForeverPlusWanderlustEsc:IsShown(),
+		"Wanderlust soft-hide keeps chat visible, peeks minimap and arms Escape guard")
+	visBefore = visibilityCalls
+	assert(module.SetFishingHidden(true), "fishing layers over active Wanderlust soft-hide")
+	assert(visibilityCalls == visBefore and module.IsChatSoftHidden()
+		and chatFrame.alpha == 0 and chatDock.alpha == 0 and cluster.alpha == 0 and not minimap.shown
+		and not globals.ForeverPlusWanderlustEsc:IsShown() and not peekDriver.shown,
+		"fishing over Wanderlust hides chat and hovered minimap, disarms Escape and pauses peek driver")
+	assert(module.SetFishingHidden(false), "fishing ends cleanly while Wanderlust remains active")
+	assert(visibilityCalls == visBefore and module.IsSoftHidden() and not module.IsChatSoftHidden()
+		and chatFrame.alpha == 0.9 and chatDock.alpha == 1 and cluster.alpha == 1 and minimap.shown
+		and actionBar.alpha == 0 and globals.ForeverPlusWanderlustEsc:IsShown() and peekDriver.shown,
+		"after fishing ends, Wanderlust keeps original HUD hidden and restores chat, minimap peek and Escape guard")
+	Enable(false)
+	assert(not module.IsSoftHidden() and actionBar.alpha == 0.85 and bagsBar.alpha == 0.6
+		and chatFrame.alpha == 0.9 and minimap.shown and visibilityCalls == visBefore,
+		"disabling Wanderlust after layered fishing restores exact original alphas")
+
+	-- 3) Fishing starts first, Wanderlust 60 s timer expires during fishing, then Fishing stops.
+	Over(false)
+	Enable(true)
+	visBefore = visibilityCalls
+	assert(module.SetFishingHidden(true), "fishing enters soft-hide before Wanderlust timer expires")
+	Advance(60)
+	assert(module.IsSoftHidden() and module.IsChatSoftHidden() and chatFrame.alpha == 0
+		and not globals.ForeverPlusWanderlustEsc:IsShown(),
+		"Wanderlust timer during fishing preserves fishing hide state without clobbering alphas")
+	assert(module.SetFishingHidden(false), "fishing hands soft-hide over to Wanderlust")
+	assert(visibilityCalls == visBefore and module.IsSoftHidden() and not module.IsChatSoftHidden()
+		and actionBar.alpha == 0 and chatFrame.alpha == 0.9 and chatDock.alpha == 1
+		and globals.ForeverPlusWanderlustEsc:IsShown(),
+		"Wanderlust seamlessly takes over soft-hide after fishing ends, restoring chat and Escape guard")
+	Enable(false)
+	assert(actionBar.alpha == 0.85 and chatFrame.alpha == 0.9 and minimap.shown,
+		"exact original alphas survive fishing-first -> Wanderlust handoff")
+
+	-- 4) Classic Wanderlust mode (softHide = false): already hidden UIParent is not claimed by fishing;
+	--    when visible, fishing softly hides and transitions to classic mode if Wanderlust timer fired.
+	module.db.softHide = false
+	Enable(true)
+	Advance(60)
+	assert(not ui.shown, "classic Wanderlust hides UIParent")
+	assert(not module.SetFishingHidden(true) and not module.IsSoftHidden() and not ui.shown,
+		"fishing does not claim soft-hide when UIParent is already hidden")
+	Enable(false)
+	assert(ui.shown)
+	Enable(true)
+	visBefore = visibilityCalls
+	assert(module.SetFishingHidden(true) and ui.shown and visibilityCalls == visBefore and actionBar.alpha == 0,
+		"fishing still uses soft-hide without SetUIVisibility when UI is visible")
+	Advance(60)
+	assert(ui.shown and visibilityCalls == visBefore and module.IsSoftHidden(),
+		"classic Wanderlust defers SetUIVisibility while fishing soft-hide is active")
+	assert(module.SetFishingHidden(false) and not ui.shown and not module.IsSoftHidden()
+		and actionBar.alpha == 0.85 and minimap.shown,
+		"ending fishing restores alphas and transitions cleanly to classic Wanderlust")
+	Enable(false)
+	module.db.softHide = true
+	ui.children, cluster.children = {}, {}
+end)()
 print("Wanderlust timing, teleports, chat, bags, dialog bubbles, mouseover, abilities, targets, windows and lifecycle OK")

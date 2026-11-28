@@ -14,6 +14,7 @@ local WorldMap = ns:NewModule("WorldMap", {
 		reveal = true,
 		revealAlpha = 60,
 		revealTint = true,
+		revealAreas = true,
 		revealColor = { r = 0.75, g = 1, b = 0.75 }, -- the tint, chosen in the map's filter menu
 		entrances = true,
 		flightPoints = true,
@@ -40,10 +41,17 @@ local WorldMap = ns:NewModule("WorldMap", {
 
 local PIN_TEMPLATE = "MapExplorationPinTemplate"
 local DRAW_LAYER, SUB_LEVEL = "ARTWORK", -1 -- Blizzard draws explored parts at sub level 0
+local CORE_SUB_LEVEL = 2 -- core area outlines sit above explored/unexplored tiles, below map pins
+local CORE_BORDER = 2
+local CORE_FILL_ALPHA, CORE_BORDER_ALPHA = 0.14, 0.65
+local CORE_DOT_TEXTURE = [[Interface\CharacterFrame\TempPortraitAlphaMask]]
 
 local pin
 local textures, used = {}, 0
+local areaTextures, usedAreaTextures = {}, 0
+local areaLayer, areaMarkers, usedAreaMarkers = nil, {}, 0
 local parsed = {}
+local parsedAreas = {}
 
 -- Map parts of one map art: { { width, height, left, top, file, file, … }, …,
 -- known = { [first file] = true } }. Parsed on first use.
@@ -66,6 +74,58 @@ local function Overlays(artID)
 		parsed[artID] = list
 	end
 	return list or nil
+end
+
+-- Core HitRect and AreaID per map art part (parallel to Overlays):
+-- { { hitLeft, hitTop, hitRight, hitBottom, areaID }, … }.
+local function OverlayAreas(artID)
+	local raw = artID and ns.MapOverlayAreas and ns.MapOverlayAreas[artID]
+	if not raw then
+		return nil
+	end
+	local cached = parsedAreas[artID]
+	if cached and cached.raw == raw then
+		return cached.list
+	end
+	local list = {}
+	for part in raw:gmatch("[^;]+") do
+		local entry = {}
+		for number in part:gmatch("-?%d+") do
+			entry[#entry + 1] = tonumber(number)
+		end
+		list[#list + 1] = entry
+	end
+	parsedAreas[artID] = { raw = raw, list = list }
+	return list
+end
+
+-- Tighter core rectangle (pixels from top-left) and AreaID for an overlay part.
+-- Uses Blizzard's HitRect when present, otherwise a centered inner half of the overlay texture.
+function WorldMap.CoreRect(overlay, area, layerWidth, layerHeight)
+	if not overlay then
+		return nil
+	end
+	local left, top, right, bottom
+	local areaID = area and area[5] or 0
+	if area and area[3] and area[1] and area[4] and area[2] and area[3] > area[1] and area[4] > area[2] then
+		left, top, right, bottom = area[1], area[2], area[3], area[4]
+	else
+		local w, h, ox, oy = overlay[1], overlay[2], overlay[3], overlay[4]
+		left, top = ox + w * 0.25, oy + h * 0.25
+		right, bottom = ox + w * 0.75, oy + h * 0.75
+	end
+	if type(layerWidth) == "number" and layerWidth > 0 then
+		left = math.max(0, math.min(layerWidth, left))
+		right = math.max(0, math.min(layerWidth, right))
+	end
+	if type(layerHeight) == "number" and layerHeight > 0 then
+		top = math.max(0, math.min(layerHeight, top))
+		bottom = math.max(0, math.min(layerHeight, bottom))
+	end
+	if right <= left or bottom <= top then
+		return nil
+	end
+	return left, top, right, bottom, areaID
 end
 
 -- Parts of the map to draw: data for the map, explored parts by first file
@@ -94,6 +154,14 @@ local function Release()
 		textures[i]:Hide()
 	end
 	used = 0
+	for i = 1, usedAreaTextures do
+		areaTextures[i]:Hide()
+	end
+	usedAreaTextures = 0
+	for i = 1, usedAreaMarkers do
+		areaMarkers[i]:Hide()
+	end
+	usedAreaMarkers = 0
 end
 
 local function Acquire()
@@ -104,6 +172,162 @@ local function Acquire()
 		textures[used] = texture
 	end
 	return texture
+end
+
+local function AcquireAreaTexture()
+	usedAreaTextures = usedAreaTextures + 1
+	local texture = areaTextures[usedAreaTextures]
+	if not texture then
+		texture = pin:CreateTexture(nil, DRAW_LAYER, nil, CORE_SUB_LEVEL)
+		areaTextures[usedAreaTextures] = texture
+	end
+	return texture
+end
+
+local function AreaDisplayName(areaID)
+	local name = areaID and areaID > 0 and C_Map.GetAreaInfo and C_Map.GetAreaInfo(areaID)
+	if type(name) == "string" and not ns.Secret(name) and name ~= "" then
+		return name
+	end
+	return L.WORLDMAP_UNEXPLORED_AREA
+end
+
+local function PositionAreaMarkers()
+	if usedAreaMarkers == 0 or not (WorldMapFrame and WorldMapFrame.GetCanvas) then
+		return
+	end
+	local canvas = WorldMapFrame:GetCanvas()
+	if not canvas then
+		return
+	end
+	local scale = 1 / ns.Number(WorldMapFrame.GetCanvasScale and WorldMapFrame:GetCanvasScale(), 1)
+	local width = ns.Number(canvas.GetWidth and canvas:GetWidth(), 0)
+	local height = ns.Number(canvas.GetHeight and canvas:GetHeight(), 0)
+	if width <= 0 or height <= 0 then
+		return
+	end
+	for i = 1, usedAreaMarkers do
+		local marker = areaMarkers[i]
+		marker:SetScale(scale)
+		marker:ClearAllPoints()
+		marker:SetPoint("CENTER", canvas, "TOPLEFT", width * marker.nx / scale, -height * marker.ny / scale)
+	end
+end
+
+local function EnsureAreaLayer()
+	if areaLayer or not (WorldMapFrame and WorldMapFrame.GetCanvas) then
+		return areaLayer
+	end
+	local canvas = WorldMapFrame:GetCanvas()
+	if not canvas then
+		return nil
+	end
+	areaLayer = CreateFrame("Frame", nil, canvas)
+	areaLayer:SetAllPoints(canvas)
+	local levels = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
+	local level = levels and ns.Number(levels:GetFrameLevelStart("PIN_FRAME_LEVEL_DUNGEON_ENTRANCE"))
+	if level and level > 1 then
+		areaLayer:SetFrameLevel(level - 1)
+	end
+	local reposition = ns.Measured("WorldMap: core markers", PositionAreaMarkers)
+	for _, method in ipairs({ "OnCanvasScaleChanged", "OnCanvasSizeChanged" }) do
+		if type(WorldMapFrame[method]) == "function" then
+			hooksecurefunc(WorldMapFrame, method, reposition)
+		end
+	end
+	return areaLayer
+end
+
+local function AcquireAreaMarker()
+	local parent = EnsureAreaLayer()
+	if not parent then
+		return nil
+	end
+	usedAreaMarkers = usedAreaMarkers + 1
+	local marker = areaMarkers[usedAreaMarkers]
+	if not marker then
+		marker = CreateFrame("Button", nil, parent)
+		marker:SetSize(14, 14)
+		marker:RegisterForClicks("LeftButtonUp")
+		marker.owningMap = WorldMapFrame
+		local ring = marker:CreateTexture(nil, "BACKGROUND")
+		ring:SetSize(12, 12)
+		ring:SetPoint("CENTER")
+		ring:SetTexture(CORE_DOT_TEXTURE)
+		ring:SetVertexColor(0, 0, 0)
+		ring:SetAlpha(0.75)
+		local dot = marker:CreateTexture(nil, "ARTWORK")
+		dot:SetSize(8, 8)
+		dot:SetPoint("CENTER")
+		dot:SetTexture(CORE_DOT_TEXTURE)
+		dot:SetAlpha(0.95)
+		marker.dot = dot
+		marker:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip_SetTitle(GameTooltip, AreaDisplayName(self.areaID))
+			GameTooltip_AddNormalLine(GameTooltip, L.WORLDMAP_UNEXPLORED_AREA_HINT)
+			if ns:GetModule("Waypoint") then
+				GameTooltip_AddInstructionLine(GameTooltip, L.WORLDMAP_DISCOVERY_WAYPOINT_CLICK)
+			end
+			GameTooltip:Show()
+		end)
+		marker:SetScript("OnLeave", GameTooltip_Hide)
+		marker:SetScript("OnClick", function(self, button)
+			if button ~= "LeftButton" then
+				return
+			end
+			local waypoint = ns:GetModule("Waypoint")
+			if waypoint and waypoint.SetOnMap and self.mapID and self.nx and self.ny then
+				GameTooltip:Hide()
+				if not waypoint.SetOnMap(self.mapID, self.nx * 100, self.ny * 100, AreaDisplayName(self.areaID)) then
+					ns.PrintAlways(L.WAYPOINT_NOT_HERE)
+				end
+			end
+		end)
+		areaMarkers[usedAreaMarkers] = marker
+	end
+	return marker
+end
+
+local function PlaceSolid(left, top, width, height, r, g, b, alpha)
+	local texture = AcquireAreaTexture()
+	texture:SetSize(width, height)
+	texture:ClearAllPoints()
+	texture:SetPoint("TOPLEFT", left, -top)
+	if texture.SetColorTexture then
+		texture:SetColorTexture(1, 1, 1, 1)
+	else
+		texture:SetTexture([[Interface\Buttons\WHITE8X8]])
+	end
+	texture:SetVertexColor(r, g, b)
+	texture:SetAlpha(alpha)
+	texture:Show()
+end
+
+local function DrawCoreArea(mapID, left, top, right, bottom, areaID, layerWidth, layerHeight, r, g, b)
+	local width, height = right - left, bottom - top
+	if width <= 0 or height <= 0 then
+		return
+	end
+	local border = math.min(CORE_BORDER, width / 2, height / 2)
+	PlaceSolid(left, top, width, height, r, g, b, CORE_FILL_ALPHA)
+	PlaceSolid(left, top, width, border, r, g, b, CORE_BORDER_ALPHA)
+	PlaceSolid(left, bottom - border, width, border, r, g, b, CORE_BORDER_ALPHA)
+	if height > border * 2 then
+		PlaceSolid(left, top + border, border, height - border * 2, r, g, b, CORE_BORDER_ALPHA)
+		PlaceSolid(right - border, top + border, border, height - border * 2, r, g, b, CORE_BORDER_ALPHA)
+	end
+	if type(layerWidth) == "number" and layerWidth > 0 and type(layerHeight) == "number" and layerHeight > 0 then
+		local marker = AcquireAreaMarker()
+		if marker then
+			marker.mapID = mapID
+			marker.areaID = areaID
+			marker.nx = (left + right) / 2 / layerWidth
+			marker.ny = (top + bottom) / 2 / layerHeight
+			marker.dot:SetVertexColor(r, g, b)
+			marker:Show()
+		end
+	end
 end
 
 -- Visible pixels and file size of tile `index` out of `count`: the last
@@ -166,21 +390,44 @@ local function Paint()
 		textures[i]:SetVertexColor(r, g, b)
 		textures[i]:SetAlpha(db.revealAlpha / 100)
 	end
+	local cr, cg, cb = WorldMap.TintColor({ revealTint = true, revealColor = db.revealColor })
+	for i = 1, usedAreaTextures do
+		areaTextures[i]:SetVertexColor(cr, cg, cb)
+	end
+	for i = 1, usedAreaMarkers do
+		areaMarkers[i].dot:SetVertexColor(cr, cg, cb)
+	end
 end
 
 -- Unexplored parts of the map as the options ask for them.
-local function DrawUnexplored(mapID, layer, acquire)
-	local overlays, explored, unknown = Analyse(mapID)
+local function DrawUnexplored(mapID, layer, acquire, withCores)
+	local overlays, explored, unknown, artID = Analyse(mapID)
 	if not overlays or unknown > 0 then
 		return
 	end
 	local db = WorldMap.db
 	local alpha = db.revealAlpha / 100
 	local r, g, b = WorldMap.TintColor(db)
-	for _, overlay in ipairs(overlays) do
+	local areas = withCores and db.revealAreas and OverlayAreas(artID) or nil
+	local cr, cg, cb
+	if areas then
+		cr, cg, cb = WorldMap.TintColor({ revealTint = true, revealColor = db.revealColor })
+	end
+	local layerWidth = ns.Number(layer.layerWidth, 0)
+	local layerHeight = ns.Number(layer.layerHeight, 0)
+	for index, overlay in ipairs(overlays) do
 		if not explored[overlay[5]] then
 			DrawOverlay(acquire, overlay, layer.tileWidth, layer.tileHeight, alpha, r, g, b)
+			if areas then
+				local left, top, right, bottom, areaID = WorldMap.CoreRect(overlay, areas[index], layerWidth, layerHeight)
+				if left then
+					DrawCoreArea(mapID, left, top, right, bottom, areaID, layerWidth, layerHeight, cr, cg, cb)
+				end
+			end
 		end
+	end
+	if usedAreaMarkers > 0 then
+		PositionAreaMarkers()
 	end
 end
 
@@ -195,7 +442,7 @@ local function Draw()
 	end
 	local layers = C_Map.GetMapArtLayers(mapID)
 	if layers and layers[1] then
-		DrawUnexplored(mapID, layers[1], Acquire)
+		DrawUnexplored(mapID, layers[1], Acquire, true)
 	end
 end
 
@@ -313,6 +560,7 @@ ns.AddMapFilterEntry(function(root)
 			end)
 		end
 		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_TINT, "WorldMap", "revealTint", L.WORLDMAP_REVEAL_TINT_DESC)
+		ns.CreateOptionCheckbox(reveal, L.WORLDMAP_REVEAL_AREAS, "WorldMap", "revealAreas", L.WORLDMAP_REVEAL_AREAS_DESC)
 		-- Blizzard's own colour entry: the name and a swatch of the current colour on the right.
 		local r, g, b = WorldMap.TintColor({ revealTint = true, revealColor = WorldMap.db.revealColor })
 		local swatch = reveal:CreateColorSwatch(L.WORLDMAP_REVEAL_COLOR, WorldMap.ChooseTint, { r = r, g = g, b = b })
@@ -536,4 +784,5 @@ if ns.MapOverlays then
 			return ("%d %%"):format(value)
 		end })
 	tinsert(WorldMap.options, 3, { key = "revealTint", type = "toggle", name = L.WORLDMAP_REVEAL_TINT, desc = L.WORLDMAP_REVEAL_TINT_DESC, parent = "reveal" })
+	tinsert(WorldMap.options, 4, { key = "revealAreas", type = "toggle", name = L.WORLDMAP_REVEAL_AREAS, desc = L.WORLDMAP_REVEAL_AREAS_DESC, parent = "reveal", new = true })
 end

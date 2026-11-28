@@ -10,6 +10,7 @@ local GroupFinder = ns:NewModule("GroupFinder", {
 		composition = true,
 		dungeonLevels = true,
 		journalButton = true,
+		journalTab = true,
 		questButton = true, -- a small button at group, elite and dungeon quests: lists the player for it
 		tank5 = 1, healer5 = 1, dps5 = 3,
 		tank10 = 2, healer10 = 2, dps10 = 6,
@@ -239,50 +240,67 @@ local function RefreshAll()
 	end
 end
 
+local JOURNAL_TAB_ICON = [[Interface\Icons\INV_Misc_Book_09]]
 local journalButtons = {}
+local journalTab
 
 function GroupFinder.RefreshJournalButtons()
 	local journal = ns:GetModule("DungeonJournal")
+	local enabled = journal and journal.IsEnabled() or false
 	for _, button in ipairs(journalButtons) do
-		button:SetShown(GroupFinder.db.journalButton and journal.IsEnabled()
+		button:SetShown(GroupFinder.db.journalButton and enabled
 			and ns.Number(button.getCategory()) == DUNGEON_CATEGORY)
+	end
+	if journalTab then
+		journalTab:SetShown(GroupFinder.db.journalTab and enabled)
+		if journalTab.SetChecked then
+			journalTab:SetChecked(enabled and journal.IsOpen and journal.IsOpen() or false)
+		end
 	end
 end
 
 local function BrowseJournalActivities()
-	local selection = LFGBrowseFrame.selectionBehavior
-	local selected = selection and selection:GetSelectedElementData()[1]
+	local selection = LFGBrowseFrame and LFGBrowseFrame.selectionBehavior
+	local selectedList = selection and selection:GetSelectedElementData()
+	local selected = selectedList and selectedList[1]
 	local node = selected and not ns.Secret(selected) and selected.data
 	local id = node and not ns.Secret(node) and ns.Number(node.resultID)
 	local result = id and C_LFGList.GetSearchResultInfo(id)
 	if not ns.Secret(result) and result and not ns.Secret(result.activityIDs) then
 		return result.activityIDs
 	end
-	return LFGBrowseFrame.ActivityDropdown.selectedValues
+	return LFGBrowseFrame and LFGBrowseFrame.ActivityDropdown and LFGBrowseFrame.ActivityDropdown.selectedValues
 end
 
 local function ListingJournalActivities()
 	local ids = {}
-	for id, selected in pairs(LFGListingFrame.activities or {}) do
+	for id, selected in pairs(LFGListingFrame and LFGListingFrame.activities or {}) do
 		if selected then ids[#ids + 1] = id end
 	end
 	table.sort(ids)
 	return ids
 end
 
-local function OpenJournal(button, activities)
-	local journal = ns:GetModule("DungeonJournal")
-	if not journal.IsEnabled() then return end
+local function JournalMaps(journal, activities, dungeonsOnly)
 	local maps, seenMaps = {}, {}
 	for _, value in ipairs(activities or {}) do
 		local id = ns.Number(value)
 		local activity = id and C_LFGList.GetActivityInfoTable(id)
 		local mapID = not ns.Secret(activity) and activity and ns.Number(activity.mapID)
-		if mapID and not seenMaps[mapID] and journal.HasDungeon(mapID) then
+		local matches = mapID and not seenMaps[mapID] and (dungeonsOnly and journal.HasDungeon(mapID)
+			or not dungeonsOnly and (journal.HasInstance and journal.HasInstance(mapID) or journal.HasDungeon(mapID)))
+		if matches then
 			seenMaps[mapID] = true
 			maps[#maps + 1] = mapID
 		end
 	end
+	return maps
+end
+
+local function OpenJournal(button, activities)
+	local journal = ns:GetModule("DungeonJournal")
+	if not journal.IsEnabled() then return end
+	local maps = JournalMaps(journal, activities, true)
 	if #maps == 0 then
 		journal.OpenDungeons()
 	elseif #maps == 1 then
@@ -296,6 +314,31 @@ local function OpenJournal(button, activities)
 	end
 end
 
+local function TabJournalActivities()
+	if LFGBrowseFrame and LFGBrowseFrame:IsShown() then
+		return BrowseJournalActivities()
+	elseif LFGListingFrame and LFGListingFrame:IsShown() then
+		return ListingJournalActivities()
+	end
+end
+
+local function ToggleJournalTab()
+	local journal = ns:GetModule("DungeonJournal")
+	if not (journal and journal.IsEnabled()) then
+		return
+	end
+	if journal.IsOpen and journal.IsOpen() then
+		journal.Toggle()
+		return
+	end
+	local maps = JournalMaps(journal, TabJournalActivities(), false)
+	if #maps == 1 then
+		journal.Open(maps[1])
+	else
+		journal.Open()
+	end
+end
+
 local function CreateJournalButton(parent, name, anchor, category, activities)
 	local button = CreateFrame("Button", name, parent, "UIPanelButtonTemplate")
 	button:SetSize(142, 28)
@@ -306,6 +349,39 @@ local function CreateJournalButton(parent, name, anchor, category, activities)
 		OpenJournal(self, activities())
 	end))
 	journalButtons[#journalButtons + 1] = button
+end
+
+local function SetupJournalTab(update)
+	if journalTab or LFGVANILLA_SETTING_MODERN_STYLE == false then
+		return
+	end
+	local parent = LFGParentFrame
+	local anchor = parent and (parent.WhoListingTab or parent.BrowsingTab or parent.ListingTab)
+	if not anchor then
+		return
+	end
+	local tab = CreateFrame("Frame", "ForeverPlusLFGJournalTab", parent, "LargeSideTabButtonTemplate")
+	tab:EnableMouse(true)
+	tab:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+	tab.tooltipText = L.JOURNAL_TITLE
+	if tab.Icon then
+		tab.Icon:SetTexture(JOURNAL_TAB_ICON)
+	end
+	if tab.SetFillToInterior then
+		tab:SetFillToInterior(true)
+	end
+	local onMouseUp = ns.Measured("GroupFinder: journal tab", function(_, button, upInside)
+		if button == "LeftButton" and upInside then
+			ToggleJournalTab()
+		end
+	end)
+	if tab.SetCustomOnMouseUpHandler then
+		tab:SetCustomOnMouseUpHandler(onMouseUp)
+	else
+		tab:SetScript("OnMouseUp", onMouseUp)
+	end
+	parent:HookScript("OnShow", update)
+	journalTab = tab
 end
 
 local function SetupJournalButtons()
@@ -323,6 +399,7 @@ local function SetupJournalButtons()
 			function() return listing:GetCategorySelection() end, ListingJournalActivities)
 		listing.ActivityView:HookScript("OnShow", update)
 	end
+	SetupJournalTab(update)
 	GroupFinder.RefreshJournalButtons()
 end
 
@@ -679,7 +756,7 @@ function GroupFinder.ApplyRoles()
 end
 
 function GroupFinder:OnOptionChanged(key)
-	if key == "journalButton" then
+	if key == "journalButton" or key == "journalTab" then
 		GroupFinder.RefreshJournalButtons()
 		return
 	end
@@ -699,6 +776,7 @@ GroupFinder.options = {
 	{ key = "composition", type = "toggle", name = L.GROUPFINDER_COMPOSITION, desc = L.GROUPFINDER_COMPOSITION_DESC },
 	{ key = "dungeonLevels", type = "toggle", name = L.GROUPFINDER_DUNGEON_LEVELS, desc = L.GROUPFINDER_DUNGEON_LEVELS_DESC, new = true },
 	{ key = "journalButton", type = "toggle", name = L.GROUPFINDER_JOURNAL, desc = L.GROUPFINDER_JOURNAL_DESC, new = true },
+	{ key = "journalTab", type = "toggle", name = L.GROUPFINDER_JOURNAL_TAB, desc = L.GROUPFINDER_JOURNAL_TAB_DESC, new = true },
 	{ key = "questButton", type = "toggle", name = L.GROUPQUEST_OPTION, desc = L.GROUPQUEST_OPTION_DESC, new = true },
 	{ key = "presetRoles", type = "toggle", name = L.GROUPFINDER_ROLES, desc = L.GROUPFINDER_ROLES_DESC, new = true },
 	{ key = "roleTank", type = "toggle", name = TANK, parent = "presetRoles" },

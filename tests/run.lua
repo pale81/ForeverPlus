@@ -17747,3 +17747,179 @@ end)()
 	Enum.ItemQuality.Common = savedCommon
 	print("visuals quality quest border suppression OK")
 end)()
+;(function()
+	-- GroupFinder: right-side Dungeon Journal tab on LFGParentFrame
+	local gf = ns:GetModule("GroupFinder")
+	local journal = ns:GetModule("DungeonJournal")
+	assert(gf.defaults.journalTab == true, "journalTab defaults to true")
+	local opt
+	for _, entry in ipairs(gf.options) do
+		if entry.key == "journalTab" then opt = entry end
+	end
+	assert(opt and opt.new == true and opt.name and opt.desc, "journalTab option has new badge and localized texts")
+
+	local setupButtons = uv(gf.OnLogin, "SetupJournalButtons")
+	local setupTab = uv(setupButtons, "SetupJournalTab")
+	local function setUV(fn, name, val)
+		for i = 1, 200 do
+			local n, old = debug.getupvalue(fn, i)
+			if not n then return end
+			if n == name then debug.setupvalue(fn, i, val) return old end
+		end
+	end
+	local savedJournalTab = setUV(setupTab, "journalTab", nil)
+	local savedCreate, savedParent = CreateFrame, LFGParentFrame
+	local savedBrowse, savedListing = LFGBrowseFrame, LFGListingFrame
+	local savedModern, savedLFGList = LFGVANILLA_SETTING_MODERN_STYLE, C_LFGList
+	local savedSecret = issecretvalue
+	local savedTabOpt, savedJournalEnabled = gf.db.journalTab, journal.db.enabled
+	local savedOpen, savedToggle, savedIsOpen, savedHasInst = journal.Open, journal.Toggle, journal.IsOpen, journal.HasInstance
+
+	local createdTab
+	local function MakeMockFrame()
+		local f = { shown = true, hooks = {}, scripts = {} }
+		function f:Show() self.shown = true end
+		function f:Hide() self.shown = false end
+		function f:SetShown(v) self.shown = v and true or false end
+		function f:IsShown() return self.shown end
+		function f:EnableMouse(v) self.mouse = v end
+		function f:SetPoint(...) self.point = { ... } end
+		function f:HookScript(event, fn) self.hooks[event] = fn end
+		function f:SetScript(event, fn) self.scripts[event] = fn end
+		return f
+	end
+
+	local parent = MakeMockFrame()
+	parent.WhoListingTab = MakeMockFrame()
+	local parentKeyCount = 0
+	for _ in pairs(parent) do parentKeyCount = parentKeyCount + 1 end
+	LFGParentFrame = parent
+	LFGVANILLA_SETTING_MODERN_STYLE = true
+
+	CreateFrame = function(frameType, name, p, template)
+		if name == "ForeverPlusLFGJournalTab" then
+			local tab = MakeMockFrame()
+			tab.frameType, tab.name, tab.parent, tab.template = frameType, name, p, template
+			tab.Icon = { SetTexture = function(self, tex) self.texture = tex end }
+			function tab:SetFillToInterior(v) self.fillToInterior = v end
+			function tab:SetChecked(v) self.checked = v and true or false end
+			function tab:SetCustomOnMouseUpHandler(fn) self.mouseUp = fn end
+			createdTab = tab
+			return tab
+		end
+		return savedCreate(frameType, name, p, template)
+	end
+
+	local isOpen, openedWith, toggled = false, nil, 0
+	journal.IsOpen = function() return isOpen end
+	journal.Open = function(id)
+		isOpen = true
+		openedWith = id or "default"
+		gf.RefreshJournalButtons()
+	end
+	journal.Toggle = function()
+		isOpen = not isOpen
+		toggled = toggled + 1
+		gf.RefreshJournalButtons()
+	end
+	journal.HasInstance = function(id) return id == 36 or id == 409 end
+
+	local browseShown, listingShown = true, false
+	local browseSelected, browseDropdown, listingActivities = nil, nil, {}
+	LFGBrowseFrame = {
+		IsShown = function() return browseShown end,
+		selectionBehavior = { GetSelectedElementData = function() return browseSelected or {} end },
+		ActivityDropdown = { selectedValues = nil },
+	}
+	LFGListingFrame = {
+		IsShown = function() return listingShown end,
+		activities = listingActivities,
+	}
+	local secretResult = { secret = true }
+	issecretvalue = function(v) return v == secretResult end
+	C_LFGList = {
+		GetSearchResultInfo = function(id)
+			if id == 1 then return { activityIDs = { 101 } }
+			elseif id == 2 then return { activityIDs = { 202 } }
+			elseif id == 3 then return secretResult end
+		end,
+		GetActivityInfoTable = function(id)
+			if id == 101 then return { mapID = 36 } -- Deadmines (dungeon)
+			elseif id == 202 then return { mapID = 409 } -- Molten Core (raid)
+			elseif id == 303 then return { mapID = 999 } end
+		end,
+	}
+
+	gf.db.journalTab = true
+	journal.db.enabled = true
+	setupTab(gf.RefreshJournalButtons)
+	gf.RefreshJournalButtons()
+
+	assert(createdTab ~= nil, "side tab created on LFGParentFrame")
+	assert(createdTab.template == "LargeSideTabButtonTemplate", "uses LargeSideTabButtonTemplate")
+	assert(createdTab.point[1] == "TOPLEFT" and createdTab.point[2] == parent.WhoListingTab
+		and createdTab.point[3] == "BOTTOMLEFT" and createdTab.point[4] == 0 and createdTab.point[5] == -2,
+		"anchored right below WhoListingTab with -2 gap")
+	assert(createdTab.Icon.texture == [[Interface\Icons\INV_Misc_Book_09]], "uses book icon texture")
+	assert(createdTab.fillToInterior == true, "fills tab interior like Blizzard tabs")
+	assert(createdTab.tooltipText == ns.L.JOURNAL_TITLE, "tooltip matches Dungeon Journal title")
+	assert(createdTab:IsShown() and createdTab.checked == false, "initially visible and unchecked")
+	local afterKeyCount = 0
+	for _ in pairs(parent) do afterKeyCount = afterKeyCount + 1 end
+	assert(afterKeyCount == parentKeyCount, "does not write tainting keys onto LFGParentFrame")
+
+	-- Right-click or release outside does nothing
+	createdTab.mouseUp(createdTab, "RightButton", true)
+	createdTab.mouseUp(createdTab, "LeftButton", false)
+	assert(not isOpen and openedWith == nil, "ignores right-click and mouse-up outside")
+
+	-- Browse tab with 1 selected raid opens that raid directly and checks the tab
+	browseSelected = { { data = { resultID = 2 } } }
+	createdTab.mouseUp(createdTab, "LeftButton", true)
+	assert(isOpen and openedWith == 409 and createdTab.checked == true, "opens selected raid directly and checks tab")
+
+	-- Clicking again while open closes the journal and unchecks the tab
+	createdTab.mouseUp(createdTab, "LeftButton", true)
+	assert(not isOpen and toggled == 1 and createdTab.checked == false, "second click closes journal and unchecks tab")
+
+	-- Secret search result falls back safely without error
+	browseSelected = { { data = { resultID = 3 } } }
+	LFGBrowseFrame.ActivityDropdown.selectedValues = browseDropdown
+	createdTab.mouseUp(createdTab, "LeftButton", true)
+	assert(isOpen and openedWith == "default", "secret browse result falls back cleanly to default journal open")
+	isOpen = false
+	gf.RefreshJournalButtons()
+	assert(createdTab.checked == false, "refresh unchecks tab after external close")
+
+	-- Listing tab with 1 dungeon opens it; with 2 instances opens default view directly
+	browseShown, listingShown = false, true
+	listingActivities[101] = true
+	createdTab.mouseUp(createdTab, "LeftButton", true)
+	assert(isOpen and openedWith == 36, "listing with one dungeon opens that dungeon")
+	isOpen = false
+	listingActivities[202] = true
+	createdTab.mouseUp(createdTab, "LeftButton", true)
+	assert(isOpen and openedWith == "default", "listing with multiple instances opens journal directly")
+
+	-- Options hide and show the tab
+	gf.db.journalTab = false
+	gf:OnOptionChanged("journalTab")
+	assert(not createdTab:IsShown(), "disabling journalTab hides the side tab")
+	gf.db.journalTab = true
+	journal.db.enabled = false
+	gf.RefreshJournalButtons()
+	assert(not createdTab:IsShown(), "disabling DungeonJournal hides the side tab")
+	journal.db.enabled = true
+	gf.RefreshJournalButtons()
+	assert(createdTab:IsShown(), "re-enabling shows the side tab again")
+
+	-- Restore
+	setUV(setupTab, "journalTab", savedJournalTab)
+	CreateFrame, LFGParentFrame = savedCreate, savedParent
+	LFGBrowseFrame, LFGListingFrame = savedBrowse, savedListing
+	LFGVANILLA_SETTING_MODERN_STYLE, C_LFGList = savedModern, savedLFGList
+	issecretvalue = savedSecret
+	gf.db.journalTab, journal.db.enabled = savedTabOpt, savedJournalEnabled
+	journal.Open, journal.Toggle, journal.IsOpen, journal.HasInstance = savedOpen, savedToggle, savedIsOpen, savedHasInst
+	print("group finder journal side tab OK")
+end)()

@@ -360,7 +360,7 @@ read_globals = {
 	"IsFlying",
 	"WorldMapFrame",
 	"PanelTemplates_SelectTab", "PanelTemplates_DeselectTab", "PanelTemplates_TabResize",
-	"LFGBrowseFrame", "LFGListingFrame",
+	"LFGParentFrame", "LFGBrowseFrame", "LFGListingFrame", "LFGVANILLA_SETTING_MODERN_STYLE",
 	"date",
 	"GetQuestProgressBarPercent",
 	"floor",

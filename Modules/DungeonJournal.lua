@@ -1171,12 +1171,18 @@ local function CreateJournal()
 		Journal:UnregisterEvent("QUEST_LOG_UPDATE")
 		Journal:UnregisterEvent("QUEST_DATA_LOAD_RESULT")
 		Journal:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
+		local finder = ns:GetModule("GroupFinder")
+		if finder and finder.RefreshJournalButtons then finder.RefreshJournalButtons() end
 	end))
 	return panel
 end
 
 function Journal.IsEnabled()
 	return Journal.db and Journal.db.enabled
+end
+
+function Journal.IsOpen()
+	return frame ~= nil and frame:IsShown() or false
 end
 
 function Journal.Open(id, mapID, x, y)
@@ -1207,6 +1213,8 @@ function Journal.Open(id, mapID, x, y)
 		Render(false)
 	end
 	frame:Show()
+	local finder = ns:GetModule("GroupFinder")
+	if finder and finder.RefreshJournalButtons then finder.RefreshJournalButtons() end
 end
 
 function Journal.Toggle()
@@ -1215,6 +1223,10 @@ function Journal.Toggle()
 	else
 		Journal.Open()
 	end
+end
+
+function Journal.HasInstance(id)
+	return data[id] ~= nil
 end
 
 function Journal.HasDungeon(id)

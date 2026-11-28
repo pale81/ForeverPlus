@@ -2213,8 +2213,34 @@ assert(proc(0, 1) == 13262, "disenchant")
 	assert(not binding and equipTimer.cancelled, "consuming a pair cancels its override and timeout")
 	equipped, offHand = 6256, nil
 	helpers:PLAYER_EQUIPMENT_CHANGED("PLAYER_EQUIPMENT_CHANGED", INVSLOT_MAINHAND)
+	local shiftCondition = "[@mouseover,noexists,nocombat,nomounted,mod:shift]"
+	local restoreBeforeShift = helpers.db.fishingRestore
+	helpers.db.fishingRestore = false
 	click()
-	assert(not binding, "Shift with a pole equipped leaves the gear alone")
+	assert(not binding, "Shift with a pole equipped does nothing when weapon restoration is disabled")
+	helpers.db.fishingRestore = restoreBeforeShift
+	cursor = "item"
+	click()
+	assert(not binding, "Shift with a pole equipped does not swap weapons while holding an item")
+	cursor = nil
+	local savedChannel = UnitChannelInfo
+	UnitChannelInfo = function() return "Fishing", nil, nil, nil, nil, nil, nil, 7620 end
+	click()
+	assert(binding == "SHIFT-BUTTON2>ForeverPlusFishButton" and attrs.type == "macro" and attrs.useOnKeyDown == false
+		and attrs.macrotext == "/equipslot " .. shiftCondition .. " 16 item:1\n/equipslot " .. shiftCondition .. " 17 item:2",
+		"Shift with a pole equipped restores the previous weapon and shield even while channelling Fishing")
+	timer.expire()
+	UnitChannelInfo = savedChannel
+	bagCounts[2] = nil
+	click()
+	assert(binding == "SHIFT-BUTTON2>ForeverPlusFishButton"
+		and attrs.macrotext == "/equipslot " .. shiftCondition .. " 16 item:1",
+		"Shift with a pole equipped still restores the main hand when the saved shield is missing")
+	timer.expire()
+	bagCounts[1] = nil
+	click()
+	assert(not binding, "Shift with a pole equipped stays free when the saved main hand is missing")
+	bagCounts[1], bagCounts[2] = 1, 1
 	shift = false
 	click()
 	assert(binding == "BUTTON2>ForeverPlusFishButton" and attrs.type == "spell" and attrs.spell == 7620 and attrs.useOnKeyDown == false,

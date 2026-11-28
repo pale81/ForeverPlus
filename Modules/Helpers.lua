@@ -723,7 +723,7 @@ local function EquipLine(slot, itemID, modifier)
 	return ("/equipslot [@mouseover,noexists,nocombat,nomounted,%s] %d item:%d"):format(modifier, slot, itemID)
 end
 
-local function RestoreWeaponsMacro(main)
+local function RestoreWeaponsMacro(main, modifier)
 	local weapons = Helpers.cdb.fishingWeapons
 	local wantedMain, wantedOff = weapons.main, weapons.off
 	if not wantedMain or (weaponsTimer and not weapons.pending) then
@@ -738,10 +738,10 @@ local function RestoreWeaponsMacro(main)
 		if C_Item.GetItemCount(wantedMain) == 0 then
 			return
 		end
-		text = EquipLine(MAIN_HAND, wantedMain, "nomod")
+		text = EquipLine(MAIN_HAND, wantedMain, modifier)
 	end
 	if off ~= wantedOff and CanRestoreOffHand(weapons) then
-		local line = EquipLine(OFF_HAND, wantedOff, "nomod")
+		local line = EquipLine(OFF_HAND, wantedOff, modifier)
 		text = text and (text .. "\n" .. line) or line
 	end
 	return text
@@ -889,10 +889,8 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 		if ns.Secret(main) then
 			return
 		end
-		if IsFishingPole(main) then
-			if shift then
-				return
-			end
+		local hasPole = IsFishingPole(main)
+		if hasPole and not shift then
 			local spellID = FishingSpell()
 			if not spellID or IsFishingChannel() then
 				return
@@ -904,14 +902,18 @@ function Helpers:GLOBAL_MOUSE_UP(_, mouseButton)
 				return
 			end
 			local macro
-			if shift and Helpers.db.fishingEquip and FishingSpell() then
+			if hasPole then
+				if Helpers.db.fishingRestore then
+					macro = RestoreWeaponsMacro(main, "mod:shift")
+				end
+			elseif shift and Helpers.db.fishingEquip and FishingSpell() then
 				local pole = FindFishingPole()
 				if pole then
 					RememberFishingWeapons()
 					macro = EquipLine(MAIN_HAND, pole, "mod:shift")
 				end
 			elseif not shift and Helpers.db.fishingRestore then
-				macro = RestoreWeaponsMacro(main)
+				macro = RestoreWeaponsMacro(main, "nomod")
 			end
 			if not macro then
 				return

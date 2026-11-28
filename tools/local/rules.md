@@ -8,6 +8,7 @@ Addon für WoW Forever (Client 1.60.x, Mainline-12-API, Spieltyp `camelot`). Lua
 - Priorität: Fehler, die das Ergebnis ändern. Klare Empfehlung statt künstlichem Mittelweg.
 
 ## Code
+- Handgeschriebene Dateien (Code, Tests, Werkzeuge) höchstens 1000 Zeilen; ausgenommen generierte Dateien in `Data/` und die Locales. Neues in grossen Dateien in eine neue Datei legen statt sie wachsen zu lassen; bestehende grosse Dateien in eigenen Schritten aufteilen, nicht nebenbei.
 - Spielmechanische Annahmen (Klasse, Volk, Zauber, Stufe, Forever-Abweichungen) vor dem Bau in `docs/wissen/` nachschlagen; fehlt etwas, belegen und dort ergänzen (Regeln in `docs/wissen/README.md`).
 - Taint-sicher: nur lesen, eigene Regionen hinzufügen, `hooksecurefunc`; Blizzards geschützte Funktionen nie anfassen.
 - Jede Funktion bekommt eine Option (Standard sinnvoll wählen). Verschiebbare Elemente starten gesperrt.
@@ -27,7 +28,7 @@ Addon für WoW Forever (Client 1.60.x, Mainline-12-API, Spieltyp `camelot`). Lua
 `sh tools/check.sh` – Tests (`tests/run.lua`) und `luacheck .` müssen ohne Fehler und mit 0 Warnungen durchlaufen.
 Einrichtung einmalig: `sh tools/setup-local.sh`.
 Harness: unbekannte Globale sind nachsichtige Platzhalter, die nicht in `_G` landen (ganze Tabellen zuweisen);
-`C_Timer.After` läuft sofort; neue Tests in `;(function() … end)()` kapseln (200-Locals-Grenze).
+`C_Timer.After` läuft sofort; Tests stehen in `tests/suite/` (Aufbau und gemeinsame Variablen: `tests/README.md`); neue Tests in `;(function() … end)()` kapseln (200-Locals-Grenze), eine Datei nie mit `;` beginnen.
 
 ## Git
 - Commits als EphemeraCore, ohne Co-Autor- oder Sitzungszeilen. Keine KI-Erwähnung in Commits, Pull Requests, Code oder Doku.

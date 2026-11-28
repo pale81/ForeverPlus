@@ -319,7 +319,7 @@ local function UpdateOpenButton()
 		local editMode = Helpers.db.openButton and ns:IsEditModeActive() or false
 		if button.bag ~= nil or button.slot ~= nil then
 			button.bag, button.slot, button.itemID, button.shownCount = nil, nil, nil, nil
-			button:SetAttribute("item", nil)
+			button:SetAttribute("macrotext", nil)
 		end
 		if editMode then
 			ns.FrameActionButton(button)
@@ -339,7 +339,7 @@ local function UpdateOpenButton()
 	-- Same as the quest item button: refresh the frame and hide template art.
 	ns.FrameActionButton(button)
 	button.bag, button.slot, button.itemID, button.shownCount = bag, slot, info.itemID, count
-	button:SetAttribute("item", bag .. " " .. slot)
+	button:SetAttribute("macrotext", "/use " .. bag .. " " .. slot)
 	button.icon:SetTexture(info.iconFileID)
 	button.Count:SetText(count > 1 and count or "")
 	button:Show()
@@ -359,7 +359,18 @@ local function CreateOpenButton()
 	local button = CreateFrame("Button", "ForeverPlusOpenButton", visibility, "ActionButtonTemplate, SecureActionButtonTemplate")
 	button:SetSize(36, 36)
 	button:RegisterForClicks("AnyUp", "AnyDown")
-	button:SetAttribute("type", "item")
+	-- Use /use bag slot via macrotext instead of type="item": Blizzard's SECURE_ACTIONS.item
+	-- passes nil from SecureCmdItemParse into C_Item.IsEquippableItem when a slot empties.
+	button:SetAttribute("type", "macro")
+	button:HookScript("PreClick", ns.Measured("Helpers: open button verify", function(self, mouseButton)
+		if mouseButton == "MiddleButton" or InCombatLockdown() or not self.bag then
+			return
+		end
+		local info = C_Container.GetContainerItemInfo(self.bag, self.slot)
+		if not info or info.itemID ~= self.itemID or info.isLocked then
+			UpdateOpenButton()
+		end
+	end))
 	button:HookScript("PostClick", ns.Measured("Helpers: open button middle click", function(self, mouseButton, down)
 		if mouseButton == "MiddleButton" and not down and self.bag and Helpers.db.openButtonMute and not InCombatLockdown() then
 			Helpers.cdb.openButtonMutedUntil = GetServerTime() + OPEN_BUTTON_MUTE_DURATION

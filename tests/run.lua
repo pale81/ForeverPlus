@@ -65,6 +65,18 @@ frameMeta.__index = function(t, k)
 		GetChildren = function() return end,
 		GetClampRectInsets = function(self) return rawget(self, 'clamp') and unpack(self.clamp) or -32, 25, 60, -32 end,
 		SetClampRectInsets = function(self, ...) self.clamp = { ... } end,
+		SetAttribute = function(self, key, value)
+			local attrs = rawget(self, "attributes")
+			if not attrs then
+				attrs = {}
+				rawset(self, "attributes", attrs)
+			end
+			attrs[key] = value
+		end,
+		GetAttribute = function(self, key)
+			local attrs = rawget(self, "attributes")
+			return attrs and attrs[key] or nil
+		end,
 	}
 	if methods[k] then return methods[k] end
 	local child = NewFrame("child", nil)
@@ -18337,4 +18349,108 @@ end)()
 	wm.db.reveal, wm.db.revealTint, wm.db.revealAreas, wm.db.revealColor = saved[9], saved[10], saved[11], saved[12]
 	ns:GetModule("Waypoint").SetOnMap = saved[13]
 	print("worldmap unexplored core areas OK")
+end)()
+
+;(function()
+	-- Helpers: ForeverPlusOpenButton uses type="macro" + macrotext "/use bag slot" (avoids Blizzard's
+	-- C_Item.IsEquippableItem(nil) crash in SECURE_ACTIONS.item when a bag slot empties) and verifies
+	-- the slot in PreClick out of combat.
+	local helpers = ns:GetModule("Helpers")
+	local button = ForeverPlusOpenButton
+	assert(button, "ForeverPlusOpenButton exists")
+	assert(button:GetAttribute("type") == "macro", "open button uses secure macro type")
+
+	local saved = {
+		helpers.db.openButton,
+		helpers.db.openButtonMute,
+		helpers.cdb.openButtonMutedUntil,
+		C_Container.GetContainerNumSlots,
+		C_Container.GetContainerItemInfo,
+		C_Container.GetContainerItemQuestInfo,
+		C_TooltipInfo.GetBagItem,
+		C_Item.GetItemCount,
+		InCombatLockdown,
+		ns.IsEditModeActive,
+	}
+
+	local bagState = {}
+	local slotScans = 0
+	C_Container.GetContainerNumSlots = function(bag)
+		return bag == 3 and 8 or 0
+	end
+	C_Container.GetContainerItemInfo = function(bag, slot)
+		slotScans = slotScans + 1
+		return bagState[bag .. ":" .. slot]
+	end
+	C_Container.GetContainerItemQuestInfo = function() return nil end
+	C_TooltipInfo.GetBagItem = function() return { lines = {} } end
+	C_Item.GetItemCount = function() return 1 end
+	InCombatLockdown = function() return false end
+	ns.IsEditModeActive = function() return false end
+
+	helpers.db.openButton = true
+	helpers.db.openButtonMute = true
+	helpers.cdb.openButtonMutedUntil = nil
+
+	-- Populate bag 3 slot 7 with a lootable clam (itemID 5523) and slot 8 with a second clam.
+	bagState["3:7"] = { itemID = 5523, iconFileID = 134432, hasLoot = true, isLocked = false }
+	bagState["3:8"] = { itemID = 5523, iconFileID = 134432, hasLoot = true, isLocked = false }
+	helpers:Update()
+
+	assert(button:IsShown(), "open button shown for lootable item")
+	assert(button:GetAttribute("type") == "macro", "open button keeps macro action type")
+	assert(button:GetAttribute("macrotext") == "/use 3 7", "open button sets /use bag slot macrotext")
+	assert(button:GetAttribute("item") == nil, "open button does not set deprecated item attribute")
+	assert(button:GetAttribute("*type3") == "", "open button keeps middle-click mute suppression")
+
+	-- PreClick with unchanged item does a single slot check without rescanning all bags.
+	slotScans = 0
+	button.scripts.PreClick(button, "LeftButton", true)
+	assert(slotScans == 1 and button:GetAttribute("macrotext") == "/use 3 7",
+		"PreClick keeps macrotext without rescanning when slot is still valid")
+
+	-- If slot 3:7 empties before the debounced bag update runs, PreClick refreshes immediately to 3:8.
+	bagState["3:7"] = nil
+	button.scripts.PreClick(button, "LeftButton", true)
+	assert(button.bag == 3 and button.slot == 8 and button:GetAttribute("macrotext") == "/use 3 8",
+		"PreClick refreshes open button to next lootable slot when previous slot emptied")
+
+	-- If a different item was moved into 3:8 before the click, PreClick clears macrotext and hides the button.
+	bagState["3:8"] = { itemID = 6948, iconFileID = 134414, hasLoot = false, isLocked = false }
+	button.scripts.PreClick(button, "LeftButton", true)
+	assert(not button:IsShown() and button:GetAttribute("macrotext") == nil and rawget(button, "bag") == nil,
+		"PreClick clears macrotext and hides button when slot now holds a different non-lootable item")
+
+	-- Locked item in slot also triggers PreClick refresh, while MiddleButton and combat skip attribute changes.
+	bagState["3:7"] = { itemID = 5523, iconFileID = 134432, hasLoot = true, isLocked = false }
+	helpers:Update()
+	assert(button:GetAttribute("macrotext") == "/use 3 7", "open button restored to 3:7")
+
+	bagState["3:7"] = nil
+	button.scripts.PreClick(button, "MiddleButton", true)
+	assert(button:GetAttribute("macrotext") == "/use 3 7", "PreClick ignores MiddleButton")
+
+	InCombatLockdown = function() return true end
+	button.scripts.PreClick(button, "LeftButton", true)
+	assert(button:GetAttribute("macrotext") == "/use 3 7", "PreClick skips attribute changes in combat")
+
+	InCombatLockdown = function() return false end
+	bagState["3:7"] = { itemID = 5523, iconFileID = 134432, hasLoot = true, isLocked = true }
+	button.scripts.PreClick(button, "LeftButton", true)
+	assert(not button:IsShown() and button:GetAttribute("macrotext") == nil,
+		"PreClick clears macrotext when slot item becomes locked")
+
+	-- Restore
+	helpers.db.openButton = saved[1]
+	helpers.db.openButtonMute = saved[2]
+	helpers.cdb.openButtonMutedUntil = saved[3]
+	C_Container.GetContainerNumSlots = saved[4]
+	C_Container.GetContainerItemInfo = saved[5]
+	C_Container.GetContainerItemQuestInfo = saved[6]
+	C_TooltipInfo.GetBagItem = saved[7]
+	C_Item.GetItemCount = saved[8]
+	InCombatLockdown = saved[9]
+	ns.IsEditModeActive = saved[10]
+	helpers:Update()
+	print("helpers open button macrotext and preclick OK")
 end)()

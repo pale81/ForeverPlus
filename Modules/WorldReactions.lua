@@ -22,11 +22,28 @@ local PIXEL = 1 / 512
 
 -- UV regions in Media/WorldReactions.tga (512x512) with 1px inset against bilinear bleed.
 local UV_GLOW = { PIXEL, 1 - PIXEL, PIXEL, 0.25 - PIXEL }
-local UV_RIVULETS = {
-	{ PIXEL, 0.125 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL },        -- primary vertical water rivulet
-	{ 0.125 + PIXEL, 0.25 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- slender meandering trickle
-	{ 0.25 + PIXEL, 0.375 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- pinched wet trail with micro-runs
-	{ 0.375 + PIXEL, 0.50 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }, -- soft translucent water runnel
+local UV_HEADS = {
+	{ PIXEL, 0.125 - PIXEL, 0.25 + PIXEL, 0.50 - PIXEL },        -- heavy gravity-bulged running droplet head
+	{ 0.125 + PIXEL, 0.25 - PIXEL, 0.25 + PIXEL, 0.50 - PIXEL }, -- slender faster running droplet head
+}
+local UV_BEADS = {
+	{ 0.25 + PIXEL, 0.375 - PIXEL, 0.25 + PIXEL, 0.375 - PIXEL }, -- large clear round-oval lens bead
+	{ 0.375 + PIXEL, 0.50 - PIXEL, 0.25 + PIXEL, 0.375 - PIXEL }, -- gravity-slumped oval clinging bead
+	{ 0.25 + PIXEL, 0.375 - PIXEL, 0.375 + PIXEL, 0.50 - PIXEL }, -- compact crisp small lens bead
+	{ 0.375 + PIXEL, 0.50 - PIXEL, 0.375 + PIXEL, 0.50 - PIXEL }, -- paired micro-beads
+}
+local UV_TRAILS = {
+	{ PIXEL, 0.125 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL },
+	{ 0.125 + PIXEL, 0.25 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL },
+	{ 0.25 + PIXEL, 0.375 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL },
+	{ 0.375 + PIXEL, 0.50 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL },
+}
+-- Must stay in sync with TRAIL_CURVES in tools/build_world_reactions.py so droplet heads track their stationary trails.
+local TRAIL_CURVES = {
+	{ 0.24, 1.35 * math.pi, 0.30, 0.09, 3.10 * math.pi, 1.20 },
+	{ -0.26, 1.15 * math.pi, 0.75, 0.08, 2.85 * math.pi, 2.40 },
+	{ 0.22, 1.65 * math.pi, 1.60, -0.09, 3.40 * math.pi, 0.50 },
+	{ -0.23, 1.25 * math.pi, 2.15, 0.08, 2.60 * math.pi, 0.90 },
 }
 local UV_SHEET = { 0.50 + PIXEL, 1 - PIXEL, 0.25 + PIXEL, 0.75 - PIXEL }
 local UV_EMBERS = {
@@ -69,8 +86,8 @@ local ARMOR_MIN_AIRTIME = 0.15
 local SUBMERGED_MIN = 0.35
 local SWIM_MIN = 0.50
 local WATER_COOLDOWN = 4.0
-local WATER_DURATION = 2.55
-local WATER_SHEET_DURATION = 0.72
+local WATER_DURATION = 3.10
+local WATER_SHEET_DURATION = 0.60
 local WATER_DRIP_DELAY = 0.28
 
 local LOGIN_GRACE = 2.0
@@ -78,32 +95,47 @@ local POLL_INTERVAL = 0.15
 local CAMPFIRE_POLL_INTERVAL = 0.50
 local CAMPFIRE_FRAME_INTERVAL = 1 / 30
 
-local mabs, mmax, mmin, mrandom, msin, mPI = math.abs, math.max, math.min, math.random, math.sin, math.pi
+local mabs, mcos, mmax, mmin, mrandom, msin, mPI = math.abs, math.cos, math.max, math.min, math.random, math.sin, math.pi
 local TWO_PI = mPI * 2
 
-local DROP_COUNT = 18
+local DROP_COUNT = 11
+local BEAD_COUNT = 16
 local EMBER_COUNT = 14
--- Stratified camera-lens lanes: { xCenter, xJitter, startYMin, startYMax, alphaBase, combatOnlyEdge }
--- Denser along the outer thirds and upper frame, sparser and lighter across the upper center.
-local RIVULET_LANES = {
-	{ 0.035, 0.020, 0.74, 1.02, 0.76, true },
-	{ 0.075, 0.022, 0.62, 0.96, 0.72, true },
-	{ 0.115, 0.024, 0.80, 1.03, 0.68, true },
-	{ 0.165, 0.028, 0.84, 1.03, 0.64, false },
-	{ 0.225, 0.030, 0.86, 1.03, 0.58, false },
-	{ 0.295, 0.032, 0.88, 1.03, 0.52, false },
-	{ 0.375, 0.034, 0.92, 1.04, 0.40, false },
-	{ 0.460, 0.032, 0.93, 1.04, 0.34, false },
-	{ 0.540, 0.032, 0.93, 1.04, 0.34, false },
-	{ 0.625, 0.034, 0.92, 1.04, 0.40, false },
-	{ 0.705, 0.032, 0.88, 1.03, 0.52, false },
-	{ 0.775, 0.030, 0.86, 1.03, 0.58, false },
-	{ 0.835, 0.028, 0.84, 1.03, 0.64, false },
-	{ 0.885, 0.024, 0.80, 1.03, 0.68, true },
-	{ 0.925, 0.022, 0.62, 0.96, 0.72, true },
-	{ 0.965, 0.020, 0.74, 1.02, 0.76, true },
-	{ 0.055, 0.024, 0.54, 0.84, 0.60, true },
-	{ 0.945, 0.024, 0.54, 0.84, 0.60, true },
+-- Stratified camera-lens lanes for running droplets:
+-- { xCenter, xJitter, startYMin, startYMax, alphaBase, combatOnlyEdge }
+-- Denser and bolder along the outer thirds and upper corners, sparser and lighter across upper center.
+local RUNNER_LANES = {
+	{ 0.045, 0.022, 0.72, 0.96, 0.92, true },
+	{ 0.095, 0.026, 0.58, 0.92, 0.88, true },
+	{ 0.145, 0.014, 0.78, 0.97, 0.82, true },
+	{ 0.225, 0.036, 0.80, 0.98, 0.76, false },
+	{ 0.335, 0.042, 0.84, 0.98, 0.64, false },
+	{ 0.485, 0.048, 0.86, 0.98, 0.54, false },
+	{ 0.655, 0.042, 0.84, 0.98, 0.64, false },
+	{ 0.775, 0.036, 0.80, 0.98, 0.76, false },
+	{ 0.855, 0.014, 0.78, 0.97, 0.82, true },
+	{ 0.905, 0.026, 0.58, 0.92, 0.88, true },
+	{ 0.955, 0.022, 0.72, 0.96, 0.92, true },
+}
+-- Clinging / slowly sliding camera-lens droplets scattered across edges and upper corners.
+-- { xCenter, xJitter, yMin, yMax, sizeMin, sizeMax, alphaBase, combatOnlyEdge }
+local BEAD_ZONES = {
+	{ 0.040, 0.022, 0.26, 0.86, 20, 36, 0.90, true },
+	{ 0.085, 0.026, 0.44, 0.92, 16, 30, 0.86, true },
+	{ 0.125, 0.024, 0.18, 0.68, 18, 32, 0.82, true },
+	{ 0.140, 0.018, 0.66, 0.95, 22, 38, 0.86, true },
+	{ 0.215, 0.040, 0.72, 0.96, 16, 28, 0.78, false },
+	{ 0.305, 0.045, 0.76, 0.97, 14, 24, 0.70, false },
+	{ 0.410, 0.055, 0.80, 0.97, 13, 22, 0.62, false },
+	{ 0.530, 0.055, 0.82, 0.97, 12, 20, 0.58, false },
+	{ 0.650, 0.050, 0.78, 0.97, 14, 25, 0.68, false },
+	{ 0.765, 0.042, 0.72, 0.96, 16, 28, 0.78, false },
+	{ 0.860, 0.018, 0.66, 0.95, 22, 38, 0.86, true },
+	{ 0.875, 0.024, 0.18, 0.68, 18, 32, 0.82, true },
+	{ 0.915, 0.026, 0.44, 0.92, 16, 30, 0.86, true },
+	{ 0.960, 0.022, 0.26, 0.86, 20, 36, 0.90, true },
+	{ 0.065, 0.030, 0.14, 0.42, 16, 28, 0.80, true },
+	{ 0.935, 0.030, 0.14, 0.42, 16, 28, 0.80, true },
 }
 
 local waterState = {}
@@ -113,7 +145,7 @@ local trackedFires = {}
 local mapWorldSizeCache = {}
 
 local overlay, watchTicker
-local glowTexture, sheetTexture, dropPool, emberPool
+local glowTexture, sheetTexture, dropPool, beadPool, emberPool
 local dropsActive = false
 local dropsElapsed = 0
 local dropsCombat = false
@@ -503,18 +535,40 @@ local function EnsureOverlay()
 	sheetTexture:SetTexture(TEXTURE)
 	sheetTexture:SetTexCoord(UV_SHEET[1], UV_SHEET[2], UV_SHEET[3], UV_SHEET[4])
 	sheetTexture:SetBlendMode("BLEND")
-	sheetTexture:SetVertexColor(0.90, 0.96, 1.0, 1.0)
+	sheetTexture:SetVertexColor(0.96, 0.99, 1.0, 1.0)
 	sheetTexture:Hide()
 	sheetShown = false
 
 	dropPool = {}
 	for i = 1, DROP_COUNT do
-		local tex = overlay:CreateTexture(nil, "OVERLAY")
-		tex:SetTexture(TEXTURE)
-		tex:SetBlendMode("BLEND")
-		tex:SetVertexColor(0.90, 0.96, 1.0, 1.0)
-		tex:Hide()
-		dropPool[i] = { texture = tex, shown = false }
+		local trailTex = overlay:CreateTexture(nil, "OVERLAY")
+		trailTex:SetTexture(TEXTURE)
+		trailTex:SetBlendMode("BLEND")
+		trailTex:SetVertexColor(0.96, 0.99, 1.0, 1.0)
+		trailTex:Hide()
+
+		local headTex = overlay:CreateTexture(nil, "OVERLAY", nil, 1)
+		headTex:SetTexture(TEXTURE)
+		headTex:SetBlendMode("BLEND")
+		headTex:SetVertexColor(0.97, 0.99, 1.0, 1.0)
+		headTex:Hide()
+
+		dropPool[i] = {
+			texture = headTex,
+			trailTexture = trailTex,
+			shown = false,
+			trailShown = false,
+		}
+	end
+
+	beadPool = {}
+	for i = 1, BEAD_COUNT do
+		local beadTex = overlay:CreateTexture(nil, "OVERLAY", nil, 1)
+		beadTex:SetTexture(TEXTURE)
+		beadTex:SetBlendMode("BLEND")
+		beadTex:SetVertexColor(0.97, 0.99, 1.0, 1.0)
+		beadTex:Hide()
+		beadPool[i] = { texture = beadTex, shown = false }
 	end
 
 	return overlay
@@ -527,6 +581,19 @@ local function HideWaterTextures()
 			if drop.shown then
 				drop.shown = false
 				drop.texture:Hide()
+			end
+			if drop.trailShown then
+				drop.trailShown = false
+				drop.trailTexture:Hide()
+			end
+		end
+	end
+	if beadPool then
+		for i = 1, #beadPool do
+			local bead = beadPool[i]
+			if bead.shown then
+				bead.shown = false
+				bead.texture:Hide()
 			end
 		end
 	end
@@ -567,32 +634,51 @@ local function StopOverlay()
 	end
 end
 
+-- Analytical strictly-monotonic stick-slip progression on u in [0, 1] plus instantaneous speed factor.
+-- Because |amp| < 1, derivative 1 + amp * sin(...) is always strictly positive (droplets hesitate, never climb upward).
+local function StickSlipProgress(u, freq, phase, amp)
+	local k = freq * TWO_PI
+	local raw = u + (amp / k) * (mcos(phase) - mcos(k * u + phase))
+	local rawEnd = 1.0 + (amp / k) * (mcos(phase) - mcos(k + phase))
+	local progress = Clamp(raw / rawEnd, 0, 1)
+	local speed = 1.0 + amp * msin(k * u + phase)
+	return progress, speed
+end
+
+-- Normalized horizontal centerline offset cx in [-1, 1] matching wet_trail() in build_world_reactions.py.
+local function TrailCenterOffset(curve, v)
+	local env = Clamp(v / 0.14, 0, 1)
+	env = env * env * (3.0 - 2.0 * env)
+	return env * (curve[1] * msin(v * curve[2] + curve[3]) + curve[4] * msin(v * curve[5] + curve[6]))
+end
+
 local function AnimateOverlay(delta)
 	local w, h, uiScale = cachedW, cachedH, cachedUiScale
 	local intensity = cachedIntensity
 	local stillRunning = false
 
-	-- 1. Camera-lens water runoff: receding water film + vertical running rivulets
+	-- 1. Camera-lens water runoff: receding meniscus line, running droplets with stationary wet trails & clinging beads
 	if dropsActive then
 		dropsElapsed = dropsElapsed + delta
 		local combatFactor = dropsCombat and 0.35 or 1.0
 		local anyDrop = false
 
-		-- Brief receding water film gliding down from the top of the camera lens.
+		-- Brief clear water meniscus gliding down from the top of the camera lens as you break the surface.
 		if sheetTexture then
 			local sp = dropsElapsed / WATER_SHEET_DURATION
 			if sp < 1 then
 				anyDrop = true
-				local ease = 1.0 - (1.0 - sp) * (1.0 - sp)
-				local sheetHeight = h * (0.46 + 0.14 * sp)
-				-- Bottom edge starts near upper lens (y = 0.78) and slides cleanly down off-screen.
-				local bottomY = (0.78 - 0.84 * ease) * h
-				local fadeIn = msin(Clamp(sp / 0.16, 0, 1) * mPI * 0.5)
-				local fadeOut = (1.0 - sp) ^ 1.15
-				local sheetCombat = dropsCombat and 0.25 or 1.0
+				local ease = 1.0 - (1.0 - sp) ^ 1.55
+				local sheetHeight = h * 0.56
+				-- Meniscus line sits at v = 0.34 from top (66% above bottom of sheet); starts near top edge and clears bottom.
+				local waterlineY = (0.98 - 1.18 * ease) * h
+				local bottomY = waterlineY - sheetHeight * 0.66
+				local fadeIn = msin(Clamp(sp / 0.14, 0, 1) * mPI * 0.5)
+				local fadeOut = (1.0 - sp) ^ 1.25
+				local sheetCombat = dropsCombat and 0.24 or 1.0
 				sheetTexture:SetSize(w * 1.04, sheetHeight)
 				sheetTexture:SetPoint("BOTTOM", overlay, "BOTTOM", 0, bottomY)
-				sheetTexture:SetAlpha(0.62 * fadeIn * fadeOut * intensity * sheetCombat)
+				sheetTexture:SetAlpha(0.72 * fadeIn * fadeOut * intensity * sheetCombat)
 				if not sheetShown then
 					sheetShown = true
 					sheetTexture:Show()
@@ -603,37 +689,73 @@ local function AnimateOverlay(delta)
 			end
 		end
 
+		-- Running camera-lens droplets with pixel-locked stationary wet trails revealed behind each head.
 		for i = 1, #dropPool do
 			local drop = dropPool[i]
 			if drop.active then
 				local t = dropsElapsed - drop.delay
-				if t >= 0 and t < drop.duration then
+				local trailEnd = drop.duration + drop.trailLinger
+				if t >= 0 and t < trailEnd then
 					anyDrop = true
-					local p = t / drop.duration
-					local fadeIn = Clamp(p / 0.10, 0, 1)
-					local fadeOut = p > 0.66 and Clamp((1 - p) / 0.34, 0, 1) or 1
+					local headP = Clamp(t / drop.duration, 0, 1)
 					local runT = mmax(0, t - drop.cling)
-					local runNorm = runT / mmax(0.2, drop.duration - drop.cling)
-					-- Brisk initial gravity runoff with subtle stick-slip hesitation.
-					local gravity = 1.0 - (1.0 - runNorm) ^ 1.65
-					local slip = 0.016 * msin(runNorm * drop.slipFreq * mPI + drop.phase) * (1.0 - runNorm)
-					local fall = drop.travel * Clamp(gravity + slip, 0, 1.04)
-					local headY = drop.startY - fall
-					-- Top of the wet trail lingers near startY while the head runs ahead, then drains down.
-					local tailLag = Clamp((runNorm - 0.12) / 0.88, 0, 1)
-					local tailY = drop.startY - fall * (0.42 * tailLag * tailLag)
-					local minLen = mmax(drop.maxLen * 0.38, drop.width * 3.2) * uiScale
-					local maxLen = drop.maxLen * uiScale
-					local streakLen = Clamp((tailY - headY) * h, minLen, maxLen)
-					local width = drop.width * uiScale * (1.0 - 0.28 * p)
-					local x = Clamp(drop.x + drop.drift * runNorm, 0.01, 0.99)
+					local runDur = mmax(0.25, drop.duration - drop.cling)
+					local runNorm = Clamp(runT / runDur, 0, 1)
+					-- Gravity acceleration combined with strictly-monotonic stick-slip hesitation.
+					local accel = runNorm ^ 1.22
+					local slipProg, speed = StickSlipProgress(accel, drop.slipFreq, drop.phase, drop.slipAmp)
+					local fall = drop.travel * slipProg
+					local headBottomY = drop.startY - fall
 
-					drop.texture:SetSize(width, streakLen)
-					drop.texture:SetPoint("BOTTOM", overlay, "BOTTOMLEFT", x * w, headY * h)
-					drop.texture:SetAlpha(drop.alpha * fadeIn * fadeOut * intensity * combatFactor)
-					if not drop.shown then
-						drop.shown = true
-						drop.texture:Show()
+					-- Natural droplet proportion: slightly fuller while clinging, mildly elongated when sliding fast.
+					local clingStretch = runT <= 0 and 0.88 or (0.94 + 0.14 * Clamp(speed - 0.65, 0, 1.0))
+					local shrink = 1.0 - 0.16 * headP
+					local headW = drop.headW * uiScale * shrink * (1.0 / (clingStretch ^ 0.35))
+					local headH = drop.headH * uiScale * shrink * clingStretch
+
+					local trailW = drop.trailW * uiScale
+					local neckY = headBottomY + (headH * 0.76) / h
+					local trailDist = drop.startY - neckY
+					local vFrac = Clamp(trailDist / drop.trailSpan, 0, 1)
+					local curve = TRAIL_CURVES[drop.trailVariant]
+					local xOffsetPx = TrailCenterOffset(curve, vFrac) * (trailW * 0.5)
+					local headX = Clamp(drop.x * w + xOffsetPx, headW * 0.5, w - headW * 0.5)
+
+					-- Render running droplet head while within its run duration.
+					if t < drop.duration and headBottomY * h + headH > -10 then
+						local fadeIn = Clamp(headP / 0.08, 0, 1)
+						local fadeOut = headP > 0.72 and Clamp((1 - headP) / 0.28, 0, 1) or 1
+						drop.texture:SetSize(headW, headH)
+						drop.texture:SetPoint("BOTTOM", overlay, "BOTTOMLEFT", headX, headBottomY * h)
+						drop.texture:SetAlpha(drop.alpha * fadeIn * fadeOut * intensity * combatFactor)
+						if not drop.shown then
+							drop.shown = true
+							drop.texture:Show()
+						end
+					elseif drop.shown then
+						drop.shown = false
+						drop.texture:Hide()
+					end
+
+					-- Reveal stationary wet trail behind the droplet head using SetTexCoord so micro-beads stay fixed on the lens.
+					local trailHeightPx = trailDist * h
+					if trailHeightPx >= 4 then
+						local uv = UV_TRAILS[drop.trailVariant]
+						local vEnd = uv[3] + Clamp(vFrac, 0.01, 1.0) * (uv[4] - uv[3])
+						drop.trailTexture:SetTexCoord(uv[1], uv[2], uv[3], vEnd)
+						local trailFadeIn = Clamp((trailHeightPx - 4) / 22, 0, 1)
+						local trailP = t / trailEnd
+						local trailEvap = trailP > 0.52 and Clamp((1 - trailP) / 0.48, 0, 1) or 1
+						drop.trailTexture:SetSize(trailW, trailHeightPx)
+						drop.trailTexture:SetPoint("TOP", overlay, "BOTTOMLEFT", drop.x * w, drop.startY * h)
+						drop.trailTexture:SetAlpha(drop.alpha * 0.82 * trailFadeIn * trailEvap * intensity * combatFactor)
+						if not drop.trailShown then
+							drop.trailShown = true
+							drop.trailTexture:Show()
+						end
+					elseif drop.trailShown then
+						drop.trailShown = false
+						drop.trailTexture:Hide()
 					end
 				elseif t < 0 then
 					anyDrop = true
@@ -641,17 +763,76 @@ local function AnimateOverlay(delta)
 						drop.shown = false
 						drop.texture:Hide()
 					end
-				elseif drop.shown then
+					if drop.trailShown then
+						drop.trailShown = false
+						drop.trailTexture:Hide()
+					end
+				else
+					if drop.shown then
+						drop.shown = false
+						drop.texture:Hide()
+					end
+					if drop.trailShown then
+						drop.trailShown = false
+						drop.trailTexture:Hide()
+					end
+				end
+			else
+				if drop.shown then
 					drop.shown = false
 					drop.texture:Hide()
 				end
-			elseif drop.shown then
-				drop.shown = false
-				drop.texture:Hide()
+				if drop.trailShown then
+					drop.trailShown = false
+					drop.trailTexture:Hide()
+				end
 			end
 		end
 
-		if anyDrop and dropsElapsed < WATER_DURATION + 0.6 then
+		-- Clinging and slowly creeping lens beads that linger and gently evaporate on the glass.
+		if beadPool then
+			for i = 1, #beadPool do
+				local bead = beadPool[i]
+				if bead.active then
+					local t = dropsElapsed - bead.delay
+					if t >= 0 and t < bead.duration then
+						anyDrop = true
+						local p = t / bead.duration
+						local fadeIn = Clamp(p / 0.10, 0, 1)
+						local fadeOut = p > 0.58 and Clamp((1 - p) / 0.42, 0, 1) or 1
+						local slideT = mmax(0, t - bead.cling)
+						local slideNorm = Clamp(slideT / mmax(0.25, bead.duration - bead.cling), 0, 1)
+						local creep = bead.creep * (slideNorm * slideNorm)
+						local y = bead.startY - creep
+						local shrink = 1.0 - 0.18 * Clamp((p - 0.55) / 0.45, 0, 1)
+						local stretch = 1.0 + (bead.creep > 0.03 and 0.14 * slideNorm or 0)
+						local bw = bead.size * uiScale * shrink
+						local bh = bw * stretch
+						bead.texture:SetSize(bw, bh)
+						bead.texture:SetPoint("CENTER", overlay, "BOTTOMLEFT", bead.x * w, y * h)
+						bead.texture:SetAlpha(bead.alpha * fadeIn * fadeOut * intensity * combatFactor)
+						if not bead.shown then
+							bead.shown = true
+							bead.texture:Show()
+						end
+					elseif t < 0 then
+						anyDrop = true
+						if bead.shown then
+							bead.shown = false
+							bead.texture:Hide()
+						end
+					elseif bead.shown then
+						bead.shown = false
+						bead.texture:Hide()
+					end
+				elseif bead.shown then
+					bead.shown = false
+					bead.texture:Hide()
+				end
+			end
+		end
+
+		if anyDrop and dropsElapsed < WATER_DURATION + 0.7 then
 			stillRunning = true
 		else
 			dropsActive = false
@@ -784,30 +965,61 @@ function WorldReactions.TriggerWater(isPreview)
 	end
 
 	for i, drop in ipairs(dropPool) do
-		local lane = RIVULET_LANES[i] or RIVULET_LANES[((i - 1) % #RIVULET_LANES) + 1]
+		local lane = RUNNER_LANES[i] or RUNNER_LANES[((i - 1) % #RUNNER_LANES) + 1]
 		local edgeOnly = lane[6]
 		drop.active = (not dropsCombat) or edgeOnly
-		drop.x = Clamp(lane[1] + (mrandom() * 2 - 1) * lane[2], 0.015, 0.985)
+		drop.x = Clamp(lane[1] + (mrandom() * 2 - 1) * lane[2], 0.02, 0.98)
 		drop.startY = lane[3] + mrandom() * (lane[4] - lane[3])
-		drop.delay = mrandom() * 0.22
-		drop.cling = 0.02 + mrandom() * 0.12
-		drop.duration = 1.70 + mrandom() * 0.75
-		drop.travel = 0.52 + mrandom() * 0.34
-		drop.width = 24 + mrandom() * 20
-		drop.maxLen = 220 + mrandom() * 200
-		drop.drift = (mrandom() - 0.5) * 0.014
-		drop.slipFreq = 2.0 + mrandom() * 1.8
+		-- Staggered breakaway: first wave starts right behind the receding meniscus, second wave breaks free shortly after.
+		drop.delay = (i % 3 == 0) and (0.22 + mrandom() * 0.28) or (0.02 + mrandom() * 0.16)
+		drop.cling = 0.04 + mrandom() * 0.20
+		drop.duration = 1.75 + mrandom() * 0.85
+		drop.trailLinger = 0.34 + mrandom() * 0.28
+		drop.travel = 0.46 + mrandom() * 0.40
+		drop.trailSpan = mmax(drop.travel * (1.02 + mrandom() * 0.16), 0.42)
+		local headW = 28 + mrandom() * 18
+		drop.headW = headW
+		drop.headH = headW * (1.88 + mrandom() * 0.26)
+		drop.trailW = headW * 1.28
+		drop.slipFreq = 1.5 + mrandom() * 1.5
+		drop.slipAmp = 0.26 + mrandom() * 0.18
 		drop.phase = mrandom() * TWO_PI
-		drop.alpha = Clamp(lane[5] + (mrandom() - 0.5) * 0.18, 0.24, 0.95)
-		local uv = UV_RIVULETS[((i - 1) % #UV_RIVULETS) + 1]
-		if mrandom() < 0.5 then
-			drop.texture:SetTexCoord(uv[2], uv[1], uv[3], uv[4])
-		else
-			drop.texture:SetTexCoord(uv[1], uv[2], uv[3], uv[4])
-		end
+		drop.alpha = Clamp(lane[5] + (mrandom() - 0.5) * 0.12, 0.50, 0.98)
+		drop.trailVariant = ((i - 1) % #UV_TRAILS) + 1
+
+		-- Keep lighting direction consistent (upper-left skylight) across all heads, trails and beads.
+		local headUV = UV_HEADS[((i - 1) % #UV_HEADS) + 1]
+		drop.texture:SetTexCoord(headUV[1], headUV[2], headUV[3], headUV[4])
 		if drop.shown then
 			drop.shown = false
 			drop.texture:Hide()
+		end
+		if drop.trailShown then
+			drop.trailShown = false
+			drop.trailTexture:Hide()
+		end
+	end
+
+	if beadPool then
+		for i, bead in ipairs(beadPool) do
+			local zone = BEAD_ZONES[i] or BEAD_ZONES[((i - 1) % #BEAD_ZONES) + 1]
+			local edgeOnly = zone[8]
+			bead.active = (not dropsCombat) or edgeOnly
+			bead.x = Clamp(zone[1] + (mrandom() * 2 - 1) * zone[2], 0.015, 0.985)
+			bead.startY = zone[3] + mrandom() * (zone[4] - zone[3])
+			bead.delay = mrandom() * 0.14
+			bead.cling = 0.40 + mrandom() * 0.70
+			bead.duration = 1.75 + mrandom() * 1.10
+			-- Roughly half cling almost in place; the other half creep slowly down a short distance.
+			bead.creep = (i % 2 == 0) and (0.04 + mrandom() * 0.08) or (mrandom() * 0.012)
+			bead.size = zone[5] + mrandom() * (zone[6] - zone[5])
+			bead.alpha = Clamp(zone[7] + (mrandom() - 0.5) * 0.14, 0.40, 0.92)
+			local beadUV = UV_BEADS[((i - 1) % #UV_BEADS) + 1]
+			bead.texture:SetTexCoord(beadUV[1], beadUV[2], beadUV[3], beadUV[4])
+			if bead.shown then
+				bead.shown = false
+				bead.texture:Hide()
+			end
 		end
 	end
 

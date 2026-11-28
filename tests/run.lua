@@ -16606,7 +16606,7 @@ end)()
 	local combatFlag = false
 	UnitAffectingCombat = function() return combatFlag end
 
-	-- Trigger water runoff preview & verify receding lens sheet + slender downward-running rivulets
+	-- Trigger water runoff preview & verify receding lens meniscus, running droplets with stationary trails & clinging beads
 	wr.TriggerWater(true)
 	local ov = _G.ForeverPlusWorldReactions
 	assert(ov and ov:IsShown() and wr.GetState().dropsActive, "water trigger shows click-through overlay")
@@ -16616,12 +16616,19 @@ end)()
 	assert(#playedFiles == 2, "drip follow-up sound played")
 
 	local dropPoolRef = uv(wr.TriggerWater, "dropPool")
+	local beadPoolRef = uv(wr.TriggerWater, "beadPool")
 	local sheetTexRef = uv(wr.TriggerWater, "sheetTexture")
-	assert(sheetTexRef, "receding lens water sheet texture created")
+	assert(sheetTexRef, "receding lens water meniscus texture created")
+	assert(beadPoolRef and #beadPoolRef > 0, "clinging lens bead pool created")
 	local recordedSize, recordedY = {}, {}
+	local recordedTrailTopY, recordedTrailH, recordedTrailVEnd = {}, {}, {}
 	for i, d in ipairs(dropPoolRef) do
+		assert(d.trailTexture, "each running droplet has a paired stationary wet trail texture")
 		d.texture.SetSize = function(_, w, h) recordedSize[i] = { w = w, h = h } end
 		d.texture.SetPoint = function(_, _, _, _, _, y) recordedY[i] = y end
+		d.trailTexture.SetSize = function(_, _, h) recordedTrailH[i] = h end
+		d.trailTexture.SetPoint = function(_, _, _, _, _, y) recordedTrailTopY[i] = y end
+		d.trailTexture.SetTexCoord = function(_, _, _, _, vEnd) recordedTrailVEnd[i] = vEnd end
 	end
 	local sheetY = nil
 	sheetTexRef.SetPoint = function(_, _, _, _, _, y) sheetY = y end
@@ -16629,59 +16636,92 @@ end)()
 	for _ = 1, 3 do
 		ov:GetScript("OnUpdate")(ov, 0.1)
 	end
-	assert(ov:IsShown() and sheetTexRef:IsShown(), "receding water sheet is visible right after surfacing")
+	assert(ov:IsShown() and sheetTexRef:IsShown(), "receding water meniscus is visible right after surfacing")
 	local firstSheetY = sheetY
-	local firstY = {}
-	local shownCount = 0
+	local shownBeads = 0
+	for _, b in ipairs(beadPoolRef) do
+		if b.texture:IsShown() then shownBeads = shownBeads + 1 end
+	end
+	assert(shownBeads > 0, "clinging camera-lens water beads appear right after surfacing")
+
+	-- Advance slightly so running droplets are well underway and leaving revealed trails
+	for _ = 1, 3 do
+		ov:GetScript("OnUpdate")(ov, 0.1)
+	end
+	assert(sheetY and firstSheetY and sheetY < firstSheetY, "receding water meniscus slides downward across the lens")
+	local firstY, firstTrailTop, firstTrailV = {}, {}, {}
+	local shownCount, shownTrails = 0, 0
 	for i, d in ipairs(dropPoolRef) do
 		if d.texture:IsShown() then
 			shownCount = shownCount + 1
 			firstY[i] = recordedY[i]
-			assert(recordedSize[i] and recordedSize[i].h > recordedSize[i].w * 2.5,
-				"rivulet renders as a slender vertical streak rather than a round bubble")
+			assert(recordedSize[i] and recordedSize[i].h > recordedSize[i].w * 1.4 and recordedSize[i].h < recordedSize[i].w * 2.8,
+				"running droplet head keeps natural lens-droplet proportions rather than an overstretched needle")
+		end
+		if d.trailTexture:IsShown() then
+			shownTrails = shownTrails + 1
+			firstTrailTop[i] = recordedTrailTopY[i]
+			firstTrailV[i] = recordedTrailVEnd[i]
 		end
 	end
-	assert(shownCount > 0, "at least one water rivulet is visible after 0.3s")
-	for _ = 1, 2 do
-		ov:GetScript("OnUpdate")(ov, 0.1)
-	end
-	assert(sheetY and firstSheetY and sheetY < firstSheetY, "receding water sheet slides downward across the lens")
-	local movedDown = false
-	for i, prevY in pairs(firstY) do
-		if dropPoolRef[i].texture:IsShown() and recordedY[i] and recordedY[i] < prevY then
-			movedDown = true
-			break
-		end
-	end
-	assert(movedDown, "water rivulets run downward over time")
-	-- After WATER_SHEET_DURATION (0.72s) the receding sheet hides while rivulets finish running down
+	assert(shownCount > 0, "at least one running droplet is visible after 0.6s")
+
+	-- Advance another 0.3s: sheet has hidden (> 0.60s), running droplets move strictly downward and trails stay anchored at startY
 	for _ = 1, 3 do
 		ov:GetScript("OnUpdate")(ov, 0.1)
 	end
-	assert(not sheetTexRef:IsShown(), "receding water sheet finishes and hides before rivulets end")
-	for _ = 1, 30 do
+	assert(not sheetTexRef:IsShown(), "receding water meniscus finishes and hides before droplets end")
+	local movedDown, trailAnchoredAndRevealed = false, false
+	for i, prevY in pairs(firstY) do
+		if dropPoolRef[i].texture:IsShown() and recordedY[i] then
+			assert(recordedY[i] <= prevY + 1e-4, "stick-slip running droplet never climbs upward")
+			if recordedY[i] < prevY - 0.5 then
+				movedDown = true
+			end
+		end
+		if dropPoolRef[i].trailTexture:IsShown() and firstTrailTop[i] and recordedTrailTopY[i] then
+			assert(math.abs(recordedTrailTopY[i] - firstTrailTop[i]) < 1e-4,
+				"wet trail top remains stationary on the camera lens while droplet runs down")
+			if firstTrailV[i] and recordedTrailVEnd[i] and recordedTrailVEnd[i] > firstTrailV[i] then
+				trailAnchoredAndRevealed = true
+			end
+		end
+	end
+	assert(movedDown, "running water droplets move downward over time")
+	assert(shownTrails > 0 and trailAnchoredAndRevealed,
+		"stationary wet trails reveal progressively via SetTexCoord behind running droplets")
+
+	for _ = 1, 35 do
 		local fn = ov:GetScript("OnUpdate")
 		if fn then fn(ov, 0.1) end
 	end
 	assert(not wr.GetState().dropsActive and not ov:IsShown() and not ov:GetScript("OnUpdate"),
 		"overlay hides and clears OnUpdate once water runoff finishes")
 
-	-- Surfacing in combat restricts active rivulets to the outer screen edges
+	-- Surfacing in combat restricts both running droplets and clinging beads to the outer screen edges
 	combatFlag = true
 	wr:Apply()
 	wr.TriggerWater(false)
-	local activeCombatDrops = 0
+	local activeCombatDrops, activeCombatBeads = 0, 0
 	for _, d in ipairs(dropPoolRef) do
 		if d.active then
 			activeCombatDrops = activeCombatDrops + 1
-			assert(d.x <= 0.16 or d.x >= 0.84, "combat surfacing keeps rivulets near outer edges: x=" .. tostring(d.x))
+			assert(d.x <= 0.16 or d.x >= 0.84, "combat surfacing keeps running droplets near outer edges: x=" .. tostring(d.x))
+		end
+	end
+	for _, b in ipairs(beadPoolRef) do
+		if b.active then
+			activeCombatBeads = activeCombatBeads + 1
+			assert(b.x <= 0.16 or b.x >= 0.84, "combat surfacing keeps clinging beads near outer edges: x=" .. tostring(b.x))
 		end
 	end
 	assert(activeCombatDrops > 0 and activeCombatDrops < #dropPoolRef,
-		"combat surfacing uses a reduced outer-edge subset of rivulets")
+		"combat surfacing uses a reduced outer-edge subset of running droplets")
+	assert(activeCombatBeads > 0 and activeCombatBeads < #beadPoolRef,
+		"combat surfacing uses a reduced outer-edge subset of clinging beads")
 	combatFlag = false
 	wr:Apply()
-	for _ = 1, 35 do
+	for _ = 1, 40 do
 		local fn = ov:GetScript("OnUpdate")
 		if fn then fn(ov, 0.1) end
 	end
@@ -16720,23 +16760,31 @@ end)()
 	cozyAura = { spellId = 7353 }
 	ns.Secret = savedSecret
 
-	-- Disabling waterDrops while water runoff and campfire glow are both active hides water textures immediately
+	-- Disabling waterDrops while water runoff and campfire glow are both active hides all water textures immediately
 	pendingAfter = {}
 	playedFiles = {}
 	wr.TriggerWater(false)
-	for _ = 1, 3 do
+	for _ = 1, 4 do
 		ov:GetScript("OnUpdate")(ov, 0.1)
 	end
 	assert(wr.GetState().dropsActive and wr.GetState().campfireDesired, "both water runoff and campfire active together")
-	local anyDropShown = false
+	local anyDropShown, anyBeadShown = false, false
 	for _, d in ipairs(dropPoolRef) do
 		if d.texture:IsShown() then anyDropShown = true break end
 	end
-	assert(anyDropShown and sheetTexRef:IsShown(), "water rivulet and sheet textures visible during animation")
+	for _, b in ipairs(beadPoolRef) do
+		if b.texture:IsShown() then anyBeadShown = true break end
+	end
+	assert(anyDropShown and anyBeadShown and sheetTexRef:IsShown(),
+		"running droplets, clinging beads and water meniscus visible during animation")
 	ns.SetOption("WorldReactions", "waterDrops", false)
-	assert(not sheetTexRef:IsShown(), "disabling waterDrops hides receding water sheet immediately")
+	assert(not sheetTexRef:IsShown(), "disabling waterDrops hides receding water meniscus immediately")
 	for _, d in ipairs(dropPoolRef) do
-		assert(not d.texture:IsShown(), "disabling waterDrops hides all rivulet textures immediately even while campfire stays active")
+		assert(not d.texture:IsShown() and not d.trailTexture:IsShown(),
+			"disabling waterDrops hides all running droplet and wet trail textures immediately while campfire stays active")
+	end
+	for _, b in ipairs(beadPoolRef) do
+		assert(not b.texture:IsShown(), "disabling waterDrops hides all clinging bead textures immediately")
 	end
 	if pendingAfter[1] then pendingAfter[1]() end
 	assert(#playedFiles == 1, "disabling waterDrops cancels scheduled follow-up drip sound")

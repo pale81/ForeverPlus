@@ -37,6 +37,7 @@ local Items = ns:NewModule("Items", {
 		junk = {},
 		keep = {}, -- grey items the player unmarked: never sold
 		junkPerCharacter = false,
+		markWorseReward = true,
 	},
 	charDefaults = {
 		junk = {},
@@ -1967,7 +1968,7 @@ end
 
 local function UsesGearScores()
 	local db = Items.db
-	return db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade
+	return db.upgradeArrow or db.upgradePopup or db.upgradeScore or db.rewardUpgrade or db.markWorseReward
 end
 
 -- Coalesce bursts of talent and level changes.
@@ -2995,6 +2996,167 @@ local function MarkRewardUpgrades()
 	end
 end
 
+-- Automatically mark soulbound quest rewards for sale when they are strictly worse than
+-- equipped gear (same rating as the red arrow, independent of arrow visibility).
+do
+	local BIND_ON_PICKUP = Enum.ItemBind and Enum.ItemBind.OnAcquire or 1
+	local onUseLineType = Enum.TooltipDataLineType and Enum.TooltipDataLineType.ItemSpellTriggerOnUse
+	local offeredQuest, pendingQuestReward
+
+	local function HasOnUseEffect(link)
+		local spell = type(C_Item.GetItemSpell) == "function" and C_Item.GetItemSpell(link)
+		if type(spell) == "string" and not ns.Secret(spell) and spell ~= "" then
+			return true
+		end
+		if onUseLineType and type(C_TooltipInfo.GetHyperlink) == "function" then
+			local data = C_TooltipInfo.GetHyperlink(link)
+			for _, line in ipairs(data and data.lines or {}) do
+				if line.type == onUseLineType then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	local function CheckWorseQuestReward(link, attempt)
+		if not Items.db or not Items.db.markWorseReward or type(link) ~= "string" or ns.Secret(link)
+			or not C_Item.IsEquippableItem(link) then
+			return false
+		end
+		local _, _, quality, _, _, _, _, _, equipLoc, _, sellPrice, _, _, bindType = C_Item.GetItemInfo(link)
+		if quality == nil or sellPrice == nil or bindType == nil then
+			if (attempt or 0) < 3 then
+				C_Item.RequestLoadItemDataByID(link)
+				ns.After("Items: worse quest reward retry", 0.5, function()
+					CheckWorseQuestReward(link, (attempt or 0) + 1)
+				end)
+			end
+			return nil
+		end
+		if quality == Enum.ItemQuality.Poor or sellPrice <= 0 or bindType ~= BIND_ON_PICKUP then
+			return false
+		end
+		local state = LinkComparisonState(link)
+		if state == nil then
+			if (attempt or 0) < 3 then
+				C_Item.RequestLoadItemDataByID(link)
+				ns.After("Items: worse quest reward retry", 0.5, function()
+					CheckWorseQuestReward(link, (attempt or 0) + 1)
+				end)
+			end
+			return nil
+		end
+		if state ~= "worse" then
+			return false
+		end
+		if equipLoc == "INVTYPE_TRINKET" then
+			local score = CompareScores(link)
+			if not score or score <= 0 then
+				return false
+			end
+		end
+		if HasOnUseEffect(link) then
+			return false
+		end
+		Items.MarkLinkJunk(link)
+		return true
+	end
+
+	local function SnapshotOfferedQuest()
+		local questID = type(GetQuestID) == "function" and ns.Number(GetQuestID()) or nil
+		local choices, rewards = {}, {}
+		for i = 1, ns.Number(GetNumQuestChoices(), 0) do
+			choices[i] = GetQuestItemLink("choice", i)
+		end
+		for i = 1, ns.Number(GetNumQuestRewards(), 0) do
+			rewards[i] = GetQuestItemLink("reward", i)
+		end
+		offeredQuest = { questID = questID, choices = choices, rewards = rewards }
+	end
+
+	local function OnGetQuestReward(choice)
+		pendingQuestReward = nil
+		if not Items.db or not Items.db.markWorseReward then
+			return
+		end
+		local questID = type(GetQuestID) == "function" and ns.Number(GetQuestID()) or nil
+		local snapshot = offeredQuest
+			and (not questID or questID == 0 or not offeredQuest.questID or offeredQuest.questID == questID)
+			and offeredQuest or nil
+		if (not questID or questID == 0) and snapshot then
+			questID = snapshot.questID
+		end
+		local liveChoices = ns.Number(GetNumQuestChoices(), 0)
+		local numChoices = liveChoices > 0 and liveChoices or (snapshot and #snapshot.choices or 0)
+		local picked = ns.Number(choice)
+		if (not picked or picked == 0) and numChoices == 1 then
+			picked = 1
+		end
+		local links = {}
+		if picked and picked >= 1 and picked <= numChoices then
+			local link = (liveChoices > 0 and GetQuestItemLink("choice", picked))
+				or (snapshot and snapshot.choices[picked])
+			if type(link) == "string" and not ns.Secret(link) then
+				links[#links + 1] = link
+			end
+		end
+		local liveRewards = ns.Number(GetNumQuestRewards(), 0)
+		if liveRewards > 0 then
+			for i = 1, liveRewards do
+				local link = GetQuestItemLink("reward", i) or (snapshot and snapshot.rewards[i])
+				if type(link) == "string" and not ns.Secret(link) then
+					links[#links + 1] = link
+				end
+			end
+		elseif snapshot then
+			for _, link in ipairs(snapshot.rewards) do
+				if type(link) == "string" and not ns.Secret(link) then
+					links[#links + 1] = link
+				end
+			end
+		end
+		if #links > 0 then
+			pendingQuestReward = { questID = questID, links = links, time = GetTime() }
+		end
+	end
+
+	local function OnQuestTurnedIn(_, _, questID)
+		offeredQuest = nil
+		local pending = pendingQuestReward
+		if not pending then
+			return
+		end
+		if GetTime() - pending.time > 10 then
+			pendingQuestReward = nil
+			return
+		end
+		if pending.questID and pending.questID ~= 0 and questID and pending.questID ~= questID then
+			return
+		end
+		pendingQuestReward = nil
+		for _, link in ipairs(pending.links) do
+			CheckWorseQuestReward(link)
+		end
+	end
+
+	local function OnQuestLootReceived(_, _, _, itemLink)
+		CheckWorseQuestReward(itemLink)
+	end
+
+	Items.questRewardJunk = {
+		Snapshot = SnapshotOfferedQuest,
+		OnReward = OnGetQuestReward,
+		OnTurnIn = OnQuestTurnedIn,
+		OnLoot = OnQuestLootReceived,
+		Reset = function()
+			offeredQuest, pendingQuestReward = nil, nil
+		end,
+	}
+	Items.OnGetQuestReward = OnGetQuestReward
+	Items.CheckWorseQuestReward = CheckWorseQuestReward
+end
+
 ---------------------------------------------------------------------------
 -- Fast loot: take every slot as soon as the loot window is ready
 ---------------------------------------------------------------------------
@@ -3406,6 +3568,12 @@ function Items:Refresh()
 		UpdateAllBags()
 		UpdateLootUpgrades()
 	end)
+	self:ToggleEvent("QUEST_COMPLETE", db.markWorseReward, ns.Measured("Items: offered quest rewards", Items.questRewardJunk.Snapshot))
+	self:ToggleEvent("QUEST_TURNED_IN", db.markWorseReward, ns.Measured("Items: worse quest rewards", Items.questRewardJunk.OnTurnIn))
+	self:ToggleEvent("QUEST_LOOT_RECEIVED", db.markWorseReward, ns.Measured("Items: quest loot reward", Items.questRewardJunk.OnLoot))
+	if not db.markWorseReward then
+		Items.questRewardJunk.Reset()
+	end
 end
 
 function Items:OnInitialize()
@@ -3455,6 +3623,7 @@ function Items:OnLogin()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", InvalidateBagLayout)
 	hooksecurefunc("QuestInfo_Display", ns.Measured("Items: best reward", MarkBestReward))
 	hooksecurefunc("QuestInfo_Display", ns.Measured("Items: reward upgrades", MarkRewardUpgrades))
+	hooksecurefunc("GetQuestReward", ns.Measured("Items: quest reward turn-in", Items.questRewardJunk.OnReward))
 	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ns.Measured("Items: tooltip rating", AddScoreLine))
 	-- The character window also uses these weights, even with all item ratings switched off.
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED",
@@ -3506,6 +3675,7 @@ Items.options = {
 	} },
 	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
 	{ key = "junkPerCharacter", type = "toggle", name = L.ITEMS_JUNK_PER_CHAR, desc = L.ITEMS_JUNK_PER_CHAR_DESC },
+	{ key = "markWorseReward", type = "toggle", name = L.ITEMS_MARK_WORSE_REWARD, desc = L.ITEMS_MARK_WORSE_REWARD_DESC, new = true },
 	{ key = "junkList", type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
 		Items:ShowJunkMenu(button)
 	end },

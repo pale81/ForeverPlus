@@ -14,6 +14,7 @@ local teleport
 local MIN_TELEPORT_CAST_MS = 2000
 local TELEPORT_TRANSITION = 0.5
 local PEEK_INTERVAL = 0.1
+local SOFT_HARD_CHECK_INTERVAL = 0.3
 local MINIMAP_LEAVE_GRACE = 0.25
 local BAG_KEY_PEEK_SECONDS = 3
 local peek, softHidden, peekArea, peekKeepArea, bagsBarArea, bagKeyUntil, bagJustClosed, peekDriver
@@ -22,6 +23,7 @@ local minimapHiddenByWanderlust = false
 local escGuard, escHidingInternal, escRestoredAt, hidingUI
 local UpdateHiddenUI, CheckPeek, SyncPeek, RestoreUI, StartTimer, SoftBlocked, SyncEscGuard, SetMinimapHidden
 local peekDriverShown
+local softHardCheckElapsed = 0
 
 local SetInterfaceVisibility = ns.Measured("Wanderlust: SetUIVisibility", function(visible)
 	hidingUI = not visible
@@ -311,24 +313,20 @@ local function RecordSoftEntry(bucket, frame, qol)
 	bucket[frame] = { restore = actual, show = shown }
 end
 
-local function CollectIndependentOverlays(parent, bucket, visited, qol, depth)
-	if not parent or visited[parent] or IsForbiddenSafe(parent) then
-		return
-	end
-	visited[parent] = true
-	if parent.GetRegions then
-		local regions = { parent:GetRegions() }
-		for _, region in ipairs(regions) do
-			if CanFadeFrame(region) and IgnoresParentAlpha(region) then
-				RecordSoftEntry(bucket, region, qol)
-			end
+local CollectIndependentOverlays
+
+local function CollectIndependentRegions(bucket, qol, ...)
+	for i = 1, select("#", ...) do
+		local region = select(i, ...)
+		if CanFadeFrame(region) and IgnoresParentAlpha(region) then
+			RecordSoftEntry(bucket, region, qol)
 		end
 	end
-	if depth and depth <= 0 then return end
-	if not parent.GetChildren then return end
-	local nextDepth = depth and (depth - 1) or nil
-	local children = { parent:GetChildren() }
-	for _, child in ipairs(children) do
+end
+
+local function CollectIndependentChildren(bucket, visited, qol, nextDepth, ...)
+	for i = 1, select("#", ...) do
+		local child = select(i, ...)
 		if CanFadeFrame(child) and IgnoresParentAlpha(child) then
 			RecordSoftEntry(bucket, child, qol)
 		end
@@ -338,56 +336,125 @@ local function CollectIndependentOverlays(parent, bucket, visited, qol, depth)
 	end
 end
 
-local function RecordSoftFrameAndOverlays(state, frame, visited)
-	if not CanFadeFrame(frame) or state.frames[frame] ~= nil then return end
-	state.frames[frame] = ns.Number(frame:GetAlpha(), 1)
-	frame:SetAlpha(0)
-	local independent = {}
-	-- Shallow scan (depth 1) catches direct independent overlays without crawling deep aura/button subtrees.
-	CollectIndependentOverlays(frame, independent, visited, nil, 1)
-	for child, info in pairs(independent) do
-		if state.frames[child] == nil and not state.minimap[child] then
-			state.frames[child] = info.restore
-			child:SetAlpha(0)
+CollectIndependentOverlays = function(parent, bucket, visited, qol, depth)
+	if not parent or visited[parent] or IsForbiddenSafe(parent) then
+		return
+	end
+	visited[parent] = true
+	if parent.GetRegions then
+		CollectIndependentRegions(bucket, qol, parent:GetRegions())
+	end
+	if depth and depth <= 0 then return end
+	if not parent.GetChildren then return end
+	local nextDepth = depth and (depth - 1) or nil
+	CollectIndependentChildren(bucket, visited, qol, nextDepth, parent:GetChildren())
+end
+
+local function RecordDirectIndependent(state, ...)
+	for i = 1, select("#", ...) do
+		local obj = select(i, ...)
+		if state.frames[obj] == nil and not state.minimap[obj]
+			and CanFadeFrame(obj) and IgnoresParentAlpha(obj) then
+			local orig = ns.Number(obj:GetAlpha(), 1)
+			state.frames[obj] = orig
+			if orig ~= 0 then obj:SetAlpha(0) end
 		end
 	end
+end
+
+local function RecordSoftFrameAndOverlays(state, frame)
+	if not CanFadeFrame(frame) or state.frames[frame] ~= nil then return end
+	local orig = ns.Number(frame:GetAlpha(), 1)
+	state.frames[frame] = orig
+	if orig ~= 0 then frame:SetAlpha(0) end
+	-- Check only direct regions and direct children without crawling button/aura subtrees or allocating tables.
+	if frame.GetRegions then
+		RecordDirectIndependent(state, frame:GetRegions())
+	end
+	if frame.GetChildren then
+		RecordDirectIndependent(state, frame:GetChildren())
+	end
+end
+
+-- Cache derived chat frame names (Tab/EditBox/Minimized) to avoid repeated string allocations per UIParent child.
+local chatNameCache, chatNameCount = {}, 0
+local function ChatFrameNames()
+	local list = CHAT_FRAMES
+	local count = list and #list or 0
+	if count ~= chatNameCount then
+		wipe(chatNameCache)
+		chatNameCount = count
+		for i = 1, count do
+			local name = list[i]
+			local base = (i - 1) * 4
+			chatNameCache[base + 1] = name
+			chatNameCache[base + 2] = name .. "Tab"
+			chatNameCache[base + 3] = name .. "EditBox"
+			chatNameCache[base + 4] = name .. "Minimized"
+		end
+	end
+	return chatNameCache
 end
 
 local function IsChatFrameObject(frame)
 	if frame == GeneralDockManager then return true end
-	for _, name in ipairs(CHAT_FRAMES or {}) do
-		if frame == _G[name] or frame == _G[name .. "Tab"]
-			or frame == _G[name .. "EditBox"] or frame == _G[name .. "Minimized"] then
+	local names = ChatFrameNames()
+	for i = 1, #names do
+		if frame == _G[names[i]] then
 			return true
 		end
 	end
 	return false
 end
 
-local function IsSoftExcluded(frame)
-	if frame == escGuard or frame == GameTooltip or frame == ShoppingTooltip1 or frame == ShoppingTooltip2 then
-		return true
-	end
-	if Wanderlust.db.showChat and IsChatFrameObject(frame) then
-		return true
+local softExcluded = {}
+local softVisited = {}
+
+local function BuildSoftExcluded()
+	wipe(softExcluded)
+	if escGuard then softExcluded[escGuard] = true end
+	if GameTooltip then softExcluded[GameTooltip] = true end
+	if ShoppingTooltip1 then softExcluded[ShoppingTooltip1] = true end
+	if ShoppingTooltip2 then softExcluded[ShoppingTooltip2] = true end
+	if Wanderlust.db.showChat then
+		if GeneralDockManager then softExcluded[GeneralDockManager] = true end
+		local names = ChatFrameNames()
+		for i = 1, #names do
+			local frame = _G[names[i]]
+			if frame then softExcluded[frame] = true end
+		end
 	end
 	if Wanderlust.db.showBags then
-		if frame == ContainerFrameCombinedBags or frame == ContainerFrameContainer or frame == StackSplitFrame then
-			return true
-		end
-		local list = ContainerFrameContainer and ContainerFrameContainer.ContainerFrames
-		if list then
-			for _, bagFrame in ipairs(list) do
-				if frame == bagFrame then return true end
+		if ContainerFrameCombinedBags then softExcluded[ContainerFrameCombinedBags] = true end
+		if ContainerFrameContainer then
+			softExcluded[ContainerFrameContainer] = true
+			local list = ContainerFrameContainer.ContainerFrames
+			if list then
+				for i = 1, #list do
+					local bagFrame = list[i]
+					if bagFrame then softExcluded[bagFrame] = true end
+				end
 			end
 		end
+		if StackSplitFrame then softExcluded[StackSplitFrame] = true end
 	end
 	if Wanderlust.db.showBubbles then
 		local dialog = DialogModule()
 		local bubble = dialog and dialog.GetBubbleFrame and dialog.GetBubbleFrame()
-		if frame == bubble then return true end
+		if bubble then softExcluded[bubble] = true end
 	end
-	return false
+	return softExcluded
+end
+
+local function FadeUIParentChildren(state, excluded, ...)
+	local bagsFrame = state.bags and state.bags.frame
+	for i = 1, select("#", ...) do
+		local child = select(i, ...)
+		if not excluded[child] and not state.minimap[child] and child ~= bagsFrame
+			and CanFadeFrame(child) and WindowShown(child) then
+			RecordSoftFrameAndOverlays(state, child)
+		end
+	end
 end
 
 local function SyncSoftChat()
@@ -403,18 +470,17 @@ local function SyncSoftChat()
 			end
 		end
 	else
-		local candidates = { GeneralDockManager }
-		for _, name in ipairs(CHAT_FRAMES or {}) do
-			candidates[#candidates + 1] = _G[name]
-			candidates[#candidates + 1] = _G[name .. "Tab"]
-			candidates[#candidates + 1] = _G[name .. "EditBox"]
-			candidates[#candidates + 1] = _G[name .. "Minimized"]
-		end
-		for _, frame in ipairs(candidates) do
+		local function FadeChatFrame(frame)
 			if CanFadeFrame(frame) and WindowShown(frame) and softHidden.frames[frame] == nil then
-				softHidden.frames[frame] = ns.Number(frame:GetAlpha(), 1)
-				frame:SetAlpha(0)
+				local orig = ns.Number(frame:GetAlpha(), 1)
+				softHidden.frames[frame] = orig
+				if orig ~= 0 then frame:SetAlpha(0) end
 			end
+		end
+		FadeChatFrame(GeneralDockManager)
+		local names = ChatFrameNames()
+		for i = 1, #names do
+			FadeChatFrame(_G[names[i]])
 		end
 	end
 end
@@ -439,8 +505,9 @@ local function SyncSoftPeek()
 			SetMinimapHidden(true)
 		end
 	end
+	local bagsOpen
 	if softHidden.bags then
-		local bagsOpen = Wanderlust.db.showBags and AnyBagOpen() or false
+		bagsOpen = Wanderlust.db.showBags and AnyBagOpen() or false
 		if bagsOpen then bagKeyUntil = nil end
 		local showBagsBar = Wanderlust.db.showBags and (bagsOpen or CursorOverBagsBar() or bagKeyUntil ~= nil) or false
 		if showBagsBar ~= softHidden.bagsShown then
@@ -451,7 +518,7 @@ local function SyncSoftPeek()
 			end
 		end
 	end
-	SyncEscGuard()
+	SyncEscGuard(bagsOpen)
 end
 
 local function EnterSoftHide()
@@ -462,14 +529,16 @@ local function EnterSoftHide()
 	end
 	local state = { frames = {}, minimap = {}, minimapShown = nil, bags = nil, bagsShown = nil }
 	softHidden = state
+	softHardCheckElapsed = 0
 
-	-- Minimap cluster, backdrop and independent overlays toggle together on mouseover.
+	-- Minimap cluster, backdrop and independent overlays (capped depth avoids crawling pin subtrees).
 	RecordSoftEntry(state.minimap, MinimapCluster, qol)
 	RecordSoftEntry(state.minimap, Minimap, qol)
 	RecordSoftEntry(state.minimap, MinimapBackdrop, qol)
-	local visited = {}
-	CollectIndependentOverlays(MinimapCluster, state.minimap, visited, qol)
-	CollectIndependentOverlays(Minimap, state.minimap, visited, qol)
+	wipe(softVisited)
+	CollectIndependentOverlays(MinimapCluster, state.minimap, softVisited, qol, 2)
+	CollectIndependentOverlays(Minimap, state.minimap, softVisited, qol, 2)
+	wipe(softVisited)
 
 	-- BagsBar toggles on hover / open bags when showBags is enabled.
 	if CanFadeFrame(BagsBar) then
@@ -479,35 +548,26 @@ local function EnterSoftHide()
 		state.bags = { frame = BagsBar, restore = actual, show = shown }
 	end
 
-	local frameVisited = {}
+	local excluded = BuildSoftExcluded()
 	if UIParent.GetChildren then
-		local children = { UIParent:GetChildren() }
-		for _, child in ipairs(children) do
-			if CanFadeFrame(child) and WindowShown(child)
-				and not state.minimap[child]
-				and (not state.bags or child ~= state.bags.frame)
-				and not IsSoftExcluded(child) then
-				RecordSoftFrameAndOverlays(state, child, frameVisited)
-			end
-		end
+		FadeUIParentChildren(state, excluded, UIParent:GetChildren())
 	end
+	wipe(softExcluded)
 
 	-- Also keep transient HUD frames (player portrait container, target/focus/castbar, buff bar, waypoint) transparent.
-	for _, name in ipairs(TRANSIENT_HUD_NAMES) do
-		local frame = _G[name]
+	for i = 1, #TRANSIENT_HUD_NAMES do
+		local frame = _G[TRANSIENT_HUD_NAMES[i]]
 		if CanFadeFrame(frame) and not state.minimap[frame] then
-			RecordSoftFrameAndOverlays(state, frame, frameVisited)
+			RecordSoftFrameAndOverlays(state, frame)
 		end
 	end
 	local playerContainer = PlayerFrame and PlayerFrame.PlayerFrameContainer
 	if CanFadeFrame(playerContainer) and not state.minimap[playerContainer] then
-		RecordSoftFrameAndOverlays(state, playerContainer, frameVisited)
+		RecordSoftFrameAndOverlays(state, playerContainer)
 	end
 	if ns.PortraitModes and ns.PortraitModes.SetWanderlustHidden then
 		ns.PortraitModes.SetWanderlustHidden(true)
 	end
-
-	SyncSoftPeek()
 end
 
 local function ExitSoftHide()
@@ -611,7 +671,7 @@ local function InteractionOpen()
 		return true
 	end
 	local dialog = Wanderlust.db.showBubbles and DialogModule()
-	local ownsWindow = dialog and dialog.OwnsWindow
+	local ownsWindow = dialog and dialog.IsBubbleActive and dialog.IsBubbleActive() and dialog.OwnsWindow or nil
 	if lastOpenWindow then
 		if WindowShown(lastOpenWindow) and not (ownsWindow and ownsWindow(lastOpenWindow)) then
 			return true
@@ -685,8 +745,14 @@ local function EnsureEscGuard()
 	return escGuard
 end
 
-SyncEscGuard = function()
-	local want = softHidden ~= nil and not SoftBlocked() and not InCombatLockdown()
+SyncEscGuard = function(bagsOpen)
+	local softBlocked
+	if bagsOpen ~= nil then
+		softBlocked = bagsOpen or DialogActive()
+	else
+		softBlocked = SoftBlocked()
+	end
+	local want = softHidden ~= nil and not softBlocked and not InCombatLockdown()
 	if not want and not escGuard then return end
 	local guard = EnsureEscGuard()
 	if not guard or not guard.IsShown or not guard.SetShown then return end
@@ -734,7 +800,7 @@ local function HideUI()
 	SavePeekArea()
 	if Wanderlust.db.softHide then
 		EnterSoftHide()
-		UpdateHiddenUI()
+		UpdateHiddenUI(true)
 		return
 	end
 	UpdateHiddenChat()
@@ -847,14 +913,6 @@ CheckPeek = function()
 	bagJustClosed = nil
 	if InCombatLockdown() then return end -- the combat events bring the whole interface back
 	if peek or softHidden then
-		-- RefreshActivity already synchronizes the preview. Calling it here
-		-- doubled the frame scan and reconciliation on every active mouseover tick.
-		-- A hard blocker must still restore the full interface immediately.
-		if HardBlocked() then
-			blocked = true
-			Stop()
-			return
-		end
 		if not UIParent:IsShown() then
 			-- The player hid the interface: it stays hidden and is no longer Wanderlust's.
 			EndPeek(false)
@@ -864,17 +922,34 @@ CheckPeek = function()
 			UpdateHiddenUI()
 			return
 		end
+		-- Classic see-through peek checks hard blockers immediately; soft hide throttles the
+		-- full panel scan (standard windows also trigger events and activityTicker runs every 1s).
+		local checkHard = peek ~= nil
+		if not checkHard then
+			softHardCheckElapsed = softHardCheckElapsed + PEEK_INTERVAL
+			if softHardCheckElapsed >= SOFT_HARD_CHECK_INTERVAL then
+				softHardCheckElapsed = 0
+				checkHard = true
+			end
+		end
+		if checkHard and HardBlocked() then
+			blocked = true
+			Stop()
+			return
+		end
 	end
 	SyncPeek()
 end
 
-UpdateHiddenUI = function()
+UpdateHiddenUI = function(skipSoftChat)
 	local hidden = hidUI and Wanderlust.db.enabled
 	UpdateHiddenChat()
 	ns:GetModule("Tooltip").SetWanderlustHover(hidden and Wanderlust.db.hoverText or false)
 	if softHidden then
 		if hidden then
-			SyncSoftChat()
+			if not skipSoftChat then
+				SyncSoftChat()
+			end
 			SyncSoftPeek()
 			UpdatePeekDriver()
 		else

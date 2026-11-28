@@ -1355,4 +1355,68 @@ end)()
 	ui.children, cluster.children, globals.TargetFrame, globals.PlayerFrame, env.PlayerFrame = {}, {}, nil, nil, nil
 	ns.PortraitModes, qolShownAlphas[bagsBar] = nil, nil
 end)()
+;(function()
+	-- Soft-hide performance guards: bounded tree traversal, no SetAlpha(0) on already-transparent frames,
+	-- and throttled hard-blocker checks on steady 100 ms soft-hide mouseover ticks.
+	local deepButtonRegionScans = 0
+	local actionButton = PeekableFrame()
+	actionButton.shown, actionButton.alpha = true, 1
+	actionButton.GetRegions = function()
+		deepButtonRegionScans = deepButtonRegionScans + 1
+	end
+	local actionBar = PeekableFrame()
+	actionBar.shown, actionBar.alpha = true, 1
+	actionBar.children = { actionButton }
+
+	local zeroAlphaBar = PeekableFrame()
+	zeroAlphaBar.shown, zeroAlphaBar.alpha = true, 0
+	local zeroAlphaWrites = 0
+	zeroAlphaBar.SetAlpha = function(self, a)
+		zeroAlphaWrites = zeroAlphaWrites + 1
+		self.alpha = a
+	end
+
+	local deepPinScans = 0
+	local deepPinLeaf = PeekableFrame()
+	deepPinLeaf.GetRegions = function() deepPinScans = deepPinScans + 1 end
+	local deepPinMid = PeekableFrame()
+	deepPinMid.children = { deepPinLeaf }
+	local deepPinRoot = PeekableFrame()
+	deepPinRoot.children = { deepPinMid }
+	local minimapOverlay = PeekableFrame()
+	minimapOverlay.shown, minimapOverlay.ignore, minimapOverlay.alpha = true, true, 1
+	cluster.children = { minimapOverlay, deepPinRoot }
+	cluster.shown, cluster.alpha = true, 1
+	ui.children = { actionBar, zeroAlphaBar, cluster, bagsBar, chatFrame, chatDock }
+
+	module.db.softHide = true
+	Over(false)
+	Enable(true)
+	Advance(60)
+	assert(module.IsSoftHidden(), "soft hide active")
+	assert(deepButtonRegionScans == 0, "soft hide does not crawl regions of nested HUD child buttons")
+	assert(deepPinScans == 0, "soft hide bounds MinimapCluster overlay traversal instead of crawling deep pin subtrees")
+	assert(zeroAlphaWrites == 0, "soft hide skips redundant SetAlpha(0) on already-transparent frames")
+
+	-- Steady 100 ms soft-hide ticks throttle full UIPanelWindows scans to 300 ms, yet still restore promptly.
+	local panelReads = 0
+	local probePanel = { shown = false }
+	function probePanel:IsShown()
+		panelReads = panelReads + 1
+		return self.shown
+	end
+	globals.TestSoftProbePanel = probePanel
+	panelWindows.TestSoftProbePanel = {}
+	Tick() -- 0.1 s: throttled
+	Tick() -- 0.2 s: throttled
+	assert(panelReads == 0, "steady 100 ms soft-hide ticks skip full UIPanelWindows scan before 300 ms")
+	probePanel.shown = true
+	Tick() -- 0.3 s: triggers hard-blocker check and restores full UI
+	assert(panelReads >= 1 and not module.IsSoftHidden(), "opening a panel restores soft-hidden UI on the 300 ms check")
+
+	probePanel.shown = false
+	panelWindows.TestSoftProbePanel, globals.TestSoftProbePanel = nil, nil
+	Enable(false)
+	ui.children, cluster.children = {}, {}
+end)()
 print("Wanderlust timing, teleports, chat, bags, dialog bubbles, mouseover, abilities, targets, windows and lifecycle OK")

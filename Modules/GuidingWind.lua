@@ -1,5 +1,5 @@
--- Guiding Wind: a subtle directional gust across the screen pointing toward the active waypoint (or corpse),
--- with zone-matched biome particles and an optional soft wind sound.
+-- Guiding Wind: Ghost-of-Tsushima-inspired directional silk wind ribbons pointing toward the
+-- active waypoint (or corpse), paired with zone-matched wind-blown leaves, blades and particles.
 local _, ns = ...
 local L = ns.L
 
@@ -16,88 +16,87 @@ local GuidingWind = ns:NewModule("GuidingWind", {
 	},
 })
 
-local TEXTURE = [[Interface\AddOns\ForeverPlus\Media\GuidingWind]]
-local PIXEL = 1 / 512
+local RIBBON_TEXTURE = [[Interface\AddOns\ForeverPlus\Media\GuidingWindRibbon]]
+local ATLAS_TEXTURE = [[Interface\AddOns\ForeverPlus\Media\GuidingWind]]
+local PU = 1 / 512
+local PV = 1 / 256
 
--- UV tiles in Media/GuidingWind.tga (512x512) with 1px inset against bilinear bleed.
-local WISP_BRUSH = { PIXEL, 1 - PIXEL, PIXEL, 0.25 - PIXEL }
-local WISP_VEIL = { PIXEL, 1 - PIXEL, 0.25 + PIXEL, 0.50 - PIXEL }
-local TILE_CURL = { PIXEL, 0.25 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL }
-local TILE_LEAF = { 0.25 + PIXEL, 0.50 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL }
-local TILE_SNOW = { 0.50 + PIXEL, 0.75 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL }
-local TILE_DUST = { 0.75 + PIXEL, 1 - PIXEL, 0.50 + PIXEL, 0.75 - PIXEL }
-local TILE_EMBER = { PIXEL, 0.25 - PIXEL, 0.75 + PIXEL, 1 - PIXEL }
-local TILE_SPORE = { 0.25 + PIXEL, 0.50 - PIXEL, 0.75 + PIXEL, 1 - PIXEL }
-local TILE_PETAL = { 0.50 + PIXEL, 0.75 - PIXEL, 0.75 + PIXEL, 1 - PIXEL }
-local TILE_MOTE = { 0.75 + PIXEL, 1 - PIXEL, 0.75 + PIXEL, 1 - PIXEL }
+-- UV tiles in Media/GuidingWind.tga (512x256, 4x2 grid) with 1px inset against bilinear bleed.
+local TILE_BLADE = { PU, 0.25 - PU, PV, 0.50 - PV }
+local TILE_LEAF = { 0.25 + PU, 0.50 - PU, PV, 0.50 - PV }
+local TILE_SNOW = { 0.50 + PU, 0.75 - PU, PV, 0.50 - PV }
+local TILE_DUST = { 0.75 + PU, 1 - PU, PV, 0.50 - PV }
+local TILE_EMBER = { PU, 0.25 - PU, 0.50 + PV, 1 - PV }
+local TILE_SPORE = { 0.25 + PU, 0.50 - PU, 0.50 + PV, 1 - PV }
+local TILE_PETAL = { 0.50 + PU, 0.75 - PU, 0.50 + PV, 1 - PV }
+local TILE_MOTE = { 0.75 + PU, 1 - PU, 0.50 + PV, 1 - PV }
 
 -- Real WoW Forever wind-gust one-shots (Data/EmitterSounds.lua: fx_windgust_oneshot_01..07.ogg).
 local WIND_SOUNDS = { 982361, 982363, 982365, 982367, 982369, 982371, 982373 }
 local SOUND_COOLDOWN = 0.6
 
+-- Ghost-of-Tsushima palette: wind ribbons stay luminous silver-white with only a whisper
+-- of ambient biome tint, while carried foliage/particles carry the vivid zone color.
 local BIOMES = {
 	forest = {
-		veil = { 0.74, 0.83, 0.70 },
-		wind = { 0.87, 0.93, 0.81 },
-		glint = { 0.96, 1.00, 0.88 },
-		particle = { 0.44, 0.72, 0.28 },
-		particleAlt = { 0.64, 0.78, 0.30 },
+		wind = { 0.94, 0.98, 0.95 },
+		glint = { 1.00, 1.00, 0.98 },
+		particle = { 0.42, 0.74, 0.28 },
+		particleAlt = { 0.68, 0.80, 0.30 },
 		tile = TILE_LEAF,
+		secondaryTile = TILE_BLADE,
 		blend = "BLEND",
-		spin = 2.2,
-		tumble = 3.2,
-		lift = -0.028,
-		size = 1.06,
+		spin = 2.4,
+		tumble = 3.4,
+		lift = 0.014,
+		size = 1.02,
 		alpha = 0.92,
 	},
 	autumn = {
-		veil = { 0.86, 0.75, 0.58 },
-		wind = { 0.96, 0.88, 0.72 },
-		glint = { 1.00, 0.95, 0.82 },
-		particle = { 0.86, 0.48, 0.18 },
-		particleAlt = { 0.95, 0.72, 0.24 },
+		wind = { 0.99, 0.96, 0.90 },
+		glint = { 1.00, 0.98, 0.92 },
+		particle = { 0.90, 0.44, 0.16 },
+		particleAlt = { 0.98, 0.76, 0.24 },
 		tile = TILE_PETAL,
+		secondaryTile = TILE_BLADE,
 		blend = "BLEND",
-		spin = 2.4,
-		tumble = 3.5,
-		lift = -0.022,
-		size = 1.00,
-		alpha = 0.90,
+		spin = 2.6,
+		tumble = 3.6,
+		lift = 0.018,
+		size = 0.98,
+		alpha = 0.92,
 	},
 	snow = {
-		veil = { 0.66, 0.78, 0.91 },
-		wind = { 0.84, 0.92, 0.99 },
-		glint = { 0.95, 0.99, 1.00 },
-		particle = { 0.93, 0.97, 1.00 },
-		particleAlt = { 0.78, 0.90, 1.00 },
+		wind = { 0.92, 0.97, 1.00 },
+		glint = { 0.98, 1.00, 1.00 },
+		particle = { 0.94, 0.98, 1.00 },
+		particleAlt = { 0.80, 0.92, 1.00 },
 		tile = TILE_SNOW,
 		blend = "ADD",
-		spin = 1.0,
+		spin = 1.1,
 		tumble = 0,
-		lift = -0.036,
-		size = 0.96,
-		alpha = 0.84,
+		lift = -0.024,
+		size = 0.90,
+		alpha = 0.86,
 	},
 	desert = {
-		veil = { 0.80, 0.68, 0.48 },
-		wind = { 0.93, 0.83, 0.64 },
-		glint = { 1.00, 0.92, 0.74 },
-		particle = { 0.86, 0.72, 0.48 },
-		particleAlt = { 0.76, 0.60, 0.38 },
+		wind = { 0.98, 0.94, 0.86 },
+		glint = { 1.00, 0.97, 0.88 },
+		particle = { 0.88, 0.74, 0.50 },
+		particleAlt = { 0.78, 0.62, 0.40 },
 		tile = TILE_DUST,
 		blend = "BLEND",
-		spin = 1.2,
+		spin = 0.8,
 		tumble = 0,
-		lift = 0.012,
-		size = 1.22,
-		alpha = 0.76,
+		lift = 0.020,
+		size = 1.16,
+		alpha = 0.74,
 	},
 	volcanic = {
-		veil = { 0.44, 0.36, 0.32 },
-		wind = { 0.78, 0.56, 0.42 },
-		glint = { 1.00, 0.66, 0.28 },
+		wind = { 0.96, 0.88, 0.80 },
+		glint = { 1.00, 0.82, 0.56 },
 		particle = { 1.00, 0.52, 0.14 },
-		particleAlt = { 1.00, 0.78, 0.28 },
+		particleAlt = { 1.00, 0.80, 0.28 },
 		tile = TILE_EMBER,
 		blend = "ADD",
 		spin = 0.5,
@@ -107,33 +106,32 @@ local BIOMES = {
 		alpha = 0.94,
 	},
 	marsh = {
-		veil = { 0.56, 0.72, 0.66 },
-		wind = { 0.75, 0.90, 0.82 },
-		glint = { 0.84, 1.00, 0.88 },
-		particle = { 0.70, 0.98, 0.48 },
-		particleAlt = { 0.56, 0.94, 0.78 },
+		wind = { 0.90, 0.98, 0.94 },
+		glint = { 0.94, 1.00, 0.96 },
+		particle = { 0.72, 0.98, 0.50 },
+		particleAlt = { 0.58, 0.95, 0.80 },
 		tile = TILE_SPORE,
 		blend = "ADD",
 		spin = 0.4,
 		tumble = 0,
 		lift = 0.055,
-		size = 0.90,
+		size = 0.88,
 		alpha = 0.86,
 		pulse = true,
 	},
 	neutral = {
-		veil = { 0.76, 0.83, 0.90 },
-		wind = { 0.88, 0.93, 0.98 },
-		glint = { 0.96, 0.99, 1.00 },
-		particle = { 0.86, 0.92, 0.98 },
-		particleAlt = { 0.94, 0.96, 1.00 },
+		wind = { 0.95, 0.97, 1.00 },
+		glint = { 1.00, 1.00, 1.00 },
+		particle = { 0.92, 0.96, 1.00 },
+		particleAlt = { 0.98, 0.99, 1.00 },
 		tile = TILE_MOTE,
 		blend = "ADD",
-		spin = 0.3,
+		spin = 0.2,
 		tumble = 0,
-		lift = 0.02,
-		size = 0.78,
-		alpha = 0.64,
+		lift = 0.022,
+		size = 0.86,
+		alpha = 0.70,
+		alignFlow = true,
 	},
 }
 
@@ -195,65 +193,83 @@ local ZONE_BIOMES = {
 	[1458] = "marsh", -- Undercity
 }
 
--- Wide, soft atmospheric air veils (BLEND background depth): { lane, delay, duration, length, thickness, amp, freq, phase, alpha }
-local VEIL_SPECS = {
-	{ -0.18, 0.00, 1.65, 310, 74, 0.022, 1.6, 0.3, 0.20 },
-	{  0.16, 0.16, 1.72, 330, 80, 0.026, 1.5, 2.1, 0.18 },
-	{ -0.02, 0.32, 1.58, 280, 66, 0.020, 1.7, 3.8, 0.16 },
-}
+-- Continuous silk wind ribbons rendered via connected SimpleLine segments.
+-- Each ribbon has 16 seamless segments along its curved tail-to-head span, plus 6 fine ADD
+-- glint segments hugging the leading crest.
+local RIBBON_SEGMENTS = 16
+local GLINT_FIRST_SEG = 10
+local GLINT_LAST_SEG = 15
 
--- Segmented wind streams: each stream bends organically along the curve using 4 overlapping painterly brush segments
--- plus 1 subtle ADD sunlit highlight near the leading crest.
--- { lane, delay, duration, segLength, segThickness, amp, freq, phase, alpha }
+-- { lane, heightBias, delay, duration, span, thickness, amp, freq, phase, depthLayer, alpha, manualOnly }
 local STREAM_SPECS = {
-	{ -0.23, 0.02, 1.52, 118, 30, 0.028, 2.0, 0.2, 0.56 },
-	{  0.21, 0.13, 1.60, 126, 34, 0.032, 1.8, 1.6, 0.54 },
-	{ -0.09, 0.26, 1.48, 108, 26, 0.024, 2.2, 2.9, 0.48 },
-	{  0.11, 0.36, 1.56, 114, 28, 0.027, 1.9, 4.3, 0.50 },
-}
-local STREAM_SEGMENTS = {
-	{ lag = 0.000, len = 0.86, thick = 0.80, alpha = 0.96 },
-	{ lag = 0.078, len = 1.04, thick = 1.00, alpha = 0.86 },
-	{ lag = 0.156, len = 1.08, thick = 1.04, alpha = 0.66 },
-	{ lag = 0.234, len = 1.12, thick = 1.08, alpha = 0.40 },
+	-- Primary hero ribbons (sweeping left/right/upper-mid lanes with bold Tsushima S-curves)
+	{ -0.24, -0.04, 0.00, 1.42, 0.56, 22.0, 0.068, 2.05, 0.25, 1.14, 0.84, false },
+	{  0.22,  0.07, 0.11, 1.48, 0.54, 20.5, 0.072, 1.90, 2.05, 1.08, 0.80, false },
+	{ -0.09,  0.17, 0.24, 1.38, 0.52, 17.5, 0.058, 2.20, 3.70, 0.96, 0.72, true  },
+	-- Intertwined companion silk filaments (paired near the hero streams + airy outer wisps)
+	{ -0.21, -0.01, 0.06, 1.38, 0.48, 11.5, 0.074, 2.15, 0.90, 1.02, 0.60, false },
+	{  0.25,  0.10, 0.18, 1.44, 0.48, 11.0, 0.066, 2.00, 2.65, 0.94, 0.56, false },
+	{  0.13, -0.14, 0.29, 1.34, 0.46, 10.5, 0.056, 2.30, 4.55, 0.88, 0.54, true  },
 }
 
--- Curling wind eddies that unfurl softly near the tail of the gust:
--- { lane, delay, duration, startSize, endSize, amp, freq, phase, spinDir, alpha }
-local CURL_SPECS = {
-	{ -0.22, 0.46, 1.08, 48, 86, 0.025, 1.8, 0.5,  1, 0.44 },
-	{  0.24, 0.62, 1.04, 44, 78, 0.028, 1.7, 2.4, -1, 0.40 },
-}
-
--- Biome particles (leaves, snow, dust, embers, spores, petals):
--- { lane, delay, duration, size, amp, freq, phase, spinDir, altColor }
+-- Biome particles (leaves, grass blades, petals, snow, dust, embers, spores):
+-- { lane, heightBias, delay, duration, size, amp, freq, phase, spinDir, altColor, secondary, depthLayer, manualOnly }
 local PARTICLE_SPECS = {
-	{ -0.27, 0.05, 1.64, 20, 0.036, 2.3, 0.4,  1, false },
-	{  0.25, 0.14, 1.70, 17, 0.033, 2.1, 1.9, -1, true  },
-	{ -0.14, 0.23, 1.60, 16, 0.029, 2.5, 3.1,  1, true  },
-	{  0.16, 0.30, 1.68, 21, 0.038, 1.9, 4.5, -1, false },
-	{ -0.33, 0.38, 1.56, 15, 0.031, 2.2, 1.1, -1, false },
-	{  0.30, 0.44, 1.62, 18, 0.034, 2.4, 2.6,  1, true  },
-	{ -0.06, 0.52, 1.54, 14, 0.026, 2.6, 5.2,  1, false },
-	{  0.08, 0.58, 1.58, 16, 0.030, 2.0, 0.8, -1, true  },
+	{ -0.28, -0.05, 0.02, 1.54, 34, 0.072, 2.1, 0.3,  1, false, false, 1.18, false },
+	{  0.26,  0.08, 0.08, 1.58, 30, 0.068, 1.9, 1.6, -1, true,  true,  1.12, false },
+	{ -0.14,  0.16, 0.14, 1.50, 27, 0.060, 2.2, 2.9,  1, true,  false, 1.02, false },
+	{  0.18, -0.11, 0.19, 1.60, 32, 0.070, 1.8, 4.1, -1, false, true,  1.14, false },
+	{ -0.34,  0.05, 0.25, 1.48, 25, 0.064, 2.0, 0.9, -1, false, true,  0.96, false },
+	{  0.32,  0.13, 0.30, 1.56, 28, 0.066, 2.2, 2.3,  1, true,  false, 0.98, false },
+	{ -0.07, -0.13, 0.36, 1.46, 24, 0.054, 2.4, 5.0,  1, false, false, 0.90, false },
+	{  0.10,  0.17, 0.41, 1.52, 26, 0.058, 1.9, 1.2, -1, true,  true,  0.88, false },
+	{ -0.22,  0.20, 0.47, 1.48, 23, 0.052, 2.1, 3.7,  1, true,  false, 0.84, false },
+	-- Extra dense swarm particles for manual summon
+	{  0.21, -0.01, 0.05, 1.44, 32, 0.076, 2.0, 5.5, -1, false, false, 1.20, true  },
+	{ -0.20, -0.15, 0.16, 1.52, 29, 0.064, 1.8, 2.0,  1, true,  true,  1.06, true  },
+	{  0.05,  0.08, 0.28, 1.42, 24, 0.058, 2.4, 4.6, -1, false, true,  0.94, true  },
+	{ -0.36, -0.01, 0.39, 1.50, 27, 0.068, 1.8, 0.5,  1, true,  false, 0.92, true  },
+	{  0.36, -0.09, 0.50, 1.46, 24, 0.056, 2.2, 3.1, -1, false, true,  0.86, true  },
 }
 
--- Fine drifting dust/pollen motes on a brisker parallax layer:
--- { lane, delay, duration, size, amp, freq, phase, alpha }
+-- Fine directional wind-glint / air-spark needles (rotated along exact flow tangent):
+-- { lane, heightBias, delay, duration, size, amp, freq, phase, depthLayer, alpha, manualOnly }
 local MOTE_SPECS = {
-	{ -0.30, 0.08, 1.38, 14, 0.040, 2.6, 0.7, 0.42 },
-	{  0.28, 0.18, 1.42, 12, 0.036, 2.4, 2.2, 0.38 },
-	{ -0.12, 0.29, 1.34, 11, 0.032, 2.8, 3.9, 0.36 },
-	{  0.14, 0.39, 1.40, 13, 0.038, 2.5, 5.0, 0.40 },
-	{ -0.24, 0.49, 1.36, 12, 0.034, 2.7, 1.4, 0.34 },
-	{  0.22, 0.57, 1.38, 11, 0.035, 2.3, 4.1, 0.34 },
+	{ -0.30,  0.03, 0.03, 1.20, 42, 0.062, 2.0, 0.5, 1.10, 0.58, false },
+	{  0.28, -0.07, 0.12, 1.24, 38, 0.058, 1.9, 2.1, 1.04, 0.54, false },
+	{ -0.13,  0.17, 0.22, 1.16, 34, 0.052, 2.2, 3.6, 0.96, 0.50, false },
+	{  0.15,  0.11, 0.31, 1.22, 40, 0.058, 1.8, 4.9, 0.98, 0.52, false },
+	{ -0.24, -0.13, 0.40, 1.18, 32, 0.054, 2.1, 1.4, 0.90, 0.46, false },
+	{  0.22,  0.19, 0.48, 1.20, 34, 0.050, 2.0, 3.9, 0.86, 0.46, true  },
+	{ -0.04, -0.03, 0.17, 1.14, 36, 0.048, 2.3, 5.4, 1.00, 0.48, true  },
+	{  0.34,  0.05, 0.35, 1.18, 32, 0.054, 1.9, 0.8, 0.88, 0.44, true  },
 }
 
-local root, veils, streams, curls, particles, motes
-local gust -- { age, angle, worldBearing, biome, strength, manual, live }
+-- Precomputed ribbon taper profile across u in [0..1] (tail=0, leading tip=1).
+-- Peaked smoothly at u ~ 0.64 for a calligraphic leading crest and long silk tail.
+local function RibbonTaper(u)
+	if u <= 0 or u >= 1 then
+		return 0, 0
+	end
+	local width = ((u ^ 0.62) * ((1 - u) ^ 0.42)) / 0.505
+	if width > 1 then
+		width = 1
+	end
+	local tailFade = u < 0.38 and (u / 0.38) or 1
+	tailFade = tailFade * tailFade * (3 - 2 * tailFade)
+	local headFade = u > 0.82 and ((1 - u) / 0.18) or 1
+	headFade = headFade * headFade * (3 - 2 * headFade)
+	return width, tailFade * headFade
+end
+
+local root, streams, particles, motes
+local gust -- { age, angle, worldBearing, biome, biomeKey, strength, showParticles, manual, live }
 local autoTimer
 local soundVariants = {}
 local lastSoundAt, lastSoundHandle = 0, nil
+
+-- Reusable scratch tables for polyline sampling (zero per-frame allocations).
+local ptX, ptY, ptScale = {}, {}, {}
 
 -- Normalizes an angle in radians into (-pi, pi].
 function GuidingWind.NormalizeAngle(angle)
@@ -369,51 +385,69 @@ local function RootSize()
 	return w, h
 end
 
--- Evaluates normalized screen coordinates (0..1, 0..1) and perspective scale along a gust path.
--- Ahead: streams rise from flanking sides toward a gentle upper horizon with depth foreshortening.
--- Left/Right: streams sweep gracefully across the viewport in target direction.
--- Behind: streams curve around the player on the nearer side and pull back downward.
-local function EvaluateTrack(lane, amp, freq, phase, p, angle, extraLift)
+-- Evaluates normalized screen coordinates (0..1, 0..1) and perspective scale along a Tsushima gust path.
+-- Ahead: ribbons sweep from wide foreground flanks past the player toward a distant upper horizon
+--        with true perspective depth foreshortening.
+-- Left/Right: long, sweeping silk ribbons whip gracefully across nearly the full viewport width.
+-- Behind: ribbons curve around the player on the nearer turning side and pull back downward.
+local function EvaluateTrack(lane, heightBias, amp, freq, phase, p, angle, extraLift, depthLayer)
 	local dirX = -math.sin(angle)
 	local dirY = math.cos(angle)
 	local perpX = -dirY
 	local perpY = dirX
 
 	local forwardness = math.max(0, dirY)
-	local backwardness = math.max(0, -dirY - 0.25) / 0.75
+	local backwardness = math.max(0, -dirY - 0.15) / 0.85
+	local fBlend = forwardness * forwardness * (3 - 2 * forwardness)
+	local layer = depthLayer or 1.0
 
-	local travel = 0.56 - 0.08 * forwardness
-	local ease = p * (1.25 - 0.25 * p)
-	local spread = 1.0 - 0.44 * forwardness * ease
+	-- Snappy Ghost-of-Tsushima surge easing: accelerates fast, glides long into the distance.
+	local ease = 1 - ((1 - p) ^ 1.55)
 
-	local centerX = 0.50
-	local centerY = 0.48 - 0.05 * forwardness + 0.04 * backwardness
+	-- 1. Wide sweeping track (left/right/diagonal/behind).
+	local travel = 0.88 - 0.16 * backwardness
+	local sweepCenterX = 0.50
+	local sweepCenterY = 0.47 + heightBias * 0.55 - 0.05 * backwardness
+	local sweepX = sweepCenterX + dirX * (ease - 0.50) * travel + perpX * lane
+	local sweepY = sweepCenterY + dirY * (ease - 0.50) * travel + perpY * lane
 
-	local x = centerX + dirX * (ease - 0.50) * travel + perpX * (lane * spread)
-	local y = centerY + dirY * (ease - 0.50) * travel + perpY * (lane * spread)
-
-	-- Keep ahead gusts slightly out of the character's exact center while rising forward.
-	if forwardness > 0 then
-		local sideSign = lane < 0 and -1 or 1
-		x = x + sideSign * 0.055 * forwardness * (1 - 0.55 * ease)
-		y = y + (ease - 0.35) * 0.14 * forwardness
-	end
-
-	-- Curving return arc when the target lies behind the player.
 	if backwardness > 0 then
 		local turnSign = angle >= 0 and -1 or 1
 		local arc = math.sin(ease * math.pi)
-		x = x + turnSign * 0.17 * backwardness * arc
-		y = y + 0.07 * backwardness * (1 - 2 * ease) * (1 - arc * 0.5)
+		sweepX = sweepX + turnSign * 0.22 * backwardness * arc
+		sweepY = sweepY + 0.04 * backwardness * (1 - 2 * ease) * (1 - arc * 0.45)
 	end
 
-	local wave = math.sin(ease * freq * math.pi + phase) * amp
-	x = x + perpX * wave
-	y = y + perpY * wave + (extraLift or 0) * ease
+	-- 2. True 3D perspective depth track when blowing forward into the world.
+	local invDepth = 1 / (1 + 2.05 * ease)
+	local perspProgress = (1 - invDepth) / (1 - (1 / 3.05))
+	local sideSign = lane < 0 and -1 or 1
+	local startX = 0.50 + lane * 1.18 + sideSign * 0.075 - dirX * 0.24
+	local startY = 0.14 + heightBias * 0.55 + math.abs(lane) * 0.12
+	local vanishX = 0.50 + dirX * 0.30 + lane * 0.15
+	local vanishY = 0.66 + heightBias * 0.18
+	local perspX = startX + (vanishX - startX) * perspProgress
+	local perspY = startY + (vanishY - startY) * perspProgress
 
-	local scale = 1.0 - 0.34 * forwardness * ease + 0.08 * backwardness * ease
-	return x, y, scale
+	local x = sweepX + (perspX - sweepX) * fBlend
+	local y = sweepY + (perspY - sweepY) * fBlend
+
+	-- Perspective scale: bold in the foreground, fine and delicate toward the horizon.
+	local depthScale = layer * ((1 - fBlend) + fBlend * (0.40 + 0.82 * invDepth))
+
+	-- Expressive Ghost-of-Tsushima S-wave undulation (lateral + gentle vertical ripple).
+	local waveAmp = amp * (0.55 + 0.45 * depthScale)
+	local wave = math.sin(ease * freq * math.pi + phase) * waveAmp
+	local vRipple = math.sin(ease * (freq * 1.15) * math.pi + phase + 1.3) * (waveAmp * 0.42)
+	local crestLift = 0.045 * (ease * ease) * (1 - backwardness)
+	x = x + perpX * wave
+	y = y + perpY * wave + vRipple + crestLift + (extraLift or 0) * ease
+
+	return x, y, depthScale
 end
+
+-- Exported pure track helper so regression tests can verify perspective and directional flow.
+GuidingWind.EvaluateTrack = EvaluateTrack
 
 local function HideTextureList(list)
 	if not list then return end
@@ -424,18 +458,22 @@ local function HideTextureList(list)
 	end
 end
 
+local function HideStream(stream)
+	for _, seg in ipairs(stream.segments) do
+		seg:Hide()
+	end
+	for _, glint in ipairs(stream.glints) do
+		glint:Hide()
+	end
+end
+
 local function HideGust()
 	gust = nil
-	HideTextureList(veils)
-	HideTextureList(curls)
 	HideTextureList(particles)
 	HideTextureList(motes)
 	if streams then
 		for _, stream in ipairs(streams) do
-			for _, seg in ipairs(stream.segments) do
-				seg.texture:Hide()
-			end
-			stream.glint:Hide()
+			HideStream(stream)
 		end
 	end
 	if root then
@@ -443,12 +481,12 @@ local function HideGust()
 	end
 end
 
-local function TrackTangent(lane, amp, freq, phase, p, angle, w, h, lift)
-	local x, y, depthScale = EvaluateTrack(lane, amp, freq, phase, p, angle, lift or 0)
-	local pPrev = math.max(0, p - 0.015)
-	local pNext = math.min(1, p + 0.020)
-	local px, py = EvaluateTrack(lane, amp, freq, phase, pPrev, angle, lift or 0)
-	local nx, ny = EvaluateTrack(lane, amp, freq, phase, pNext, angle, lift or 0)
+local function TrackTangent(lane, heightBias, amp, freq, phase, p, angle, w, h, lift, depthLayer)
+	local x, y, depthScale = EvaluateTrack(lane, heightBias, amp, freq, phase, p, angle, lift or 0, depthLayer)
+	local pPrev = math.max(0, p - 0.014)
+	local pNext = math.min(1, p + 0.018)
+	local px, py = EvaluateTrack(lane, heightBias, amp, freq, phase, pPrev, angle, lift or 0, depthLayer)
+	local nx, ny = EvaluateTrack(lane, heightBias, amp, freq, phase, pNext, angle, lift or 0, depthLayer)
 	local rot = math.atan2((ny - py) * h, (nx - px) * w)
 	return x, y, depthScale, rot
 end
@@ -471,168 +509,168 @@ local function UpdateGust(_, delta)
 	local w, h = RootSize()
 	local uiScale = math.min(w / 1200, h / 800)
 	local angle = gust.angle
-	local strength = gust.strength
+	local strength = gust.strength * (gust.manual and 1.0 or 0.78)
 	local biome = gust.biome
 	local active = false
 
-	-- 1. Soft atmospheric air veils (BLEND background depth).
-	for _, veil in ipairs(veils) do
-		local t = gust.age - veil.delay
-		if t > 0 and t < veil.duration then
-			active = true
-			local p = t / veil.duration
-			local x, y, depthScale, rot = TrackTangent(veil.lane, veil.amp, veil.freq, veil.phase, p, angle, w, h, 0)
-			local envelope = math.sin(p * math.pi)
-			local scale = uiScale * depthScale
-			veil.texture:SetSize(veil.length * scale, veil.thickness * scale)
-			veil.texture:ClearAllPoints()
-			veil.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-			veil.texture:SetRotation(rot)
-			veil.texture:SetAlpha(veil.alpha * strength * (envelope ^ 0.9))
-			veil.texture:Show()
-		elseif t <= 0 then
-			active = true
-			veil.texture:Hide()
-		else
-			veil.texture:Hide()
-		end
-	end
-
-	-- 2. Segmented painterly wind streams that bend smoothly along the curve + subtle sunlit head glint.
-	local maxLag = STREAM_SEGMENTS[#STREAM_SEGMENTS].lag
+	-- 1. Continuous curved Ghost-of-Tsushima silk wind ribbons (connected SimpleLine polylines).
 	for _, stream in ipairs(streams) do
-		local t = gust.age - stream.delay
-		local totalDuration = stream.duration * (1 + maxLag)
-		if t > 0 and t < totalDuration then
-			active = true
-			local pHead = t / stream.duration
-			for _, seg in ipairs(stream.segments) do
-				local ps = pHead - seg.lag
-				if ps > 0 and ps < 1 then
-					local x, y, depthScale, rot = TrackTangent(
-						stream.lane, stream.amp, stream.freq, stream.phase, ps, angle, w, h, 0
-					)
-					local envelope = math.sin(ps * math.pi)
-					local scale = uiScale * depthScale
-					seg.texture:SetSize(stream.segLength * seg.len * scale, stream.segThickness * seg.thick * scale)
-					seg.texture:ClearAllPoints()
-					seg.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-					seg.texture:SetRotation(rot)
-					seg.texture:SetAlpha(stream.alpha * seg.alpha * strength * (envelope ^ 0.85))
-					seg.texture:Show()
+		if stream.manualOnly and not gust.manual then
+			HideStream(stream)
+		else
+			local t = gust.age - stream.delay
+			local totalDuration = stream.duration * (1 + stream.span)
+			if t > 0 and t < totalDuration then
+				active = true
+				local pHeadRaw = t / stream.duration
+				local pTailRaw = pHeadRaw - stream.span
+				local pStart = math.max(0, pTailRaw)
+				local pEnd = math.min(1, pHeadRaw)
+				local visibleSpan = pEnd - pStart
+
+				if visibleSpan > 0.008 then
+					local lane = stream.lane + stream.laneJitter
+					local heightBias = stream.heightBias + stream.heightJitter
+					local phase = stream.phase + stream.phaseJitter
+
+					-- Sample N+1 curve points once so adjacent line segments meet with zero gaps.
+					for i = 0, RIBBON_SEGMENTS do
+						local frac = i / RIBBON_SEGMENTS
+						local ps = pStart + frac * visibleSpan
+						local sx, sy, sScale = EvaluateTrack(
+							lane, heightBias, stream.amp, stream.freq, phase, ps, angle, 0, stream.depthLayer
+						)
+						ptX[i] = sx * w
+						ptY[i] = sy * h
+						ptScale[i] = sScale
+					end
+
+					for s = 1, RIBBON_SEGMENTS do
+						local line = stream.segments[s]
+						local x1, y1 = ptX[s - 1], ptY[s - 1]
+						local x2, y2 = ptX[s], ptY[s]
+						local dx = x2 - x1
+						local dy = y2 - y1
+						if dx * dx + dy * dy > 0.25 then
+							local midFrac = (s - 0.5) / RIBBON_SEGMENTS
+							local pMid = pStart + midFrac * visibleSpan
+							-- u in [0..1] along the full logical ribbon (0 = tail, 1 = leading tip).
+							local u = (pMid - pTailRaw) / stream.span
+							local wProf, aProf = RibbonTaper(u)
+							local pathEnv = math.sin(pMid * math.pi) ^ 0.72
+							local segScale = (ptScale[s - 1] + ptScale[s]) * 0.5
+							local thick = math.max(1.2, stream.thickness * (0.14 + 0.86 * wProf) * segScale * uiScale)
+							local alpha = stream.alpha * strength * aProf * pathEnv
+							-- Extend each feathered segment by 18% along its tangent so joins cross-fade seamlessly.
+							local ex1 = x1 - dx * 0.18
+							local ey1 = y1 - dy * 0.18
+							local ex2 = x2 + dx * 0.18
+							local ey2 = y2 + dy * 0.18
+
+							line:SetStartPoint("BOTTOMLEFT", root, ex1, ey1)
+							line:SetEndPoint("BOTTOMLEFT", root, ex2, ey2)
+							line:SetThickness(thick)
+							line:SetAlpha(alpha)
+							line:Show()
+
+							if s >= GLINT_FIRST_SEG and s <= GLINT_LAST_SEG then
+								local glint = stream.glints[s - GLINT_FIRST_SEG + 1]
+								glint:SetStartPoint("BOTTOMLEFT", root, ex1, ey1)
+								glint:SetEndPoint("BOTTOMLEFT", root, ex2, ey2)
+								glint:SetThickness(math.max(1.0, thick * 0.52))
+								glint:SetAlpha(alpha * 0.34)
+								glint:Show()
+							end
+						else
+							line:Hide()
+							if s >= GLINT_FIRST_SEG and s <= GLINT_LAST_SEG then
+								stream.glints[s - GLINT_FIRST_SEG + 1]:Hide()
+							end
+						end
+					end
 				else
-					seg.texture:Hide()
+					HideStream(stream)
 				end
-			end
-			-- Subtle ADD shimmer hugging the leading crest (kept restrained so nothing blows out to neon white).
-			local pg = pHead - 0.03
-			if pg > 0.04 and pg < 0.96 then
-				local x, y, depthScale, rot = TrackTangent(
-					stream.lane, stream.amp, stream.freq, stream.phase, pg, angle, w, h, 0
-				)
-				local envelope = math.sin(pg * math.pi)
-				local scale = uiScale * depthScale
-				stream.glint:SetSize(stream.segLength * 1.15 * scale, stream.segThickness * 0.62 * scale)
-				stream.glint:ClearAllPoints()
-				stream.glint:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-				stream.glint:SetRotation(rot)
-				stream.glint:SetAlpha(stream.alpha * 0.24 * strength * (envelope ^ 1.1))
-				stream.glint:Show()
+			elseif t <= 0 then
+				active = true
+				HideStream(stream)
 			else
-				stream.glint:Hide()
+				HideStream(stream)
 			end
-		elseif t <= 0 then
-			active = true
-			for _, seg in ipairs(stream.segments) do
-				seg.texture:Hide()
-			end
-			stream.glint:Hide()
-		else
-			for _, seg in ipairs(stream.segments) do
-				seg.texture:Hide()
-			end
-			stream.glint:Hide()
 		end
 	end
 
-	-- 3. Unfurling wind-curl eddies near the tail of the gust.
-	for _, curl in ipairs(curls) do
-		local t = gust.age - curl.delay
-		if t > 0 and t < curl.duration then
-			active = true
-			local p = t / curl.duration
-			local trackP = 0.56 + p * 0.42
-			local x, y, depthScale = EvaluateTrack(curl.lane, curl.amp, curl.freq, curl.phase, trackP, angle, 0.012)
-			local envelope = math.sin(p * math.pi)
-			local size = (curl.startSize + (curl.endSize - curl.startSize) * p) * uiScale * depthScale
-			curl.texture:SetSize(size, size)
-			curl.texture:ClearAllPoints()
-			curl.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-			curl.texture:SetRotation(curl.startRot + p * 1.45 * curl.spinDir)
-			curl.texture:SetAlpha(curl.alpha * strength * (envelope ^ 0.9))
-			curl.texture:Show()
-		elseif t <= 0 then
-			active = true
-			curl.texture:Hide()
-		else
-			curl.texture:Hide()
-		end
-	end
-
-	-- 4. Biome particles (with pseudo-3D tumble for leaves/petals) + airy parallax motes.
+	-- 2. Wind-carried biome particles (leaves, grass blades, petals, snow, dust, embers, spores)
+	--    plus slender directional wind-glint needles.
 	if gust.showParticles then
 		local tumbleSpeed = biome.tumble or 0
 		for _, particle in ipairs(particles) do
-			local t = gust.age - particle.delay
-			if t > 0 and t < particle.duration then
-				active = true
-				local p = t / particle.duration
-				local x, y, depthScale = EvaluateTrack(
-					particle.lane, particle.amp, particle.freq, particle.phase, p, angle, biome.lift
-				)
-				local envelope = math.sin(p * math.pi)
-				local pulse = biome.pulse and (0.65 + 0.35 * math.sin(t * 7 + particle.phase)) or 1
-				local alpha = biome.alpha * strength * (envelope ^ 0.8) * pulse
-				local size = particle.size * biome.size * uiScale * depthScale
-				local height = tumbleSpeed > 0
-					and size * (0.40 + 0.60 * math.abs(math.cos(t * tumbleSpeed + particle.phase)))
-					or size
-
-				particle.texture:SetSize(size, height)
-				particle.texture:ClearAllPoints()
-				particle.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-				particle.texture:SetRotation(particle.startRot + t * biome.spin * particle.spinDir)
-				particle.texture:SetAlpha(alpha)
-				particle.texture:Show()
-			elseif t <= 0 then
-				active = true
+			if particle.manualOnly and not gust.manual then
 				particle.texture:Hide()
 			else
-				particle.texture:Hide()
+				local t = gust.age - particle.delay
+				if t > 0 and t < particle.duration then
+					active = true
+					local p = t / particle.duration
+					local lane = particle.lane + particle.laneJitter
+					local heightBias = particle.heightBias + particle.heightJitter
+					local phase = particle.phase + particle.phaseJitter
+					local x, y, depthScale, rot = TrackTangent(
+						lane, heightBias, particle.amp, particle.freq, phase, p, angle, w, h, biome.lift, particle.depthLayer
+					)
+					local envelope = math.sin(p * math.pi)
+					local pulse = biome.pulse and (0.65 + 0.35 * math.sin(t * 7 + phase)) or 1
+					local alpha = biome.alpha * strength * (envelope ^ 0.78) * pulse
+					local size = particle.size * biome.size * uiScale * depthScale
+					local height = tumbleSpeed > 0
+						and size * (0.48 + 0.52 * math.abs(math.cos(t * tumbleSpeed + phase)))
+						or size
+					local spinAngle = biome.alignFlow and rot
+						or (particle.startRot + t * biome.spin * particle.spinDir)
+
+					particle.texture:SetSize(size, height)
+					particle.texture:ClearAllPoints()
+					particle.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
+					particle.texture:SetRotation(spinAngle)
+					particle.texture:SetAlpha(alpha)
+					particle.texture:Show()
+				elseif t <= 0 then
+					active = true
+					particle.texture:Hide()
+				else
+					particle.texture:Hide()
+				end
 			end
 		end
 
 		for _, mote in ipairs(motes) do
-			local t = gust.age - mote.delay
-			if t > 0 and t < mote.duration then
-				active = true
-				local p = t / mote.duration
-				local x, y, depthScale = EvaluateTrack(
-					mote.lane, mote.amp, mote.freq, mote.phase, p, angle, biome.lift * 0.5
-				)
-				local envelope = math.sin(p * math.pi)
-				local size = mote.size * uiScale * depthScale
-				mote.texture:SetSize(size, size)
-				mote.texture:ClearAllPoints()
-				mote.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
-				mote.texture:SetRotation(mote.startRot + t * 0.8)
-				mote.texture:SetAlpha(mote.alpha * strength * (envelope ^ 0.85))
-				mote.texture:Show()
-			elseif t <= 0 then
-				active = true
+			if mote.manualOnly and not gust.manual then
 				mote.texture:Hide()
 			else
-				mote.texture:Hide()
+				local t = gust.age - mote.delay
+				if t > 0 and t < mote.duration then
+					active = true
+					local p = t / mote.duration
+					local lane = mote.lane + mote.laneJitter
+					local phase = mote.phase + mote.phaseJitter
+					local x, y, depthScale, rot = TrackTangent(
+						lane, mote.heightBias, mote.amp, mote.freq, phase, p, angle, w, h, biome.lift * 0.4, mote.depthLayer
+					)
+					local envelope = math.sin(p * math.pi)
+					local size = mote.size * uiScale * depthScale
+					-- Square texture frame keeps SetRotation(rot) crisp and unclipped at every angle.
+					mote.texture:SetSize(size, size)
+					mote.texture:ClearAllPoints()
+					mote.texture:SetPoint("CENTER", root, "BOTTOMLEFT", x * w, y * h)
+					mote.texture:SetRotation(rot)
+					mote.texture:SetAlpha(mote.alpha * strength * (envelope ^ 0.85))
+					mote.texture:Show()
+				elseif t <= 0 then
+					active = true
+					mote.texture:Hide()
+				else
+					mote.texture:Hide()
+				end
 			end
 		end
 	end
@@ -653,90 +691,62 @@ local function EnsureOverlay()
 	root:SetFrameStrata("LOW")
 	root:EnableMouse(false)
 
-	veils = {}
-	for i, spec in ipairs(VEIL_SPECS) do
-		local tex = root:CreateTexture(nil, "ARTWORK", nil, -1)
-		tex:SetTexture(TEXTURE)
-		tex:SetTexCoord(unpack(WISP_VEIL))
-		tex:SetBlendMode("BLEND")
-		tex:Hide()
-		veils[i] = {
-			texture = tex,
-			lane = spec[1], delay = spec[2], duration = spec[3],
-			length = spec[4], thickness = spec[5],
-			amp = spec[6], freq = spec[7], phase = spec[8], alpha = spec[9],
-		}
-	end
-
 	streams = {}
 	for i, spec in ipairs(STREAM_SPECS) do
 		local segs = {}
-		for s, segSpec in ipairs(STREAM_SEGMENTS) do
-			local tex = root:CreateTexture(nil, "ARTWORK", nil, 0)
-			tex:SetTexture(TEXTURE)
-			tex:SetTexCoord(unpack(WISP_BRUSH))
-			tex:SetBlendMode("BLEND")
-			tex:Hide()
-			segs[s] = {
-				texture = tex,
-				lag = segSpec.lag, len = segSpec.len, thick = segSpec.thick, alpha = segSpec.alpha,
-			}
+		for s = 1, RIBBON_SEGMENTS do
+			local line = root:CreateLine(nil, "ARTWORK", nil, 0)
+			line:SetTexture(RIBBON_TEXTURE, "CLAMP", "CLAMP")
+			line:SetBlendMode("BLEND")
+			line:Hide()
+			segs[s] = line
 		end
-		local glint = root:CreateTexture(nil, "ARTWORK", nil, 1)
-		glint:SetTexture(TEXTURE)
-		glint:SetTexCoord(unpack(WISP_BRUSH))
-		glint:SetBlendMode("ADD")
-		glint:Hide()
+		local glints = {}
+		for g = 1, (GLINT_LAST_SEG - GLINT_FIRST_SEG + 1) do
+			local line = root:CreateLine(nil, "ARTWORK", nil, 1)
+			line:SetTexture(RIBBON_TEXTURE, "CLAMP", "CLAMP")
+			line:SetBlendMode("ADD")
+			line:Hide()
+			glints[g] = line
+		end
 		streams[i] = {
 			segments = segs,
-			glint = glint,
-			lane = spec[1], delay = spec[2], duration = spec[3],
-			segLength = spec[4], segThickness = spec[5],
-			amp = spec[6], freq = spec[7], phase = spec[8], alpha = spec[9],
-		}
-	end
-
-	curls = {}
-	for i, spec in ipairs(CURL_SPECS) do
-		local tex = root:CreateTexture(nil, "ARTWORK", nil, 1)
-		tex:SetTexture(TEXTURE)
-		tex:SetTexCoord(unpack(TILE_CURL))
-		tex:SetBlendMode("BLEND")
-		tex:Hide()
-		curls[i] = {
-			texture = tex,
-			lane = spec[1], delay = spec[2], duration = spec[3],
-			startSize = spec[4], endSize = spec[5],
-			amp = spec[6], freq = spec[7], phase = spec[8],
-			spinDir = spec[9], alpha = spec[10], startRot = 0,
+			glints = glints,
+			lane = spec[1], heightBias = spec[2], delay = spec[3], duration = spec[4],
+			span = spec[5], thickness = spec[6], amp = spec[7], freq = spec[8], phase = spec[9],
+			depthLayer = spec[10], alpha = spec[11], manualOnly = spec[12],
+			laneJitter = 0, heightJitter = 0, phaseJitter = 0,
 		}
 	end
 
 	particles = {}
 	for i, spec in ipairs(PARTICLE_SPECS) do
 		local tex = root:CreateTexture(nil, "ARTWORK", nil, 2)
-		tex:SetTexture(TEXTURE)
+		tex:SetTexture(ATLAS_TEXTURE)
 		tex:Hide()
 		particles[i] = {
 			texture = tex,
-			lane = spec[1], delay = spec[2], duration = spec[3],
-			size = spec[4], amp = spec[5], freq = spec[6], phase = spec[7],
-			spinDir = spec[8], altColor = spec[9], startRot = 0,
+			lane = spec[1], heightBias = spec[2], delay = spec[3], duration = spec[4],
+			size = spec[5], amp = spec[6], freq = spec[7], phase = spec[8],
+			spinDir = spec[9], altColor = spec[10], secondary = spec[11],
+			depthLayer = spec[12], manualOnly = spec[13],
+			startRot = 0, laneJitter = 0, heightJitter = 0, phaseJitter = 0,
 		}
 	end
 
 	motes = {}
 	for i, spec in ipairs(MOTE_SPECS) do
-		local tex = root:CreateTexture(nil, "ARTWORK", nil, 2)
-		tex:SetTexture(TEXTURE)
+		local tex = root:CreateTexture(nil, "ARTWORK", nil, 1)
+		tex:SetTexture(ATLAS_TEXTURE)
 		tex:SetTexCoord(unpack(TILE_MOTE))
 		tex:SetBlendMode("ADD")
 		tex:Hide()
 		motes[i] = {
 			texture = tex,
-			lane = spec[1], delay = spec[2], duration = spec[3],
-			size = spec[4], amp = spec[5], freq = spec[6], phase = spec[7],
-			alpha = spec[8], startRot = 0,
+			lane = spec[1], heightBias = spec[2], delay = spec[3], duration = spec[4],
+			size = spec[5], amp = spec[6], freq = spec[7], phase = spec[8],
+			depthLayer = spec[9], alpha = spec[10], manualOnly = spec[11],
+			laneJitter = 0, phaseJitter = 0,
 		}
 	end
 
@@ -763,45 +773,42 @@ local function StartGust(angle, options)
 		end
 	end
 
-	for _, veil in ipairs(veils) do
-		veil.texture:SetVertexColor(unpack(biome.veil))
-		veil.texture:SetAlpha(0)
-		veil.texture:Hide()
-	end
-
 	for _, stream in ipairs(streams) do
-		for _, seg in ipairs(stream.segments) do
-			seg.texture:SetVertexColor(unpack(biome.wind))
-			seg.texture:SetAlpha(0)
-			seg.texture:Hide()
+		for _, line in ipairs(stream.segments) do
+			line:SetVertexColor(unpack(biome.wind))
+			line:SetAlpha(0)
+			line:Hide()
 		end
-		stream.glint:SetVertexColor(unpack(biome.glint))
-		stream.glint:SetAlpha(0)
-		stream.glint:Hide()
-	end
-
-	for _, curl in ipairs(curls) do
-		curl.texture:SetVertexColor(unpack(biome.wind))
-		curl.texture:SetAlpha(0)
-		curl.texture:Hide()
-		curl.startRot = normAngle + math.random() * 1.2 - 0.6
+		for _, glint in ipairs(stream.glints) do
+			glint:SetVertexColor(unpack(biome.glint))
+			glint:SetAlpha(0)
+			glint:Hide()
+		end
+		stream.laneJitter = (math.random() - 0.5) * 0.06
+		stream.heightJitter = (math.random() - 0.5) * 0.05
+		stream.phaseJitter = (math.random() - 0.5) * 0.9
 	end
 
 	for _, particle in ipairs(particles) do
-		particle.texture:SetTexCoord(unpack(biome.tile))
+		local tile = (particle.secondary and biome.secondaryTile) or biome.tile
+		particle.texture:SetTexCoord(unpack(tile))
 		particle.texture:SetBlendMode(biome.blend)
 		local color = particle.altColor and biome.particleAlt or biome.particle
 		particle.texture:SetVertexColor(unpack(color))
 		particle.texture:SetAlpha(0)
 		particle.texture:Hide()
 		particle.startRot = math.random() * math.pi * 2
+		particle.laneJitter = (math.random() - 0.5) * 0.08
+		particle.heightJitter = (math.random() - 0.5) * 0.06
+		particle.phaseJitter = (math.random() - 0.5) * 1.1
 	end
 
 	for _, mote in ipairs(motes) do
 		mote.texture:SetVertexColor(unpack(biome.glint))
 		mote.texture:SetAlpha(0)
 		mote.texture:Hide()
-		mote.startRot = math.random() * math.pi * 2
+		mote.laneJitter = (math.random() - 0.5) * 0.07
+		mote.phaseJitter = (math.random() - 0.5) * 0.9
 	end
 
 	gust = {
@@ -1001,6 +1008,7 @@ function GuidingWind.GetState()
 		active = gust ~= nil,
 		angle = gust and gust.angle or nil,
 		biome = gust and gust.biomeKey or nil,
+		manual = gust and gust.manual or false,
 		timerActive = autoTimer ~= nil,
 		rootShown = root and root:IsShown() or false,
 	}

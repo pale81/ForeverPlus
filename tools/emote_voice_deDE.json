@@ -234,5 +234,10 @@
     "BOOP": "Ein Stups auf die Nase!"
   },
   "temperature": 0.65,
-  "voice_filter": "asetrate=23040,aresample=24000,atempo=1.0677083333,bass=g=1:f=140:w=0.7,equalizer=f=3000:t=q:w=0.7:g=-0.6,asoftclip=type=tanh:threshold=0.9:oversample=2"
+  "voice_filter": "asetrate=23040,aresample=24000,atempo=0.9375,bass=g=1:f=140:w=0.7,equalizer=f=3000:t=q:w=0.7:g=-0.6,asoftclip=type=tanh:threshold=0.9:oversample=2",
+  "prosody": {
+    "pitch_spread": 1.15,
+    "max_shift_semitones": 0.75
+  },
+  "prosody_renderer": "Praat 7.0.03"
 }

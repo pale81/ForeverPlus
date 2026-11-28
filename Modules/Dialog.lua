@@ -1672,26 +1672,12 @@ function Dialog.PortraitUnit(view)
 end
 
 -- The bubble sits on the lower edge of the plate and covers it: the plate is made invisible meanwhile.
-local hiddenPlate, hiddenAlpha
-
 local function RestorePlate()
-	if hiddenPlate and hiddenPlate.UnitFrame and not hiddenPlate:IsForbidden() then
-		hiddenPlate.UnitFrame:SetAlpha(hiddenAlpha or 1)
-	end
-	hiddenPlate, hiddenAlpha = nil, nil
+	ns.SetBubblePlate(nil, "dialog")
 end
 
 local function HidePlate(plate)
-	if hiddenPlate and hiddenPlate ~= plate then
-		RestorePlate()
-	end
-	if plate and plate.UnitFrame and not plate:IsForbidden() then
-		if hiddenPlate ~= plate then
-			hiddenAlpha = ns.Number(plate.UnitFrame:GetAlpha(), 1)
-			hiddenPlate = plate
-		end
-		plate.UnitFrame:SetAlpha(0)
-	end
+	ns.SetBubblePlate(plate, "dialog", true)
 end
 
 -- Whether the bubble may show: elapsed seconds since the talk began, quiet seconds since the plate's scale last moved.
@@ -1799,7 +1785,7 @@ local function Place(nameplate)
 	if Dialog.db.hidePlate then
 		HidePlate(nameplate)
 	else
-		RestorePlate()
+		ns.SetBubblePlate(nameplate, "dialog", false)
 	end
 end
 
@@ -3326,6 +3312,8 @@ function Dialog:Apply()
 		Render(current.view)
 		if (changed or floating) and current then
 			PlaceCurrent()
+		elseif Dialog.anchorPlate then
+			ns.SetBubblePlate(Dialog.anchorPlate, "dialog", self.db.hidePlate)
 		end
 	end
 end

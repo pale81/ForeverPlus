@@ -50,6 +50,106 @@ _G["BINDING_NAME_" .. TOTEM_SUMMON_BINDING] = L.VISUALS_TOTEM_SUMMON_BINDING
 ---------------------------------------------------------------------------
 local borders = setmetatable({}, { __mode = "k" })
 
+-- Blizzard's IconQuestTexture (UI-Icon-QuestBorder / UI-Icon-QuestBang, 37x38) draws a thick golden
+-- inner border (and overhangs 1 px at the bottom) that clashes with our crisp quality pixel border.
+-- On uncommon+ items, silence IconQuestTexture via alpha and draw a clean "!" badge for quest starters.
+local SyncQuestOverlay
+do
+	local QUEST_BANG_ICON = [[Interface\GossipFrame\AvailableQuestIcon]]
+	local questHidden = setmetatable({}, { __mode = "k" })
+	local questBangs = setmetatable({}, { __mode = "k" })
+	local questBangShown = setmetatable({}, { __mode = "k" })
+
+	local function QuestTexture(button)
+		if button.IconQuestTexture then
+			return button.IconQuestTexture
+		end
+		local parent = button.GetParent and button:GetParent()
+		if parent and parent.Item == button and parent.IconQuestTexture then
+			return parent.IconQuestTexture
+		end
+	end
+
+	local function IsQuestStarter(button, questTex)
+		local info = button.questItemInfo
+		if type(info) == "table" and not ns.Secret(info) then
+			local questID, isActive = info.questID, info.isActive
+			if not ns.Secret(questID) and not ns.Secret(isActive) then
+				return questID and not isActive and true or false
+			end
+		end
+		if C_Container and C_Container.GetContainerItemQuestInfo then
+			local bag = button.GetBagID and button:GetBagID() or (button.GetBankTabID and button:GetBankTabID())
+			local slot = button.GetBankTabID and button.GetContainerSlotID and button:GetContainerSlotID()
+				or (button.GetID and button:GetID())
+			if type(bag) == "number" and type(slot) == "number" and not ns.Secret(bag) and not ns.Secret(slot) then
+				local q = C_Container.GetContainerItemQuestInfo(bag, slot)
+				if type(q) == "table" and not ns.Secret(q) then
+					local questID, isActive = q.questID, q.isActive
+					if not ns.Secret(questID) and not ns.Secret(isActive) then
+						return questID and not isActive and true or false
+					end
+				end
+			end
+		end
+		local parent = button.GetParent and button:GetParent()
+		if parent and parent.Item == button and parent.GetSlotIndex and GetLootSlotInfo then
+			local slotIndex = parent:GetSlotIndex()
+			if type(slotIndex) == "number" and not ns.Secret(slotIndex) then
+				local _, _, _, _, _, _, _, questID, isActive = GetLootSlotInfo(slotIndex)
+				if not ns.Secret(questID) and not ns.Secret(isActive) then
+					return questID and not isActive and true or false
+				end
+			end
+		end
+		if questTex and questTex.IsShown and questTex:IsShown() and questTex.GetTexture then
+			local tex = questTex:GetTexture()
+			if type(tex) == "string" and not ns.Secret(tex) then
+				return tex == TEXTURE_ITEM_QUEST_BANG or tex:lower():find("questbang", 1, true) ~= nil
+			end
+		end
+		return false
+	end
+
+	function SyncQuestOverlay(button, state)
+		if state > 0 then
+			local questTex = QuestTexture(button)
+			if not questTex then
+				return
+			end
+			if not questHidden[button] and questTex.SetAlpha then
+				questTex:SetAlpha(0)
+				questHidden[button] = questTex
+			end
+			local bang = IsQuestStarter(button, questTex)
+			if questBangShown[button] ~= bang then
+				questBangShown[button] = bang or nil
+				local badge = questBangs[button]
+				if bang and not badge and button.CreateTexture then
+					badge = button:CreateTexture(nil, "OVERLAY", nil, 7)
+					badge:SetTexture(QUEST_BANG_ICON)
+					badge:SetSize(16, 16)
+					badge:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+					questBangs[button] = badge
+				end
+				if badge then
+					badge:SetShown(bang)
+				end
+			end
+		elseif questHidden[button] or questBangShown[button] then
+			local questTex = questHidden[button]
+			if questTex and questTex.SetAlpha then
+				questTex:SetAlpha(1)
+			end
+			questHidden[button] = nil
+			questBangShown[button] = nil
+			if questBangs[button] then
+				questBangs[button]:Hide()
+			end
+		end
+	end
+end
+
 -- Grey and white items in the bags and on the character: no frame is laid over the game's own slot art, only a
 -- thin, translucent line a little inside the picture (option); from green upwards the crisp quality frame.
 local soft = setmetatable({}, { __mode = "k" })
@@ -84,6 +184,7 @@ local function UpdateGlow(button, quality, forced)
 			state = quality
 		end
 	end
+	SyncQuestOverlay(button, state)
 	local prev = glowState[button] or 0
 	if prev == state then
 		return

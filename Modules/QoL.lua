@@ -247,6 +247,10 @@ end
 
 local function FadePlate(plate, alpha)
 	if plate and not plate:IsForbidden() and plate.UnitFrame then
+		if ns.IsPlateHidden and ns.IsPlateHidden(plate) then
+			ns.SetHiddenPlateRestoreAlpha(plate, alpha)
+			return
+		end
 		plate.UnitFrame:SetAlpha(alpha)
 	end
 end

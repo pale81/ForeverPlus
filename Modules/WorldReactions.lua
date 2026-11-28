@@ -74,7 +74,12 @@ local WATER_SHEET_DURATION = 0.72
 local WATER_DRIP_DELAY = 0.28
 
 local LOGIN_GRACE = 2.0
-local POLL_INTERVAL = 0.10
+local POLL_INTERVAL = 0.15
+local CAMPFIRE_POLL_INTERVAL = 0.50
+local CAMPFIRE_FRAME_INTERVAL = 1 / 30
+
+local mabs, mmax, mmin, mrandom, msin, mPI = math.abs, math.max, math.min, math.random, math.sin, math.pi
+local TWO_PI = mPI * 2
 
 local DROP_COUNT = 18
 local EMBER_COUNT = 14
@@ -105,8 +110,9 @@ local waterState = {}
 local armorState = {}
 local soundLast = {}
 local trackedFires = {}
+local mapWorldSizeCache = {}
 
-local overlay, watcher
+local overlay, watchTicker
 local glowTexture, sheetTexture, dropPool, emberPool
 local dropsActive = false
 local dropsElapsed = 0
@@ -117,7 +123,12 @@ local campfireClock = 0
 local campfirePreviewUntil = 0
 local hasCozyFireAura = false
 local inCombat = false
-local watchElapsed = 0
+local campfirePollAt = 0
+local animElapsed = 0
+local cachedW, cachedH, cachedUiScale = 1280, 720, 1
+local cachedIntensity = 0.75
+local glowW, glowH, glowShown = 0, 0, false
+local sheetShown = false
 local audioGen = 0
 
 local function Clamp(value, lo, hi)
@@ -130,8 +141,39 @@ local function Clamp(value, lo, hi)
 	return value
 end
 
-local function IntensityScale()
-	return Clamp(ns.Number(WorldReactions.db and WorldReactions.db.intensity, 75) / 100, 0.30, 1.0)
+local function RefreshIntensityCache()
+	cachedIntensity = Clamp(ns.Number(WorldReactions.db and WorldReactions.db.intensity, 75) / 100, 0.30, 1.0)
+	return cachedIntensity
+end
+
+local function RefreshOverlaySize()
+	if not overlay then
+		cachedW, cachedH, cachedUiScale = 1280, 720, 1
+		return
+	end
+	local w, h = overlay:GetSize()
+	w, h = ns.Number(w), ns.Number(h)
+	if not w or w < 100 or not h or h < 100 then
+		w, h = 1280, 720
+	end
+	cachedW, cachedH = w, h
+	cachedUiScale = mmin(w / 1280, h / 720)
+end
+
+local function MapWorldSize(mapID)
+	if not (mapID and C_Map and C_Map.GetMapWorldSize) then
+		return 0, 0
+	end
+	local cached = mapWorldSizeCache[mapID]
+	if cached then
+		return cached[1], cached[2]
+	end
+	local width, height = C_Map.GetMapWorldSize(mapID)
+	width, height = ns.Number(width, 0), ns.Number(height, 0)
+	if width > 0 and height > 0 then
+		mapWorldSizeCache[mapID] = { width, height }
+	end
+	return width, height
 end
 
 local function PlayFromPool(kind, pool, fallbackKit)
@@ -362,11 +404,7 @@ local function HasLocalTrackedCampfireNearPlayer(now)
 	end
 	local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
 	local pos = currentMapID and C_Map.GetPlayerMapPosition and C_Map.GetPlayerMapPosition(currentMapID, "player")
-	local width, height
-	if currentMapID and C_Map.GetMapWorldSize then
-		width, height = C_Map.GetMapWorldSize(currentMapID)
-	end
-	width, height = ns.Number(width, 0), ns.Number(height, 0)
+	local width, height = MapWorldSize(currentMapID)
 	local px, py
 	if pos then
 		px, py = pos:GetXY()
@@ -410,31 +448,20 @@ end
 -- Overlay creation & animation
 ---------------------------------------------------------------------------
 
-local function RootSize()
-	if not overlay then
-		return 1280, 720
-	end
-	local w, h = overlay:GetSize()
-	w, h = ns.Number(w), ns.Number(h)
-	if not w or w < 100 or not h or h < 100 then
-		return 1280, 720
-	end
-	return w, h
-end
-
 local function ResetEmber(ember, stagger)
-	ember.x = 0.08 + math.random() * 0.84
-	ember.y = math.random() * 0.035
-	ember.rise = 0.14 + math.random() * 0.14
-	ember.drift = (math.random() - 0.5) * 0.065
-	ember.swayAmp = 0.008 + math.random() * 0.014
-	ember.swayFreq = 2.0 + math.random() * 2.5
-	ember.phase = math.random() * math.pi * 2
-	ember.duration = 2.2 + math.random() * 2.0
-	ember.age = stagger and (math.random() * ember.duration) or 0
-	ember.size = 10 + math.random() * 14
-	ember.alpha = 0.45 + math.random() * 0.40
-	local uv = UV_EMBERS[math.random(#UV_EMBERS)]
+	ember.x = 0.08 + mrandom() * 0.84
+	ember.y = mrandom() * 0.035
+	ember.rise = 0.14 + mrandom() * 0.14
+	ember.drift = (mrandom() - 0.5) * 0.065
+	ember.swayAmp = 0.008 + mrandom() * 0.014
+	ember.swayFreq = 2.0 + mrandom() * 2.5
+	ember.phase = mrandom() * TWO_PI
+	ember.duration = 2.2 + mrandom() * 2.0
+	ember.age = stagger and (mrandom() * ember.duration) or 0
+	ember.size = 10 + mrandom() * 14
+	ember.alpha = 0.45 + mrandom() * 0.40
+	ember.lastSize = nil
+	local uv = UV_EMBERS[mrandom(#UV_EMBERS)]
 	ember.texture:SetTexCoord(uv[1], uv[2], uv[3], uv[4])
 end
 
@@ -447,7 +474,9 @@ local function EnsureOverlay()
 	overlay:EnableMouse(false)
 	overlay:SetFrameStrata("BACKGROUND")
 	overlay:SetFrameLevel(1)
+	overlay:SetScript("OnSizeChanged", RefreshOverlaySize)
 	overlay:Hide()
+	RefreshOverlaySize()
 
 	glowTexture = overlay:CreateTexture(nil, "ARTWORK")
 	glowTexture:SetTexture(TEXTURE)
@@ -456,6 +485,7 @@ local function EnsureOverlay()
 	glowTexture:SetVertexColor(1.0, 0.48, 0.14, 1.0)
 	glowTexture:SetPoint("BOTTOM", overlay, "BOTTOM", 0, 0)
 	glowTexture:Hide()
+	glowW, glowH, glowShown = 0, 0, false
 
 	emberPool = {}
 	for i = 1, EMBER_COUNT do
@@ -464,7 +494,7 @@ local function EnsureOverlay()
 		tex:SetBlendMode("ADD")
 		tex:SetVertexColor(1.0, 0.62, 0.20, 1.0)
 		tex:Hide()
-		local ember = { texture = tex }
+		local ember = { texture = tex, shown = false }
 		ResetEmber(ember, true)
 		emberPool[i] = ember
 	end
@@ -475,6 +505,7 @@ local function EnsureOverlay()
 	sheetTexture:SetBlendMode("BLEND")
 	sheetTexture:SetVertexColor(0.90, 0.96, 1.0, 1.0)
 	sheetTexture:Hide()
+	sheetShown = false
 
 	dropPool = {}
 	for i = 1, DROP_COUNT do
@@ -483,7 +514,7 @@ local function EnsureOverlay()
 		tex:SetBlendMode("BLEND")
 		tex:SetVertexColor(0.90, 0.96, 1.0, 1.0)
 		tex:Hide()
-		dropPool[i] = { texture = tex }
+		dropPool[i] = { texture = tex, shown = false }
 	end
 
 	return overlay
@@ -491,12 +522,33 @@ end
 
 local function HideWaterTextures()
 	if dropPool then
-		for _, drop in ipairs(dropPool) do
-			drop.texture:Hide()
+		for i = 1, #dropPool do
+			local drop = dropPool[i]
+			if drop.shown then
+				drop.shown = false
+				drop.texture:Hide()
+			end
 		end
 	end
-	if sheetTexture then
+	if sheetTexture and sheetShown then
+		sheetShown = false
 		sheetTexture:Hide()
+	end
+end
+
+local function HideCampfireTextures()
+	if glowTexture and glowShown then
+		glowShown = false
+		glowTexture:Hide()
+	end
+	if emberPool then
+		for i = 1, #emberPool do
+			local ember = emberPool[i]
+			if ember.shown then
+				ember.shown = false
+				ember.texture:Hide()
+			end
+		end
 	end
 end
 
@@ -506,26 +558,18 @@ local function StopOverlay()
 	campfireDesired = false
 	campfireAlpha = 0
 	campfirePreviewUntil = 0
+	animElapsed = 0
 	if overlay then
 		overlay:SetScript("OnUpdate", nil)
-		if glowTexture then
-			glowTexture:Hide()
-		end
+		HideCampfireTextures()
 		HideWaterTextures()
-		if emberPool then
-			for _, ember in ipairs(emberPool) do
-				ember.texture:Hide()
-			end
-		end
 		overlay:Hide()
 	end
 end
 
-local function AnimateOverlay(_, elapsed)
-	local delta = math.min(ns.Number(elapsed, 0), 0.1)
-	local w, h = RootSize()
-	local uiScale = math.min(w / 1280, h / 720)
-	local intensity = IntensityScale()
+local function AnimateOverlay(delta)
+	local w, h, uiScale = cachedW, cachedH, cachedUiScale
+	local intensity = cachedIntensity
 	local stillRunning = false
 
 	-- 1. Camera-lens water runoff: receding water film + vertical running rivulets
@@ -543,20 +587,24 @@ local function AnimateOverlay(_, elapsed)
 				local sheetHeight = h * (0.46 + 0.14 * sp)
 				-- Bottom edge starts near upper lens (y = 0.78) and slides cleanly down off-screen.
 				local bottomY = (0.78 - 0.84 * ease) * h
-				local fadeIn = math.sin(Clamp(sp / 0.16, 0, 1) * math.pi * 0.5)
+				local fadeIn = msin(Clamp(sp / 0.16, 0, 1) * mPI * 0.5)
 				local fadeOut = (1.0 - sp) ^ 1.15
 				local sheetCombat = dropsCombat and 0.25 or 1.0
 				sheetTexture:SetSize(w * 1.04, sheetHeight)
-				sheetTexture:ClearAllPoints()
 				sheetTexture:SetPoint("BOTTOM", overlay, "BOTTOM", 0, bottomY)
 				sheetTexture:SetAlpha(0.62 * fadeIn * fadeOut * intensity * sheetCombat)
-				sheetTexture:Show()
-			else
+				if not sheetShown then
+					sheetShown = true
+					sheetTexture:Show()
+				end
+			elseif sheetShown then
+				sheetShown = false
 				sheetTexture:Hide()
 			end
 		end
 
-		for _, drop in ipairs(dropPool) do
+		for i = 1, #dropPool do
+			local drop = dropPool[i]
 			if drop.active then
 				local t = dropsElapsed - drop.delay
 				if t >= 0 and t < drop.duration then
@@ -564,34 +612,41 @@ local function AnimateOverlay(_, elapsed)
 					local p = t / drop.duration
 					local fadeIn = Clamp(p / 0.10, 0, 1)
 					local fadeOut = p > 0.66 and Clamp((1 - p) / 0.34, 0, 1) or 1
-					local runT = math.max(0, t - drop.cling)
-					local runNorm = runT / math.max(0.2, drop.duration - drop.cling)
+					local runT = mmax(0, t - drop.cling)
+					local runNorm = runT / mmax(0.2, drop.duration - drop.cling)
 					-- Brisk initial gravity runoff with subtle stick-slip hesitation.
 					local gravity = 1.0 - (1.0 - runNorm) ^ 1.65
-					local slip = 0.016 * math.sin(runNorm * drop.slipFreq * math.pi + drop.phase) * (1.0 - runNorm)
+					local slip = 0.016 * msin(runNorm * drop.slipFreq * mPI + drop.phase) * (1.0 - runNorm)
 					local fall = drop.travel * Clamp(gravity + slip, 0, 1.04)
 					local headY = drop.startY - fall
 					-- Top of the wet trail lingers near startY while the head runs ahead, then drains down.
 					local tailLag = Clamp((runNorm - 0.12) / 0.88, 0, 1)
 					local tailY = drop.startY - fall * (0.42 * tailLag * tailLag)
-					local minLen = math.max(drop.maxLen * 0.38, drop.width * 3.2) * uiScale
+					local minLen = mmax(drop.maxLen * 0.38, drop.width * 3.2) * uiScale
 					local maxLen = drop.maxLen * uiScale
 					local streakLen = Clamp((tailY - headY) * h, minLen, maxLen)
 					local width = drop.width * uiScale * (1.0 - 0.28 * p)
 					local x = Clamp(drop.x + drop.drift * runNorm, 0.01, 0.99)
 
 					drop.texture:SetSize(width, streakLen)
-					drop.texture:ClearAllPoints()
 					drop.texture:SetPoint("BOTTOM", overlay, "BOTTOMLEFT", x * w, headY * h)
 					drop.texture:SetAlpha(drop.alpha * fadeIn * fadeOut * intensity * combatFactor)
-					drop.texture:Show()
+					if not drop.shown then
+						drop.shown = true
+						drop.texture:Show()
+					end
 				elseif t < 0 then
 					anyDrop = true
-					drop.texture:Hide()
-				else
+					if drop.shown then
+						drop.shown = false
+						drop.texture:Hide()
+					end
+				elseif drop.shown then
+					drop.shown = false
 					drop.texture:Hide()
 				end
-			else
+			elseif drop.shown then
+				drop.shown = false
 				drop.texture:Hide()
 			end
 		end
@@ -607,28 +662,37 @@ local function AnimateOverlay(_, elapsed)
 	-- 2. Campfire warm bottom glow & rising embers
 	local target = campfireDesired and 1 or 0
 	if target > campfireAlpha then
-		campfireAlpha = math.min(target, campfireAlpha + delta / 0.75)
+		campfireAlpha = mmin(target, campfireAlpha + delta / 0.75)
 	elseif target < campfireAlpha then
-		campfireAlpha = math.max(target, campfireAlpha - delta / 0.40)
+		campfireAlpha = mmax(target, campfireAlpha - delta / 0.40)
 	end
 
 	if campfireAlpha > 0.002 then
 		stillRunning = true
 		campfireClock = campfireClock + delta
 		local breath = 0.5
-			+ 0.32 * math.sin(campfireClock * 0.4 * math.pi * 2)
-			+ 0.18 * math.sin(campfireClock * 1.1 * math.pi * 2 + 1.3)
+			+ 0.32 * msin(campfireClock * 0.4 * TWO_PI)
+			+ 0.18 * msin(campfireClock * 1.1 * TWO_PI + 1.3)
 		local glowAlpha = (0.16 + 0.10 * breath) * campfireAlpha * intensity
-		glowTexture:SetSize(w * 0.92, h * 0.165)
+		if w ~= glowW or h ~= glowH then
+			glowW, glowH = w, h
+			glowTexture:SetSize(w * 0.92, h * 0.165)
+		end
 		glowTexture:SetAlpha(glowAlpha)
-		glowTexture:Show()
+		if not glowShown then
+			glowShown = true
+			glowTexture:Show()
+		end
 
-		for _, ember in ipairs(emberPool) do
+		local alphaScale = campfireAlpha * intensity
+		for i = 1, #emberPool do
+			local ember = emberPool[i]
 			ember.age = ember.age + delta
 			if ember.age >= ember.duration then
 				if campfireDesired then
 					ResetEmber(ember, false)
-				else
+				elseif ember.shown then
+					ember.shown = false
 					ember.texture:Hide()
 				end
 			end
@@ -636,41 +700,64 @@ local function AnimateOverlay(_, elapsed)
 				local p = ember.age / ember.duration
 				local fadeIn = Clamp(p / 0.18, 0, 1)
 				local fadeOut = Clamp((1 - p) / 0.36, 0, 1)
-				local flicker = 0.78 + 0.22 * math.sin(campfireClock * 7.5 + ember.phase)
-				local x = ember.x + ember.drift * p + math.sin(p * ember.swayFreq * math.pi + ember.phase) * ember.swayAmp
+				local flicker = 0.78 + 0.22 * msin(campfireClock * 7.5 + ember.phase)
+				local x = ember.x + ember.drift * p + msin(p * ember.swayFreq * mPI + ember.phase) * ember.swayAmp
 				local y = ember.y + ember.rise * (p * (1.15 - 0.15 * p))
 				local size = ember.size * uiScale * (1.0 - 0.35 * p)
 
-				ember.texture:SetSize(size, size)
-				ember.texture:ClearAllPoints()
+				if not ember.lastSize or mabs(size - ember.lastSize) >= 0.5 then
+					ember.lastSize = size
+					ember.texture:SetSize(size, size)
+				end
 				ember.texture:SetPoint("CENTER", overlay, "BOTTOMLEFT", Clamp(x, 0.02, 0.98) * w, Clamp(y, 0.01, 0.32) * h)
-				ember.texture:SetAlpha(ember.alpha * fadeIn * fadeOut * flicker * campfireAlpha * intensity)
-				ember.texture:Show()
+				ember.texture:SetAlpha(ember.alpha * fadeIn * fadeOut * flicker * alphaScale)
+				if not ember.shown then
+					ember.shown = true
+					ember.texture:Show()
+				end
 			end
 		end
 	else
 		campfireAlpha = 0
-		if glowTexture then
-			glowTexture:Hide()
-		end
-		if emberPool then
-			for _, ember in ipairs(emberPool) do
-				ember.texture:Hide()
-			end
-		end
+		HideCampfireTextures()
 	end
 
 	if not stillRunning then
+		animElapsed = 0
 		overlay:SetScript("OnUpdate", nil)
 		overlay:Hide()
 	end
 end
 
+local RunAnimateOverlay = ns.Measured("WorldReactions: animate", AnimateOverlay)
+
+-- Throttle steady campfire shimmer/embers to 30 FPS and skip measurement on idle wait frames;
+-- keep short water runoff at full frame rate for smooth downward streaks.
+local function OnAnimateUpdate(_, elapsed)
+	local delta = ns.Number(elapsed, 0)
+	if dropsActive then
+		local step = mmin(animElapsed + delta, 0.1)
+		animElapsed = 0
+		RunAnimateOverlay(step)
+		return
+	end
+	animElapsed = animElapsed + delta
+	if animElapsed < CAMPFIRE_FRAME_INTERVAL then
+		return
+	end
+	local step = mmin(animElapsed, 0.1)
+	animElapsed = 0
+	RunAnimateOverlay(step)
+end
+
 local function EnsureAnimationRunning()
 	local frame = EnsureOverlay()
+	RefreshOverlaySize()
+	RefreshIntensityCache()
 	frame:Show()
 	if not frame:GetScript("OnUpdate") then
-		ns.SetUpdate(frame, "WorldReactions: animate", AnimateOverlay)
+		animElapsed = CAMPFIRE_FRAME_INTERVAL
+		frame:SetScript("OnUpdate", OnAnimateUpdate)
 	end
 end
 
@@ -685,37 +772,43 @@ function WorldReactions.TriggerWater(isPreview)
 	dropsActive = true
 
 	if sheetTexture then
-		if math.random() < 0.5 then
+		if mrandom() < 0.5 then
 			sheetTexture:SetTexCoord(UV_SHEET[2], UV_SHEET[1], UV_SHEET[3], UV_SHEET[4])
 		else
 			sheetTexture:SetTexCoord(UV_SHEET[1], UV_SHEET[2], UV_SHEET[3], UV_SHEET[4])
 		end
-		sheetTexture:Hide()
+		if sheetShown then
+			sheetShown = false
+			sheetTexture:Hide()
+		end
 	end
 
 	for i, drop in ipairs(dropPool) do
 		local lane = RIVULET_LANES[i] or RIVULET_LANES[((i - 1) % #RIVULET_LANES) + 1]
 		local edgeOnly = lane[6]
 		drop.active = (not dropsCombat) or edgeOnly
-		drop.x = Clamp(lane[1] + (math.random() * 2 - 1) * lane[2], 0.015, 0.985)
-		drop.startY = lane[3] + math.random() * (lane[4] - lane[3])
-		drop.delay = math.random() * 0.22
-		drop.cling = 0.02 + math.random() * 0.12
-		drop.duration = 1.70 + math.random() * 0.75
-		drop.travel = 0.52 + math.random() * 0.34
-		drop.width = 24 + math.random() * 20
-		drop.maxLen = 220 + math.random() * 200
-		drop.drift = (math.random() - 0.5) * 0.014
-		drop.slipFreq = 2.0 + math.random() * 1.8
-		drop.phase = math.random() * math.pi * 2
-		drop.alpha = Clamp(lane[5] + (math.random() - 0.5) * 0.18, 0.24, 0.95)
+		drop.x = Clamp(lane[1] + (mrandom() * 2 - 1) * lane[2], 0.015, 0.985)
+		drop.startY = lane[3] + mrandom() * (lane[4] - lane[3])
+		drop.delay = mrandom() * 0.22
+		drop.cling = 0.02 + mrandom() * 0.12
+		drop.duration = 1.70 + mrandom() * 0.75
+		drop.travel = 0.52 + mrandom() * 0.34
+		drop.width = 24 + mrandom() * 20
+		drop.maxLen = 220 + mrandom() * 200
+		drop.drift = (mrandom() - 0.5) * 0.014
+		drop.slipFreq = 2.0 + mrandom() * 1.8
+		drop.phase = mrandom() * TWO_PI
+		drop.alpha = Clamp(lane[5] + (mrandom() - 0.5) * 0.18, 0.24, 0.95)
 		local uv = UV_RIVULETS[((i - 1) % #UV_RIVULETS) + 1]
-		if math.random() < 0.5 then
+		if mrandom() < 0.5 then
 			drop.texture:SetTexCoord(uv[2], uv[1], uv[3], uv[4])
 		else
 			drop.texture:SetTexCoord(uv[1], uv[2], uv[3], uv[4])
 		end
-		drop.texture:Hide()
+		if drop.shown then
+			drop.shown = false
+			drop.texture:Hide()
+		end
 	end
 
 	EnsureAnimationRunning()
@@ -790,7 +883,7 @@ local function RefreshCampfireState(now)
 	WorldReactions.SetCampfireActive(WorldReactions.IsNearCampfire(now))
 end
 
-local function OnWatch(_, elapsed)
+local function OnWatch()
 	local db = WorldReactions.db
 	if not (db and db.enabled) then
 		return
@@ -807,22 +900,24 @@ local function OnWatch(_, elapsed)
 		end
 	end
 
-	watchElapsed = watchElapsed + ns.Number(elapsed, 0)
-	if watchElapsed < POLL_INTERVAL then
-		return
-	end
-	watchElapsed = 0
-
 	if db.waterDrops then
 		local submerged = IsSubmerged and IsSubmerged() or false
 		local swimming = IsSwimming and IsSwimming() or false
-		if WorldReactions.StepWater(waterState, submerged, swimming, now, WaterBlocked()) then
-			WorldReactions.TriggerWater(false)
+		if submerged or swimming or waterState.submergedSince or waterState.swimmingSince then
+			if WorldReactions.StepWater(waterState, submerged, swimming, now, WaterBlocked()) then
+				WorldReactions.TriggerWater(false)
+			end
 		end
 	end
 
-	if db.campfireGlow then
-		RefreshCampfireState(now)
+	-- Cozy Fire aura is event-driven via UNIT_AURA; only poll distance when tracked fires or a preview exist.
+	if db.campfireGlow and now >= campfirePollAt then
+		local needPoll = campfirePreviewUntil > 0 or #trackedFires > 0
+			or (ns.HasTrackedCampfires and ns.HasTrackedCampfires())
+		if needPoll then
+			campfirePollAt = now + CAMPFIRE_POLL_INTERVAL
+			RefreshCampfireState(now)
+		end
 	end
 end
 
@@ -887,7 +982,7 @@ function WorldReactions.GetState()
 		hasCozyFireAura = hasCozyFireAura,
 		inCombat = inCombat,
 		armorWorn = armorState.wasWorn and true or false,
-		watcherActive = watcher and watcher:GetScript("OnUpdate") ~= nil or false,
+		watcherActive = watchTicker ~= nil,
 		overlayShown = overlay and overlay:IsShown() or false,
 	}
 end
@@ -898,6 +993,7 @@ function WorldReactions:Apply()
 	local needCampfire = on and db.campfireGlow
 	local needArmor = on and db.armorRattle
 	local needWatch = on and (db.waterDrops or db.campfireGlow or db.armorRattle)
+	RefreshIntensityCache()
 
 	self:ToggleEvent("PLAYER_ENTERING_WORLD", on, OnEnteringWorld)
 	self:ToggleEvent("PLAYER_REGEN_DISABLED", on, OnCombatStart)
@@ -907,12 +1003,14 @@ function WorldReactions:Apply()
 	self:ToggleEvent("UPDATE_INVENTORY_DURABILITY", needArmor, OnDurabilityChanged)
 	self:ToggleEvent("PLAYER_EQUIPMENT_CHANGED", needArmor, OnDurabilityChanged)
 
-	watcher = watcher or CreateFrame("Frame")
-	watchElapsed = 0
+	campfirePollAt = 0
 	if needWatch then
-		ns.SetUpdate(watcher, "WorldReactions: watch", OnWatch)
-	else
-		watcher:SetScript("OnUpdate", nil)
+		if not watchTicker then
+			watchTicker = ns.NewTicker("WorldReactions: watch", POLL_INTERVAL, OnWatch)
+		end
+	elseif watchTicker then
+		watchTicker:Cancel()
+		watchTicker = nil
 	end
 
 	if not on then

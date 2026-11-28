@@ -671,10 +671,254 @@ end
 ---------------------------------------------------------------------------
 -- Friendly NPC nameplates, switched on only while a bubble needs one to hang
 -- on (the NPC the player talks to has no plate otherwise) and restored after.
+-- Temporarily enabled friendly NPC plates and explicitly hidden bubble anchor
+-- plates stay invisible (UnitFrame alpha 0) so only the bubble shows, never
+-- the bare anchor bar.
 ---------------------------------------------------------------------------
 -- Friendly NPC plates alone can still disappear when the NPC stops being the target.
 local plateCVars = { "nameplateShowFriendlyNpcs", "nameplateShowAll" }
 local platesRestore, platesOwners = {}, {}
+local bubblePlates = {}     -- owner -> { plate = plate, hide = bool }
+local hiddenByPlate = {}    -- plate -> { frame = unitFrame, alpha = number, highlight = tex, highlightAlpha = number, unit = string }
+local hiddenUnitFrames = {} -- unitFrame -> plate
+local hiddenByUnit = {}     -- unit -> plate
+
+local function CanTouchFrame(frame)
+	return frame ~= nil and (not frame.IsForbidden or not frame:IsForbidden())
+end
+
+local function PlateUnit(plate, unit)
+	if type(unit) == "string" and unit ~= "" then
+		return unit
+	end
+	if plate then
+		if type(plate.unitToken) == "string" and plate.unitToken ~= "" then
+			return plate.unitToken
+		end
+		if plate.UnitFrame and type(plate.UnitFrame.unit) == "string" and plate.UnitFrame.unit ~= "" then
+			return plate.UnitFrame.unit
+		end
+	end
+end
+
+local function IsFriendlyNpcUnit(unit)
+	if type(unit) ~= "string" or not UnitExists(unit) then
+		return false
+	end
+	local friend = UnitIsFriend and UnitIsFriend("player", unit)
+	if ns.Secret(friend) or not friend then
+		return false
+	end
+	local isPlayer = UnitIsPlayer and UnitIsPlayer(unit)
+	if ns.Secret(isPlayer) or isPlayer then
+		return false
+	end
+	local canAttack = UnitCanAttack and UnitCanAttack("player", unit)
+	if ns.Secret(canAttack) or canAttack then
+		return false
+	end
+	return true
+end
+
+local function RestoreHiddenPlate(plate)
+	local info = plate and hiddenByPlate[plate]
+	if not info then
+		return
+	end
+	hiddenByPlate[plate] = nil
+	if info.unit and hiddenByUnit[info.unit] == plate then
+		hiddenByUnit[info.unit] = nil
+	end
+	if info.frame and hiddenUnitFrames[info.frame] == plate then
+		hiddenUnitFrames[info.frame] = nil
+	end
+	if CanTouchFrame(info.frame) then
+		info.frame:SetAlpha(info.alpha or 1)
+	end
+	if CanTouchFrame(info.highlight) and info.highlight.SetAlpha then
+		info.highlight:SetAlpha(info.highlightAlpha or 0.25)
+	end
+end
+
+local function RestoreAllHiddenPlates()
+	local plates = {}
+	for plate in pairs(hiddenByPlate) do
+		plates[#plates + 1] = plate
+	end
+	for _, plate in ipairs(plates) do
+		RestoreHiddenPlate(plate)
+	end
+end
+
+local function ApplyHiddenPlate(plate, unit)
+	if not CanTouchFrame(plate) then
+		return
+	end
+	local frame = plate.UnitFrame
+	if not CanTouchFrame(frame) then
+		return
+	end
+	local info = hiddenByPlate[plate]
+	if info and info.frame ~= frame then
+		RestoreHiddenPlate(plate)
+		info = nil
+	end
+	if not info then
+		local highlight = frame.selectionHighlight
+		local hasHighlight = CanTouchFrame(highlight) and highlight.SetAlpha ~= nil
+		info = {
+			frame = frame,
+			alpha = ns.Number(frame.GetAlpha and frame:GetAlpha(), 1),
+			highlight = hasHighlight and highlight or nil,
+			highlightAlpha = hasHighlight and highlight.GetAlpha and ns.Number(highlight:GetAlpha(), 0.25) or nil,
+		}
+		hiddenByPlate[plate] = info
+		hiddenUnitFrames[frame] = plate
+	end
+	if unit and info.unit ~= unit then
+		if info.unit and hiddenByUnit[info.unit] == plate then
+			hiddenByUnit[info.unit] = nil
+		end
+		info.unit = unit
+		hiddenByUnit[unit] = plate
+	end
+	frame:SetAlpha(0)
+	if CanTouchFrame(info.highlight) then
+		info.highlight:SetAlpha(0)
+	end
+end
+
+local function BubblePlateAction(plate)
+	local keepVisible = false
+	for _, entry in pairs(bubblePlates) do
+		if entry.plate == plate then
+			if entry.hide then
+				return true
+			end
+			keepVisible = true
+		end
+	end
+	if keepVisible then
+		return false
+	end
+	return nil
+end
+
+local function ShouldHidePlate(plate, unit)
+	local explicit = BubblePlateAction(plate)
+	if explicit ~= nil then
+		return explicit
+	end
+	if not next(platesRestore) then
+		return false
+	end
+	unit = PlateUnit(plate, unit)
+	if not IsFriendlyNpcUnit(unit) then
+		return false
+	end
+	if platesRestore.nameplateShowFriendlyNpcs ~= nil then
+		return true
+	end
+	if platesRestore.nameplateShowAll ~= nil then
+		local isTarget = UnitIsUnit and UnitIsUnit(unit, "target")
+		return ns.Secret(isTarget) or not isTarget
+	end
+	return false
+end
+
+local function SyncPlate(plate, unit)
+	if not plate then
+		return
+	end
+	if ShouldHidePlate(plate, unit) then
+		ApplyHiddenPlate(plate, PlateUnit(plate, unit))
+	else
+		RestoreHiddenPlate(plate)
+	end
+end
+
+local function SyncAllHiddenPlates()
+	local seen = {}
+	for _, plate in ipairs(C_NamePlate and C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}) do
+		if CanTouchFrame(plate) then
+			seen[plate] = true
+			SyncPlate(plate)
+		end
+	end
+	for _, entry in pairs(bubblePlates) do
+		local plate = entry.plate
+		if plate and not seen[plate] then
+			seen[plate] = true
+			SyncPlate(plate)
+		end
+	end
+	local stale = {}
+	for plate in pairs(hiddenByPlate) do
+		if not seen[plate] then
+			stale[#stale + 1] = plate
+		end
+	end
+	for _, plate in ipairs(stale) do
+		SyncPlate(plate)
+	end
+end
+
+function ns.IsPlateHidden(plate)
+	if not plate then
+		return false
+	end
+	if hiddenByPlate[plate] ~= nil then
+		return true
+	end
+	return plate.UnitFrame ~= nil and hiddenUnitFrames[plate.UnitFrame] ~= nil
+end
+
+function ns.SetHiddenPlateRestoreAlpha(plate, alpha)
+	local info = plate and hiddenByPlate[plate]
+	if info and type(alpha) == "number" and not ns.Secret(alpha) then
+		info.alpha = alpha
+	end
+end
+
+function ns.SetBubblePlate(plate, owner, hide)
+	local previous = bubblePlates[owner]
+	local oldPlate = previous and previous.plate
+	if plate then
+		bubblePlates[owner] = { plate = plate, hide = hide and true or false }
+	else
+		bubblePlates[owner] = nil
+	end
+	if oldPlate and oldPlate ~= plate then
+		SyncPlate(oldPlate)
+	end
+	if plate then
+		SyncPlate(plate)
+	end
+end
+
+local function EnforceHiddenUnitFrame(frame)
+	local plate = frame and hiddenUnitFrames[frame]
+	if not plate then
+		return
+	end
+	local info = hiddenByPlate[plate]
+	if not info or info.frame ~= frame then
+		hiddenUnitFrames[frame] = nil
+		return
+	end
+	if CanTouchFrame(frame) then
+		frame:SetAlpha(0)
+	end
+	if CanTouchFrame(info.highlight) then
+		info.highlight:SetAlpha(0)
+	end
+end
+
+ns.EnforceHiddenUnitFrame = EnforceHiddenUnitFrame
+
+if type(_G.CompactUnitFrame_UpdateCenterStatusIcon) == "function" then
+	hooksecurefunc("CompactUnitFrame_UpdateCenterStatusIcon", ns.Measured("NPC bubble nameplates: keep hidden", EnforceHiddenUnitFrame))
+end
 
 local function SyncFriendlyPlates()
 	if next(platesOwners) then
@@ -685,6 +929,7 @@ local function SyncFriendlyPlates()
 				SetCVar(cvar, "1")
 			end
 		end
+		SyncAllHiddenPlates()
 		return
 	end
 	for _, cvar in ipairs(plateCVars) do
@@ -694,6 +939,7 @@ local function SyncFriendlyPlates()
 			SetCVar(cvar, value)
 		end
 	end
+	SyncAllHiddenPlates()
 end
 
 -- Dialog and SpeechBubbles can overlap while Blizzard changes windows.
@@ -705,9 +951,37 @@ function ns.ShowFriendlyPlates(on, owner)
 	end
 end
 
+ns:RegisterEvent("NAME_PLATE_UNIT_ADDED", "NPC bubble nameplates", function(_, _, unit)
+	if not next(platesRestore) and not next(bubblePlates) then
+		return
+	end
+	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(unit)
+	if plate then
+		SyncPlate(plate, unit)
+	end
+end)
+
+ns:RegisterEvent("NAME_PLATE_UNIT_REMOVED", "NPC bubble nameplates", function(_, _, unit)
+	if not next(hiddenByPlate) then
+		return
+	end
+	local plate = hiddenByUnit[unit] or (C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(unit))
+	if plate then
+		RestoreHiddenPlate(plate)
+	end
+end)
+
+ns:RegisterEvent("PLAYER_TARGET_CHANGED", "NPC bubble nameplates", function()
+	if next(platesRestore) and platesRestore.nameplateShowFriendlyNpcs == nil and platesRestore.nameplateShowAll ~= nil then
+		SyncAllHiddenPlates()
+	end
+end)
+
 ns:RegisterEvent("PLAYER_LOGOUT", "NPC bubble nameplates", function()
 	wipe(platesOwners)
+	wipe(bubblePlates)
 	SyncFriendlyPlates()
+	RestoreAllHiddenPlates()
 end)
 
 ---------------------------------------------------------------------------

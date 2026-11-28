@@ -405,5 +405,5 @@ read_globals = {
 	"ShowInspectCursor", "ResetCursor", "CursorOnUpdate", "StackSplitFrame",
 	"GetMirrorTimerProgress", "ERR_FISH_ESCAPED", "ERR_FISH_NOT_HOOKED",
 	"LOOT_ITEM_PUSHED_SELF", "LOOT_ITEM_PUSHED_SELF_MULTIPLE",
-	"GameTimeFrame",
+	"GameTimeFrame", "TEXTURE_ITEM_QUEST_BANG",
 }

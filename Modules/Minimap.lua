@@ -35,7 +35,31 @@ local CAMPFIRE_SPELLS = {
 }
 ns.CAMPFIRE_SPELLS = CAMPFIRE_SPELLS
 local campfires, campfireHolder = {}, nil
+local campfireTicker, campfireTickerInterval, campfireMoving = nil, nil, false
+local mapWorldSizeCache = {}
 local CAMPFIRE_ICON = [[Interface\Icons\INV_Misc_BBQFire_01]]
+local CAMPFIRE_MOVE_INTERVAL = 0.25
+local CAMPFIRE_IDLE_INTERVAL = 1.0
+
+local function MapWorldSize(mapID)
+	if not (mapID and C_Map and C_Map.GetMapWorldSize) then
+		return 0, 0
+	end
+	local cached = mapWorldSizeCache[mapID]
+	if cached then
+		return cached[1], cached[2]
+	end
+	local width, height = C_Map.GetMapWorldSize(mapID)
+	width, height = ns.Number(width, 0), ns.Number(height, 0)
+	if width > 0 and height > 0 then
+		mapWorldSizeCache[mapID] = { width, height }
+	end
+	return width, height
+end
+
+function ns.HasTrackedCampfires()
+	return #campfires > 0
+end
 
 -- Read-only distance check for modules such as WorldReactions: true when any tracked campfire
 -- on the player's current map is within maxDistance yards.
@@ -48,11 +72,7 @@ function ns.HasCampfireNearPlayer(maxDistance)
 	if not position then
 		return false
 	end
-	local width, height
-	if C_Map.GetMapWorldSize then
-		width, height = C_Map.GetMapWorldSize(currentMapID)
-	end
-	width, height = ns.Number(width, 0), ns.Number(height, 0)
+	local width, height = MapWorldSize(currentMapID)
 	if width <= 0 or height <= 0 then
 		return false
 	end
@@ -138,37 +158,70 @@ local function AddCampfire(unit, duration)
 end
 
 local function FormatRemaining(seconds)
-	seconds = math.max(0, math.ceil(seconds))
 	return ("%d:%02d"):format(floor(seconds / 60), seconds % 60)
 end
 
-local function PositionCampfires()
-	if not campfireHolder or not MinimapCoords.db.campfires then
-		if campfireHolder then
-			campfireHolder:SetScript("OnUpdate", nil)
-			for _, fire in ipairs(campfires) do fire.pin:Hide() end
+local PositionCampfires
+
+local function SyncCampfireTicker(rotateMinimap)
+	if not campfireHolder or not MinimapCoords.db.campfires or #campfires == 0 then
+		if campfireTicker then
+			campfireTicker:Cancel()
+			campfireTicker = nil
+			campfireTickerInterval = nil
 		end
+		return
+	end
+	local interval = (campfireMoving or rotateMinimap) and CAMPFIRE_MOVE_INTERVAL or CAMPFIRE_IDLE_INTERVAL
+	if campfireTicker and campfireTickerInterval == interval then
+		return
+	end
+	if campfireTicker then
+		campfireTicker:Cancel()
+	end
+	campfireTickerInterval = interval
+	campfireTicker = ns.NewTicker("Minimap: campfire update", interval, PositionCampfires)
+end
+
+PositionCampfires = function()
+	if not campfireHolder or not MinimapCoords.db.campfires then
+		SyncCampfireTicker(false)
+		for _, fire in ipairs(campfires) do
+			if fire.shown ~= false then
+				fire.shown = false
+				fire.pin:Hide()
+			end
+		end
+		return
+	end
+	if #campfires == 0 then
+		SyncCampfireTicker(false)
 		return
 	end
 	local currentMapID = C_Map.GetBestMapForUnit("player")
 	local position = currentMapID and C_Map.GetPlayerMapPosition(currentMapID, "player")
-	local width, height
-	if currentMapID then
-		width, height = C_Map.GetMapWorldSize(currentMapID)
-	end
+	local width, height = MapWorldSize(currentMapID)
 	local radius = C_Minimap.GetViewRadius()
-	if not position or not width or width == 0 or not height or height == 0 or not radius or radius == 0 then
-		for _, fire in ipairs(campfires) do fire.pin:Hide() end
+	local rotateMinimap = GetCVarBool("rotateMinimap")
+	if not position or width <= 0 or height <= 0 or not radius or radius == 0 then
+		for _, fire in ipairs(campfires) do
+			if fire.shown ~= false then
+				fire.shown = false
+				fire.pin:Hide()
+			end
+		end
+		SyncCampfireTicker(rotateMinimap)
 		return
 	end
 	local px, py = position:GetXY()
 	local halfWidth, halfHeight = Minimap:GetWidth() / 2, Minimap:GetHeight() / 2
-	local facing = GetCVarBool("rotateMinimap") and GetPlayerFacing() or 0
+	local facing = rotateMinimap and (GetPlayerFacing() or 0) or 0
 	local sin, cos = math.sin(facing), math.cos(facing)
 	local now = GetTime()
 	for index = #campfires, 1, -1 do
 		local fire = campfires[index]
 		if fire.expires <= now then
+			fire.shown = false
 			fire.pin:Hide()
 			table.remove(campfires, index)
 		elseif fire.mapID == currentMapID then
@@ -182,26 +235,32 @@ local function PositionCampfires()
 			if onEdge then
 				sx, sy = sx * radius / distance, sy * radius / distance
 			end
-			fire.pin:ClearAllPoints()
-			fire.pin:SetPoint("CENTER", Minimap, "CENTER", sx / radius * halfWidth, sy / radius * halfHeight)
-			fire.pin:SetAlpha(onEdge and 0.6 or 1)
-			fire.pin.Timer:SetText(FormatRemaining(fire.expires - now))
-			fire.pin:Show()
-		else
+			local pinX = sx / radius * halfWidth
+			local pinY = sy / radius * halfHeight
+			if not fire.lastX or math.abs(pinX - fire.lastX) >= 0.25 or math.abs(pinY - fire.lastY) >= 0.25 then
+				fire.lastX, fire.lastY = pinX, pinY
+				fire.pin:SetPoint("CENTER", Minimap, "CENTER", pinX, pinY)
+			end
+			local alpha = onEdge and 0.6 or 1
+			if fire.lastAlpha ~= alpha then
+				fire.lastAlpha = alpha
+				fire.pin:SetAlpha(alpha)
+			end
+			local remaining = math.max(0, math.ceil(fire.expires - now))
+			if fire.lastRemaining ~= remaining then
+				fire.lastRemaining = remaining
+				fire.pin.Timer:SetText(FormatRemaining(remaining))
+			end
+			if not fire.shown then
+				fire.shown = true
+				fire.pin:Show()
+			end
+		elseif fire.shown ~= false then
+			fire.shown = false
 			fire.pin:Hide()
 		end
 	end
-	if #campfires == 0 then
-		campfireHolder:SetScript("OnUpdate", nil)
-	elseif not campfireHolder:GetScript("OnUpdate") then
-		ns.SetUpdate(campfireHolder, "Minimap: campfire update", function(_, elapsed)
-			MinimapCoords.campfireElapsed = (MinimapCoords.campfireElapsed or 0) + elapsed
-			if MinimapCoords.campfireElapsed >= 0.2 then
-				MinimapCoords.campfireElapsed = 0
-				PositionCampfires()
-			end
-		end)
-	end
+	SyncCampfireTicker(rotateMinimap)
 end
 
 function MinimapCoords:UNIT_SPELLCAST_SUCCEEDED(_, unit, _, spellID)
@@ -246,12 +305,20 @@ local function Update()
 end
 
 local function StartTicker()
+	campfireMoving = true
+	if #campfires > 0 then
+		PositionCampfires()
+	end
 	if not ticker then
 		ticker = ns.NewTicker("Minimap: Update", UPDATE_INTERVAL, Update)
 	end
 end
 
 local function StopTicker()
+	campfireMoving = UnitOnTaxi("player") and true or false
+	if #campfires > 0 then
+		PositionCampfires()
+	end
 	if ticker and not UnitOnTaxi("player") then
 		ticker:Cancel()
 		ticker = nil
@@ -1184,6 +1251,9 @@ local function ZoomBack()
 end
 
 local function OnZoomChanged()
+	if #campfires > 0 then
+		PositionCampfires()
+	end
 	if zoomOwn or not MinimapCoords.db.zoomReset then
 		return
 	end
@@ -1304,10 +1374,16 @@ function MinimapCoords:OnLogin()
 	self:RegisterEvent("PLAYER_STOPPED_MOVING", StopTicker)
 	self:RegisterEvent("PLAYER_CONTROL_LOST", StartTicker)
 	self:RegisterEvent("PLAYER_CONTROL_GAINED", StopTicker)
-	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", Update)
+	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
+		Update()
+		if #campfires > 0 then PositionCampfires() end
+	end)
 	self:RegisterEvent("ZONE_CHANGED", Update)
 	self:RegisterEvent("ZONE_CHANGED_INDOORS", Update)
-	self:RegisterEvent("PLAYER_ENTERING_WORLD", Update)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+		Update()
+		if #campfires > 0 then PositionCampfires() end
+	end)
 	Update()
 end
 

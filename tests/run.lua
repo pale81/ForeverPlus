@@ -36,6 +36,15 @@ frameMeta.__index = function(t, k)
 		GetVerticalScroll = function(self) return rawget(self, "verticalScroll") or 0 end,
 		SetVerticalScroll = function(self, offset) self.verticalScroll = offset end,
 		CreateTexture = function(self) return NewFrame("Texture") end,
+		CreateLine = function(self)
+			local line = NewFrame("Line")
+			self.lines = rawget(self, "lines") or {}
+			self.lines[#self.lines + 1] = line
+			return line
+		end,
+		SetStartPoint = function(self, ...) self.startPoint = { ... } end,
+		SetEndPoint = function(self, ...) self.endPoint = { ... } end,
+		SetThickness = function(self, t) self.thickness = t end,
 		CreateFontString = function(self) return NewFrame("FontString") end,
 		CreateMaskTexture = function(self) return NewFrame("Mask") end,
 		CreateAnimationGroup = function(self) return NewFrame("AG") end,
@@ -148,6 +157,7 @@ C_Map = { GetBestMapForUnit = function() return 1453 end, GetPlayerMapPosition =
 	GetMapPosFromWorldPos = function() return nil end, GetMapRectOnMap = function() return nil end }
 C_ClassColor = { GetClassColor = function(c, t) assert(t == nil, "GetClassColor extra arg") return { GetRGB = function() return 1, 1, 1 end, WrapTextInColorCode = function(_, x) return x end } end }
 Enum = Mock("Enum"); Enum.ItemArmorSubclass = { Cloth = 1, Leather = 2, Mail = 3, Plate = 4 }; Enum.UIMapType = { Zone = 3 }; Enum.ItemQuality = { Poor = 0, Uncommon = 2 }
+Enum.ItemBind = { None = 0, OnAcquire = 1, OnEquip = 2, OnUse = 3, Quest = 4 }
 Enum.BankType = { Character = 0, Account = 2 }
 Enum.BagIndex.CharacterBankTab_1, Enum.BagIndex.CharacterBankTab_9 = 6, 14
 Enum.BagIndex.Characterbanktab = -2
@@ -157,7 +167,7 @@ C_Item = Mock("C_Item"); C_Item.IsItemDataCachedByID = function() return true en
 C_Item.GetItemInfoInstant = function() return 1, nil, nil, nil, nil, 9, 5 end
 C_TooltipInfo = { GetItemByID = function() return { lines = {} } end, GetBagItem = function() return { lines = {} } end,
 	GetUnit = function() return { lines = {} } end }
-Enum.TooltipDataLineType = { ItemSpellTriggerOnEquip = 45, ItemSpellTriggerOnProc = 46 }
+Enum.TooltipDataLineType = { ItemSpellTriggerOnUse = 44, ItemSpellTriggerOnEquip = 45, ItemSpellTriggerOnProc = 46 }
 C_Minimap = { GetViewRadius = function() return 200 end }
 GetCVarBool = function() return false end
 GetCVar = function() return "1" end
@@ -3263,10 +3273,14 @@ do -- earlier reads cached the dungeon table of the real data mock
 	end
 end
 assert(qdb.IsDungeonQuest(100) == true and qdb.IsDungeonQuest(104) == true and qdb.IsDungeonQuest(102) == false and qdb.IsDungeonQuest(999) == nil, "dungeon quests")
-C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
-local built = false
-qdb.BuildChains(function() built = true end)
-assert(built, "chains built")
+do
+	local savedTicker = C_Timer.NewTicker
+	C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
+	local built = false
+	qdb.BuildChains(function() built = true end)
+	C_Timer.NewTicker = savedTicker
+	assert(built, "chains built")
+end
 assert(qdb.LeadsToDungeon(105) == true and qdb.LeadsToDungeon(101) == false, "pre-quest leads to dungeon")
 print("questiedb OK")
 -- QuestieDB tooltips
@@ -3633,11 +3647,15 @@ do
 end
 print("chat history OK")
 -- Sliced runner and timings
-local sum, done = 0, false
-C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
-ns.RunSliced("Test: slices", 1000, function(i) sum = sum + i end, function() done = true end, 0.001)
-assert(done and sum == 500500, "sliced run")
-assert(ns.timings["Test: slices"].count > 1, "ran in several slices")
+do
+	local sum, done = 0, false
+	local savedTicker = C_Timer.NewTicker
+	C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
+	ns.RunSliced("Test: slices", 1000, function(i) sum = sum + i end, function() done = true end, 0.001)
+	C_Timer.NewTicker = savedTicker
+	assert(done and sum == 500500, "sliced run")
+	assert(ns.timings["Test: slices"].count > 1, "ran in several slices")
+end
 local printed = {}
 ns.PrintAlways = function(msg, ...) printed[#printed + 1] = select("#", ...) > 0 and msg:format(...) or msg end
 ns.PrintTimings()
@@ -7975,6 +7993,7 @@ end)()
 	GetRealZoneText = function(id) return id == 36 and "Die Todesminen" or "" end
 	UnitFactionGroup = function() return "Alliance" end
 	CreateVector2D = function(x, y) return { x = x, y = y, GetXY = function(v) return v.x, v.y end } end
+	local savedMapTicker = C_Timer.NewTicker
 	C_Timer.NewTicker = function(_, fn) local t = { Cancel = function(self) self.dead = true end } repeat fn(t) until t.dead return t end
 	local canvas = CreateFrame("Frame")
 	canvas.GetWidth = function() return 1000 end
@@ -8114,6 +8133,7 @@ end)()
 	assert(npcTitle(-1) == fishingTitle, "QuestieDB's English title can also be translated")
 	setuv(npcTitle, "DB", savedDB)
 	C_Item.GetItemCount = itemCount
+	C_Timer.NewTicker = savedMapTicker
 	radar.db.worldMap = false
 	print("world map symbols OK")
 end)()
@@ -15204,6 +15224,17 @@ end)()
 	assert(near(wind.NormalizeAngle(3 * math.pi), math.pi)
 		and near(wind.NormalizeAngle(-3 * math.pi / 2), math.pi / 2), "angle wraps into (-pi, pi]")
 
+	-- 2b. Perspective and sweeping ribbon tracks (EvaluateTrack):
+	-- Ahead converges toward the upper horizon and shrinks depthScale with distance.
+	local ax0, ay0, as0 = wind.EvaluateTrack(-0.24, 0, 0, 1, 0, 0.08, 0, 0, 1.0)
+	local ax1, ay1, as1 = wind.EvaluateTrack(-0.24, 0, 0, 1, 0, 0.92, 0, 0, 1.0)
+	assert(ay1 > ay0 + 0.25 and math.abs(ax1 - 0.5) < math.abs(ax0 - 0.5) and as1 < as0 * 0.7,
+		"ahead wind converges toward upper horizon with perspective foreshortening")
+	-- Right sweeps wide across the viewport from left toward right.
+	local rx0, _, _ = wind.EvaluateTrack(0, 0, 0, 1, 0, 0.05, -math.pi / 2, 0, 1.0)
+	local rx1, _, _ = wind.EvaluateTrack(0, 0, 0, 1, 0, 0.95, -math.pi / 2, 0, 1.0)
+	assert(rx1 - rx0 > 0.65, "sideways wind sweeps wide across the viewport")
+
 	-- 3. Biome mapping (direct zones, parentMapID sub-map walk, unknown fallback).
 	local savedMapInfo = C_Map.GetMapInfo
 	C_Map.GetMapInfo = function(id)
@@ -15284,25 +15315,50 @@ end)()
 	assert(ok and reason == "waypoint", "manual summon succeeds for active waypoint")
 	local state = wind.GetState()
 	local overlay = _G.ForeverPlusGuidingWind
-	assert(state.active and state.rootShown and state.biome == "forest" and near(state.angle, -math.pi / 2),
+	assert(state.active and state.rootShown and state.manual and state.biome == "forest" and near(state.angle, -math.pi / 2),
 		"gust runs toward east (-pi/2) with forest biome")
 	assert(#soundsPlayed == 1 and soundsPlayed[1].channel == "SFX", "manual summon plays wind sound")
-
-	-- Advancing past the gust duration hides the overlay cleanly (no idle OnUpdate).
+	-- Advancing mid-gust (0.7 s in 0.1 s frames, respecting delta clamping) renders connected SimpleLine ribbon segments.
 	local onUpdate = overlay:GetScript("OnUpdate")
-	for _ = 1, 30 do
+	for _ = 1, 7 do
+		onUpdate(overlay, 0.1)
+	end
+	local activeLines = 0
+	for _, line in ipairs(overlay.lines or {}) do
+		if line:IsShown() then
+			assert(line.startPoint and line.endPoint and (line.thickness or 0) >= 1.0,
+				"visible ribbon segment has start/end points and positive thickness")
+			activeLines = activeLines + 1
+		end
+	end
+	assert(activeLines >= 100, "manual gust renders all 6 multi-ribbon silk streams: " .. tostring(activeLines))
+
+	-- Advancing past the gust duration hides the overlay and all ribbon lines cleanly (no idle OnUpdate).
+	for _ = 1, 35 do
 		if not overlay:IsShown() then break end
 		onUpdate(overlay, 0.1)
 	end
 	assert(not overlay:IsShown() and not wind.GetState().active, "overlay hides itself after gust completes")
+	for _, line in ipairs(overlay.lines or {}) do
+		assert(not line:IsShown(), "all ribbon lines hide cleanly once gust ends")
+	end
 
-	-- Automatic gust fires silently (no sound) out of combat, and respects combat/instance guards.
+	-- Automatic gust fires silently (no sound) out of combat, uses calmer subset of ribbons, and respects guards.
 	nowTime = nowTime + 5
 	local latestTimer = timers[#timers]
 	assert(latestTimer and not latestTimer.cancelled and latestTimer.delay == 14, "auto gust scheduled for configured interval")
 	latestTimer.fn()
-	assert(wind.GetState().active and #soundsPlayed == 1, "automatic gust runs without playing sound")
-	for _ = 1, 30 do
+	assert(wind.GetState().active and not wind.GetState().manual and #soundsPlayed == 1,
+		"automatic gust runs silently in calmer mode without playing sound")
+	for _ = 1, 7 do
+		onUpdate(overlay, 0.1)
+	end
+	local autoLines = 0
+	for _, line in ipairs(overlay.lines or {}) do
+		if line:IsShown() then autoLines = autoLines + 1 end
+	end
+	assert(autoLines > 0 and autoLines < activeLines, "automatic gust uses calmer subset of ribbons than manual summon")
+	for _ = 1, 35 do
 		if not overlay:IsShown() then break end
 		onUpdate(overlay, 0.1)
 	end
@@ -15500,8 +15556,15 @@ end)()
 	-- SellSummary: quantity > 1 shows per-item + total profit and full stack calculation
 	local s20 = A.SellSummary(306, 400, true, true, 20)
 	assert(s20.text == ns.L.AUCTION_SELL_PROFIT:format("+74c"), "quantity 20 per-item text")
-	assert(s20.subtext == ns.L.AUCTION_SELL_TOTAL:format(20, "+1480c") and s20.total == 1480,
+	assert(s20.subtext == ns.L.AUCTION_SELL_PROFIT_TOTAL:format("+1480c", 20) and s20.total == 1480,
 		"quantity 20 total profit subtext: " .. tostring(s20.subtext))
+	if GetLocale() == "deDE" then
+		assert(s20.text == "Gewinn: +74c pro Stück" and s20.subtext == "Gewinn: +1480c pro 20",
+			"deDE sell profit wording: " .. s20.text .. " / " .. s20.subtext)
+	else
+		assert(s20.text == "Profit: +74c per item" and s20.subtext == "Profit: +1480c per 20",
+			"enUS sell profit wording: " .. s20.text .. " / " .. s20.subtext)
+	end
 	assert(#s20.lines == 5, "quantity 20 tooltip has 5 calculation lines")
 	assert(s20.lines[1]:find("6120c", 1, true), "merchant total in tooltip")
 	assert(s20.lines[2]:find("8000c", 1, true), "gross total in tooltip")
@@ -15511,19 +15574,26 @@ end)()
 	-- 5% fee rounding on total vs per-unit: 10 * 31c = 310c -> floor(310 * 0.95) = 294c, vendor 250c -> +44c
 	local sRound = A.SellSummary(25, 31, true, true, 10)
 	assert(sRound.text == ns.L.AUCTION_SELL_PROFIT:format("+4c"), "unit profit 29-25=+4c")
-	assert(sRound.total == 44 and sRound.subtext == ns.L.AUCTION_SELL_TOTAL:format(10, "+44c"),
+	assert(sRound.total == 44 and sRound.subtext == ns.L.AUCTION_SELL_PROFIT_TOTAL:format("+44c", 10),
 		"total profit uses exact 5% fee on total gross (294 - 250 = 44)")
 
 	-- Below vendor warning with quantity > 1
 	local sWarn = A.SellSummary(306, 300, true, true, 5)
 	assert(sWarn.text == ns.L.AUCTION_SELL_BELOW:format("−21c"), "warning per item")
-	assert(sWarn.subtext == ns.L.AUCTION_SELL_TOTAL:format(5, "−105c") and #sWarn.lines == 6,
+	assert(sWarn.subtext == ns.L.AUCTION_SELL_LOSS_TOTAL:format("−105c", 5) and #sWarn.lines == 6,
 		"warning total loss and below-vendor note")
 
 	-- Loss without warning option and quantity > 1
 	local sLoss = A.SellSummary(306, 300, true, false, 4)
-	assert(sLoss.text == ns.L.AUCTION_SELL_LOSS:format("−21c") and sLoss.subtext == ns.L.AUCTION_SELL_TOTAL:format(4, "−84c"),
+	assert(sLoss.text == ns.L.AUCTION_SELL_LOSS:format("−21c") and sLoss.subtext == ns.L.AUCTION_SELL_LOSS_TOTAL:format("−84c", 4),
 		"loss total without warning option")
+	if GetLocale() == "deDE" then
+		assert(sLoss.text == "Verlust: −21c pro Stück" and sLoss.subtext == "Verlust: −84c pro 4",
+			"deDE sell loss wording: " .. sLoss.text .. " / " .. sLoss.subtext)
+	else
+		assert(sLoss.text == "Loss: −21c per item" and sLoss.subtext == "Loss: −84c per 4",
+			"enUS sell loss wording: " .. sLoss.text .. " / " .. sLoss.subtext)
+	end
 
 	-- No price entered with quantity > 1: still shows total merchant value, no fake total profit
 	local sNoPrice = A.SellSummary(306, nil, true, true, 10)
@@ -16730,6 +16800,8 @@ end)()
 	assert(wr.PlayArmorRattle() and playedKits[1] == 1212, "armor rattle falls back to PUT_DOWN_SMALL_CHAIN when PlaySoundFile fails")
 
 	-- Disabling WorldReactions stops overlay and clears watcher OnUpdate
+	local savedWrTicker = ns.NewTicker
+	ns.NewTicker = function() return { Cancel = function() end } end
 	ns.SetOption("WorldReactions", "enabled", false)
 	local st = wr.GetState()
 	assert(not st.watcherActive and not st.overlayShown and not st.campfireDesired and not st.dropsActive,
@@ -16743,5 +16815,935 @@ end)()
 	C_Secrets, C_UnitAuras, UnitAffectingCombat = savedSecrets, savedUnitAuras, savedCombat
 	GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize = savedGetTime, savedMapBest, savedMapPos, savedMapSize
 	wr:Apply()
+	ns.NewTicker = savedWrTicker
 	print("world reactions OK")
+end)()
+
+-- Worse soulbound quest rewards: automatically added to the junk/sell list on turn-in.
+;(function()
+	local items = ns:GetModule("Items")
+	assert(items.db.markWorseReward == true, "markWorseReward defaults to true")
+	local opt
+	for _, entry in ipairs(items.options) do
+		if entry.key == "markWorseReward" then opt = entry end
+	end
+	assert(opt and opt.new == true, "markWorseReward option has new = true")
+
+	local saved = {
+		C_Item.GetItemInfo, C_Item.GetItemInfoInstant, C_Item.IsEquippableItem, C_Item.GetItemStats,
+		C_Item.IsItemDataCachedByID, C_Item.GetItemSpell, C_Item.RequestLoadItemDataByID,
+		C_TooltipInfo.GetHyperlink, GetInventoryItemLink, ItemLocation, C_Item.DoesItemExist,
+		GetQuestID, GetNumQuestChoices, GetNumQuestRewards, GetQuestItemLink, GetTime,
+		issecretvalue, ns.After, items.db.markWorseReward, items.db.upgradeArrow,
+		items.db.rewardUpgrade, items.db.junkPerCharacter, items.db.markMessage,
+	}
+
+	local wornCloak = "|cff1eff00|Hitem:91001::::::::60:::::::|h[Strong Cloak]|h|r"
+	local worseBoP = "|cff1eff00|Hitem:91002::::::::60:::::::|h[Weak BoP Cloak]|h|r"
+	local worseBoE = "|cff1eff00|Hitem:91003::::::::60:::::::|h[Weak BoE Cloak]|h|r"
+	local betterBoP = "|cff1eff00|Hitem:91004::::::::60:::::::|h[Great BoP Cloak]|h|r"
+	local worseGuaranteed = "|cff1eff00|Hitem:91005::::::::60:::::::|h[Weak BoP Guaranteed Cloak]|h|r"
+	local unsellableBoP = "|cff1eff00|Hitem:91006::::::::60:::::::|h[No-Value BoP Cloak]|h|r"
+	local greyBoP = "|cff9d9d9d|Hitem:91007::::::::60:::::::|h[Grey BoP Cloak]|h|r"
+	local onUseBoP = "|cff1eff00|Hitem:91008::::::::60:::::::|h[Utility OnUse Cloak]|h|r"
+	local wornTrinket = "|cff1eff00|Hitem:91009::::::::60:::::::|h[Stat Trinket]|h|r"
+	local utilityTrinket = "|cff1eff00|Hitem:91010::::::::60:::::::|h[Carrot Trinket]|h|r"
+	local worseStatTrinket = "|cff1eff00|Hitem:91011::::::::60:::::::|h[Weak Stat Trinket]|h|r"
+	local delayedBoP = "|cff1eff00|Hitem:91012::::::::60:::::::|h[Delayed BoP Cloak]|h|r"
+	local lootBoP = "|cff1eff00|Hitem:91013::::::::60:::::::|h[Loot BoP Cloak]|h|r"
+	local secretLink = "|cff1eff00|Hitem:91014::::::::60:::::::|h[Secret Cloak]|h|r"
+
+	local itemDefs = {
+		[91001] = { name = "Strong Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 500, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 20 } },
+		[91002] = { name = "Weak BoP Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 400, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 5 } },
+		[91003] = { name = "Weak BoE Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 400, bind = 2, stats = { ITEM_MOD_INTELLECT_SHORT = 5 } },
+		[91004] = { name = "Great BoP Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 400, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 40 } },
+		[91005] = { name = "Weak BoP Guaranteed Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 300, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 3 } },
+		[91006] = { name = "No-Value BoP Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 0, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 3 } },
+		[91007] = { name = "Grey BoP Cloak", quality = 0, loc = "INVTYPE_CLOAK", price = 100, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 2 } },
+		[91008] = { name = "Utility OnUse Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 300, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 2 }, spell = "Slow Fall" },
+		[91009] = { name = "Stat Trinket", quality = 2, loc = "INVTYPE_TRINKET", price = 500, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 20 } },
+		[91010] = { name = "Carrot Trinket", quality = 2, loc = "INVTYPE_TRINKET", price = 500, bind = 1, stats = {} },
+		[91011] = { name = "Weak Stat Trinket", quality = 2, loc = "INVTYPE_TRINKET", price = 500, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 4 } },
+		[91012] = { name = "Delayed BoP Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 350, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 2 } },
+		[91013] = { name = "Loot BoP Cloak", quality = 2, loc = "INVTYPE_CLOAK", price = 350, bind = 1, stats = { ITEM_MOD_INTELLECT_SHORT = 2 } },
+	}
+	local delayedReady, requestedIDs, timers = false, {}, {}
+
+	local function ItemIDFrom(link)
+		if type(link) == "number" then return link end
+		return type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+	end
+
+	C_Item.GetItemInfoInstant = function(link)
+		local id = ItemIDFrom(link)
+		local def = id and itemDefs[id]
+		if def then
+			local sub = def.loc == "INVTYPE_TRINKET" and 0 or Enum.ItemArmorSubclass.Cloth
+			return id, "Armor", "Cloth", def.loc, 1337, Enum.ItemClass.Armor, sub
+		end
+		return saved[2](link)
+	end
+	C_Item.GetItemInfo = function(link)
+		local id = ItemIDFrom(link)
+		if id == 91012 and not delayedReady then return nil end
+		local def = id and itemDefs[id]
+		if def then
+			local sub = def.loc == "INVTYPE_TRINKET" and 0 or Enum.ItemArmorSubclass.Cloth
+			return def.name, link, def.quality, 40, 1, "Armor", "Cloth", 1, def.loc, 1337,
+				def.price, Enum.ItemClass.Armor, sub, def.bind
+		end
+		return nil
+	end
+	C_Item.IsEquippableItem = function(link)
+		local id = ItemIDFrom(link)
+		return id ~= nil and itemDefs[id] ~= nil
+	end
+	C_Item.GetItemStats = function(link)
+		local id = ItemIDFrom(link)
+		return id and itemDefs[id] and itemDefs[id].stats or {}
+	end
+	C_Item.IsItemDataCachedByID = function(link)
+		local id = ItemIDFrom(link)
+		if id == 91012 and not delayedReady then return false end
+		return id ~= nil and itemDefs[id] ~= nil
+	end
+	C_Item.GetItemSpell = function(link)
+		local id = ItemIDFrom(link)
+		return id and itemDefs[id] and itemDefs[id].spell or nil
+	end
+	C_Item.RequestLoadItemDataByID = function(link)
+		requestedIDs[#requestedIDs + 1] = ItemIDFrom(link)
+	end
+	C_TooltipInfo.GetHyperlink = function() return { lines = {} } end
+	ItemLocation = { CreateFromEquipmentSlot = function(_, slot) return { slot = slot } end }
+	C_Item.DoesItemExist = function(loc) return loc and (loc.slot == 15 or loc.slot == 13 or loc.slot == 14) end
+	GetInventoryItemLink = function(_, slot)
+		if slot == 15 then return wornCloak end
+		if slot == 13 or slot == 14 then return wornTrinket end
+		return nil
+	end
+	issecretvalue = function(v) return v == secretLink end
+	ns.After = function(_, _, fn) timers[#timers + 1] = fn end
+
+	local now = 500
+	GetTime = function() return now end
+	local curQuest, curChoices, curRewards = 0, {}, {}
+	GetQuestID = function() return curQuest end
+	GetNumQuestChoices = function() return #curChoices end
+	GetNumQuestRewards = function() return #curRewards end
+	GetQuestItemLink = function(kind, idx)
+		return kind == "choice" and curChoices[idx] or curRewards[idx]
+	end
+
+	local evFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function FireEvent(event, ...)
+		evFrame:GetScript("OnEvent")(evFrame, event, ...)
+	end
+
+	-- Clear caches and reset junk lists for clean assertions.
+	items.db.junkPerCharacter = false
+	items.db.markMessage = false
+	items.db.markWorseReward = true
+	items.db.upgradeArrow = false
+	items.db.rewardUpgrade = false
+	items:Refresh()
+	FireEvent("PLAYER_EQUIPMENT_CHANGED")
+	for id = 91001, 91014 do items.db.junk[id] = nil; items.cdb.junk[id] = nil end
+
+	-- 1. Standard turn-in: choice #1 (worse BoP) + guaranteed (worse BoP), even when live offer clears before post-hook.
+	curQuest = 8801
+	curChoices = { worseBoP, worseBoE, betterBoP }
+	curRewards = { worseGuaranteed }
+	FireEvent("QUEST_COMPLETE")
+	-- Simulate client clearing the offer before hook runs: snapshot fallback must supply the links.
+	curChoices, curRewards = {}, {}
+	items.OnGetQuestReward(1)
+	assert(not items.db.junk[91002] and not items.db.junk[91005], "not marked before QUEST_TURNED_IN")
+	-- Wrong quest ID must not consume/mark the pending reward.
+	FireEvent("QUEST_TURNED_IN", 9999)
+	assert(not items.db.junk[91002], "wrong quest ID does not mark reward")
+	-- Matching quest ID marks both chosen worse BoP and guaranteed worse BoP, even with upgradeArrow/rewardUpgrade off.
+	FireEvent("QUEST_TURNED_IN", 8801)
+	assert(items.db.junk[91002] == true, "worse BoP choice marked on sell list")
+	assert(items.db.junk[91005] == true, "worse BoP guaranteed reward marked on sell list")
+	assert(not items.db.junk[91003] and not items.db.junk[91004], "unchosen rewards not marked")
+
+	-- 2. Single choice with choice == 0 (auto-resolved to 1) & BoE / upgrade / unsellable / grey / on-use / utility trinket filtering.
+	curQuest = 8802
+	curChoices = { worseBoE }
+	curRewards = { betterBoP, unsellableBoP, greyBoP, onUseBoP, utilityTrinket, worseStatTrinket }
+	FireEvent("QUEST_COMPLETE")
+	items.OnGetQuestReward(0)
+	FireEvent("QUEST_TURNED_IN", 8802)
+	assert(not items.db.junk[91003], "BoE quest reward is NOT marked")
+	assert(not items.db.junk[91004], "upgrade quest reward is NOT marked")
+	assert(not items.db.junk[91006], "unsellable quest reward is NOT marked")
+	assert(not items.db.junk[91007], "grey quest reward is NOT added to junk list")
+	assert(not items.db.junk[91008], "on-use quest reward is NOT marked")
+	assert(not items.db.junk[91010], "zero-score utility trinket is NOT marked")
+	assert(items.db.junk[91011] == true, "worse stat trinket IS marked")
+
+	-- 3. QUEST_LOOT_RECEIVED path + secret value safety.
+	FireEvent("QUEST_LOOT_RECEIVED", 8803, secretLink, 1)
+	FireEvent("QUEST_LOOT_RECEIVED", 8803, lootBoP, 1)
+	assert(items.db.junk[91013] == true and not items.db.junk[91014], "QUEST_LOOT_RECEIVED marks worse BoP and skips secret links")
+
+	-- 4. Uncached item retries after data loads.
+	timers, requestedIDs = {}, {}
+	FireEvent("QUEST_LOOT_RECEIVED", 8804, delayedBoP, 1)
+	assert(not items.db.junk[91012] and requestedIDs[1] == 91012 and #timers == 1, "uncached reward requests load and schedules retry")
+	delayedReady = true
+	timers[1]()
+	assert(items.db.junk[91012] == true, "retried reward is marked once item data loads")
+
+	-- 5. Option off disables marking; per-character junk list is respected when on.
+	items.db.junk[91002] = nil
+	items.db.markWorseReward = false
+	items:Refresh()
+	curQuest = 8805
+	curChoices = { worseBoP }
+	curRewards = {}
+	FireEvent("QUEST_COMPLETE")
+	items.OnGetQuestReward(1)
+	FireEvent("QUEST_TURNED_IN", 8805)
+	FireEvent("QUEST_LOOT_RECEIVED", 8805, worseBoP, 1)
+	assert(not items.db.junk[91002], "option off does not mark quest rewards")
+
+	items.db.markWorseReward = true
+	items.db.junkPerCharacter = true
+	items:Refresh()
+	FireEvent("QUEST_LOOT_RECEIVED", 8806, worseBoP, 1)
+	assert(items.cdb.junk[91002] == true and not items.db.junk[91002], "per-character junk list receives marked reward")
+
+	-- Restore state
+	for id = 91001, 91014 do items.db.junk[id] = nil; items.cdb.junk[id] = nil end
+	C_Item.GetItemInfo, C_Item.GetItemInfoInstant, C_Item.IsEquippableItem, C_Item.GetItemStats = saved[1], saved[2], saved[3], saved[4]
+	C_Item.IsItemDataCachedByID, C_Item.GetItemSpell, C_Item.RequestLoadItemDataByID = saved[5], saved[6], saved[7]
+	C_TooltipInfo.GetHyperlink, GetInventoryItemLink, ItemLocation, C_Item.DoesItemExist = saved[8], saved[9], saved[10], saved[11]
+	GetQuestID, GetNumQuestChoices, GetNumQuestRewards, GetQuestItemLink, GetTime = saved[12], saved[13], saved[14], saved[15], saved[16]
+	issecretvalue, ns.After = saved[17], saved[18]
+	items.db.markWorseReward, items.db.upgradeArrow, items.db.rewardUpgrade, items.db.junkPerCharacter, items.db.markMessage =
+		saved[19], saved[20], saved[21], saved[22], saved[23]
+	items:Refresh()
+	FireEvent("PLAYER_EQUIPMENT_CHANGED")
+	print("worse soulbound quest rewards OK")
+end)()
+
+-- Campfire performance guards (WorldReactions glow/embers + Minimap campfire pins)
+;(function()
+	local wr = ns:GetModule("WorldReactions")
+	local mm = ns:GetModule("Minimap")
+	local evFrame = uv(ns.RegisterEvent, "eventFrame")
+	local function fire(event, ...)
+		evFrame:GetScript("OnEvent")(evFrame, event, ...)
+	end
+	local saved = {
+		GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize,
+		C_Minimap.GetViewRadius, GetCVarBool, GetPlayerFacing, UnitName, UnitOnTaxi,
+		C_Secrets, C_UnitAuras, UnitAffectingCombat, ns.NewTicker,
+		wr.db.enabled, wr.db.campfireGlow, mm.db.campfires,
+	}
+
+	local now = 500
+	local px, py = 0.50, 0.50
+	local mapReads = 0
+	local tickers = {}
+	GetTime = function() return now end
+	C_Map.GetBestMapForUnit = function() mapReads = mapReads + 1 return 1429 end
+	C_Map.GetPlayerMapPosition = function() return { GetXY = function() return px, py end } end
+	C_Map.GetMapWorldSize = function() return 1000, 1000 end
+	C_Minimap.GetViewRadius = function() return 100 end
+	GetCVarBool = function() return false end
+	GetPlayerFacing = function() return 0 end
+	UnitName = function() return "Tester", "" end
+	UnitOnTaxi = function() return false end
+	C_Secrets = { ShouldAurasBeSecret = function() return false end }
+	local cozyAura = { spellId = 7353 }
+	C_UnitAuras = { GetPlayerAuraBySpellID = function(id) return id == 7353 and cozyAura or nil end }
+	UnitAffectingCombat = function() return false end
+	ns.NewTicker = function(name, interval, fn)
+		local entry = { name = name, interval = interval, fn = fn, cancelled = false }
+		function entry:Cancel() self.cancelled = true end
+		tickers[#tickers + 1] = entry
+		return entry
+	end
+
+	-- 1. WorldReactions campfire animation: no ClearAllPoints, 30 FPS throttle on campfire-only frames,
+	-- cached glow SetSize, and event-driven watcher (no map polls when no campfire is tracked).
+	wr.db.enabled = false
+	wr:Apply()
+	wr.db.enabled = true
+	wr.db.campfireGlow = true
+	wr:Apply()
+	local ov = _G.ForeverPlusWorldReactions
+	assert(ov and ov:IsShown() and wr.GetState().campfireDesired, "Cozy Fire shows overlay")
+	local ensureOverlay = uv(wr.TriggerWater, "EnsureOverlay")
+	local emberPoolRef = uv(ensureOverlay, "emberPool")
+	local glowTexRef = uv(ensureOverlay, "glowTexture")
+	local clearCalls, emberSetPoints, glowSetSizes = 0, 0, 0
+	local origGlowSize = glowTexRef.SetSize
+	glowTexRef.SetSize = function(self, w, h)
+		glowSetSizes = glowSetSizes + 1
+		if origGlowSize then origGlowSize(self, w, h) end
+	end
+	for _, ember in ipairs(emberPoolRef) do
+		local origClear = ember.texture.ClearAllPoints
+		local origPoint = ember.texture.SetPoint
+		ember.texture.ClearAllPoints = function(self)
+			clearCalls = clearCalls + 1
+			if origClear then origClear(self) end
+		end
+		ember.texture.SetPoint = function(self, ...)
+			emberSetPoints = emberSetPoints + 1
+			if origPoint then origPoint(self, ...) end
+		end
+	end
+
+	-- First tick renders immediately; subsequent sub-33ms ticks are skipped until 1/30 s accumulates.
+	local onUpdate = ov:GetScript("OnUpdate")
+	onUpdate(ov, 0.01)
+	local firstPoints = emberSetPoints
+	assert(firstPoints == #emberPoolRef, "first campfire tick positions all embers")
+	assert(clearCalls == 0, "campfire embers update points without ClearAllPoints")
+	onUpdate(ov, 0.01)
+	onUpdate(ov, 0.01)
+	assert(emberSetPoints == firstPoints, "campfire-only animation throttles sub-33ms frames")
+	onUpdate(ov, 0.02)
+	assert(emberSetPoints == firstPoints * 2, "accumulated >= 1/30 s runs the next campfire animation step")
+	assert(glowSetSizes <= 1, "glow texture SetSize is cached across campfire ticks")
+
+	-- Watcher skips map queries when no tracked campfires or preview exist.
+	local watchFn
+	for i = #tickers, 1, -1 do
+		if tickers[i].name == "WorldReactions: watch" and not tickers[i].cancelled then
+			watchFn = tickers[i].fn
+			break
+		end
+	end
+	assert(watchFn, "WorldReactions watcher runs via ns.NewTicker instead of per-frame OnUpdate")
+	mapReads = 0
+	watchFn()
+	assert(mapReads == 0, "watcher skips map queries when no campfires are tracked")
+
+	-- Clean up campfire glow
+	cozyAura = nil
+	fire("UNIT_AURA", "player")
+	for _ = 1, 6 do
+		local fn = ov:GetScript("OnUpdate")
+		if fn then fn(ov, 0.1) end
+	end
+
+	-- 2. Minimap campfires: adaptive ticker (1.0 s idle, 0.25 s moving), no OnUpdate, and dirty-checked pin setters.
+	mm.db.campfires = true
+	mm:OnOptionChanged("campfires")
+	tickers = {}
+	fire("UNIT_SPELLCAST_SUCCEEDED", "player", "cf-guid", 1307227)
+	assert(ns.HasTrackedCampfires(), "placing a campfire tracks it on Minimap")
+	local holder = uv(mm.OnLogin, "campfireHolder")
+	assert(holder and not holder:GetScript("OnUpdate"), "Minimap campfire uses ticker instead of per-frame OnUpdate")
+	local cfTicker = tickers[#tickers]
+	assert(cfTicker and cfTicker.name == "Minimap: campfire update" and cfTicker.interval == 1.0,
+		"stationary Minimap campfire uses 1.0 s countdown ticker")
+
+	local list = uv(ns.HasCampfireNearPlayer, "campfires")
+	local fireObj = list[#list]
+	local pinClear, pinPoint, pinAlpha, pinText = 0, 0, 0, 0
+	local origPinClear, origPinPoint, origPinAlpha, origTimerText =
+		fireObj.pin.ClearAllPoints, fireObj.pin.SetPoint, fireObj.pin.SetAlpha, fireObj.pin.Timer.SetText
+	fireObj.pin.ClearAllPoints = function(self) pinClear = pinClear + 1; if origPinClear then origPinClear(self) end end
+	fireObj.pin.SetPoint = function(self, ...) pinPoint = pinPoint + 1; if origPinPoint then origPinPoint(self, ...) end end
+	fireObj.pin.SetAlpha = function(self, ...) pinAlpha = pinAlpha + 1; if origPinAlpha then origPinAlpha(self, ...) end end
+	fireObj.pin.Timer.SetText = function(self, ...) pinText = pinText + 1; if origTimerText then origTimerText(self, ...) end end
+
+	-- Same position and same remaining second: zero layout/text updates.
+	cfTicker.fn()
+	assert(pinClear == 0 and pinPoint == 0 and pinAlpha == 0 and pinText == 0,
+		"unchanged campfire tick performs zero redundant SetPoint/SetAlpha/SetText/ClearAllPoints calls")
+
+	-- Advancing by 1 second updates only the countdown text, not pin position or alpha.
+	now = now + 1
+	cfTicker.fn()
+	assert(pinText == 1 and pinPoint == 0 and pinAlpha == 0 and pinClear == 0,
+		"countdown tick updates timer text without moving or clearing pin points")
+
+	-- Moving switches ticker to 0.25 s and updates pin point without ClearAllPoints.
+	local function LatestTicker(name)
+		for i = #tickers, 1, -1 do
+			if tickers[i].name == name then return tickers[i] end
+		end
+	end
+	fire("PLAYER_STARTED_MOVING")
+	local moveTicker = LatestTicker("Minimap: campfire update")
+	assert(moveTicker and moveTicker.interval == 0.25 and cfTicker.cancelled,
+		"starting movement switches campfire ticker to 0.25 s")
+	px = 0.51
+	moveTicker.fn()
+	assert(pinPoint == 1 and pinClear == 0, "movement repositions campfire pin in-place without ClearAllPoints")
+
+	-- Stopping movement returns to 1.0 s idle ticker; expiring cancels ticker cleanly.
+	fire("PLAYER_STOPPED_MOVING")
+	local idleTicker = LatestTicker("Minimap: campfire update")
+	assert(idleTicker and idleTicker.interval == 1.0 and moveTicker.cancelled,
+		"stopping movement restores 1.0 s idle campfire ticker")
+	now = now + 20 * 60
+	idleTicker.fn()
+	assert(not ns.HasTrackedCampfires() and idleTicker.cancelled, "expired campfire cancels ticker cleanly")
+
+	-- Restore mocked globals and state
+	GetTime, C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, C_Map.GetMapWorldSize =
+		saved[1], saved[2], saved[3], saved[4]
+	C_Minimap.GetViewRadius, GetCVarBool, GetPlayerFacing, UnitName, UnitOnTaxi =
+		saved[5], saved[6], saved[7], saved[8], saved[9]
+	C_Secrets, C_UnitAuras, UnitAffectingCombat =
+		saved[10], saved[11], saved[12]
+	wr.db.enabled, wr.db.campfireGlow, mm.db.campfires = saved[14], saved[15], saved[16]
+	mm:OnOptionChanged("campfires")
+	wr:Apply()
+	ns.NewTicker = saved[13]
+	print("campfire performance OK")
+end)()
+;(function()
+	-- Bubble anchor nameplates: temporarily enabled friendly NPC plates and the bubble's own plate stay invisible
+	-- across QoL fade updates, target changes, Blizzard CompactUnitFrame alpha resets, and pooled UnitFrame release.
+	local qol = ns:GetModule("QoL")
+	local saved = {
+		GetCVar, SetCVar, C_NamePlate, UnitExists, UnitIsFriend, UnitIsPlayer, UnitCanAttack, UnitIsUnit,
+		InCombatLockdown, issecretvalue, qol.db.nameplatesFade, qol.db.nameplatesFadeAmount,
+		qol.db.nameplatesTargetFull, qol.db.nameplatesFadeCombat,
+	}
+	local function MakePlate(unit, startAlpha)
+		local sel = { a = 0.25 }
+		function sel:GetAlpha() return self.a end
+		function sel:SetAlpha(a) self.a = a end
+		function sel:IsForbidden() return false end
+		local uf = { unit = unit, a = startAlpha or 1, selectionHighlight = sel }
+		function uf:GetAlpha() return self.a end
+		function uf:SetAlpha(a) self.a = a end
+		function uf:IsForbidden() return false end
+		local plate = { unitToken = unit, UnitFrame = uf }
+		function plate:IsForbidden() return false end
+		return plate, uf, sel
+	end
+
+	local speakerPlate, speakerUF, speakerSel = MakePlate("nameplate1", 1)
+	local gnomePlate, gnomeUF, gnomeSel = MakePlate("nameplate2", 1)
+	local enemyPlate, enemyUF = MakePlate("nameplate3", 1)
+	local playerPlate, playerUF = MakePlate("nameplate4", 1)
+	local units = {
+		nameplate1 = { plate = speakerPlate, friend = true, player = false, attack = false },
+		nameplate2 = { plate = gnomePlate, friend = true, player = false, attack = false },
+		nameplate3 = { plate = enemyPlate, friend = false, player = false, attack = true },
+		nameplate4 = { plate = playerPlate, friend = true, player = true, attack = false },
+	}
+	local targetUnit = "nameplate1"
+	local inCombat = false
+	local secretVal = nil
+	local cvars = { nameplateShowFriendlyNpcs = "1", nameplateShowAll = "0" }
+
+	GetCVar = function(k) return cvars[k] end
+	SetCVar = function(k, v) cvars[k] = v end
+	InCombatLockdown = function() return inCombat end
+	issecretvalue = function(v) return secretVal ~= nil and v == secretVal end
+	UnitExists = function(u) return u == "target" and targetUnit ~= nil or units[u] ~= nil end
+	UnitIsFriend = function(_, u) return units[u] and units[u].friend or false end
+	UnitIsPlayer = function(u) return units[u] and units[u].player or false end
+	UnitCanAttack = function(_, u) return units[u] and units[u].attack or false end
+	UnitIsUnit = function(a, b) return (b == "target" and a == targetUnit) or (a == "target" and b == targetUnit) or a == b end
+	C_NamePlate = {
+		GetNamePlates = function()
+			local list = {}
+			for _, info in pairs(units) do
+				list[#list + 1] = info.plate
+			end
+			return list
+		end,
+		GetNamePlateForUnit = function(u)
+			if u == "target" then u = targetUnit end
+			return units[u] and units[u].plate or nil
+		end,
+	}
+
+	local listeners = uv(ns.RegisterEvent, "listeners")
+	local onAdded = listeners.NAME_PLATE_UNIT_ADDED["NPC bubble nameplates"]
+	local onRemoved = listeners.NAME_PLATE_UNIT_REMOVED["NPC bubble nameplates"]
+	local onTarget = listeners.PLAYER_TARGET_CHANGED["NPC bubble nameplates"]
+
+	-- 1. User has nameplateShowFriendlyNpcs=1, nameplateShowAll=0: opening a bubble enables nameplateShowAll=1,
+	-- hides both the speaker anchor plate and nearby untargeted friendly NPCs, leaving enemies & players untouched.
+	qol.db.nameplatesFade, qol.db.nameplatesFadeAmount = true, 60
+	qol.db.nameplatesTargetFull, qol.db.nameplatesFadeCombat = true, true
+	qol:UpdateNameplates()
+
+	ns.ShowFriendlyPlates(true, "dialog")
+	ns.SetBubblePlate(speakerPlate, "dialog", true)
+	assert(cvars.nameplateShowAll == "1", "bubble turns nameplateShowAll on temporarily")
+	assert(speakerUF.a == 0 and speakerSel.a == 0, "speaker anchor plate and Classic selection highlight are hidden")
+	assert(gnomeUF.a == 0 and gnomeSel.a == 0, "nearby untargeted friendly NPC plate is hidden automatically")
+	assert(math.abs(enemyUF.a - 0.4) < 1e-6 and math.abs(playerUF.a - 0.4) < 1e-6,
+		"enemy and friendly player plates stay unaffected by bubble plate hiding")
+
+	-- 2. QoL FadeAllPlates / target change must not un-hide hidden anchor or temporary friendly NPC plates.
+	targetUnit = nil
+	onTarget()
+	uv(qol.UpdateNameplates, "FadeAllPlates")()
+	assert(speakerUF.a == 0 and gnomeUF.a == 0, "QoL nameplate fade and target clear do not unhide hidden plates")
+
+	-- 3. Blizzard CompactUnitFrame_UpdateCenterStatusIcon resetting alpha to 1 is immediately reverted to 0.
+	speakerUF:SetAlpha(1)
+	gnomeUF:SetAlpha(1)
+	ns.EnforceHiddenUnitFrame(speakerUF)
+	ns.EnforceHiddenUnitFrame(gnomeUF)
+	assert(speakerUF.a == 0 and gnomeUF.a == 0, "CompactUnitFrame hook keeps hidden UnitFrames at alpha 0")
+
+	-- 4. Newly spawned friendly NPC plate while bubble is open is hidden on NAME_PLATE_UNIT_ADDED (before QoL).
+	local latePlate, lateUF = MakePlate("nameplate5", 1)
+	units.nameplate5 = { plate = latePlate, friend = true, player = false, attack = false }
+	onAdded(nil, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+	uv(qol.UpdateNameplates, "OnPlateAdded")(nil, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+	assert(lateUF.a == 0 and ns.IsPlateHidden(latePlate), "late-arriving friendly NPC plate stays hidden after QoL OnPlateAdded")
+
+	-- 5. Pooled UnitFrame release: even when Blizzard clears plate.UnitFrame = nil before NAME_PLATE_UNIT_REMOVED,
+	-- the released UnitFrame still gets its alpha restored so it does not stay invisible in Blizzard's pool.
+	latePlate.UnitFrame = nil
+	onRemoved(nil, "NAME_PLATE_UNIT_REMOVED", "nameplate5")
+	assert(math.abs(lateUF.a - 0.4) < 1e-6 and not ns.IsPlateHidden(latePlate),
+		"released pooled UnitFrame gets its alpha restored cleanly: " .. tostring(lateUF.a))
+	units.nameplate5 = nil
+
+	-- 6. Closing the bubble in combat keeps temporary plates hidden until combat ends and CVars restore.
+	inCombat = true
+	ns.SetBubblePlate(nil, "dialog")
+	ns.ShowFriendlyPlates(false, "dialog")
+	assert(cvars.nameplateShowAll == "1" and gnomeUF.a == 0,
+		"temporary friendly NPC plates stay hidden during combat until CVars can restore")
+	inCombat = false
+	local queue = uv(ns.RunOutOfCombat, "regenQueue")
+	assert(#queue > 0, "combat lockdown queues CVar restore")
+	while #queue > 0 do
+		table.remove(queue, 1)()
+	end
+	assert(cvars.nameplateShowAll == "0", "CVars restored out of combat")
+	assert(math.abs(gnomeUF.a - 0.4) < 1e-6 and math.abs(gnomeSel.a - 0.25) < 1e-6,
+		"temporary plate alpha and highlight restored after CVar restore")
+	assert(math.abs(speakerUF.a - 0.4) < 1e-6 and math.abs(speakerSel.a - 0.25) < 1e-6,
+		"speaker plate alpha and highlight restored cleanly")
+
+	-- 7. When nameplateShowFriendlyNpcs was 0, even a targeted friendly NPC is hidden unless hidePlate=false keeps it visible.
+	cvars.nameplateShowFriendlyNpcs, cvars.nameplateShowAll = "0", "0"
+	targetUnit = "nameplate1"
+	ns.ShowFriendlyPlates(true, "dialog")
+	assert(speakerUF.a == 0 and gnomeUF.a == 0, "all friendly NPC plates hidden when nameplateShowFriendlyNpcs was off")
+	ns.SetBubblePlate(speakerPlate, "dialog", false)
+	assert(speakerUF.a > 0 and gnomeUF.a == 0, "explicit hidePlate=false shows only the speaker plate, keeping nearby NPCs hidden")
+	ns.SetBubblePlate(nil, "dialog")
+	ns.ShowFriendlyPlates(false, "dialog")
+	assert(cvars.nameplateShowFriendlyNpcs == "0" and cvars.nameplateShowAll == "0", "both CVars restored")
+
+	-- 8. Secret values from UnitIsFriend / UnitIsPlayer / UnitIsUnit do not raise errors.
+	secretVal = "SECRET_FLAG"
+	units.nameplate2.friend = secretVal
+	ns.ShowFriendlyPlates(true, "dialog")
+	onAdded(nil, "NAME_PLATE_UNIT_ADDED", "nameplate2")
+	ns.ShowFriendlyPlates(false, "dialog")
+	secretVal = nil
+
+	GetCVar, SetCVar, C_NamePlate, UnitExists, UnitIsFriend, UnitIsPlayer, UnitCanAttack, UnitIsUnit,
+		InCombatLockdown, issecretvalue, qol.db.nameplatesFade, qol.db.nameplatesFadeAmount,
+		qol.db.nameplatesTargetFull, qol.db.nameplatesFadeCombat = unpack(saved, 1, 14)
+	qol:UpdateNameplates()
+	print("bubble anchor nameplate hiding OK")
+end)()
+-- Auction house: fallback sell price (3x vendor, ending in 99c from 1s up) when no listing exists
+;(function()
+	local A = ns:GetModule("Auction")
+	local saved = {
+		C_AuctionHouse, C_Item.DoesItemExist, C_Item.GetItemID, C_Item.GetItemLink,
+		C_Item.IsItemDataCachedByID, C_Item.GetItemInfo, AuctionHouseFrame, issecretvalue,
+		A.db.vendorFallbackPrice, hooksecurefunc, GetMoneyString,
+	}
+	GetMoneyString = function(v) return tostring(v) .. "c" end
+
+	-- Option & NEU badge metadata
+	assert(A.defaults.vendorFallbackPrice == true, "vendorFallbackPrice defaults to true")
+	local opt
+	for _, entry in ipairs(A.options) do
+		if entry.key == "vendorFallbackPrice" then
+			opt = entry
+			break
+		end
+	end
+	assert(opt and opt.new == true and type(opt.name) == "string" and opt.name ~= ""
+		and type(opt.desc) == "string" and opt.desc ~= "", "vendorFallbackPrice option registered with new = true")
+
+	-- Pure formula checks
+	assert(A.FallbackSellPrice(nil, true) == nil, "nil vendor -> nil")
+	assert(A.FallbackSellPrice(0, true) == nil, "0 vendor -> nil")
+	assert(A.FallbackSellPrice(-10, true) == nil, "negative vendor -> nil")
+	assert(A.FallbackSellPrice(1, true) == 3, "1c vendor -> 3c (<1s exact)")
+	assert(A.FallbackSellPrice(10, true) == 30, "10c vendor -> 30c (<1s exact)")
+	assert(A.FallbackSellPrice(25, true) == 75, "25c vendor -> 75c (<1s exact)")
+	assert(A.FallbackSellPrice(33, true) == 99, "33c vendor -> 99c (<1s exact)")
+	assert(A.FallbackSellPrice(34, true) == 99, "34c vendor -> 102c -> 99c")
+	assert(A.FallbackSellPrice(50, true) == 199, "50c vendor -> 150c -> 1s 99c")
+	assert(A.FallbackSellPrice(100, true) == 299, "1s vendor -> 3s -> 2s 99c")
+	assert(A.FallbackSellPrice(1070, true) == 3199, "10s 70c -> 32s 10c -> 31s 99c")
+	assert(A.FallbackSellPrice(1090, true) == 3299, "10s 90c -> 32s 70c -> 32s 99c")
+	assert(A.FallbackSellPrice(1100, true) == 3299, "11s -> 33s -> 32s 99c")
+	assert(A.FallbackSellPrice(10000, true) == 29999, "1g -> 3g -> 2g 99s 99c")
+	assert(A.FallbackSellPrice(10, false) == 100, "no copper support: min 1s")
+	assert(A.FallbackSellPrice(1100, false) == 3300, "no copper support: 33s")
+	assert(A.FallbackSellPrice(1070, false) == 3200, "no copper support: 32s")
+
+	-- Hooked sell frames end-to-end simulation
+	local vendors = { [88101] = 1100, [88102] = 20, [88103] = 0, [88201] = 1090 }
+	local secretVal
+	issecretvalue = function(v) return secretVal ~= nil and v == secretVal end
+	C_Item.DoesItemExist = function(loc) return type(loc) == "table" and loc.id ~= nil end
+	C_Item.GetItemID = function(loc) return loc and loc.id end
+	C_Item.GetItemLink = function(loc) return loc and ("|Hitem:%d|h[Test]|h"):format(loc.id) end
+	C_Item.IsItemDataCachedByID = function(id) return vendors[id] ~= nil end
+	C_Item.GetItemInfo = function(arg)
+		local id = type(arg) == "number" and arg or tonumber(tostring(arg):match("item:(%d+)"))
+		if id and vendors[id] ~= nil then
+			return "Test", "|Hitem:" .. id .. "|h[Test]|h", 1, 1, 1, "", "", 20, "", 0, vendors[id]
+		end
+	end
+
+	local commResults, commFull = {}, true
+	local itemResults, itemFull, itemKeyInfoPresent = {}, true, true
+	C_AuctionHouse = {
+		SupportsCopperValues = function() return true end,
+		GetNumCommoditySearchResults = function(id) return #(commResults[id] or {}) end,
+		GetCommoditySearchResultInfo = function(id, idx) return commResults[id] and commResults[id][idx] or nil end,
+		HasFullCommoditySearchResults = function() return commFull end,
+		GetNumItemSearchResults = function(key) return #(itemResults[key and key.itemID] or {}) end,
+		HasFullItemSearchResults = function() return itemFull end,
+		GetItemKeyInfo = function() return itemKeyInfoPresent and { isPet = false } or nil end,
+	}
+
+	local function MakePriceInput(onChanged)
+		local amount = 0
+		return {
+			GetAmount = function() return amount end,
+			SetAmount = function(_, v) amount = v; if onChanged then onChanged() end end,
+		}
+	end
+
+	local commFrame = NewFrame("Frame")
+	commFrame.PostButton = NewFrame("Button")
+	commFrame.UpdatePostState = function() end
+	commFrame.PriceInput = MakePriceInput(function() commFrame:UpdatePostState() end)
+	commFrame.GetItem = function(self) return self.itemLocation end
+	commFrame.GetUnitPrice = function(self) return self.PriceInput:GetAmount() end
+	commFrame.GetDefaultPrice = function(self)
+		local v = self.itemLocation and vendors[self.itemLocation.id] or 0
+		return v > 0 and (floor(v * 1.5 / 100) + 1) * 100 or 100
+	end
+	commFrame.SetItem = function(self, loc)
+		self.itemLocation = loc
+		self.PriceInput:SetAmount(loc and self:GetDefaultPrice() or 0)
+	end
+	commFrame:SetScript("OnEvent", function(self, event)
+		if event == "COMMODITY_SEARCH_RESULTS_UPDATED" and self.itemLocation then
+			local first = C_AuctionHouse.GetCommoditySearchResultInfo(self.itemLocation.id, 1)
+			if first and self:GetUnitPrice() == self:GetDefaultPrice() then
+				self.PriceInput:SetAmount(first.unitPrice)
+			end
+		end
+	end)
+
+	local itemFrame = NewFrame("Frame")
+	itemFrame.PostButton = NewFrame("Button")
+	itemFrame.UpdatePostState = function() end
+	itemFrame.PriceInput = MakePriceInput(function() itemFrame:UpdatePostState() end)
+	local secShown, secAmount = false, 0
+	itemFrame.SecondaryPriceInput = {
+		IsShown = function() return secShown end,
+		GetAmount = function() return secAmount end,
+	}
+	itemFrame.GetItem = function(self) return self.itemLocation end
+	itemFrame.GetPrice = function(self)
+		local b = self.PriceInput:GetAmount()
+		return (secShown and secAmount > 0) and secAmount or nil, b > 0 and b or nil
+	end
+	itemFrame.GetDefaultPrice = function(self)
+		local v = self.itemLocation and vendors[self.itemLocation.id] or 0
+		return v > 0 and (floor(v * 1.5 / 100) + 1) * 100 or 100
+	end
+	local itemBestEntry = nil
+	itemFrame.GetBestEntry = function() return itemBestEntry end
+	itemFrame.SetItem = function(self, loc)
+		self.itemLocation = loc
+		self.listDisplayedItemKey = loc and { itemID = loc.id } or nil
+		self.PriceInput:SetAmount(loc and self:GetDefaultPrice() or 0)
+	end
+	itemFrame:SetScript("OnEvent", function(self, event)
+		if event == "ITEM_SEARCH_RESULTS_UPDATED" and self.itemLocation then
+			local best = self:GetBestEntry()
+			if best and self.PriceInput:GetAmount() == self:GetDefaultPrice() then
+				self.PriceInput:SetAmount(best.buyoutAmount or 0)
+			end
+		end
+	end)
+
+	AuctionHouseFrame = { CommoditiesSellFrame = commFrame, ItemSellFrame = itemFrame }
+	A.db.vendorFallbackPrice = true
+	hooksecurefunc = function(a, b, c)
+		if type(a) == "table" then
+			local orig = assert(a[b], "hooksecurefunc: table lacks " .. tostring(b))
+			a[b] = function(...)
+				orig(...)
+				c(...)
+			end
+		end
+	end
+	uv(A.OnLogin, "HookSellFrames")()
+
+	-- 1. Commodity with 0 listings (>= 1s): 11s vendor -> 32s 99c (3299)
+	commResults[88101], commFull = {}, true
+	commFrame:SetItem({ id = 88101 })
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "SetItem waits for search results before changing price")
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == 3299, "empty commodity search sets 32s 99c fallback: " .. tostring(commFrame:GetUnitPrice()))
+
+	-- 2. Subsequent refresh does not overwrite user edit (even if user typed defaultPrice or 0)
+	commFrame.PriceInput:SetAmount(commFrame:GetDefaultPrice())
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "refresh does not overwrite user price after fallback ran")
+
+	-- 3. Commodity < 1s: 20c vendor -> exact 60c
+	commResults[88102], commFull = {}, true
+	commFrame:SetItem({ id = 88102 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88102)
+	assert(commFrame:GetUnitPrice() == 60, "below 1s keeps exact 3x price (60c): " .. tostring(commFrame:GetUnitPrice()))
+
+	-- 4. Commodity WITH existing listings: Blizzard's cheapest listing wins
+	commResults[88101] = { { unitPrice = 5432 } }
+	commFrame:SetItem({ id = 88101 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == 5432, "existing commodity listing is kept untouched")
+
+	-- 5. User already typed custom price before results arrive: preserved
+	commResults[88101] = {}
+	commFrame:SetItem({ id = 88101 })
+	commFrame.PriceInput:SetAmount(9999)
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == 9999, "manual price entered before results is not overwritten")
+
+	-- 6. Stale event for other itemID & incomplete results wait for real full event
+	commResults[88101], commFull = {}, false
+	commFrame:SetItem({ id = 88101 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88102)
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "stale event for other itemID ignored")
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "incomplete empty search does not fire early")
+	commFull = true
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == 3299, "full empty search then applies fallback")
+
+	-- 7. Vendor price 0 (unsellable/pet) and option disabled and secret value
+	commResults[88103], commFull = {}, true
+	commFrame:SetItem({ id = 88103 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88103)
+	assert(commFrame:GetUnitPrice() == 100, "item with 0 vendor price keeps Blizzard default")
+
+	A.db.vendorFallbackPrice = false
+	commResults[88101], commFull = {}, true
+	commFrame:SetItem({ id = 88101 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", 88101)
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "option disabled leaves Blizzard default")
+	A.db.vendorFallbackPrice = true
+
+	secretVal = "SECRET_ID"
+	commFrame:SetItem({ id = 88101 })
+	commFrame:GetScript("OnEvent")(commFrame, "COMMODITY_SEARCH_RESULTS_UPDATED", secretVal)
+	assert(commFrame:GetUnitPrice() == commFrame:GetDefaultPrice(), "secret commodity event payload ignored safely")
+	secretVal = nil
+
+	-- 8. ItemSellFrame: 0 results -> 32s 99c (10s 90c vendor -> 32s 70c -> 32s 99c)
+	itemResults[88201], itemFull, itemBestEntry = {}, true, nil
+	itemFrame:SetItem({ id = 88201 })
+	itemFrame:GetScript("OnEvent")(itemFrame, "ITEM_SEARCH_RESULTS_UPDATED", { itemID = 88201 })
+	assert(itemFrame.PriceInput:GetAmount() == 3299, "empty item search sets 32s 99c fallback: " .. tostring(itemFrame.PriceInput:GetAmount()))
+
+	-- 9. ItemSellFrame: other itemLevel exists -> virtual noneAvailableEntry clears price to 0 -> fallback fills 32s 99c
+	itemResults[88201] = { { buyoutAmount = 8000 } }
+	itemBestEntry = { isVirtualEntry = true }
+	itemFrame:SetItem({ id = 88201 })
+	itemFrame:GetScript("OnEvent")(itemFrame, "ITEM_SEARCH_RESULTS_UPDATED", { itemID = 88201 })
+	assert(itemFrame.PriceInput:GetAmount() == 3299, "virtual noneAvailableEntry triggers fallback: " .. tostring(itemFrame.PriceInput:GetAmount()))
+
+	-- 10. ItemSellFrame: real matching listing exists -> Blizzard's buyout is kept
+	itemResults[88201] = { { buyoutAmount = 4500 } }
+	itemBestEntry = { buyoutAmount = 4500 }
+	itemFrame:SetItem({ id = 88201 })
+	itemFrame:GetScript("OnEvent")(itemFrame, "ITEM_SEARCH_RESULTS_UPDATED", { itemID = 88201 })
+	assert(itemFrame.PriceInput:GetAmount() == 4500, "real item listing price is kept untouched")
+
+	-- 11. ItemSellFrame: manual bid in SecondaryPriceInput prevents overwriting
+	itemResults[88201], itemBestEntry = {}, nil
+	secShown, secAmount = true, 1500
+	itemFrame:SetItem({ id = 88201 })
+	itemFrame:GetScript("OnEvent")(itemFrame, "ITEM_SEARCH_RESULTS_UPDATED", { itemID = 88201 })
+	assert(itemFrame.PriceInput:GetAmount() == itemFrame:GetDefaultPrice(), "manual bid in SecondaryPriceInput is respected")
+	secShown, secAmount = false, 0
+
+	-- 12. Secret itemKey in ITEM_SEARCH_RESULTS_UPDATED ignored safely
+	secretVal = { itemID = 88201 }
+	itemFrame:SetItem({ id = 88201 })
+	itemFrame:GetScript("OnEvent")(itemFrame, "ITEM_SEARCH_RESULTS_UPDATED", secretVal)
+	assert(itemFrame.PriceInput:GetAmount() == itemFrame:GetDefaultPrice(), "secret itemKey ignored safely")
+	secretVal = nil
+
+	C_AuctionHouse, C_Item.DoesItemExist, C_Item.GetItemID, C_Item.GetItemLink,
+		C_Item.IsItemDataCachedByID, C_Item.GetItemInfo, AuctionHouseFrame, issecretvalue,
+		A.db.vendorFallbackPrice, hooksecurefunc, GetMoneyString = unpack(saved, 1, 11)
+	print("auction fallback sell price OK")
+end)()
+
+;(function()
+	-- Quality pixel border suppresses Blizzard's yellow IconQuestTexture inner border (and 1 px bottom
+	-- overhang) on uncommon+ items, keeps a clean "!" badge for unaccepted quest starters, and restores
+	-- IconQuestTexture on poor/common/empty slots.
+	local vis = ns:GetModule("Visuals")
+	local updateGlow = uv(vis.OnInitialize, "UpdateGlow")
+	local questBangs = uv(uv(updateGlow, "SyncQuestOverlay"), "questBangs")
+	assert(updateGlow and questBangs, "Visuals UpdateGlow / questBangs upvalues found")
+
+	local savedQuestInfo = C_Container.GetContainerItemQuestInfo
+	local savedLootInfo = GetLootSlotInfo
+	local savedSecret = issecretvalue
+	local savedCommon = Enum.ItemQuality.Common
+	Enum.ItemQuality.Common = savedCommon or 1
+	local questBySlot = {}
+	local lootBySlot = {}
+	local secretVal
+
+	C_Container.GetContainerItemQuestInfo = function(bag, slot)
+		return questBySlot[bag .. ":" .. slot]
+	end
+	GetLootSlotInfo = function(slotIndex)
+		local row = lootBySlot[slotIndex]
+		if row then
+			return nil, nil, 1, nil, row.quality, false, row.isQuestItem, row.questID, row.isActive
+		end
+	end
+	issecretvalue = function(v) return v ~= nil and v == secretVal end
+
+	local function MakeTex()
+		local t = { alpha = 1, shown = false }
+		function t:SetAlpha(a) self.alpha = a end
+		function t:GetAlpha() return self.alpha end
+		function t:Show() self.shown = true end
+		function t:Hide() self.shown = false end
+		function t:SetShown(s) self.shown = not not s end
+		function t:IsShown() return self.shown end
+		function t:SetTexture(tex) self.tex = tex end
+		function t:GetTexture() return self.tex end
+		function t:SetColorTexture(...) self.color = { ... } end
+		function t:SetVertexColor(...) self.vc = { ... } end
+		function t:ClearAllPoints() end
+		function t:SetPoint(...) end
+		function t:SetSize(...) end
+		function t:SetWidth(...) end
+		function t:SetHeight(...) end
+		return t
+	end
+
+	local function MakeButton(opts)
+		opts = opts or {}
+		local b = {
+			IconQuestTexture = not opts.noQuestTex and MakeTex() or nil,
+			textures = {},
+		}
+		function b:IsForbidden() return false end
+		function b:GetWidth() return 37 end
+		function b:GetEffectiveScale() return 1 end
+		function b:GetFrameLevel() return 10 end
+		function b:GetParent() return opts.parent end
+		if opts.bag then
+			function b:GetBagID() return opts.bag end
+			function b:GetID() return opts.slot end
+		end
+		if opts.bankTab then
+			function b:GetBankTabID() return opts.bankTab end
+			function b:GetContainerSlotID() return opts.bankSlot end
+		end
+		function b:CreateTexture()
+			local t = MakeTex()
+			self.textures[#self.textures + 1] = t
+			return t
+		end
+		return b
+	end
+
+	-- 1. Rare active/regular quest item in bag: IconQuestTexture silenced, no "!" badge
+	local bagBtn = MakeButton({ bag = 0, slot = 3 })
+	bagBtn.IconQuestTexture:SetTexture("Interface\\ContainerFrame\\UI-Icon-QuestBorder")
+	bagBtn.IconQuestTexture:Show()
+	questBySlot["0:3"] = { isQuestItem = true, questID = 100, isActive = true }
+	updateGlow(bagBtn, 3, true)
+	assert(bagBtn.IconQuestTexture:GetAlpha() == 0, "rare quest item hides yellow IconQuestTexture")
+	assert(not (questBangs[bagBtn] and questBangs[bagBtn]:IsShown()), "active quest item shows no bang")
+
+	-- 2. Rare unaccepted quest starter in bag (same quality = 3): IconQuestTexture stays 0, clean "!" shown
+	questBySlot["0:3"] = { isQuestItem = false, questID = 200, isActive = false }
+	updateGlow(bagBtn, 3, true)
+	assert(bagBtn.IconQuestTexture:GetAlpha() == 0, "rare quest starter keeps yellow border hidden")
+	assert(questBangs[bagBtn] and questBangs[bagBtn]:IsShown(), "rare quest starter shows clean bang")
+	assert(questBangs[bagBtn]:GetTexture() == [[Interface\GossipFrame\AvailableQuestIcon]], "uses clean quest bang icon")
+
+	-- 3. Player accepts quest (still quality = 3): bang hides even when quality state is unchanged
+	questBySlot["0:3"] = { isQuestItem = true, questID = 200, isActive = true }
+	updateGlow(bagBtn, 3, true)
+	assert(bagBtn.IconQuestTexture:GetAlpha() == 0, "accepted quest keeps yellow border hidden")
+	assert(not questBangs[bagBtn]:IsShown(), "accepted quest hides bang badge")
+
+	-- 4. Slot changes to white (common) quest item: Blizzard's IconQuestTexture restored to alpha 1
+	questBySlot["0:3"] = { isQuestItem = true, questID = 300, isActive = true }
+	updateGlow(bagBtn, 1, true)
+	assert(bagBtn.IconQuestTexture:GetAlpha() == 1, "common quest item restores IconQuestTexture alpha")
+	assert(not questBangs[bagBtn]:IsShown(), "common item hides addon bang badge")
+
+	-- 5. Bank button using cached questItemInfo (starter -> active -> empty)
+	local bankBtn = MakeButton({ bankTab = 6, bankSlot = 1 })
+	bankBtn.IconQuestTexture:Show()
+	bankBtn.questItemInfo = { isQuestItem = false, questID = 400, isActive = false }
+	updateGlow(bankBtn, 4)
+	assert(bankBtn.IconQuestTexture:GetAlpha() == 0, "epic bank quest starter hides yellow border")
+	assert(questBangs[bankBtn] and questBangs[bankBtn]:IsShown(), "epic bank quest starter shows clean bang")
+	bankBtn.questItemInfo = nil
+	updateGlow(bankBtn, nil)
+	assert(bankBtn.IconQuestTexture:GetAlpha() == 1, "empty bank slot restores IconQuestTexture alpha")
+	assert(not questBangs[bankBtn]:IsShown(), "empty bank slot hides bang")
+
+	-- 6. Loot row: IconQuestTexture sits on parent row alongside row.Item
+	local lootRow = { IconQuestTexture = MakeTex() }
+	function lootRow:GetSlotIndex() return 2 end
+	local lootItem = MakeButton({ noQuestTex = true, parent = lootRow })
+	lootRow.Item = lootItem
+	lootRow.IconQuestTexture:Show()
+	lootBySlot[2] = { quality = 3, isQuestItem = true, questID = 500, isActive = false }
+	updateGlow(lootItem, 3)
+	assert(lootRow.IconQuestTexture:GetAlpha() == 0, "loot row hides yellow quest border on rare item")
+	assert(questBangs[lootItem] and questBangs[lootItem]:IsShown(), "loot row shows clean bang for starter")
+	updateGlow(lootItem, 1)
+	assert(lootRow.IconQuestTexture:GetAlpha() == 1, "loot row restores quest border on common item")
+	assert(not questBangs[lootItem]:IsShown(), "loot row hides addon bang on common item")
+
+	-- 7. Secret quest info handled safely without error
+	local secBtn = MakeButton({ bag = 0, slot = 4 })
+	secretVal = { questID = 999, isActive = false }
+	questBySlot["0:4"] = secretVal
+	updateGlow(secBtn, 3, true)
+	assert(secBtn.IconQuestTexture:GetAlpha() == 0, "secret quest info still hides yellow border safely")
+	assert(not (questBangs[secBtn] and questBangs[secBtn]:IsShown()), "secret quest info does not error or show bogus bang")
+	secretVal = nil
+
+	C_Container.GetContainerItemQuestInfo = savedQuestInfo
+	GetLootSlotInfo = savedLootInfo
+	issecretvalue = savedSecret
+	Enum.ItemQuality.Common = savedCommon
+	print("visuals quality quest border suppression OK")
 end)()

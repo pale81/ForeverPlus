@@ -12,6 +12,7 @@ local Auction = ns:NewModule("Auction", {
 	defaults = {
 		vendorWarning = true,
 		vendorProfit = false,
+		vendorFallbackPrice = true, -- 3x merchant price (ending in 99c from 1s up) when no listing exists yet
 		vendorBuyFilter = false,
 		vendorMinMargin = 10,
 		vendorQuickBuy = false,
@@ -1016,7 +1017,8 @@ function Auction.SellSummary(vendor, unitGross, profitOn, warningOn, quantity)
 	if totalProfit then
 		local totalAmount = signed(totalProfit)
 		summary.total = totalProfit
-		summary.subtext = L.AUCTION_SELL_TOTAL:format(quantity, totalAmount)
+		local totalFmt = totalProfit < 0 and L.AUCTION_SELL_LOSS_TOTAL or L.AUCTION_SELL_PROFIT_TOTAL
+		summary.subtext = totalFmt:format(totalAmount, quantity)
 		summary.lines[#summary.lines + 1] = L.AUCTION_SELL_RESULT_TOTAL:format(quantity, totalAmount)
 	end
 	if warningOn and profit <= 0 then
@@ -1102,18 +1104,176 @@ local function UpdateSellWarning(frame, unitPrice)
 	end
 end
 
+local fallbackReady = setmetatable({}, { __mode = "k" })
+
+function Auction.FallbackSellPrice(vendor, supportsCopper)
+	vendor = ns.Number(vendor)
+	if not vendor or vendor <= 0 then
+		return nil
+	end
+	local raw = floor(vendor) * 3
+	if raw <= 0 then
+		return nil
+	end
+	if supportsCopper == nil then
+		supportsCopper = not (C_AuctionHouse and C_AuctionHouse.SupportsCopperValues) or C_AuctionHouse.SupportsCopperValues()
+	end
+	if not supportsCopper then
+		return max(100, floor((raw + 50) / 100) * 100)
+	end
+	if raw < 100 then
+		return raw
+	end
+	return floor((raw + 50) / 100) * 100 - 1
+end
+
+local function SellItemVendorPrice(location, itemID)
+	local link = location and C_Item.GetItemLink and C_Item.GetItemLink(location)
+	if type(link) == "string" and not ns.Secret(link) then
+		local price = ns.Number(select(11, C_Item.GetItemInfo(link)))
+		if price and price > 0 then
+			return price
+		end
+	end
+	local price = ns.Number(VendorPrice(itemID))
+	return price and price > 0 and price or nil
+end
+
+local function ApplyCommodityFallback(frame, updatedItemID)
+	if not Auction.db.vendorFallbackPrice or not fallbackReady[frame] or not frame.PriceInput then
+		return
+	end
+	local location = frame.GetItem and frame:GetItem()
+	if not location or not C_Item.DoesItemExist(location) then
+		fallbackReady[frame] = false
+		return
+	end
+	local itemID = ns.Number(C_Item.GetItemID(location))
+	if not itemID then
+		return
+	end
+	if updatedItemID ~= nil then
+		local eventID = ns.Number(updatedItemID)
+		if not eventID or eventID ~= itemID then
+			return
+		end
+	end
+	local numResults = C_AuctionHouse and C_AuctionHouse.GetNumCommoditySearchResults
+		and ns.Number(C_AuctionHouse.GetNumCommoditySearchResults(itemID))
+	local firstResult = C_AuctionHouse and C_AuctionHouse.GetCommoditySearchResultInfo
+		and C_AuctionHouse.GetCommoditySearchResultInfo(itemID, 1)
+	if (numResults and numResults > 0) or firstResult ~= nil then
+		fallbackReady[frame] = false
+		return
+	end
+	if C_AuctionHouse and C_AuctionHouse.HasFullCommoditySearchResults
+		and not C_AuctionHouse.HasFullCommoditySearchResults(itemID) then
+		return
+	end
+	fallbackReady[frame] = false
+	local current = frame.GetUnitPrice and ns.Number(frame:GetUnitPrice(), 0)
+		or ns.Number(frame.PriceInput:GetAmount(), 0)
+	local defaultPrice = frame.GetDefaultPrice and ns.Number(frame:GetDefaultPrice(), 0) or 0
+	if current ~= 0 and current ~= defaultPrice then
+		return
+	end
+	local fallback = Auction.FallbackSellPrice(SellItemVendorPrice(location, itemID))
+	if fallback and fallback ~= current then
+		frame.PriceInput:SetAmount(fallback)
+	end
+end
+
+local function ApplyItemFallback(frame, updatedItemKey)
+	if not Auction.db.vendorFallbackPrice or not fallbackReady[frame] or not frame.PriceInput then
+		return
+	end
+	local location = frame.GetItem and frame:GetItem()
+	if not location or not C_Item.DoesItemExist(location) then
+		fallbackReady[frame] = false
+		return
+	end
+	local itemID = ns.Number(C_Item.GetItemID(location))
+	local key = frame.listDisplayedItemKey
+	if not itemID or ns.Secret(key) or type(key) ~= "table" then
+		return
+	end
+	if updatedItemKey ~= nil then
+		if ns.Secret(updatedItemKey) or type(updatedItemKey) ~= "table" then
+			return
+		end
+		local eventItemID = ns.Number(updatedItemKey.itemID)
+		if not eventItemID or eventItemID ~= itemID then
+			return
+		end
+	end
+	local numResults = C_AuctionHouse and C_AuctionHouse.GetNumItemSearchResults
+		and ns.Number(C_AuctionHouse.GetNumItemSearchResults(key), 0) or 0
+	if numResults == 0 then
+		if C_AuctionHouse and C_AuctionHouse.HasFullItemSearchResults
+			and not C_AuctionHouse.HasFullItemSearchResults(key) then
+			return
+		end
+	else
+		local canCheckBest = frame.GetBestEntry
+			and (not (C_AuctionHouse and C_AuctionHouse.GetItemKeyInfo) or C_AuctionHouse.GetItemKeyInfo(key) ~= nil)
+		local bestEntry = canCheckBest and frame:GetBestEntry() or nil
+		if not canCheckBest or (bestEntry ~= nil and not bestEntry.isVirtualEntry) then
+			fallbackReady[frame] = false
+			return
+		end
+	end
+	fallbackReady[frame] = false
+	if frame.SecondaryPriceInput and frame.SecondaryPriceInput:IsShown()
+		and ns.Number(frame.SecondaryPriceInput:GetAmount(), 0) > 0 then
+		return
+	end
+	local current = ns.Number(frame.PriceInput:GetAmount(), 0)
+	local defaultPrice = frame.GetDefaultPrice and ns.Number(frame:GetDefaultPrice(), 0) or 0
+	if current ~= 0 and current ~= defaultPrice then
+		return
+	end
+	local fallback = Auction.FallbackSellPrice(SellItemVendorPrice(location, itemID))
+	if fallback and fallback ~= current then
+		frame.PriceInput:SetAmount(fallback)
+	end
+end
+
 local function HookSellFrames()
 	local frame = AuctionHouseFrame
 	if frame.CommoditiesSellFrame and frame.CommoditiesSellFrame.PostButton then
 		hooksecurefunc(frame.CommoditiesSellFrame, "UpdatePostState", ns.Measured("Auction: sell summary", function(self)
 			UpdateSellWarning(self, self:GetUnitPrice())
 		end))
+		if frame.CommoditiesSellFrame.SetItem then
+			hooksecurefunc(frame.CommoditiesSellFrame, "SetItem", ns.Measured("Auction: fallback sell price", function(self, itemLocation)
+				fallbackReady[self] = itemLocation ~= nil and self.GetItem ~= nil and self:GetItem() == itemLocation
+			end))
+		end
+		if frame.CommoditiesSellFrame.HookScript then
+			frame.CommoditiesSellFrame:HookScript("OnEvent", ns.Measured("Auction: fallback sell price", function(self, event, arg1)
+				if event == "COMMODITY_SEARCH_RESULTS_UPDATED" then
+					ApplyCommodityFallback(self, arg1)
+				end
+			end))
+		end
 	end
 	if frame.ItemSellFrame and frame.ItemSellFrame.PostButton then
 		hooksecurefunc(frame.ItemSellFrame, "UpdatePostState", ns.Measured("Auction: sell summary", function(self)
 			local _, buyout = self:GetPrice()
 			UpdateSellWarning(self, buyout)
 		end))
+		if frame.ItemSellFrame.SetItem then
+			hooksecurefunc(frame.ItemSellFrame, "SetItem", ns.Measured("Auction: fallback sell price", function(self, itemLocation)
+				fallbackReady[self] = itemLocation ~= nil and self.GetItem ~= nil and self:GetItem() == itemLocation
+			end))
+		end
+		if frame.ItemSellFrame.HookScript then
+			frame.ItemSellFrame:HookScript("OnEvent", ns.Measured("Auction: fallback sell price", function(self, event, arg1)
+				if event == "ITEM_SEARCH_RESULTS_UPDATED" then
+					ApplyItemFallback(self, arg1)
+				end
+			end))
+		end
 	end
 end
 
@@ -1930,6 +2090,7 @@ end
 Auction.options = {
 	{ key = "vendorWarning", type = "toggle", name = L.AUCTION_VENDOR_WARNING, desc = L.AUCTION_VENDOR_WARNING_DESC },
 	{ key = "vendorProfit", type = "toggle", name = L.AUCTION_VENDOR_PROFIT_OPTION, desc = L.AUCTION_VENDOR_PROFIT_DESC, new = true },
+	{ key = "vendorFallbackPrice", type = "toggle", name = L.AUCTION_FALLBACK_PRICE, desc = L.AUCTION_FALLBACK_PRICE_DESC, new = true },
 	{ key = "vendorBuyFilter", type = "toggle", name = L.AUCTION_VENDOR_BUY_FILTER, desc = L.AUCTION_VENDOR_BUY_FILTER_DESC, new = true },
 	{ key = "vendorMinMargin", type = "slider", name = L.AUCTION_VENDOR_MIN_MARGIN, desc = L.AUCTION_VENDOR_MIN_MARGIN_DESC, parent = "vendorBuyFilter",
 		min = 0, max = 90, step = 1, format = function(v) return ("%d%%"):format(v) end },

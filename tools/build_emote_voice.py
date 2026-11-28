@@ -5,7 +5,7 @@ Export EmotesText, EmotesTextSound and EmotesTextData (locale=deDE) for the
 manifest's build from wago.tools/db2 into --tables. Pass Blizzard's
 ChatEmoteConstants.lua with --constants. Add --reference and --model to render
 speech with mlx-audio. Reference recordings and model caches stay outside the
-addon. Requires ffmpeg for MP3 output.
+addon. Requires ffmpeg for MP3 output and external Praat for optional prosody.
 """
 
 import argparse
@@ -19,6 +19,38 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "tools" / "emote_voice_deDE.json"
+
+
+def shape_prosody(audio, sample_rate, settings, praat="praat"):
+    """Run the optional pitch-contour stage in a separate Praat process."""
+    if not settings:
+        return audio
+    import numpy as np
+    from scipy.io import wavfile
+
+    spread = float(settings["pitch_spread"])
+    limit = float(settings["max_shift_semitones"])
+    if not np.isfinite([spread, limit]).all() or not 1 <= spread <= 1.25 or not 0 <= limit <= 1:
+        raise ValueError("Prosody requires pitch_spread 1–1.25 and max_shift_semitones 0–1")
+    if spread == 1 or limit == 0:
+        return audio
+    with tempfile.TemporaryDirectory(prefix="emote-prosody-") as folder:
+        source, target = Path(folder) / "input.wav", Path(folder) / "output.wav"
+        wavfile.write(source, sample_rate, audio.astype(np.float32))
+        process = subprocess.run([
+            str(praat), "--no-pref-files", "--no-plugins", "--FULL-TRUST", "--run", str(ROOT / "tools/process_emote_prosody.praat"),
+            str(source), str(target), str(spread), str(limit),
+        ], capture_output=True, text=True)
+        if process.returncode or process.stderr.strip():
+            raise RuntimeError(process.stderr.strip() or "Praat prosody processing failed")
+        if process.stdout.strip() == "unchanged":
+            return audio
+        rate, result = wavfile.read(target)
+    if rate != sample_rate or len(result) != len(audio) or not np.isfinite(result).all():
+        raise ValueError("Invalid prosody resynthesis")
+    if np.issubdtype(result.dtype, np.signedinteger):
+        result = result.astype(np.float32) / (np.iinfo(result.dtype).max + 1)
+    return result.astype(np.float32)
 
 
 def read_table(folder, name):
@@ -102,6 +134,7 @@ def render(manifest, args):
                 audio = np.asarray(result.audio)
                 if not np.isfinite(audio).all() or not 0.25 < len(audio) / result.sample_rate < 10:
                     raise ValueError(f"Invalid speech audio: {token}")
+                audio = shape_prosody(audio, result.sample_rate, manifest.get("prosody"), args.praat)
                 write(str(source), audio, result.sample_rate)
                 target = destination / f"{token}.mp3"
                 # Trim only leading/trailing silence. Interior speech pauses remain.
@@ -128,6 +161,7 @@ def main():
     parser.add_argument("--constants", type=Path)
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--model", type=Path)
+    parser.add_argument("--praat", default="praat", help="external Praat executable for optional prosody")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--only", nargs="+")
     parser.add_argument("--overwrite", action="store_true")

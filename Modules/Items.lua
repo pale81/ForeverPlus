@@ -38,6 +38,7 @@ local Items = ns:NewModule("Items", {
 		keep = {}, -- grey items the player unmarked: never sold
 		junkPerCharacter = false,
 		markWorseReward = true,
+		markUnusableBound = true,
 	},
 	charDefaults = {
 		junk = {},
@@ -102,19 +103,160 @@ local function IsKept(info)
 	return info.itemID and keep[(JunkKey(info))] and true or false
 end
 
--- Grey items count as junk unless kept; other items only when marked.
-local function IsJunkItem(info)
-	if info.quality == Enum.ItemQuality.Poor then
+local function IsRed(color)
+	return type(color) == "table" and not ns.Secret(color)
+		and not ns.Secret(color.r) and not ns.Secret(color.g) and not ns.Secret(color.b)
+		and color.r > 0.99 and color.g < 0.2 and color.b < 0.2
+end
+
+do
+	-- Classes in Forever (build 1.60.1.71037, docs/wissen/klassen.md) and the armor/weapon
+	-- subclasses each class can EVER use, including trainer- and weapon-master-learned skills.
+	local KNOWN_CLASSES = {
+		WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, PRIEST = true,
+		SHAMAN = true, MAGE = true, WARLOCK = true, DRUID = true,
+	}
+	local ARMOR_PROFICIENCY = {
+		[2] = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true, DRUID = true }, -- Leather
+		[3] = { WARRIOR = true, PALADIN = true, HUNTER = true, SHAMAN = true }, -- Mail
+		[4] = { WARRIOR = true, PALADIN = true }, -- Plate
+		[6] = { WARRIOR = true, PALADIN = true, SHAMAN = true }, -- Shield
+		[7] = { PALADIN = true }, -- Libram
+		[8] = { DRUID = true }, -- Idol
+		[9] = { SHAMAN = true }, -- Totem
+	}
+	local WEAPON_PROFICIENCY = {
+		[0] = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, SHAMAN = true }, -- Axe1H
+		[1] = { WARRIOR = true, PALADIN = true, HUNTER = true, SHAMAN = true }, -- Axe2H
+		[2] = { WARRIOR = true, HUNTER = true, ROGUE = true }, -- Bows
+		[3] = { WARRIOR = true, HUNTER = true, ROGUE = true }, -- Guns
+		[4] = { WARRIOR = true, PALADIN = true, ROGUE = true, PRIEST = true, SHAMAN = true, DRUID = true }, -- Mace1H
+		[5] = { WARRIOR = true, PALADIN = true, SHAMAN = true, DRUID = true }, -- Mace2H
+		[6] = { WARRIOR = true, PALADIN = true, HUNTER = true, DRUID = true }, -- Polearm
+		[7] = { WARRIOR = true, PALADIN = true, HUNTER = true, ROGUE = true, MAGE = true, WARLOCK = true }, -- Sword1H
+		[8] = { WARRIOR = true, PALADIN = true, HUNTER = true }, -- Sword2H
+		[10] = { WARRIOR = true, HUNTER = true, PRIEST = true, SHAMAN = true, MAGE = true, WARLOCK = true, DRUID = true }, -- Staff
+		[13] = { WARRIOR = true, HUNTER = true, ROGUE = true, SHAMAN = true, DRUID = true }, -- Unarmed / Fist
+		[15] = { WARRIOR = true, HUNTER = true, ROGUE = true, PRIEST = true, SHAMAN = true, MAGE = true, WARLOCK = true, DRUID = true }, -- Dagger
+		[16] = { WARRIOR = true, HUNTER = true, ROGUE = true }, -- Thrown
+		[18] = { WARRIOR = true, HUNTER = true, ROGUE = true }, -- Crossbow
+		[19] = { PRIEST = true, MAGE = true, WARLOCK = true }, -- Wand
+	}
+
+	local function FormatPatternCached(cacheKey, globalText)
+		if Items[cacheKey] == nil then
+			Items[cacheKey] = type(globalText) == "string" and ns.FormatToPattern(globalText, true).pattern or false
+		end
+		return Items[cacheKey] or nil
+	end
+
+	-- Returns true if an armor/weapon item can NEVER be used by `classFile` (neither by
+	-- training weapon/armor proficiencies nor by leveling/professions), and is not currently
+	-- group-tradeable.
+	function Items.IsNeverUsableEquip(classID, subClassID, classFile, lines)
+		local armorClass = type(Enum.ItemClass.Armor) == "number" and Enum.ItemClass.Armor or 4
+		local weaponClass = type(Enum.ItemClass.Weapon) == "number" and Enum.ItemClass.Weapon or 2
+		if classID ~= armorClass and classID ~= weaponClass then
+			return false
+		end
+		classFile = classFile or select(2, UnitClass("player"))
+		if not KNOWN_CLASSES[classFile] then
+			return false
+		end
+		local allowed = (classID == armorClass and ARMOR_PROFICIENCY or WEAPON_PROFICIENCY)[subClassID]
+		local subclassBlocked = allowed ~= nil and not allowed[classFile]
+		local restricted = false
+		if type(lines) == "table" then
+			local tradeType = Enum.TooltipDataLineType and Enum.TooltipDataLineType.TradeTimeRemaining
+			local tradePattern = FormatPatternCached("tradeTimePattern", BIND_TRADE_TIME_REMAINING)
+			local classPattern = not subclassBlocked and FormatPatternCached("classRestrictionPattern", ITEM_CLASSES_ALLOWED) or nil
+			local racePattern = not subclassBlocked and FormatPatternCached("raceRestrictionPattern", ITEM_RACES_ALLOWED) or nil
+			for _, line in ipairs(lines) do
+				if type(line) == "table" and not ns.Secret(line) then
+					if tradeType and not ns.Secret(line.type) and line.type == tradeType then
+						return false
+					end
+					local text = line.leftText
+					if type(text) == "string" and not ns.Secret(text) then
+						if tradePattern and text:find(tradePattern) then
+							return false
+						end
+						if not subclassBlocked and (IsRed(line.leftColor) or IsRed(line.rightColor)) then
+							if (classPattern and text:find(classPattern)) or (racePattern and text:find(racePattern)) then
+								restricted = true
+							end
+						end
+					end
+				end
+			end
+		end
+		return subclassBlocked or restricted
+	end
+
+	function Items.IsNeverUsableBoundGear(info, bag, slot)
+		if not (Items.db and Items.db.markUnusableBound) or not info or not info.itemID
+			or info.hasNoValue or info.quality == Enum.ItemQuality.Poor then
+			return false
+		end
+		if ns.Secret(info.isBound) or not info.isBound then
+			return false
+		end
+		local item = (type(info.hyperlink) == "string" and not ns.Secret(info.hyperlink)) and info.hyperlink or info.itemID
+		local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(item)
+		local armorClass = type(Enum.ItemClass.Armor) == "number" and Enum.ItemClass.Armor or 4
+		local weaponClass = type(Enum.ItemClass.Weapon) == "number" and Enum.ItemClass.Weapon or 2
+		if classID ~= armorClass and classID ~= weaponClass then
+			return false
+		end
+		local sellPrice = select(11, C_Item.GetItemInfo(info.itemID))
+		if sellPrice ~= nil and sellPrice <= 0 then
+			return false
+		end
+		if bag ~= nil and slot ~= nil then
+			if type(C_Container.GetContainerItemQuestInfo) == "function" then
+				local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
+				if type(quest) == "table" and not ns.Secret(quest) then
+					if (not ns.Secret(quest.isQuestItem) and quest.isQuestItem)
+						or (not ns.Secret(quest.questID) and quest.questID) then
+						return false
+					end
+				end
+			end
+			if type(C_Container.GetContainerItemPurchaseInfo) == "function" then
+				local purchase = C_Container.GetContainerItemPurchaseInfo(bag, slot, false)
+				if type(purchase) == "table" and not ns.Secret(purchase)
+					and ns.Number(purchase.refundSeconds, 0) > 0 then
+					return false
+				end
+			end
+			if type(C_Item.IsBoundToAccountUntilEquip) == "function"
+				and ItemLocation and type(ItemLocation.CreateFromBagAndSlot) == "function" then
+				local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+				if loc and C_Item.DoesItemExist(loc) and C_Item.IsBoundToAccountUntilEquip(loc) then
+					return false
+				end
+			end
+		end
+		local data = bag ~= nil and slot ~= nil and type(C_TooltipInfo.GetBagItem) == "function"
+			and C_TooltipInfo.GetBagItem(bag, slot) or nil
+		return Items.IsNeverUsableEquip(classID, subClassID, nil, data and data.lines)
+	end
+end
+
+-- Grey items and (when enabled) never-usable soulbound armor/weapons count as junk unless kept;
+-- other items only when marked.
+local function IsJunkItem(info, bag, slot)
+	if info.quality == Enum.ItemQuality.Poor or Items.IsNeverUsableBoundGear(info, bag, slot) then
 		return not IsKept(info)
 	end
 	return IsMarked(info)
 end
 
-local function IsJunk(info)
+local function IsJunk(info, bag, slot)
 	if not info or info.hasNoValue or info.isLocked then
 		return false
 	end
-	return IsJunkItem(info)
+	return IsJunkItem(info, bag, slot)
 end
 
 -- Bags flagged "ignore for junk selling" in Blizzard's bag menu.
@@ -977,10 +1119,6 @@ local function Score(link, ranged, offhand)
 	end
 	scoreCache[cacheKey] = { score, humanoidBonus, procPoints, speedPoints, creatures }
 	return score, humanoidBonus, procPoints, speedPoints, creatures
-end
-
-local function IsRed(color)
-	return color and color.r > 0.99 and color.g < 0.2 and color.b < 0.2
 end
 
 -- Red lines in the item tooltip mean the player cannot use it (class, armor type, level): "ok", "level" when the
@@ -1856,9 +1994,9 @@ local function UpdateButton(button, excludedBags)
 	end
 
 	if button.JunkIcon then
-		-- Coin on everything that will be sold: grey items (unless kept) and marked items.
+		-- Coin on everything that will be sold: grey items, never-usable bound gear (unless kept) and marked items.
 		local show = false
-		if info and not info.hasNoValue and IsJunkItem(info) then
+		if info and not info.hasNoValue and IsJunkItem(info, bag, slot) then
 			local excluded = excludedBags and excludedBags[bag]
 			if excluded == nil then
 				excluded = BagExcludesJunk(bag) and true or false
@@ -2000,20 +2138,20 @@ local function ToggleJunk(bag, slot)
 	if not info or not info.itemID then
 		return
 	end
-	-- Grey items are junk by default: toggling stores an exception instead.
+	-- Grey items and never-usable bound gear are junk by default: toggling stores an exception instead.
 	local junk, keep = JunkLists()
-	local list = info.quality == Enum.ItemQuality.Poor and keep or junk
-	local isGrey = list == keep
+	local isAuto = info.quality == Enum.ItemQuality.Poor or Items.IsNeverUsableBoundGear(info, bag, slot)
+	local list = isAuto and keep or junk
 	local key, value = JunkKey(info)
 	if list[key] then
 		list[key] = nil
 	else
 		list[key] = value
 	end
-	Report("markMessage", IsJunkItem(info) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
-	if isGrey then
+	if isAuto then
 		junk[key] = nil
 	end
+	Report("markMessage", IsJunkItem(info, bag, slot) and L.ITEMS_MARKED or L.ITEMS_UNMARKED, info.hyperlink)
 	UpdateAllBags()
 end
 
@@ -2123,32 +2261,70 @@ local function AddJunkItems(items, list, onRemove)
 end
 
 -- Popup at the owner (settings button) or at the cursor (/fp schrott).
-function Items:ShowJunkMenu(owner)
-	ns.ShowPopupList(owner, function()
-		local items = {}
-		local junk, keep = JunkLists()
-		-- A grey item taken off the junk list would still be sold as grey;
-		-- it moves to the kept list instead.
-		local marked = AddJunkItems(items, junk, function(key, value)
-			if C_Item.GetItemQualityByID(KeyItemID(key)) == Enum.ItemQuality.Poor then
-				keep[key] = value
+do
+	-- Collects currently carried never-usable soulbound armor/weapons (excluding kept items and bags
+	-- excluded from junk selling) as key -> value entries for the junk list popup.
+	local function CollectUnusableBagJunk()
+		local list = {}
+		if not (Items.db and Items.db.markUnusableBound) then
+			return list
+		end
+		for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+			local slots = BagExcludesJunk(bag) and 0 or ns.Number(C_Container.GetContainerNumSlots(bag), 0)
+			for slot = 1, slots do
+				local info = C_Container.GetContainerItemInfo(bag, slot)
+				if info and not info.hasNoValue and Items.IsNeverUsableBoundGear(info, bag, slot) and not IsKept(info) then
+					local key, value = JunkKey(info)
+					if not list[key] then
+						list[key] = value
+					end
+				end
 			end
-			UpdateAllBags()
-		end)
-		if next(keep) then
-			items[#items + 1] = { text = L.ITEMS_JUNK_KEPT }
 		end
-		local kept = AddJunkItems(items, keep, UpdateAllBags)
-		local footer
-		if marked + kept > 0 then
-			footer = { { text = L.ITEMS_CLEAR_JUNK, onClick = function()
-				wipe(junk)
-				wipe(keep)
+		return list
+	end
+
+	function Items:ShowJunkMenu(owner)
+		ns.ShowPopupList(owner, function()
+			local items = {}
+			local junk, keep = JunkLists()
+			local allUnusable = CollectUnusableBagJunk()
+			-- A grey or currently carried never-usable bound item taken off the junk list would still be
+			-- sold automatically; it moves to the kept list instead.
+			local marked = AddJunkItems(items, junk, function(key, value)
+				if C_Item.GetItemQualityByID(KeyItemID(key)) == Enum.ItemQuality.Poor or allUnusable[key] then
+					keep[key] = value
+				end
 				UpdateAllBags()
-			end } }
-		end
-		return { title = L.ITEMS_JUNK_LIST, items = items, empty = L.ITEMS_JUNK_NONE, footer = footer }
-	end)
+			end)
+			local unusableOnly = {}
+			for key, value in pairs(allUnusable) do
+				if not junk[key] then
+					unusableOnly[key] = value
+				end
+			end
+			if next(unusableOnly) then
+				items[#items + 1] = { text = L.ITEMS_JUNK_UNUSABLE }
+				AddJunkItems(items, unusableOnly, function(key, value)
+					keep[key] = value
+					UpdateAllBags()
+				end)
+			end
+			if next(keep) then
+				items[#items + 1] = { text = L.ITEMS_JUNK_KEPT }
+			end
+			local kept = AddJunkItems(items, keep, UpdateAllBags)
+			local footer
+			if marked + kept > 0 then
+				footer = { { text = L.ITEMS_CLEAR_JUNK, onClick = function()
+					wipe(junk)
+					wipe(keep)
+					UpdateAllBags()
+				end } }
+			end
+			return { title = L.ITEMS_JUNK_LIST, items = items, empty = L.ITEMS_JUNK_NONE, footer = footer }
+		end)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2477,9 +2653,10 @@ local function SellBatch()
 	end
 	local sold = 0
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, BagExcludesJunk(bag) and 0 or C_Container.GetContainerNumSlots(bag) do
+		local slots = BagExcludesJunk(bag) and 0 or ns.Number(C_Container.GetContainerNumSlots(bag), 0)
+		for slot = 1, slots do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if IsJunk(info) then
+			if IsJunk(info, bag, slot) then
 				local price = select(11, C_Item.GetItemInfo(info.itemID))
 				if price and price > 0 then
 					C_Container.UseContainerItem(bag, slot)
@@ -2534,9 +2711,10 @@ end
 local function JunkValue()
 	local count, value = 0, 0
 	for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-		for slot = 1, BagExcludesJunk(bag) and 0 or C_Container.GetContainerNumSlots(bag) do
+		local slots = BagExcludesJunk(bag) and 0 or ns.Number(C_Container.GetContainerNumSlots(bag), 0)
+		for slot = 1, slots do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if IsJunk(info) then
+			if IsJunk(info, bag, slot) then
 				local price = select(11, C_Item.GetItemInfo(info.itemID))
 				if price and price > 0 then
 					count = count + 1
@@ -3676,6 +3854,7 @@ Items.options = {
 	{ key = "markMessage", type = "toggle", name = L.ITEMS_MARK_MESSAGE, desc = L.MESSAGE_DESC },
 	{ key = "junkPerCharacter", type = "toggle", name = L.ITEMS_JUNK_PER_CHAR, desc = L.ITEMS_JUNK_PER_CHAR_DESC },
 	{ key = "markWorseReward", type = "toggle", name = L.ITEMS_MARK_WORSE_REWARD, desc = L.ITEMS_MARK_WORSE_REWARD_DESC, new = true },
+	{ key = "markUnusableBound", type = "toggle", name = L.ITEMS_MARK_UNUSABLE_BOUND, desc = L.ITEMS_MARK_UNUSABLE_BOUND_DESC, new = true },
 	{ key = "junkList", type = "button", name = L.ITEMS_JUNK_LIST, text = L.ITEMS_JUNK_SHOW, desc = L.ITEMS_JUNK_LIST_DESC, func = function(button)
 		Items:ShowJunkMenu(button)
 	end },

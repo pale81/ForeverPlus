@@ -17971,3 +17971,203 @@ end)()
 	journal.Open, journal.Toggle, journal.IsOpen, journal.HasInstance = savedOpen, savedToggle, savedIsOpen, savedHasInst
 	print("group finder journal side tab OK")
 end)()
+
+-- Never-usable soulbound armor and weapons directly on the sell list
+;(function()
+	local items = ns:GetModule("Items")
+	assert(items.db.markUnusableBound == true, "markUnusableBound defaults to true")
+	local opt
+	for _, entry in ipairs(items.options) do
+		if entry.key == "markUnusableBound" then opt = entry end
+	end
+	assert(opt and opt.new == true, "markUnusableBound option has new = true")
+
+	local saved = {
+		UnitClass, C_Item.GetItemInfoInstant, C_Item.GetItemInfo, C_Item.GetItemQualityByID,
+		C_Item.IsBoundToAccountUntilEquip, C_Item.DoesItemExist, ItemLocation,
+		C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo,
+		C_Container.GetContainerItemQuestInfo, C_Container.GetContainerItemPurchaseInfo,
+		C_Container.GetBackpackSellJunkDisabled, C_Container.GetBagSlotFlag,
+		C_Container.UseContainerItem, C_TooltipInfo.GetBagItem,
+		ITEM_CLASSES_ALLOWED, ITEM_RACES_ALLOWED, BIND_TRADE_TIME_REMAINING,
+		Enum.TooltipDataLineType, issecretvalue, ns.ShowPopupList,
+		items.db.markUnusableBound, items.db.junkPerCharacter, items.db.markMessage,
+		items.classRestrictionPattern, items.raceRestrictionPattern, items.tradeTimePattern,
+	}
+
+	ITEM_CLASSES_ALLOWED = "Classes: %s"
+	ITEM_RACES_ALLOWED = "Races: %s"
+	BIND_TRADE_TIME_REMAINING = "You may trade this item with players that were also eligible to loot this item for the next %s (including time offline)."
+	Enum.TooltipDataLineType = { TradeTimeRemaining = 36 }
+	items.classRestrictionPattern, items.raceRestrictionPattern, items.tradeTimePattern = nil, nil, nil
+
+	-- 1. Pure proficiency matrix (including Forever trainer-learnable skills)
+	local red = { r = 1, g = 0.1, b = 0.1 }
+	-- Level-40 learnable armor must NEVER be marked as never-usable:
+	assert(not items.IsNeverUsableEquip(4, 4, "WARRIOR"), "Warrior can learn Plate")
+	assert(not items.IsNeverUsableEquip(4, 4, "PALADIN"), "Paladin can learn Plate")
+	assert(not items.IsNeverUsableEquip(4, 3, "HUNTER"), "Hunter can learn Mail")
+	assert(not items.IsNeverUsableEquip(4, 3, "SHAMAN"), "Shaman can learn Mail")
+	-- Never-learnable armor types ARE marked:
+	assert(items.IsNeverUsableEquip(4, 4, "HUNTER"), "Hunter can never wear Plate")
+	assert(items.IsNeverUsableEquip(4, 4, "SHAMAN"), "Shaman can never wear Plate")
+	assert(items.IsNeverUsableEquip(4, 3, "ROGUE"), "Rogue can never wear Mail")
+	assert(items.IsNeverUsableEquip(4, 3, "DRUID"), "Druid can never wear Mail")
+	assert(items.IsNeverUsableEquip(4, 2, "MAGE"), "Mage can never wear Leather")
+	assert(items.IsNeverUsableEquip(4, 2, "PRIEST"), "Priest can never wear Leather")
+	assert(items.IsNeverUsableEquip(4, 2, "WARLOCK"), "Warlock can never wear Leather")
+	assert(not items.IsNeverUsableEquip(4, 1, "MAGE"), "Cloth is usable by Mage")
+	assert(not items.IsNeverUsableEquip(4, 0, "MAGE"), "Generic armor (rings/trinkets/offhands) is usable")
+	assert(not items.IsNeverUsableEquip(4, 5, "MAGE"), "Cosmetic armor is usable")
+	-- Shields and relics:
+	assert(not items.IsNeverUsableEquip(4, 6, "SHAMAN"), "Shaman can wear Shields")
+	assert(items.IsNeverUsableEquip(4, 6, "HUNTER"), "Hunter can never wear Shields")
+	assert(items.IsNeverUsableEquip(4, 6, "ROGUE"), "Rogue can never wear Shields")
+	assert(items.IsNeverUsableEquip(4, 7, "WARRIOR") and not items.IsNeverUsableEquip(4, 7, "PALADIN"), "Libram is Paladin only")
+	assert(items.IsNeverUsableEquip(4, 8, "SHAMAN") and not items.IsNeverUsableEquip(4, 8, "DRUID"), "Idol is Druid only")
+	assert(items.IsNeverUsableEquip(4, 9, "PALADIN") and not items.IsNeverUsableEquip(4, 9, "SHAMAN"), "Totem is Shaman only")
+	-- Forever weapon proficiencies (including trainable at weapon masters):
+	assert(not items.IsNeverUsableEquip(2, 0, "ROGUE"), "Rogue can learn 1H Axes in Forever")
+	assert(not items.IsNeverUsableEquip(2, 6, "DRUID"), "Druid can learn Polearms in Forever")
+	assert(not items.IsNeverUsableEquip(2, 7, "MAGE"), "Mage can learn 1H Swords")
+	assert(not items.IsNeverUsableEquip(2, 2, "WARRIOR"), "Warrior can learn Bows")
+	assert(items.IsNeverUsableEquip(2, 19, "WARRIOR"), "Warrior can never use Wands")
+	assert(not items.IsNeverUsableEquip(2, 19, "PRIEST"), "Priest can use Wands")
+	assert(items.IsNeverUsableEquip(2, 15, "PALADIN"), "Paladin can never use Daggers")
+	assert(items.IsNeverUsableEquip(2, 8, "ROGUE"), "Rogue can never use 2H Swords")
+	assert(items.IsNeverUsableEquip(2, 1, "MAGE"), "Mage can never use 2H Axes")
+	assert(not items.IsNeverUsableEquip(2, 14, "MAGE"), "Misc weapons (tools) are never marked")
+	assert(not items.IsNeverUsableEquip(2, 20, "MAGE"), "Fishing poles are never marked")
+	assert(not items.IsNeverUsableEquip(7, 0, "MAGE"), "Non-armor/weapon items are ignored")
+	assert(not items.IsNeverUsableEquip(4, 4, "UNKNOWN_CLASS"), "Unknown class fails safe")
+	-- Class/race restriction lines vs level/profession red lines and trade timers:
+	assert(items.IsNeverUsableEquip(4, 1, "MAGE", { { leftText = "Classes: Priest", leftColor = red } }), "wrong-class Cloth is never usable")
+	assert(items.IsNeverUsableEquip(4, 4, "WARRIOR", { { leftText = "Classes: Paladin", leftColor = red } }), "wrong-class Plate is never usable")
+	assert(items.IsNeverUsableEquip(4, 0, "MAGE", { { leftText = "Races: Dwarf", leftColor = red } }), "wrong-race trinket is never usable")
+	assert(not items.IsNeverUsableEquip(4, 1, "MAGE", { { leftText = "Requires Level 60", leftColor = red } }), "level-gated item is NOT marked")
+	assert(not items.IsNeverUsableEquip(4, 1, "MAGE", { { leftText = "Requires Engineering (250)", leftColor = red } }), "profession-gated item is NOT marked")
+	assert(not items.IsNeverUsableEquip(4, 4, "MAGE", { { type = 36, leftText = "You may trade..." } }), "group-tradeable BoP is NOT marked")
+
+	-- 2. End-to-end bag integration: JunkIcon, JunkValue, SellBatch, ToggleJunk, ShowJunkMenu, cross-char safety
+	local curClass = "MAGE"
+	UnitClass = function() return curClass, curClass end
+	local bagItems = {
+		[1] = { itemID = 92001, hyperlink = "|cff0070dd|Hitem:92001::::::::60:::::::|h[BoP Plate Chest]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[2] = { itemID = 92002, hyperlink = "|cff1eff00|Hitem:92002::::::::60:::::::|h[BoE Plate Helm]|h|r", quality = 2, stackCount = 1, isBound = false, hasNoValue = false },
+		[3] = { itemID = 92003, hyperlink = "|cff0070dd|Hitem:92003::::::::60:::::::|h[BoP Mage 1H Sword]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[4] = { itemID = 92004, hyperlink = "|cff0070dd|Hitem:92004::::::::60:::::::|h[BoP Priest Cloth]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[5] = { itemID = 92005, hyperlink = "|cff0070dd|Hitem:92005::::::::60:::::::|h[BoP Tradeable Plate]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[6] = { itemID = 92006, hyperlink = "|cff0070dd|Hitem:92006::::::::60:::::::|h[BoP Refundable Plate]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[7] = { itemID = 92007, hyperlink = "|cff0070dd|Hitem:92007::::::::60:::::::|h[BoP Quest Plate]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[8] = { itemID = 92008, hyperlink = "|cff0070dd|Hitem:92008::::::::60:::::::|h[BoP NoPrice Plate]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[9] = { itemID = 92009, hyperlink = "|cff0070dd|Hitem:92009::::::::60:::::::|h[BoA Plate]|h|r", quality = 3, stackCount = 1, isBound = true, hasNoValue = false },
+		[10] = { itemID = 92010, hyperlink = "|cff0070dd|Hitem:92010::::::::60:::::::|h[Secret Bound Plate]|h|r", quality = 3, stackCount = 1, isBound = "SECRET_BOUND", hasNoValue = false },
+	}
+	local defs = {
+		[92001] = { class = 4, sub = 4, price = 1500, quality = 3 },
+		[92002] = { class = 4, sub = 4, price = 1200, quality = 2 },
+		[92003] = { class = 2, sub = 7, price = 2000, quality = 3 },
+		[92004] = { class = 4, sub = 1, price = 1800, quality = 3, lines = { { leftText = "Classes: Priest", leftColor = red } } },
+		[92005] = { class = 4, sub = 4, price = 1600, quality = 3, lines = { { type = 36, leftText = "You may trade..." } } },
+		[92006] = { class = 4, sub = 4, price = 1700, quality = 3, refund = 3600 },
+		[92007] = { class = 4, sub = 4, price = 1100, quality = 3, quest = true },
+		[92008] = { class = 4, sub = 4, price = 0, quality = 3 },
+		[92009] = { class = 4, sub = 4, price = 1400, quality = 3, boa = true },
+		[92010] = { class = 4, sub = 4, price = 1300, quality = 3 },
+	}
+	local function IDOf(x) return type(x) == "number" and x or (type(x) == "string" and tonumber(x:match("item:(%d+)"))) end
+	C_Item.GetItemInfoInstant = function(x)
+		local id = IDOf(x)
+		local d = id and defs[id]
+		if d then return id, nil, nil, nil, nil, d.class, d.sub end
+		return saved[2](x)
+	end
+	C_Item.GetItemInfo = function(x)
+		local id = IDOf(x)
+		local d = id and defs[id]
+		if d then return "Item" .. id, nil, d.quality, 60, 1, nil, nil, 1, nil, nil, d.price, d.class, d.sub, 1 end
+		return saved[3](x)
+	end
+	C_Item.GetItemQualityByID = function(id) return defs[id] and defs[id].quality or saved[4](id) end
+	ItemLocation = { CreateFromBagAndSlot = function(_, bag, slot) return { bag = bag, slot = slot } end }
+	C_Item.DoesItemExist = function(loc) return loc and loc.bag == 0 and bagItems[loc.slot] ~= nil end
+	C_Item.IsBoundToAccountUntilEquip = function(loc)
+		local info = loc and loc.bag == 0 and bagItems[loc.slot]
+		return info and defs[info.itemID] and defs[info.itemID].boa or false
+	end
+	C_Container.GetContainerNumSlots = function(bag) return bag == 0 and #bagItems or 0 end
+	C_Container.GetContainerItemInfo = function(bag, slot) return bag == 0 and bagItems[slot] or nil end
+	C_Container.GetContainerItemQuestInfo = function(bag, slot)
+		local info = bag == 0 and bagItems[slot]
+		return info and defs[info.itemID] and defs[info.itemID].quest and { isQuestItem = true } or nil
+	end
+	C_Container.GetContainerItemPurchaseInfo = function(bag, slot)
+		local info = bag == 0 and bagItems[slot]
+		return info and defs[info.itemID] and defs[info.itemID].refund and { refundSeconds = defs[info.itemID].refund } or nil
+	end
+	C_Container.GetBackpackSellJunkDisabled = function() return false end
+	C_Container.GetBagSlotFlag = function() return false end
+	C_TooltipInfo.GetBagItem = function(bag, slot)
+		local info = bag == 0 and bagItems[slot]
+		return { lines = (info and defs[info.itemID] and defs[info.itemID].lines) or {} }
+	end
+	issecretvalue = function(v) return v == "SECRET_BOUND" end
+
+	items.db.markUnusableBound = true
+	items.db.junkPerCharacter = false
+	items.db.markMessage = false
+	for id = 92001, 92010 do items.db.junk[id] = nil; items.db.keep[id] = nil end
+
+	-- Only slot 1 (BoP Plate) and slot 4 (BoP Priest Cloth) count as junk for Mage!
+	local count, value = ns.MerchantTools.JunkValue()
+	assert(count == 2 and value == 3300, ("expected 2 unusable bound items worth 3300, got %d / %d"):format(count, value))
+	assert(not items.db.junk[92001] and not items.db.junk[92004], "account-wide db.junk is NOT polluted")
+
+	-- Cross-character safety: switching to Warrior immediately stops treating BoP Plate (92001) as junk,
+	-- while wrong-class Priest Cloth (92004) remains unusable!
+	curClass = "WARRIOR"
+	local wCount, wValue = ns.MerchantTools.JunkValue()
+	assert(wCount == 1 and wValue == 1800, ("Warrior keeps Plate, sells Priest Cloth: got %d / %d"):format(wCount, wValue))
+	curClass = "MAGE"
+
+	-- ShowJunkMenu lists the two currently-carried unusable items; clicking one exempts it via keep!
+	local popupData
+	ns.ShowPopupList = function(_, build) popupData = build() end
+	items:ShowJunkMenu()
+	local clickedEntry
+	for _, entry in ipairs(popupData.items) do
+		if entry.onClick and entry.text and entry.text:find("92001") then clickedEntry = entry end
+	end
+	assert(clickedEntry, "ShowJunkMenu includes never-usable bound bag item 92001")
+	clickedEntry.onClick()
+	assert(items.db.keep[92001] == true, "clicking unusable item in ShowJunkMenu moves it to keep")
+	local cAfterKeep, vAfterKeep = ns.MerchantTools.JunkValue()
+	assert(cAfterKeep == 1 and vAfterKeep == 1800, "kept unusable item is excluded from selling")
+
+	-- Middle-click (ToggleJunk) on slot 4 unmarks it into keep; second toggle re-enables selling!
+	local toggleJunk = uv(ForeverPlus_ToggleJunkUnderMouse, "ToggleJunk")
+	toggleJunk(0, 4)
+	assert(items.db.keep[92004] == true, "ToggleJunk exempts unusable bound item via keep")
+	assert(select(1, ns.MerchantTools.JunkValue()) == 0, "both exempted -> 0 junk")
+	toggleJunk(0, 4)
+	assert(not items.db.keep[92004], "second ToggleJunk removes exemption")
+	assert(select(1, ns.MerchantTools.JunkValue()) == 1, "re-enabled unusable item counts again")
+
+	-- Disabling the option immediately stops treating unusable bound gear as junk!
+	items.db.markUnusableBound = false
+	assert(select(1, ns.MerchantTools.JunkValue()) == 0, "option off disables automatic unusable bound selling")
+
+	-- Restore
+	for id = 92001, 92010 do items.db.junk[id] = nil; items.db.keep[id] = nil end
+	UnitClass, C_Item.GetItemInfoInstant, C_Item.GetItemInfo, C_Item.GetItemQualityByID = saved[1], saved[2], saved[3], saved[4]
+	C_Item.IsBoundToAccountUntilEquip, C_Item.DoesItemExist, ItemLocation = saved[5], saved[6], saved[7]
+	C_Container.GetContainerNumSlots, C_Container.GetContainerItemInfo = saved[8], saved[9]
+	C_Container.GetContainerItemQuestInfo, C_Container.GetContainerItemPurchaseInfo = saved[10], saved[11]
+	C_Container.GetBackpackSellJunkDisabled, C_Container.GetBagSlotFlag = saved[12], saved[13]
+	C_Container.UseContainerItem, C_TooltipInfo.GetBagItem = saved[14], saved[15]
+	ITEM_CLASSES_ALLOWED, ITEM_RACES_ALLOWED, BIND_TRADE_TIME_REMAINING = saved[16], saved[17], saved[18]
+	Enum.TooltipDataLineType, issecretvalue, ns.ShowPopupList = saved[19], saved[20], saved[21]
+	items.db.markUnusableBound, items.db.junkPerCharacter, items.db.markMessage = saved[22], saved[23], saved[24]
+	items.classRestrictionPattern, items.raceRestrictionPattern, items.tradeTimePattern = saved[25], saved[26], saved[27]
+	print("never-usable soulbound gear OK")
+end)()

@@ -276,7 +276,7 @@ local PAGES = {
 	{ group = 1, title = L.TOOLTIP_TITLE, { "Tooltip" }, { "LootSources", header = L.LOOTSRC_TITLE }, { "Observations", header = L.OBS_TITLE }, { "PlayerNotes", header = L.NOTES_TITLE }, { "QuestieInfo", header = L.QDB_TITLE } },
 	{ group = 3, title = L.ITEMS_TITLE,
 		{ "Items", header = L.ITEMS_MERCHANT, keys = Keys("autoSell", "sellMessage", "sellButton", "autoRepair", "repairGuild",
-			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "markWorseReward", "junkList") },
+			"repairMessage", "junkButton", "markMessage", "junkPerCharacter", "markWorseReward", "markUnusableBound", "junkList") },
 		{ "Items", header = L.ITEMS_BAGS, keys = Keys("autoSort", "sortSkip", "bagMenu", "moneyPickup", "fullSound", "fullSoundChoice", "fullSoundTest") },
 		{ "BankView" },
 		{ "Items", header = L.ITEMS_DISPLAY, keys = Keys("questReward", "upgradeArrow", "rewardUpgrade", "scoreSpec", "upgradeScore",

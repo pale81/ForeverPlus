@@ -30,7 +30,7 @@ read_globals = {
 	"C_PetJournal",
 	"CanInspect", "NotifyInspect", "ClearInspectPlayer", "InspectFrame",
 	"DressUpItemLink", "DressUpLink", "GetTrainerServiceItemLink", "Professions", "ProfessionsRecipeListRecipeMixin",
-	"ITEM_MIN_LEVEL",
+	"ITEM_MIN_LEVEL", "ITEM_CLASSES_ALLOWED", "ITEM_RACES_ALLOWED", "BIND_TRADE_TIME_REMAINING",
 	"Fancy24Font",
 	"GetUnitSpeed", "IsFalling", "IsSwimming", "C_DamageMeter", "C_GossipInfo", "UnitAffectingCombat", "UnitThreatSituation", "CreateFontFamily", "GetLootSourceInfo", "GetQuestID", "IsFishingLoot",
 	"GetServerTime",
